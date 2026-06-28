@@ -214,7 +214,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
           </Button>
         </div>
         <p className="text-xs text-center text-muted-foreground">
-          F4 Checkout · F5 Hold · F1 Cash · F2 Card
+          F1 Cash · F2 Card · F4 Checkout · F5 Hold · F7 Misc
         </p>
       </div>
     </div>

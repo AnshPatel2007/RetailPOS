@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ShoppingCart, X } from 'lucide-react';
+import { ShoppingCart, X, DollarSign } from 'lucide-react';
 import { productService, saleService, locationService, categoryService } from '@/services/api';
+import { Modal } from '@/components/ui/Modal';
+import { Input } from '@/components/ui/Input';
+import { Button } from '@/components/ui/Button';
 import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
@@ -36,6 +39,9 @@ export const POS: React.FC = () => {
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
+  const [showMiscModal, setShowMiscModal] = useState(false);
+  const [miscPrice, setMiscPrice] = useState('');
+  const [miscName, setMiscName] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const { user } = useAuthStore();
@@ -56,12 +62,19 @@ export const POS: React.FC = () => {
     }).catch(() => {});
   }, [locationId, setTaxRate]);
 
-  // Load categories
-  useEffect(() => {
+  // Load categories (and refresh on window focus)
+  const loadCategories = useCallback(() => {
     categoryService.getAll().then((res) => {
       setCategories(res.data.data || []);
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadCategories();
+    const handleFocus = () => loadCategories();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [loadCategories]);
 
   // Load products when search/category changes
   useEffect(() => {
@@ -102,6 +115,7 @@ export const POS: React.FC = () => {
     if (e.key === 'F4') { e.preventDefault(); if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); } return; }
     if (e.key === 'F5') { e.preventDefault(); handleHoldSale(); return; }
     if (e.key === 'F6') { e.preventDefault(); setShowHeldSalesModal(true); return; }
+    if (e.key === 'F7') { e.preventDefault(); setMiscPrice(''); setMiscName(''); setShowMiscModal(true); return; }
     if ((e.key === '/' || e.key === 'F3') && !inInput) {
       e.preventDefault();
       searchInputRef.current?.focus();
@@ -180,6 +194,35 @@ export const POS: React.FC = () => {
     holdSale();
     setLinkedCustomer(null);
     toast.success('Sale placed on hold');
+  };
+
+  const handleAddMisc = () => {
+    const price = parseFloat(miscPrice);
+    if (!price || price <= 0) { toast.error('Enter a valid price'); return; }
+    const label = miscName.trim() || 'Misc Item';
+    const miscProduct: Product = {
+      id: `misc-${Date.now()}`,
+      sku: 'MISC',
+      name: label,
+      description: null,
+      categoryId: null,
+      cost: 0,
+      price,
+      compareAtPrice: null,
+      trackInventory: false,
+      stockQuantity: 0,
+      lowStockAlert: 0,
+      barcode: null,
+      image: null,
+      isActive: true,
+      isTaxable: true,
+      allowBackorder: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    addItem(miscProduct, 1);
+    setShowMiscModal(false);
+    toast.success(`Added: ${label} — ${formatCurrency(price)}`);
   };
 
   const handleRestoreHeld = (id: string) => {
@@ -397,6 +440,42 @@ export const POS: React.FC = () => {
           receipt={lastReceipt}
         />
       )}
+
+      {/* Misc Item Modal (F7) */}
+      <Modal isOpen={showMiscModal} onClose={() => setShowMiscModal(false)} title="Add Misc Item" size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Add an item not in the system. Enter a price and optional name.
+          </p>
+          <Input
+            type="number"
+            label="Price"
+            placeholder="0.00"
+            value={miscPrice}
+            onChange={(e) => setMiscPrice(e.target.value)}
+            step="0.01"
+            min="0"
+            autoFocus
+          />
+          <Input
+            type="text"
+            label="Name (optional)"
+            placeholder="Misc Item"
+            value={miscName}
+            onChange={(e) => setMiscName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAddMisc(); }}
+          />
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" className="flex-1" onClick={() => setShowMiscModal(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" className="flex-1" onClick={handleAddMisc} disabled={!miscPrice || parseFloat(miscPrice) <= 0}>
+              <DollarSign className="h-4 w-4 mr-1" />
+              Add to Cart
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
