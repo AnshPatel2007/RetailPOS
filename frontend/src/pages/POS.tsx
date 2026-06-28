@@ -65,7 +65,9 @@ export const POS: React.FC = () => {
   // Load categories (and refresh on window focus)
   const loadCategories = useCallback(() => {
     categoryService.getAll().then((res) => {
-      setCategories(res.data.data || []);
+      const all = res.data.data || [];
+      // Only show categories that have at least one active product
+      setCategories(all.filter((c: any) => c._count?.products > 0));
     }).catch(() => {});
   }, []);
 

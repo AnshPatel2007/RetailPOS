@@ -23,7 +23,11 @@ export const getCategories = asyncHandler(async (req: Request, res: Response) =>
     orderBy: { name: 'asc' },
     include: {
       _count: {
-        select: { products: true },
+        select: {
+          products: {
+            where: { isActive: true },
+          },
+        },
       },
     },
   });
