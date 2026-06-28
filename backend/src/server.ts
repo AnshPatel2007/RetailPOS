@@ -19,6 +19,7 @@ const app: Application = express();
  * Security middleware
  */
 app.use(helmet()); // Security headers
+logger.info(`CORS allowed origins: ${JSON.stringify(config.cors.origin)}`);
 app.use(cors({
   origin: config.cors.origin,
   credentials: true,
