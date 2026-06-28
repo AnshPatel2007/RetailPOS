@@ -181,12 +181,13 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   };
 
   const handleSubmit = async () => {
+    const roundedTotal = Math.round(total * 100) / 100;
     if (activeTab === 'single') {
       const paid = parseFloat(amountInput);
-      if (paid < total) return;
+      if (paid < roundedTotal) return;
       await onComplete([{ paymentMethod, amount: paid }], paid);
     } else {
-      if (getTotalPaid() < total) return;
+      if (getTotalPaid() < roundedTotal) return;
       await onComplete(payments, getTotalPaid());
     }
   };
@@ -198,9 +199,10 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     { value: 'STORE_CREDIT' as const, label: 'Store Credit', icon: Wallet },
   ];
 
+  const roundedTotalForCheck = Math.round(total * 100) / 100;
   const canSubmit = activeTab === 'single'
-    ? parseFloat(amountInput) >= total
-    : getTotalPaid() >= total;
+    ? parseFloat(amountInput) >= roundedTotalForCheck
+    : getTotalPaid() >= roundedTotalForCheck;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={step === 'customer' ? 'Link Customer' : 'Payment'} size="lg">
