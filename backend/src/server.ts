@@ -34,7 +34,7 @@ app.use(cookieParser());
  */
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 1000, // Limit each IP to 1000 requests per windowMs (POS needs high throughput)
   message: { success: false, error: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -124,7 +124,7 @@ app.use(errorHandler);
  */
 const PORT = config.port;
 
-app.listen(PORT, () => {
+app.listen(Number(PORT), '0.0.0.0', () => {
   logger.info(`Server running on port ${PORT} in ${config.nodeEnv} mode`);
   logger.info(`API available at http://localhost:${PORT}/api`);
 });

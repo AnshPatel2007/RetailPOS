@@ -148,7 +148,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
               <select
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md bg-background"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
                 required
               >
                 <option value="">Select category</option>
@@ -168,7 +168,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
               <select
                 value={formData.period}
                 onChange={(e) => setFormData({ ...formData, period: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md bg-background"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
                 required
               >
                 {BUDGET_PERIODS.map((period) => (

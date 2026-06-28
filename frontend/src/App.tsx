@@ -1,92 +1,65 @@
-import React, { useEffect } from 'react';
+import React, { Suspense, useEffect, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
 import { Layout } from './components/Layout';
-import { Login } from './pages/Login';
-import { Dashboard } from './pages/Dashboard';
-import { POS } from './pages/POS';
-import { Inventory } from './pages/Inventory';
-import { Customers } from './pages/Customers';
-import { Shifts } from './pages/Shifts';
-import { Reports } from './pages/Reports';
-import { Settings } from './pages/Settings';
-import { Suppliers } from './pages/Suppliers';
-import { Analytics } from './pages/Analytics';
-import { Financial } from './pages/Financial';
-import { Layaway } from './pages/Layaway';
-import { AdminLayout } from './components/AdminLayout';
-import { AdminDashboard } from './pages/admin/AdminDashboard';
-import { StoreManagement } from './pages/admin/StoreManagement';
-import { UserManagement } from './pages/admin/UserManagement';
-import { AdminReports } from './pages/admin/AdminReports';
-import { AdminSettings } from './pages/admin/AdminSettings';
 
-/**
- * Protected Route Component
- */
+// Eager-load Login (needed immediately) and AdminLayout (small)
+import { Login } from './pages/Login';
+import { AdminLayout } from './components/AdminLayout';
+
+// Lazy-load all page components
+const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const POS = lazy(() => import('./pages/POS').then(m => ({ default: m.POS })));
+const Inventory = lazy(() => import('./pages/Inventory').then(m => ({ default: m.Inventory })));
+const Customers = lazy(() => import('./pages/Customers').then(m => ({ default: m.Customers })));
+const Shifts = lazy(() => import('./pages/Shifts').then(m => ({ default: m.Shifts })));
+const Reports = lazy(() => import('./pages/Reports').then(m => ({ default: m.Reports })));
+const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
+const Suppliers = lazy(() => import('./pages/Suppliers').then(m => ({ default: m.Suppliers })));
+const Analytics = lazy(() => import('./pages/Analytics').then(m => ({ default: m.Analytics })));
+const Financial = lazy(() => import('./pages/Financial').then(m => ({ default: m.Financial })));
+const GiftCards = lazy(() => import('./pages/GiftCards').then(m => ({ default: m.GiftCards })));
+const InventoryTransfers = lazy(() => import('./pages/InventoryTransfers').then(m => ({ default: m.InventoryTransfers })));
+const CycleCount = lazy(() => import('./pages/CycleCount').then(m => ({ default: m.CycleCount })));
+const Lottery = lazy(() => import('./pages/Lottery').then(m => ({ default: m.Lottery })));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const StoreManagement = lazy(() => import('./pages/admin/StoreManagement').then(m => ({ default: m.StoreManagement })));
+const UserManagement = lazy(() => import('./pages/admin/UserManagement').then(m => ({ default: m.UserManagement })));
+const AdminReports = lazy(() => import('./pages/admin/AdminReports').then(m => ({ default: m.AdminReports })));
+const AdminSettings = lazy(() => import('./pages/admin/AdminSettings').then(m => ({ default: m.AdminSettings })));
+
+const MANAGER_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
+const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN'];
+
+const LoadingSpinner: React.FC = () => (
+  <div className="min-h-screen flex items-center justify-center">
+    <div className="animate-spin h-12 w-12 border-4 border-primary border-t-transparent rounded-full" />
+  </div>
+);
+
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isLoading } = useAuthStore();
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin h-12 w-12 border-4 border-primary border-t-transparent rounded-full"></div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
+  if (isLoading) return <LoadingSpinner />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
 
-/**
- * Smart Redirect Component - redirects based on user role
- */
 const SmartRedirect: React.FC = () => {
   const { user, isAuthenticated, isLoading } = useAuthStore();
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin h-12 w-12 border-4 border-primary border-t-transparent rounded-full"></div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
-  // Redirect SUPER_ADMIN to admin panel, others to dashboard
-  if (user?.role === 'SUPER_ADMIN') {
-    return <Navigate to="/admin" replace />;
-  }
-
+  if (isLoading) return <LoadingSpinner />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role === 'SUPER_ADMIN') return <Navigate to="/admin" replace />;
   return <Navigate to="/dashboard" replace />;
 };
 
-/**
- * Role-Based Route Component
- */
 const RoleRoute: React.FC<{
   children: React.ReactNode;
-  allowedRoles: string[]
+  allowedRoles: string[];
 }> = ({ children, allowedRoles }) => {
   const { user, isLoading } = useAuthStore();
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin h-12 w-12 border-4 border-primary border-t-transparent rounded-full"></div>
-      </div>
-    );
-  }
-
+  if (isLoading) return <LoadingSpinner />;
   if (!user || !allowedRoles.includes(user.role)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -98,24 +71,50 @@ const RoleRoute: React.FC<{
       </div>
     );
   }
-
   return <>{children}</>;
 };
 
-/**
- * Main App Component
- */
+// Helper to reduce route boilerplate
+const PageRoute: React.FC<{
+  page: React.ReactNode;
+  roles?: string[];
+  layout?: 'main' | 'admin';
+}> = ({ page, roles, layout = 'main' }) => {
+  const LayoutComponent = layout === 'admin' ? AdminLayout : Layout;
+  const content = (
+    <ProtectedRoute>
+      <LayoutComponent>
+        <Suspense fallback={<LoadingSpinner />}>
+          {page}
+        </Suspense>
+      </LayoutComponent>
+    </ProtectedRoute>
+  );
+  if (roles) {
+    return (
+      <ProtectedRoute>
+        <RoleRoute allowedRoles={roles}>
+          <LayoutComponent>
+            <Suspense fallback={<LoadingSpinner />}>
+              {page}
+            </Suspense>
+          </LayoutComponent>
+        </RoleRoute>
+      </ProtectedRoute>
+    );
+  }
+  return content;
+};
+
 function App() {
   const { loadUser, isAuthenticated } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
 
-  // Load user once on mount
   useEffect(() => {
     loadUser();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Apply theme on mount and when it changes
   useEffect(() => {
     setTheme(theme);
   }, [setTheme, theme]);
@@ -134,192 +133,32 @@ function App() {
         }}
       />
       <Routes>
-        {/* Public routes */}
-        <Route
-          path="/login"
-          element={isAuthenticated ? <SmartRedirect /> : <Login />}
-        />
+        <Route path="/login" element={isAuthenticated ? <SmartRedirect /> : <Login />} />
 
-        {/* Protected routes */}
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <Dashboard />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/pos"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <POS />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/inventory"
-          element={
-            <ProtectedRoute>
-              <RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'MANAGER']}>
-                <Layout>
-                  <Inventory />
-                </Layout>
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/customers"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <Customers />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/shifts"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <Shifts />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/reports"
-          element={
-            <ProtectedRoute>
-              <RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'MANAGER']}>
-                <Layout>
-                  <Reports />
-                </Layout>
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <ProtectedRoute>
-              <RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN']}>
-                <Layout>
-                  <Settings />
-                </Layout>
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/suppliers"
-          element={
-            <ProtectedRoute>
-              <RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'MANAGER']}>
-                <Layout>
-                  <Suppliers />
-                </Layout>
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/analytics"
-          element={
-            <ProtectedRoute>
-              <RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'MANAGER']}>
-                <Layout>
-                  <Analytics />
-                </Layout>
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/financial"
-          element={
-            <ProtectedRoute>
-              <RoleRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'MANAGER']}>
-                <Layout>
-                  <Financial />
-                </Layout>
-              </RoleRoute>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/layaway"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <Layaway />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
+        {/* Main routes */}
+        <Route path="/dashboard" element={<PageRoute page={<Dashboard />} />} />
+        <Route path="/pos" element={<PageRoute page={<POS />} />} />
+        <Route path="/inventory" element={<PageRoute page={<Inventory />} roles={MANAGER_ROLES} />} />
+        <Route path="/customers" element={<PageRoute page={<Customers />} />} />
+        <Route path="/shifts" element={<PageRoute page={<Shifts />} />} />
+        <Route path="/reports" element={<PageRoute page={<Reports />} roles={MANAGER_ROLES} />} />
+        <Route path="/settings" element={<PageRoute page={<Settings />} roles={ADMIN_ROLES} />} />
+        <Route path="/suppliers" element={<PageRoute page={<Suppliers />} roles={MANAGER_ROLES} />} />
+        <Route path="/analytics" element={<PageRoute page={<Analytics />} roles={MANAGER_ROLES} />} />
+        <Route path="/financial" element={<PageRoute page={<Financial />} roles={MANAGER_ROLES} />} />
+        <Route path="/gift-cards" element={<PageRoute page={<GiftCards />} roles={MANAGER_ROLES} />} />
+        <Route path="/inventory-transfers" element={<PageRoute page={<InventoryTransfers />} roles={MANAGER_ROLES} />} />
+        <Route path="/cycle-counts" element={<PageRoute page={<CycleCount />} roles={MANAGER_ROLES} />} />
+        <Route path="/lottery" element={<PageRoute page={<Lottery />} />} />
 
-        {/* Admin routes - Super Admin only */}
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute>
-              <AdminLayout>
-                <AdminDashboard />
-              </AdminLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/stores"
-          element={
-            <ProtectedRoute>
-              <AdminLayout>
-                <StoreManagement />
-              </AdminLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/users"
-          element={
-            <ProtectedRoute>
-              <AdminLayout>
-                <UserManagement />
-              </AdminLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/reports"
-          element={
-            <ProtectedRoute>
-              <AdminLayout>
-                <AdminReports />
-              </AdminLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/settings"
-          element={
-            <ProtectedRoute>
-              <AdminLayout>
-                <AdminSettings />
-              </AdminLayout>
-            </ProtectedRoute>
-          }
-        />
+        {/* Admin routes */}
+        <Route path="/admin" element={<PageRoute page={<AdminDashboard />} layout="admin" />} />
+        <Route path="/admin/stores" element={<PageRoute page={<StoreManagement />} layout="admin" />} />
+        <Route path="/admin/users" element={<PageRoute page={<UserManagement />} layout="admin" />} />
+        <Route path="/admin/reports" element={<PageRoute page={<AdminReports />} layout="admin" />} />
+        <Route path="/admin/settings" element={<PageRoute page={<AdminSettings />} layout="admin" />} />
 
-        {/* Redirect root based on user role */}
         <Route path="/" element={<SmartRedirect />} />
-
-        {/* 404 */}
         <Route
           path="*"
           element={

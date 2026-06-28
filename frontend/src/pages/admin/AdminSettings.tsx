@@ -339,7 +339,7 @@ export const AdminSettings: React.FC = () => {
                 onChange={(e) =>
                   setBackupSettings({ ...backupSettings, backupFrequency: e.target.value })
                 }
-                className="w-full px-3 py-2 border rounded-md bg-background"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
               >
                 <option value="hourly">Hourly</option>
                 <option value="daily">Daily</option>

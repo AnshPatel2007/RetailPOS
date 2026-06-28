@@ -259,8 +259,8 @@ export const StoreManagement: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <Store className="h-5 w-5 text-green-600" />
+              <div className="p-2 bg-green-500/10 rounded-lg">
+                <Store className="h-5 w-5 text-green-500" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Active Stores</p>
@@ -275,8 +275,8 @@ export const StoreManagement: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Users className="h-5 w-5 text-blue-600" />
+              <div className="p-2 bg-blue-500/10 rounded-lg">
+                <Users className="h-5 w-5 text-blue-500" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Users</p>
@@ -483,7 +483,7 @@ export const StoreManagement: React.FC = () => {
               <select
                 value={formData.timezone}
                 onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md bg-background"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
               >
                 <option value="America/New_York">Eastern</option>
                 <option value="America/Chicago">Central</option>
@@ -561,7 +561,7 @@ export const StoreManagement: React.FC = () => {
                   <Card>
                     <CardContent className="p-4">
                       <div className="flex items-center gap-3">
-                        <DollarSign className="h-8 w-8 text-green-600" />
+                        <DollarSign className="h-8 w-8 text-green-500" />
                         <div>
                           <p className="text-sm text-muted-foreground">Revenue</p>
                           <p className="text-2xl font-bold">
@@ -589,7 +589,7 @@ export const StoreManagement: React.FC = () => {
                   <Card>
                     <CardContent className="p-4">
                       <div className="flex items-center gap-3">
-                        <ShoppingCart className="h-8 w-8 text-blue-600" />
+                        <ShoppingCart className="h-8 w-8 text-blue-500" />
                         <div>
                           <p className="text-sm text-muted-foreground">Transactions</p>
                           <p className="text-2xl font-bold">
@@ -603,7 +603,7 @@ export const StoreManagement: React.FC = () => {
                   <Card>
                     <CardContent className="p-4">
                       <div className="flex items-center gap-3">
-                        <Package className="h-8 w-8 text-purple-600" />
+                        <Package className="h-8 w-8 text-purple-500" />
                         <div>
                           <p className="text-sm text-muted-foreground">Products</p>
                           <p className="text-2xl font-bold">
@@ -620,7 +620,7 @@ export const StoreManagement: React.FC = () => {
                   <Card>
                     <CardContent className="p-4">
                       <p className="text-sm text-muted-foreground">Expenses</p>
-                      <p className="text-xl font-bold text-red-600">
+                      <p className="text-xl font-bold text-red-500">
                         {formatCurrency(storeDetails.stats?.periodExpenses || 0)}
                       </p>
                     </CardContent>

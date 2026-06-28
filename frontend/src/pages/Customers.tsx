@@ -490,7 +490,7 @@ export const Customers: React.FC = () => {
                   </div>
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                      <UsersIcon className="w-4 h-4 text-gray-500" />
+                      <UsersIcon className="w-4 h-4 text-muted-foreground" />
                       <span>{customerData.segments.byValue.occasional.label}</span>
                     </div>
                     <div className="text-right">

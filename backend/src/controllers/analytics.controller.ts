@@ -1323,7 +1323,7 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
       _sum: { total: true, tax: true },
       _count: { id: true },
     }),
-    // Inventory value
+    // Inventory units
     prisma.product.aggregate({
       where: { isActive: true },
       _sum: { stockQuantity: true },
@@ -1559,7 +1559,6 @@ export const getRealtimeMetrics = asyncHandler(async (_req: AuthRequest, res: Re
     todaySales,
     lastHourSales,
     pendingSales,
-    lowStockCount,
     activeShifts,
     recentTransactions
   ] = await Promise.all([
@@ -1585,14 +1584,6 @@ export const getRealtimeMetrics = asyncHandler(async (_req: AuthRequest, res: Re
     prisma.sale.count({
       where: { status: 'PENDING' },
     }),
-    // Low stock alerts
-    prisma.product.count({
-      where: {
-        isActive: true,
-        trackInventory: true,
-        stockQuantity: { lte: 10 }, // Using fixed value instead of field reference
-      },
-    }),
     // Active shifts
     prisma.shift.count({
       where: { clockOutAt: null },
@@ -1612,6 +1603,19 @@ export const getRealtimeMetrics = asyncHandler(async (_req: AuthRequest, res: Re
       },
     }),
   ]);
+
+  // Low stock alerts - in memory check
+  const productsForLowStock = await prisma.product.findMany({
+    where: {
+      isActive: true,
+      trackInventory: true,
+    },
+    select: {
+      stockQuantity: true,
+      lowStockAlert: true,
+    },
+  });
+  const lowStockCount = productsForLowStock.filter(p => p.stockQuantity <= p.lowStockAlert).length;
 
   const todayCount = todaySales._count?.id || 0;
   const todayTotal = todaySales._sum?.total || 0;

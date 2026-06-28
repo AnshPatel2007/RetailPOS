@@ -95,10 +95,6 @@ interface DashboardData {
     totalCustomers: number;
     newCustomers: number;
     topProducts: any[];
-    activeLayaways: {
-      count: number;
-      totalRemaining: number;
-    };
     cashDiscrepancies: any[];
   };
 }
@@ -229,7 +225,7 @@ export const AdminDashboard: React.FC = () => {
                 <span className="text-xs text-muted-foreground">Stores</span>
               </div>
               <p className="text-2xl font-bold">{stores.length}</p>
-              <p className="text-xs text-green-600">{stores.filter(s => s.isActive).length} active</p>
+              <p className="text-xs text-green-500">{stores.filter(s => s.isActive).length} active</p>
             </div>
           </CardContent>
         </Card>
@@ -238,7 +234,7 @@ export const AdminDashboard: React.FC = () => {
           <CardContent className="p-4">
             <div className="flex flex-col">
               <div className="flex items-center gap-2 mb-2">
-                <DollarSign className="h-4 w-4 text-green-600" />
+                <DollarSign className="h-4 w-4 text-green-500" />
                 <span className="text-xs text-muted-foreground">Today</span>
               </div>
               <p className="text-2xl font-bold">{formatCurrency(totalTodayRevenue)}</p>
@@ -251,7 +247,7 @@ export const AdminDashboard: React.FC = () => {
           <CardContent className="p-4">
             <div className="flex flex-col">
               <div className="flex items-center gap-2 mb-2">
-                <TrendingUp className="h-4 w-4 text-blue-600" />
+                <TrendingUp className="h-4 w-4 text-blue-500" />
                 <span className="text-xs text-muted-foreground">{period}d Revenue</span>
               </div>
               <p className="text-2xl font-bold">{formatCurrency(data.totals.totalRevenue)}</p>
@@ -275,7 +271,7 @@ export const AdminDashboard: React.FC = () => {
           <CardContent className="p-4">
             <div className="flex flex-col">
               <div className="flex items-center gap-2 mb-2">
-                <TrendingDown className="h-4 w-4 text-red-600" />
+                <TrendingDown className="h-4 w-4 text-red-500" />
                 <span className="text-xs text-muted-foreground">Expenses</span>
               </div>
               <p className="text-2xl font-bold">{formatCurrency(data.totals.totalExpenses)}</p>
@@ -287,7 +283,7 @@ export const AdminDashboard: React.FC = () => {
           <CardContent className="p-4">
             <div className="flex flex-col">
               <div className="flex items-center gap-2 mb-2">
-                <ShoppingCart className="h-4 w-4 text-purple-600" />
+                <ShoppingCart className="h-4 w-4 text-purple-500" />
                 <span className="text-xs text-muted-foreground">Orders</span>
               </div>
               <p className="text-2xl font-bold">{data.totals.totalTransactions}</p>
@@ -299,7 +295,7 @@ export const AdminDashboard: React.FC = () => {
           <CardContent className="p-4">
             <div className="flex flex-col">
               <div className="flex items-center gap-2 mb-2">
-                <Percent className="h-4 w-4 text-amber-600" />
+                <Percent className="h-4 w-4 text-amber-500" />
                 <span className="text-xs text-muted-foreground">Margin</span>
               </div>
               <p className="text-2xl font-bold">{profitMargin.toFixed(1)}%</p>
@@ -311,7 +307,7 @@ export const AdminDashboard: React.FC = () => {
           <CardContent className="p-4">
             <div className="flex flex-col">
               <div className="flex items-center gap-2 mb-2">
-                <Users className="h-4 w-4 text-orange-600" />
+                <Users className="h-4 w-4 text-orange-500" />
                 <span className="text-xs text-muted-foreground">Users</span>
               </div>
               <p className="text-2xl font-bold">{data.totals.totalUsers}</p>
@@ -378,7 +374,7 @@ export const AdminDashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Low Stock Alerts</p>
-                <p className={`text-xl font-bold ${data.totals.totalLowStock > 0 ? 'text-amber-600' : ''}`}>
+                <p className={`text-xl font-bold ${data.totals.totalLowStock > 0 ? 'text-amber-500' : ''}`}>
                   {data.totals.totalLowStock}
                 </p>
               </div>
@@ -392,7 +388,7 @@ export const AdminDashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Active Shifts</p>
-                <p className="text-xl font-bold text-green-600">{data.totals.totalActiveShifts}</p>
+                <p className="text-xl font-bold text-green-500">{data.totals.totalActiveShifts}</p>
               </div>
               <Clock className="h-8 w-8 text-green-500/30" />
             </div>
@@ -404,7 +400,7 @@ export const AdminDashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Pending Sales</p>
-                <p className={`text-xl font-bold ${data.totals.totalPendingSales > 0 ? 'text-blue-600' : ''}`}>
+                <p className={`text-xl font-bold ${data.totals.totalPendingSales > 0 ? 'text-blue-500' : ''}`}>
                   {data.totals.totalPendingSales}
                 </p>
               </div>
@@ -418,7 +414,7 @@ export const AdminDashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Refunds/Voids</p>
-                <p className="text-xl font-bold text-red-600">{data.totals.totalRefunds}</p>
+                <p className="text-xl font-bold text-red-500">{data.totals.totalRefunds}</p>
                 <p className="text-xs text-muted-foreground">{formatCurrency(data.totals.totalRefundAmount)}</p>
               </div>
               <RotateCcw className="h-8 w-8 text-red-500/30" />
@@ -458,7 +454,7 @@ export const AdminDashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">New Customers ({period}d)</p>
-                <p className="text-xl font-bold text-green-600">{data.globalMetrics?.newCustomers || 0}</p>
+                <p className="text-xl font-bold text-green-500">{data.globalMetrics?.newCustomers || 0}</p>
               </div>
               <UserPlus className="h-8 w-8 text-green-500/30" />
             </div>
@@ -553,9 +549,9 @@ export const AdminDashboard: React.FC = () => {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {/* Today's Revenue */}
-                  <div className="flex justify-between items-center p-2 bg-green-50 rounded">
-                    <span className="text-sm text-green-700">Today</span>
-                    <span className="font-bold text-green-700">
+                  <div className="flex justify-between items-center p-2 bg-green-500/10 rounded">
+                    <span className="text-sm text-green-500">Today</span>
+                    <span className="font-bold text-green-500">
                       {formatCurrency(store.todayRevenue)}
                     </span>
                   </div>
@@ -568,19 +564,19 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Profit:</span>
-                      <span className="font-medium text-green-600">
+                      <span className="font-medium text-green-500">
                         {formatCurrency(store.periodProfit)}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Expenses:</span>
-                      <span className="font-medium text-red-600">
+                      <span className="font-medium text-red-500">
                         {formatCurrency(store.periodExpenses)}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Margin:</span>
-                      <span className={`font-medium ${margin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      <span className={`font-medium ${margin >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                         {margin.toFixed(1)}%
                       </span>
                     </div>
@@ -656,17 +652,17 @@ export const AdminDashboard: React.FC = () => {
                           <span className="font-medium">{loc.locationName}</span>
                         </div>
                       </td>
-                      <td className="text-right py-3 px-4 text-green-600 font-medium">
+                      <td className="text-right py-3 px-4 text-green-500 font-medium">
                         {formatCurrency(loc.revenue)}
                       </td>
-                      <td className="text-right py-3 px-4 text-red-600">
+                      <td className="text-right py-3 px-4 text-red-500">
                         {formatCurrency(loc.expenses)}
                       </td>
                       <td className="text-right py-3 px-4 font-medium">
                         {formatCurrency(loc.profit)}
                       </td>
                       <td className="text-right py-3 px-4">
-                        <span className={margin >= 20 ? 'text-green-600' : margin >= 10 ? 'text-amber-600' : 'text-red-600'}>
+                        <span className={margin >= 20 ? 'text-green-500' : margin >= 10 ? 'text-amber-500' : 'text-red-500'}>
                           {margin.toFixed(1)}%
                         </span>
                       </td>
@@ -679,10 +675,10 @@ export const AdminDashboard: React.FC = () => {
                 {/* Totals Row */}
                 <tr className="bg-muted/50 font-bold">
                   <td className="py-3 px-4">TOTAL</td>
-                  <td className="text-right py-3 px-4 text-green-600">
+                  <td className="text-right py-3 px-4 text-green-500">
                     {formatCurrency(data.totals.totalRevenue)}
                   </td>
-                  <td className="text-right py-3 px-4 text-red-600">
+                  <td className="text-right py-3 px-4 text-red-500">
                     {formatCurrency(data.totals.totalExpenses)}
                   </td>
                   <td className="text-right py-3 px-4">

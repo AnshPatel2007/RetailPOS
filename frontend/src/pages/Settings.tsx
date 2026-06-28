@@ -15,6 +15,7 @@ import {
   Save
 } from 'lucide-react';
 import { hardware, HardwareSettings } from '@/services/hardware';
+import { userService } from '@/services/api';
 import toast from 'react-hot-toast';
 
 export const Settings: React.FC = () => {
@@ -62,6 +63,7 @@ export const Settings: React.FC = () => {
     firstName: user?.firstName || '',
     lastName: user?.lastName || '',
     email: user?.email || '',
+    currentPassword: '',
     newPassword: '',
     confirmPassword: '',
   });
@@ -117,18 +119,43 @@ export const Settings: React.FC = () => {
   };
 
   const saveUserProfile = async () => {
-    if (profileSettings.newPassword && profileSettings.newPassword !== profileSettings.confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
-
     try {
-      // TODO: Call backend API to update user profile
-      // This functionality will be implemented when the user profile update endpoint is added
-      toast.success('Profile settings saved locally');
-      setProfileSettings(prev => ({ ...prev, newPassword: '', confirmPassword: '' }));
-    } catch (error) {
-      toast.error('Failed to update profile');
+      // Update profile (name and email)
+      const { data: updatedUser } = await userService.updateProfile({
+        firstName: profileSettings.firstName,
+        lastName: profileSettings.lastName,
+        email: profileSettings.email,
+      });
+
+      // Update auth store with new user data
+      useAuthStore.setState({ user: updatedUser });
+
+      // If password change is requested, handle separately
+      if (profileSettings.newPassword) {
+        if (!profileSettings.currentPassword) {
+          toast.error('Current password is required to change password');
+          return;
+        }
+
+        if (profileSettings.newPassword !== profileSettings.confirmPassword) {
+          toast.error('New passwords do not match');
+          return;
+        }
+
+        await userService.changePassword({
+          currentPassword: profileSettings.currentPassword,
+          newPassword: profileSettings.newPassword,
+          confirmPassword: profileSettings.confirmPassword,
+        });
+
+        toast.success('Profile and password updated successfully');
+        setProfileSettings(prev => ({ ...prev, currentPassword: '', newPassword: '', confirmPassword: '' }));
+      } else {
+        toast.success('Profile updated successfully');
+      }
+    } catch (error: any) {
+      const errorMessage = error?.response?.data?.error || 'Failed to update profile';
+      toast.error(errorMessage);
     }
   };
 
@@ -647,17 +674,30 @@ export const Settings: React.FC = () => {
               onChange={(e) => setProfileSettings({ ...profileSettings, email: e.target.value })}
               className="mb-4"
             />
+            <div className="mb-4">
+              <p className="text-sm font-medium mb-2">Change Password (Optional)</p>
+              <p className="text-sm text-muted-foreground mb-3">Leave blank to keep current password</p>
+            </div>
+            <Input
+              label="Current Password"
+              type="password"
+              placeholder="Required to change password"
+              value={profileSettings.currentPassword}
+              onChange={(e) => setProfileSettings({ ...profileSettings, currentPassword: e.target.value })}
+              className="mb-4"
+            />
             <div className="grid grid-cols-2 gap-4 mb-4">
               <Input
                 label="New Password"
                 type="password"
-                placeholder="Leave blank to keep current"
+                placeholder="At least 6 characters"
                 value={profileSettings.newPassword}
                 onChange={(e) => setProfileSettings({ ...profileSettings, newPassword: e.target.value })}
               />
               <Input
-                label="Confirm Password"
+                label="Confirm New Password"
                 type="password"
+                placeholder="Must match new password"
                 value={profileSettings.confirmPassword}
                 onChange={(e) => setProfileSettings({ ...profileSettings, confirmPassword: e.target.value })}
               />

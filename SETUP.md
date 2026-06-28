@@ -1,61 +1,37 @@
-# Square-Style POS System - Setup Guide
-
-This guide will help you set up and run the complete POS system locally.
+# Setup Guide
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
-
-- **Node.js** (v18 or higher) - [Download](https://nodejs.org/)
-- **PostgreSQL** (v14 or higher) - [Download](https://www.postgresql.org/download/)
+- **Node.js** v18+ (tested on v24) - [Download](https://nodejs.org/)
+- **PostgreSQL** v14+ - [Download](https://www.postgresql.org/download/)
 - **npm** (comes with Node.js)
-- **Git** (optional) - [Download](https://git-scm.com/)
 
-## Step 1: PostgreSQL Database Setup
+## 1. Database Setup
 
-### 1.1 Install PostgreSQL
-
-Download and install PostgreSQL from the official website.
-
-### 1.2 Create Database
-
-Open PostgreSQL terminal (psql) or use pgAdmin and run:
+Install PostgreSQL, then create a database:
 
 ```sql
 CREATE DATABASE pos_system;
 ```
 
-### 1.3 Create User (Optional but recommended)
+Optionally create a dedicated user:
 
 ```sql
 CREATE USER pos_user WITH PASSWORD 'your_secure_password';
 GRANT ALL PRIVILEGES ON DATABASE pos_system TO pos_user;
 ```
 
-## Step 2: Project Setup
-
-### 2.1 Install Dependencies
+## 2. Install Dependencies
 
 ```bash
-# Install root dependencies
 npm install
-
-# Install backend dependencies
-cd backend
-npm install
-
-# Install frontend dependencies
-cd ../frontend
-npm install
-
-cd ..
 ```
 
-### 2.2 Configure Environment Variables
+This installs root, backend, and frontend dependencies via npm workspaces.
 
-#### Backend Configuration
+## 3. Environment Variables
 
-Create `backend/.env` file:
+### Backend (`backend/.env`)
 
 ```env
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/pos_system"
@@ -64,260 +40,102 @@ JWT_EXPIRES_IN="7d"
 PORT=5000
 NODE_ENV="development"
 FRONTEND_URL="http://localhost:5173"
-MAX_FILE_SIZE="5242880"
-UPLOAD_DIR="./uploads"
 ```
 
-**Important:** Change the `JWT_SECRET` to a long, random string in production!
-
-#### Frontend Configuration
-
-Create `frontend/.env` file:
+### Frontend (`frontend/.env`)
 
 ```env
 VITE_API_URL=http://localhost:5000/api
 ```
 
-## Step 3: Database Migration & Seeding
-
-### 3.1 Generate Prisma Client
+## 4. Database Migration & Seeding
 
 ```bash
+# Generate Prisma client
 cd backend
 npm run db:generate
-```
 
-### 3.2 Run Migrations
-
-```bash
+# Run all migrations
 npm run db:migrate
-```
 
-When prompted, enter a migration name (e.g., "init")
-
-### 3.3 Seed Database
-
-```bash
+# Seed sample data
 npm run db:seed
+cd ..
 ```
 
-This will create:
-- Sample location
-- Demo users (Admin, Manager, Cashier)
-- Sample products
-- Sample customers
-- Tax rates and discounts
+The seed creates: a Main Store location, demo users (admin/manager/cashier), sample products, customers, suppliers, categories, and tax rates.
 
-## Step 4: Running the Application
-
-### Option 1: Run Everything at Once (Recommended)
-
-From the root directory:
+## 5. Run the Application
 
 ```bash
+# From root directory - starts both backend and frontend
 npm run dev
 ```
 
-This will start both backend and frontend concurrently.
+Or run separately in two terminals:
 
-### Option 2: Run Separately
-
-**Terminal 1 - Backend:**
 ```bash
-cd backend
-npm run dev
+# Terminal 1
+cd backend && npm run dev
+
+# Terminal 2
+cd frontend && npm run dev
 ```
-
-**Terminal 2 - Frontend:**
-```bash
-cd frontend
-npm run dev
-```
-
-## Step 5: Access the Application
-
-Once running:
 
 - **Frontend**: http://localhost:5173
 - **Backend API**: http://localhost:5000/api
-- **API Health Check**: http://localhost:5000/api/health
+- **Health check**: http://localhost:5000/api/health
 
 ## Default Login Credentials
 
-Use these credentials to log in:
+> **WARNING**: Development only. Change all passwords before production use.
 
-### Admin Account
-- **Email**: admin@pos.com
-- **Password**: admin123
-- **Permissions**: Full system access
+| Role | Email | Password | Access |
+|------|-------|----------|--------|
+| Super Admin | admin@pos.com | admin123 | All stores, all permissions |
+| Manager | manager@pos.com | manager123 | Assigned store only |
+| Cashier | cashier@pos.com | cashier123 | POS operations, assigned store only |
 
-### Manager Account
-- **Email**: manager@pos.com
-- **Password**: manager123
-- **Permissions**: Most features except system settings
+## First Time Usage
 
-### Cashier Account
-- **Email**: cashier@pos.com
-- **Password**: cashier123
-- **Permissions**: POS, basic customer management
-
-## Step 6: Using the System
-
-### First Time Setup
-
-1. **Login** with admin credentials
-2. **Clock In** via the Shifts page
-3. **Add Products** if you want more than the sample data
-4. **Go to POS** and start making sales!
-
-### Basic Workflow
-
-1. **Clock In** at start of shift
-2. Navigate to **POS** page
-3. Search/click products to add to cart
-4. Click **Checkout**
-5. Select payment method
-6. Complete sale
-7. **Clock Out** at end of shift
+1. Login with admin credentials
+2. Clock in via the Shifts page
+3. Navigate to POS and start making sales
+4. Add products via the Inventory page as needed
 
 ## Database Management
 
-### View Database (Optional)
-
 ```bash
-cd backend
-npm run db:studio
-```
+# Visual database browser
+cd backend && npm run db:studio
+# Opens Prisma Studio at http://localhost:5555
 
-This opens Prisma Studio at http://localhost:5555 for visual database management.
-
-### Reset Database
-
-If you need to reset everything:
-
-```bash
-cd backend
-npx prisma migrate reset
-npm run db:seed
+# Reset database completely
+cd backend && npx prisma migrate reset && npm run db:seed
 ```
 
 ## Building for Production
 
-### Backend Build
-
 ```bash
-cd backend
 npm run build
 ```
 
-Output will be in `backend/dist/`
+Outputs: `backend/dist/` and `frontend/dist/`
 
-### Frontend Build
-
-```bash
-cd frontend
-npm run build
-```
-
-Output will be in `frontend/dist/`
-
-### Production Environment Variables
-
-Update these for production:
-
-**Backend:**
-- Change `DATABASE_URL` to production database
-- Use strong `JWT_SECRET` (min 32 characters)
-- Set `NODE_ENV="production"`
-- Configure proper `FRONTEND_URL`
-
-**Frontend:**
-- Set `VITE_API_URL` to production API URL
+**Production checklist:**
+- Strong JWT secret (32+ characters)
+- Production database URL
+- `NODE_ENV=production`
+- HTTPS enabled
+- CORS configured for production domain
+- Database backups configured
 
 ## Troubleshooting
 
-### Port Already in Use
+**Port already in use:** Change `PORT` in `backend/.env` or port in `frontend/vite.config.ts`.
 
-If ports 5000 or 5173 are in use:
+**Database connection error:** Verify PostgreSQL is running and `DATABASE_URL` in `backend/.env` is correct.
 
-**Backend:** Change `PORT` in `backend/.env`
-**Frontend:** Change port in `frontend/vite.config.ts`
+**Prisma client errors:** Run `cd backend && npm run db:generate`.
 
-### Database Connection Error
-
-1. Ensure PostgreSQL is running
-2. Check database credentials in `backend/.env`
-3. Verify database exists: `psql -l`
-
-### Prisma Client Errors
-
-Regenerate the client:
-```bash
-cd backend
-npm run db:generate
-```
-
-### Module Not Found
-
-Clear node_modules and reinstall:
-```bash
-rm -rf node_modules package-lock.json
-rm -rf backend/node_modules backend/package-lock.json
-rm -rf frontend/node_modules frontend/package-lock.json
-npm install
-```
-
-## Hardware Integration
-
-### Barcode Scanner
-
-USB barcode scanners that emulate keyboard input work automatically. Just scan while the POS page is active.
-
-### Receipt Printer
-
-Configure ESC/POS compatible printers in Settings. The system will use the browser's print dialog by default.
-
-### Cash Drawer
-
-Cash drawers connected via receipt printer will open automatically on cash transactions.
-
-### Card Reader
-
-Integrate payment processors (Stripe, Square, etc.) by updating the `cardReader` service in `frontend/src/services/hardware.ts`
-
-## Support
-
-For issues:
-1. Check this setup guide
-2. Review error messages in browser console (F12)
-3. Check backend logs in terminal
-4. Verify all environment variables are set correctly
-
-## Next Steps
-
-- Customize branding in Settings
-- Add your products via Inventory page
-- Configure tax rates for your location
-- Set up employees and permissions
-- Connect real hardware (optional)
-- Configure backup strategy for production
-
-## Production Deployment Checklist
-
-- [ ] Use strong JWT secret
-- [ ] Use production database
-- [ ] Enable HTTPS
-- [ ] Configure CORS properly
-- [ ] Set up database backups
-- [ ] Configure logging and monitoring
-- [ ] Set up error tracking (Sentry, etc.)
-- [ ] Configure rate limiting
-- [ ] Set up CI/CD pipeline
-- [ ] Perform security audit
-- [ ] Test offline mode
-- [ ] Configure receipt printer
-- [ ] Train staff on system
-
----
-
-**Congratulations!** You now have a fully functional, production-ready POS system.
+**Module not found:** Delete `node_modules` directories and run `npm install` again.

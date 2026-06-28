@@ -33,7 +33,13 @@ model User {
   shifts               Shift[]
   location             Location?           @relation(fields: [locationId], references: [id])
   recurringExpenses    RecurringExpense[]
-  layaways             Layaway[]
+  lotteryBatches               LotteryBatch[]
+  lotteryTransactions          LotteryTransaction[]
+  lotteryScans                 LotteryTicketScan[]
+  lotteryDailyEntriesCreated   LotteryDailyEntry[]  @relation("DailyEntryCreator")
+  lotteryDailyEntriesEdited    LotteryDailyEntry[]  @relation("DailyEntryEditor")
+  lotteryDaysClosedBy          LotteryDayStatus[]   @relation("DayClosedBy")
+  lotteryDaysReopenedBy        LotteryDayStatus[]   @relation("DayReopenedBy")
 
   @@index([email])
   @@index([locationId])
@@ -82,7 +88,12 @@ model Location {
   users             User[]
   budgets           Budget[]
   recurringExpenses RecurringExpense[]
-  layaways          Layaway[]
+  lotteryBatches       LotteryBatch[]
+  lotteryTransactions  LotteryTransaction[]
+  lotteryScans         LotteryTicketScan[]
+  lotteryTicketTypes   LotteryTicketType[]
+  lotteryDailyEntries  LotteryDailyEntry[]
+  lotteryDayStatuses   LotteryDayStatus[]
 
   @@map("locations")
 }
@@ -132,7 +143,6 @@ model Product {
   category       Category?         @relation(fields: [categoryId], references: [id])
   location       Location?         @relation(fields: [locationId], references: [id])
   saleItems      SaleItem[]
-  layawayItems   LayawayItem[]
 
   @@index([sku])
   @@index([barcode])
@@ -321,32 +331,189 @@ model Refund {
 }
 
 model Customer {
-  id             String    @id @default(uuid())
-  email          String?   @unique
-  phone          String    @unique
-  firstName      String
-  lastName       String
-  address        String?
-  city           String?
-  state          String?
-  zipCode        String?
-  country        String?
-  emailMarketing Boolean   @default(false)
-  smsMarketing   Boolean   @default(false)
-  loyaltyPoints  Int       @default(0)
-  totalSpent     Float     @default(0)
-  visitCount     Int       @default(0)
-  notes          String?
-  isActive       Boolean   @default(true)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  lastVisitAt    DateTime?
-  sales          Sale[]
-  layaways       Layaway[]
+  id                 String              @id @default(uuid())
+  email              String?             @unique
+  phone              String              @unique
+  firstName          String
+  lastName           String
+  address            String?
+  city               String?
+  state              String?
+  zipCode            String?
+  country            String?
+  emailMarketing     Boolean             @default(false)
+  smsMarketing       Boolean             @default(false)
+  loyaltyPoints      Int                 @default(0)
+  loyaltyTier        String              @default("BRONZE")
+  totalSpent         Float               @default(0)
+  visitCount         Int                 @default(0)
+  notes              String?
+  isActive           Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  lastVisitAt        DateTime?
+  sales              Sale[]
+  giftCards          GiftCard[]
+  storeCreditAccount StoreCreditAccount?
 
   @@index([email])
   @@index([phone])
   @@map("customers")
+}
+
+model GiftCard {
+  id             String                @id @default(uuid())
+  code           String                @unique
+  initialBalance Float
+  currentBalance Float
+  isActive       Boolean               @default(true)
+  expiresAt      DateTime?
+  customerId     String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  customer       Customer?             @relation(fields: [customerId], references: [id])
+  transactions   GiftCardTransaction[]
+
+  @@index([code])
+  @@index([customerId])
+  @@map("gift_cards")
+}
+
+model GiftCardTransaction {
+  id           String   @id @default(uuid())
+  giftCardId   String
+  type         String   // ISSUE, RELOAD, REDEEM, REFUND
+  amount       Float
+  balanceBefore Float
+  balanceAfter Float
+  saleId       String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  giftCard     GiftCard @relation(fields: [giftCardId], references: [id], onDelete: Cascade)
+
+  @@index([giftCardId])
+  @@index([saleId])
+  @@map("gift_card_transactions")
+}
+
+model StoreCreditAccount {
+  id           String                    @id @default(uuid())
+  customerId   String                    @unique
+  balance      Float                     @default(0)
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  customer     Customer                  @relation(fields: [customerId], references: [id])
+  transactions StoreCreditTransaction[]
+
+  @@map("store_credit_accounts")
+}
+
+model StoreCreditTransaction {
+  id           String             @id @default(uuid())
+  accountId    String
+  type         String             // CREDIT, DEBIT, REFUND
+  amount       Float
+  balanceBefore Float
+  balanceAfter Float
+  saleId       String?
+  notes        String?
+  createdAt    DateTime           @default(now())
+  account      StoreCreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([saleId])
+  @@map("store_credit_transactions")
+}
+
+model Exchange {
+  id             String   @id @default(uuid())
+  exchangeNumber String   @unique
+  originalSaleId String
+  newSaleId      String?
+  type           String   // RETURN_ONLY, EXCHANGE, RETURN_FOR_CREDIT
+  status         String   @default("PENDING") // PENDING, COMPLETED, CANCELLED
+  reason         String
+  returnedItems  Json     // [{productId, quantity, price}]
+  priceDifference Float   @default(0)
+  notes          String?
+  processedBy    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([originalSaleId])
+  @@index([exchangeNumber])
+  @@map("exchanges")
+}
+
+model InventoryTransfer {
+  id             String         @id @default(uuid())
+  transferNumber String         @unique
+  fromLocationId String
+  toLocationId   String
+  status         String         @default("PENDING") // PENDING, IN_TRANSIT, RECEIVED, CANCELLED
+  notes          String?
+  createdBy      String
+  shippedAt      DateTime?
+  receivedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  items          TransferItem[]
+
+  @@index([fromLocationId])
+  @@index([toLocationId])
+  @@index([status])
+  @@map("inventory_transfers")
+}
+
+model TransferItem {
+  id          String            @id @default(uuid())
+  transferId  String
+  productId   String
+  quantity    Int
+  receivedQty Int               @default(0)
+  createdAt   DateTime          @default(now())
+  transfer    InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId])
+  @@index([productId])
+  @@map("transfer_items")
+}
+
+model CycleCount {
+  id          String           @id @default(uuid())
+  countNumber String           @unique
+  locationId  String
+  status      String           @default("IN_PROGRESS") // IN_PROGRESS, REVIEW, APPROVED, CANCELLED
+  type        String           @default("FULL") // FULL, PARTIAL, CATEGORY
+  categoryId  String?
+  notes       String?
+  createdBy   String
+  approvedBy  String?
+  completedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  items       CycleCountItem[]
+
+  @@index([locationId])
+  @@index([status])
+  @@map("cycle_counts")
+}
+
+model CycleCountItem {
+  id          String     @id @default(uuid())
+  cycleCountId String
+  productId   String
+  expectedQty Int
+  countedQty  Int?
+  discrepancy Int?
+  notes       String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  cycleCount  CycleCount @relation(fields: [cycleCountId], references: [id], onDelete: Cascade)
+
+  @@index([cycleCountId])
+  @@index([productId])
+  @@map("cycle_count_items")
 }
 
 model Shift {
@@ -376,16 +543,17 @@ model Shift {
 }
 
 model ActivityLog {
-  id        String   @id @default(uuid())
-  userId    String?
-  action    String
-  entity    String?
-  entityId  String?
-  details   Json?
-  ipAddress String?
-  userAgent String?
-  createdAt DateTime @default(now())
-  user      User?    @relation(fields: [userId], references: [id])
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String
+  entity     String?
+  entityId   String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  locationId String?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([action])
@@ -512,67 +680,6 @@ model RecurringExpense {
   @@map("recurring_expenses")
 }
 
-model Layaway {
-  id              String        @id @default(uuid())
-  layawayNumber   String        @unique
-  customerId      String
-  userId          String
-  locationId      String?
-  subtotal        Float         @default(0)
-  tax             Float         @default(0)
-  total           Float         @default(0)
-  amountPaid      Float         @default(0)
-  balance         Float         @default(0)
-  status          LayawayStatus @default(ACTIVE)
-  expiresAt       DateTime?
-  notes           String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  completedAt     DateTime?
-  cancelledAt     DateTime?
-  payments        LayawayPayment[]
-  items           LayawayItem[]
-  customer        Customer      @relation(fields: [customerId], references: [id])
-  user            User          @relation(fields: [userId], references: [id])
-  location        Location?     @relation(fields: [locationId], references: [id])
-
-  @@index([customerId])
-  @@index([userId])
-  @@index([status])
-  @@map("layaways")
-}
-
-model LayawayItem {
-  id          String   @id @default(uuid())
-  layawayId   String
-  productId   String
-  sku         String
-  productName String
-  quantity    Int      @default(1)
-  price       Float
-  total       Float
-  createdAt   DateTime @default(now())
-  layaway     Layaway  @relation(fields: [layawayId], references: [id], onDelete: Cascade)
-  product     Product  @relation(fields: [productId], references: [id])
-
-  @@index([layawayId])
-  @@map("layaway_items")
-}
-
-model LayawayPayment {
-  id            String        @id @default(uuid())
-  layawayId     String
-  amount        Float
-  paymentMethod PaymentMethod
-  notes         String?
-  userId        String
-  createdAt     DateTime      @default(now())
-  layaway       Layaway       @relation(fields: [layawayId], references: [id], onDelete: Cascade)
-
-  @@index([layawayId])
-  @@map("layaway_payments")
-}
-
 model AccountingExport {
   id          String       @id @default(uuid())
   type        ExportType
@@ -652,17 +759,169 @@ enum RecurringFrequency {
   YEARLY
 }
 
-enum LayawayStatus {
-  ACTIVE
-  COMPLETED
-  CANCELLED
-  EXPIRED
-}
-
 enum ExportType {
   SALES
   EXPENSES
   INVENTORY
   CUSTOMERS
   JOURNAL_ENTRIES
+}
+
+enum LotteryBatchStatus {
+  ACTIVE
+  DEPLETED
+  RETURNED
+}
+
+enum LotteryTransactionStatus {
+  OPEN
+  CLOSED
+}
+
+model LotteryBatch {
+  id               String             @id @default(uuid())
+  batchNumber      String
+  gameType         String
+  startTicketNum   String
+  endTicketNum     String
+  totalTickets     Int
+  remainingTickets Int
+  pricePerTicket   Float
+  status           LotteryBatchStatus @default(ACTIVE)
+  activatedAt      DateTime?
+  depletedAt       DateTime?
+  notes            String?
+  userId           String
+  locationId       String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  user             User               @relation(fields: [userId], references: [id])
+  location         Location?          @relation(fields: [locationId], references: [id])
+  scans            LotteryTicketScan[]
+
+  @@index([locationId])
+  @@index([batchNumber])
+  @@map("lottery_batches")
+}
+
+model LotteryTransaction {
+  id                String                   @id @default(uuid())
+  transactionDate   DateTime
+  onlineSalesCount  Int                      @default(0)
+  onlineSalesAmount Float                    @default(0)
+  offlineSalesCount Int                      @default(0)
+  offlineSalesAmount Float                   @default(0)
+  cashoutAmount     Float                    @default(0)
+  netAmount         Float                    @default(0)
+  status            LotteryTransactionStatus @default(OPEN)
+  closedAt          DateTime?
+  closedBy          String?
+  notes             String?
+  userId            String
+  locationId        String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  user              User                     @relation(fields: [userId], references: [id])
+  location          Location?                @relation(fields: [locationId], references: [id])
+  scans             LotteryTicketScan[]
+
+  @@unique([transactionDate, locationId], name: "transactionDate_locationId")
+  @@index([locationId])
+  @@index([transactionDate])
+  @@map("lottery_transactions")
+}
+
+model LotteryTicketScan {
+  id            String              @id @default(uuid())
+  barcode       String
+  ticketNumber  String?
+  gameType      String?
+  amount        Float?
+  notes         String?
+  batchId       String?
+  transactionId String?
+  userId        String
+  locationId    String?
+  scannedAt     DateTime            @default(now())
+  createdAt     DateTime            @default(now())
+  batch         LotteryBatch?       @relation(fields: [batchId], references: [id])
+  transaction   LotteryTransaction? @relation(fields: [transactionId], references: [id])
+  user          User                @relation(fields: [userId], references: [id])
+  location      Location?           @relation(fields: [locationId], references: [id])
+
+  @@index([batchId])
+  @@index([transactionId])
+  @@index([locationId])
+  @@index([scannedAt])
+  @@map("lottery_ticket_scans")
+}
+
+model LotteryTicketType {
+  id             String              @id @default(uuid())
+  ticketName     String
+  ticketCode     String
+  pricePerTicket Float
+  sortOrder      Int                 @default(0)
+  isActive       Boolean             @default(true)
+  locationId     String
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  location       Location            @relation(fields: [locationId], references: [id])
+  dailyEntries   LotteryDailyEntry[]
+
+  @@index([locationId])
+  @@index([ticketCode])
+  @@map("lottery_ticket_types")
+}
+
+model LotteryDailyEntry {
+  id             String            @id @default(uuid())
+  entryDate      DateTime
+  ticketTypeId   String
+  locationId     String
+  startNumber    Int
+  endNumber      Int
+  pricePerTicket Float
+  ticketsSold    Int               @default(0)
+  totalSales     Float             @default(0)
+  notes          String?
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  ticketType     LotteryTicketType @relation(fields: [ticketTypeId], references: [id])
+  location       Location          @relation(fields: [locationId], references: [id])
+  creator        User?             @relation("DailyEntryCreator", fields: [createdBy], references: [id])
+  editor         User?             @relation("DailyEntryEditor", fields: [updatedBy], references: [id])
+
+  @@index([entryDate])
+  @@index([ticketTypeId])
+  @@index([locationId])
+  @@map("lottery_daily_entries")
+}
+
+model LotteryDayStatus {
+  id                  String    @id @default(uuid())
+  entryDate           DateTime
+  locationId          String
+  totalTicketsSold    Int       @default(0)
+  totalSales          Float     @default(0)
+  manualCashoutAmount Float     @default(0)
+  netAmount           Float     @default(0)
+  status              String    @default("OPEN")
+  isClosed            Boolean   @default(false)
+  closedAt            DateTime?
+  closedBy            String?
+  reopenedAt          DateTime?
+  reopenedBy          String?
+  notes               String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  location            Location  @relation(fields: [locationId], references: [id])
+  closedByUser        User?     @relation("DayClosedBy", fields: [closedBy], references: [id])
+  reopenedByUser      User?     @relation("DayReopenedBy", fields: [reopenedBy], references: [id])
+
+  @@index([entryDate])
+  @@index([locationId])
+  @@map("lottery_day_statuses")
 }

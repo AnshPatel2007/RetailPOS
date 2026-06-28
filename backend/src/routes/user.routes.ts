@@ -8,12 +8,20 @@ import {
   resetUserPassword,
   deleteUser,
   getUserPerformance,
+  getProfile,
+  updateProfile,
+  changePassword,
 } from '../controllers/user.controller';
 
 const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+// Current user profile routes (no authorization needed - all authenticated users)
+router.get('/profile', getProfile);
+router.put('/profile', updateProfile);
+router.post('/change-password', changePassword);
 
 // Get all users (admins see their location, super-admin sees all)
 router.get('/', authorize('ADMIN', 'MANAGER', 'SUPER_ADMIN'), getAllUsers);

@@ -3,6 +3,17 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
+import { businessConfig } from '../config/business.config';
+
+/**
+ * Calculate loyalty tier based on points
+ */
+function calculateLoyaltyTier(points: number): string {
+  const tiers = businessConfig.customer.loyaltyTiers;
+  if (points >= tiers.GOLD.min) return 'GOLD';
+  if (points >= tiers.SILVER.min) return 'SILVER';
+  return 'BRONZE';
+}
 
 /**
  * Get all customers
@@ -55,6 +66,7 @@ export const getCustomers = asyncHandler(async (req: Request, res: Response) => 
         email: true,
         phone: true,
         loyaltyPoints: true,
+        loyaltyTier: true,
         totalSpent: true,
         visitCount: true,
         lastVisitAt: true,
@@ -185,6 +197,16 @@ export const updateCustomer = asyncHandler(async (req: AuthRequest, res: Respons
     data,
   });
 
+  // Auto-update loyalty tier based on current points
+  const newTier = calculateLoyaltyTier(updatedCustomer.loyaltyPoints);
+  if (newTier !== updatedCustomer.loyaltyTier) {
+    await prisma.customer.update({
+      where: { id },
+      data: { loyaltyTier: newTier },
+    });
+    updatedCustomer.loyaltyTier = newTier;
+  }
+
   // Log activity
   await prisma.activityLog.create({
     data: {
@@ -303,6 +325,7 @@ export const searchByPhone = asyncHandler(async (req: Request, res: Response) =>
       email: true,
       phone: true,
       loyaltyPoints: true,
+      loyaltyTier: true,
       totalSpent: true,
       visitCount: true,
     },

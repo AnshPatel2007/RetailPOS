@@ -602,77 +602,202 @@ export const getDashboardMetrics = asyncHandler(async (_req: Request, res: Respo
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
   const weekAgo = new Date(today);
   weekAgo.setDate(weekAgo.getDate() - 7);
+
+  const twoWeeksAgo = new Date(weekAgo);
+  twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 7);
 
   const monthAgo = new Date(today);
   monthAgo.setMonth(monthAgo.getMonth() - 1);
 
-  // Today's sales
-  const todaySales = await prisma.sale.aggregate({
-    where: {
-      createdAt: { gte: today },
-      status: SaleStatus.COMPLETED,
-    },
-    _sum: { total: true },
-    _count: true,
-  });
+  // Run all queries concurrently
+  const [
+    todaySales,
+    yesterdaySales,
+    weekSales,
+    prevWeekSales,
+    monthSales,
+    products,
+    totalCustomers,
+    activeEmployees,
+  ] = await Promise.all([
+    // Today's sales
+    prisma.sale.aggregate({
+      where: { createdAt: { gte: today }, status: SaleStatus.COMPLETED },
+      _sum: { total: true },
+      _count: true,
+    }),
+    // Yesterday's sales (for trend)
+    prisma.sale.aggregate({
+      where: { createdAt: { gte: yesterday, lt: today }, status: SaleStatus.COMPLETED },
+      _sum: { total: true },
+      _count: true,
+    }),
+    // This week sales
+    prisma.sale.aggregate({
+      where: { createdAt: { gte: weekAgo }, status: SaleStatus.COMPLETED },
+      _sum: { total: true },
+    }),
+    // Previous week (for trend)
+    prisma.sale.aggregate({
+      where: { createdAt: { gte: twoWeeksAgo, lt: weekAgo }, status: SaleStatus.COMPLETED },
+      _sum: { total: true },
+    }),
+    // Month sales
+    prisma.sale.aggregate({
+      where: { createdAt: { gte: monthAgo }, status: SaleStatus.COMPLETED },
+      _sum: { total: true },
+    }),
+    // Low stock products
+    prisma.product.findMany({
+      where: { trackInventory: true, isActive: true },
+      select: { stockQuantity: true, lowStockAlert: true },
+    }),
+    // Total customers
+    prisma.customer.count({ where: { isActive: true } }),
+    // Active employees
+    prisma.user.count({ where: { isActive: true } }),
+  ]);
 
-  // Week sales
-  const weekSales = await prisma.sale.aggregate({
-    where: {
-      createdAt: { gte: weekAgo },
-      status: SaleStatus.COMPLETED,
-    },
-    _sum: { total: true },
-  });
+  const lowStockCount = products.filter(p => p.stockQuantity <= p.lowStockAlert).length;
 
-  // Month sales
-  const monthSales = await prisma.sale.aggregate({
-    where: {
-      createdAt: { gte: monthAgo },
-      status: SaleStatus.COMPLETED,
-    },
-    _sum: { total: true },
-  });
-
-  // Low stock products
-  const lowStockCount = await prisma.product.count({
-    where: {
-      trackInventory: true,
-      stockQuantity: {
-        lte: prisma.product.fields.lowStockAlert,
-      },
-      isActive: true,
-    },
-  });
-
-  // Total customers
-  const totalCustomers = await prisma.customer.count({
-    where: { isActive: true },
-  });
-
-  // Active employees
-  const activeEmployees = await prisma.user.count({
-    where: { isActive: true },
-  });
-
-  // Average order value
   const avgOrderValue = todaySales._count > 0
     ? (todaySales._sum.total || 0) / todaySales._count
     : 0;
 
+  // Trend: % change vs comparison period
+  const calcTrend = (current: number, previous: number) => {
+    if (previous === 0) return current > 0 ? 100 : 0;
+    return Math.round(((current - previous) / previous) * 100 * 10) / 10;
+  };
+
+  const todayTotal = todaySales._sum.total || 0;
+  const yesterdayTotal = yesterdaySales._sum.total || 0;
+  const weekTotal = weekSales._sum.total || 0;
+  const prevWeekTotal = prevWeekSales._sum.total || 0;
+
   res.json({
     success: true,
     data: {
-      todaySales: todaySales._sum.total || 0,
+      todaySales: todayTotal,
       todayTransactions: todaySales._count,
-      weekSales: weekSales._sum.total || 0,
+      yesterdaySales: yesterdayTotal,
+      todayTrend: calcTrend(todayTotal, yesterdayTotal),
+      weekSales: weekTotal,
+      prevWeekSales: prevWeekTotal,
+      weekTrend: calcTrend(weekTotal, prevWeekTotal),
       monthSales: monthSales._sum.total || 0,
       lowStockProducts: lowStockCount,
       totalCustomers,
       activeEmployees,
       averageOrderValue: Math.round(avgOrderValue * 100) / 100,
+    },
+  });
+});
+
+/**
+ * Get hourly sales data + top products + active shifts for dashboard widgets
+ * GET /api/reports/dashboard/hourly
+ */
+export const getDashboardHourly = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  const locationId = authReq.user?.locationId;
+
+  const now = new Date();
+  const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+
+  const locationFilter = locationId ? { locationId } : {};
+
+  // Hourly sales for the last 12 hours
+  const hourlySales = await prisma.sale.findMany({
+    where: {
+      createdAt: { gte: twelveHoursAgo },
+      status: SaleStatus.COMPLETED,
+      ...locationFilter,
+    },
+    select: { createdAt: true, total: true },
+  });
+
+  // Bucket into hours
+  const hourMap: Record<number, number> = {};
+  for (let h = 0; h < 12; h++) {
+    const hourStart = new Date(twelveHoursAgo.getTime() + h * 60 * 60 * 1000);
+    hourMap[hourStart.getHours()] = 0;
+  }
+  hourlySales.forEach((sale) => {
+    const h = new Date(sale.createdAt).getHours();
+    hourMap[h] = (hourMap[h] || 0) + (sale.total || 0);
+  });
+
+  const hourlyData = Object.entries(hourMap).map(([hour, total]) => ({
+    hour: parseInt(hour),
+    label: `${parseInt(hour) % 12 || 12}${parseInt(hour) < 12 ? 'am' : 'pm'}`,
+    total: Math.round(total * 100) / 100,
+  }));
+
+  // Top 5 products today
+  const topProducts = await prisma.saleItem.groupBy({
+    by: ['productId'],
+    where: {
+      sale: {
+        createdAt: { gte: today },
+        status: SaleStatus.COMPLETED,
+        ...locationFilter,
+      },
+    },
+    _sum: { quantity: true, price: true },
+    _count: { productId: true },
+    orderBy: { _sum: { quantity: 'desc' } },
+    take: 5,
+  });
+
+  const productIds = topProducts.map((p) => p.productId);
+  const productDetails = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, name: true, price: true },
+  });
+
+  const topProductsResult = topProducts.map((p) => {
+    const detail = productDetails.find((d) => d.id === p.productId);
+    return {
+      productId: p.productId,
+      name: detail?.name || 'Unknown',
+      qty: p._sum.quantity || 0,
+      revenue: Math.round((p._sum.price || 0) * (p._sum.quantity || 0) * 100) / 100,
+    };
+  });
+
+  // Active shifts
+  const activeShifts = await prisma.shift.findMany({
+    where: { isClosed: false, ...locationFilter },
+    select: {
+      id: true,
+      clockInAt: true,
+      totalSales: true,
+      totalTransactions: true,
+      user: { select: { firstName: true, lastName: true } },
+    },
+    orderBy: { clockInAt: 'asc' },
+  });
+
+  res.json({
+    success: true,
+    data: {
+      hourlyData,
+      topProducts: topProductsResult,
+      activeShifts: activeShifts.map((s) => ({
+        id: s.id,
+        employeeName: `${s.user.firstName} ${s.user.lastName}`,
+        clockInAt: s.clockInAt,
+        totalSales: s.totalSales,
+        totalTransactions: s.totalTransactions,
+      })),
     },
   });
 });
@@ -820,13 +945,6 @@ export const getInventoryReport = asyncHandler(async (req: Request, res: Respons
 
   if (categoryId) where.categoryId = categoryId;
 
-  if (lowStock === 'true') {
-    where.trackInventory = true;
-    where.stockQuantity = {
-      lte: prisma.product.fields.lowStockAlert,
-    };
-  }
-
   const products = await prisma.product.findMany({
     where,
     select: {
@@ -858,27 +976,32 @@ export const getInventoryReport = asyncHandler(async (req: Request, res: Respons
     orderBy: { name: 'asc' },
   });
 
+  let filteredProducts = products;
+  if (lowStock === 'true') {
+    filteredProducts = products.filter(p => p.trackInventory && p.stockQuantity <= p.lowStockAlert);
+  }
+
   // Calculate totals
-  const totalInventoryValue = products.reduce(
+  const totalInventoryValue = filteredProducts.reduce(
     (sum, p) => sum + (p.cost * p.stockQuantity),
     0
   );
 
-  const totalRetailValue = products.reduce(
+  const totalRetailValue = filteredProducts.reduce(
     (sum, p) => sum + (p.price * p.stockQuantity),
     0
   );
 
-  const lowStockCount = products.filter(
+  const lowStockCount = filteredProducts.filter(
     (p) => p.stockQuantity <= p.lowStockAlert
   ).length;
 
   res.json({
     success: true,
     data: {
-      products,
+      products: filteredProducts,
       summary: {
-        totalProducts: products.length,
+        totalProducts: filteredProducts.length,
         totalInventoryValue: Math.round(totalInventoryValue * 100) / 100,
         totalRetailValue: Math.round(totalRetailValue * 100) / 100,
         potentialProfit: Math.round((totalRetailValue - totalInventoryValue) * 100) / 100,
@@ -1322,18 +1445,6 @@ export const exportInventoryCSV = asyncHandler(async (req: Request, res: Respons
 
   if (categoryId) where.categoryId = categoryId;
 
-  if (lowStock === 'true') {
-    where.AND = [
-      { trackInventory: true },
-      {
-        OR: [
-          { stockQuantity: { lte: prisma.product.fields.lowStockAlert } },
-          { stockQuantity: 0 },
-        ],
-      },
-    ];
-  }
-
   if (minPrice || maxPrice) {
     where.price = {};
     if (minPrice) where.price.gte = parseFloat(minPrice as string);
@@ -1348,8 +1459,13 @@ export const exportInventoryCSV = asyncHandler(async (req: Request, res: Respons
     orderBy: { name: 'asc' },
   });
 
+  let filteredProducts = products;
+  if (lowStock === 'true') {
+    filteredProducts = products.filter(p => p.trackInventory && p.stockQuantity <= p.lowStockAlert);
+  }
+
   // Transform data for CSV
-  const csvData = products.map((product) => ({
+  const csvData = filteredProducts.map((product) => ({
     'SKU': product.sku,
     'Name': product.name,
     'Category': product.category?.name || 'Uncategorized',
@@ -1384,11 +1500,6 @@ export const exportInventoryPDF = asyncHandler(async (req: Request, res: Respons
 
   if (categoryId) where.categoryId = categoryId;
 
-  if (lowStock === 'true') {
-    where.trackInventory = true;
-    where.stockQuantity = { lte: 10 }; // Simplified for PDF
-  }
-
   if (minPrice || maxPrice) {
     where.price = {};
     if (minPrice) where.price.gte = parseFloat(minPrice as string);
@@ -1403,22 +1514,27 @@ export const exportInventoryPDF = asyncHandler(async (req: Request, res: Respons
     orderBy: { name: 'asc' },
   });
 
+  let filteredProducts = products;
+  if (lowStock === 'true') {
+    filteredProducts = products.filter(p => p.trackInventory && p.stockQuantity <= p.lowStockAlert);
+  }
+
   // Calculate summary
-  const totalInventoryValue = products.reduce(
+  const totalInventoryValue = filteredProducts.reduce(
     (sum, p) => sum + (p.cost * p.stockQuantity),
     0
   );
-  const totalRetailValue = products.reduce(
+  const totalRetailValue = filteredProducts.reduce(
     (sum, p) => sum + (p.price * p.stockQuantity),
     0
   );
   const potentialProfit = totalRetailValue - totalInventoryValue;
-  const lowStockCount = products.filter(
+  const lowStockCount = filteredProducts.filter(
     (p) => p.trackInventory && p.stockQuantity <= p.lowStockAlert
   ).length;
 
   // Category breakdown
-  const categoryBreakdown = products.reduce((acc: any, product) => {
+  const categoryBreakdown = filteredProducts.reduce((acc: any, product) => {
     const catName = product.category?.name || 'Uncategorized';
     if (!acc[catName]) {
       acc[catName] = { count: 0, value: 0 };
@@ -1445,7 +1561,7 @@ export const exportInventoryPDF = asyncHandler(async (req: Request, res: Respons
   // Summary
   doc.fontSize(14).text('Summary', { underline: true });
   doc.moveDown(0.5);
-  doc.fontSize(10).text(`Total Products: ${products.length}`);
+  doc.fontSize(10).text(`Total Products: ${filteredProducts.length}`);
   doc.text(`Total Inventory Value: $${totalInventoryValue.toFixed(2)}`);
   doc.text(`Total Retail Value: $${totalRetailValue.toFixed(2)}`);
   doc.text(`Potential Profit: $${potentialProfit.toFixed(2)}`);
@@ -1462,7 +1578,7 @@ export const exportInventoryPDF = asyncHandler(async (req: Request, res: Respons
   doc.fontSize(14).text('Product Details', { underline: true });
   doc.moveDown(0.5);
 
-  products.slice(0, 80).forEach((product, index) => {
+  filteredProducts.slice(0, 80).forEach((product, index) => {
     if (index > 0) doc.moveDown(0.8);
 
     const inventoryValue = product.cost * product.stockQuantity;
@@ -1480,14 +1596,14 @@ export const exportInventoryPDF = asyncHandler(async (req: Request, res: Respons
     doc.text(`  Inventory Value: $${inventoryValue.toFixed(2)}`);
 
     // Add page break if needed
-    if (index % 20 === 19 && index < products.length - 1) {
+    if (index % 20 === 19 && index < filteredProducts.length - 1) {
       doc.addPage();
     }
   });
 
-  if (products.length > 80) {
+  if (filteredProducts.length > 80) {
     doc.moveDown(2);
-    doc.fontSize(9).text(`Note: Showing first 80 of ${products.length} products. Export to CSV for complete data.`, {
+    doc.fontSize(9).text(`Note: Showing first 80 of ${filteredProducts.length} products. Export to CSV for complete data.`, {
       align: 'center',
       italics: true
     });

@@ -184,7 +184,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
                 <select
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md bg-background"
+                  className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
                   required
                 >
                   <option value="">Select category</option>
@@ -221,7 +221,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 placeholder="Enter expense description"
-                className="w-full px-3 py-2 border rounded-md bg-background min-h-[80px]"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground min-h-[80px]"
                 required
               />
             </div>

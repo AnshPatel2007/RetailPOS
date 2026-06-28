@@ -160,7 +160,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                   onClick={() => setAdjustmentType('add')}
                   className={`p-2 text-sm rounded-md border ${
                     adjustmentType === 'add'
-                      ? 'bg-green-100 border-green-500 text-green-700'
+                      ? 'bg-green-500/10 border-green-500 text-green-500'
                       : 'border-input hover:bg-accent'
                   }`}
                 >
@@ -171,7 +171,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                   onClick={() => setAdjustmentType('remove')}
                   className={`p-2 text-sm rounded-md border ${
                     adjustmentType === 'remove'
-                      ? 'bg-red-100 border-red-500 text-red-700'
+                      ? 'bg-red-500/10 border-red-500 text-red-500'
                       : 'border-input hover:bg-accent'
                   }`}
                 >
@@ -182,7 +182,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                   onClick={() => setAdjustmentType('set')}
                   className={`p-2 text-sm rounded-md border ${
                     adjustmentType === 'set'
-                      ? 'bg-blue-100 border-blue-500 text-blue-700'
+                      ? 'bg-primary/10 border-primary text-primary'
                       : 'border-input hover:bg-accent'
                   }`}
                 >
@@ -225,7 +225,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
               <select
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                className="w-full px-3 py-2 border rounded-md bg-background"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
                 required
               >
                 {ADJUSTMENT_REASONS.map((r) => (
@@ -243,7 +243,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional notes about this adjustment"
-                className="w-full px-3 py-2 border rounded-md bg-background min-h-[80px]"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground min-h-[80px]"
               />
             </div>
 

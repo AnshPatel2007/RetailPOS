@@ -14,6 +14,7 @@ router.use(authenticate);
  * Report routes
  */
 router.get('/dashboard', reportController.getDashboardMetrics);
+router.get('/dashboard/hourly', reportController.getDashboardHourly);
 
 router.get(
   '/overall',

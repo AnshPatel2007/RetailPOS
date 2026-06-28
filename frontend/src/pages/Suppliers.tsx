@@ -733,7 +733,7 @@ export const Suppliers: React.FC = () => {
                 </div>
                 <div className="col-span-2">
                   <label className="block text-sm font-medium mb-1">Address</label>
-                  <textarea value={supplierForm.address} onChange={(e) => setSupplierForm({ ...supplierForm, address: e.target.value })} className="w-full px-3 py-2 border rounded-md bg-background text-sm" rows={2} placeholder="Full address" />
+                  <textarea value={supplierForm.address} onChange={(e) => setSupplierForm({ ...supplierForm, address: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-sm text-foreground" rows={2} placeholder="Full address" />
                 </div>
               </div>
             </div>
@@ -750,7 +750,7 @@ export const Suppliers: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Payment Terms</label>
-                  <select value={supplierForm.paymentTerms} onChange={(e) => setSupplierForm({ ...supplierForm, paymentTerms: e.target.value })} className="w-full px-3 py-2 border rounded-md bg-background text-sm">
+                  <select value={supplierForm.paymentTerms} onChange={(e) => setSupplierForm({ ...supplierForm, paymentTerms: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-sm text-foreground">
                     <option value="">Select...</option>
                     <option value="NET15">Net 15</option>
                     <option value="NET30">Net 30</option>
@@ -763,7 +763,7 @@ export const Suppliers: React.FC = () => {
             </div>
             <div className="border-t pt-6">
               <label className="block text-sm font-medium mb-1">Notes</label>
-              <textarea value={supplierForm.notes} onChange={(e) => setSupplierForm({ ...supplierForm, notes: e.target.value })} className="w-full px-3 py-2 border rounded-md bg-background text-sm" rows={3} placeholder="Additional notes..." />
+              <textarea value={supplierForm.notes} onChange={(e) => setSupplierForm({ ...supplierForm, notes: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-sm text-foreground" rows={3} placeholder="Additional notes..." />
             </div>
           </div>
         </div>
@@ -784,7 +784,7 @@ export const Suppliers: React.FC = () => {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-1">Supplier <span className="text-destructive">*</span></label>
-              <select value={orderForm.supplierId} onChange={(e) => setOrderForm({ ...orderForm, supplierId: e.target.value })} className="w-full px-3 py-2 border rounded-md bg-background" required disabled={editingOrder}>
+              <select value={orderForm.supplierId} onChange={(e) => setOrderForm({ ...orderForm, supplierId: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground" required disabled={editingOrder}>
                 <option value="">Select supplier...</option>
                 {suppliers.filter(s => s.isActive).map((supplier) => (
                   <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.minimumOrder ? ` (Min: $${supplier.minimumOrder})` : ''}</option>
@@ -858,7 +858,7 @@ export const Suppliers: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium mb-1">Notes</label>
-              <textarea value={orderForm.notes} onChange={(e) => setOrderForm({ ...orderForm, notes: e.target.value })} className="w-full px-3 py-2 border rounded-md bg-background text-sm" rows={2} />
+              <textarea value={orderForm.notes} onChange={(e) => setOrderForm({ ...orderForm, notes: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-sm text-foreground" rows={2} />
             </div>
 
             <div className="pt-4 border-t">

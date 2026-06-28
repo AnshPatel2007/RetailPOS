@@ -1,10 +1,18 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { PaymentMethod, SaleStatus } from '@prisma/client';
 import { createDateFilter } from '../utils/dateFilter.util';
+import { businessConfig } from '../config/business.config';
+
+function calculateLoyaltyTier(points: number): string {
+  const tiers = businessConfig.customer.loyaltyTiers;
+  if (points >= tiers.GOLD.min) return 'GOLD';
+  if (points >= tiers.SILVER.min) return 'SILVER';
+  return 'BRONZE';
+}
 
 /**
  * Generate unique sale number
@@ -44,59 +52,60 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     },
   });
 
+  // Fetch default tax rate once for the whole transaction (not per item)
+  const defaultTaxRate = await prisma.taxRate.findFirst({
+    where: { isDefault: true, isActive: true },
+  });
+
   // Calculate totals
   let subtotal = 0;
   let totalTax = 0;
   let totalDiscount = 0;
 
-  // Fetch products and calculate
-  const itemsWithDetails = await Promise.all(
-    items.map(async (item: any) => {
-      const product = await prisma.product.findUnique({
-        where: { id: item.productId },
-      });
+  // Batch-fetch all products at once (avoids N+1 queries)
+  const productIds = items.map((item: any) => item.productId);
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+  });
+  const productMap = new Map(products.map(p => [p.id, p]));
 
-      if (!product) {
-        throw new AppError(`Product not found: ${item.productId}`, 404);
-      }
+  // Validate and calculate
+  const itemsWithDetails = items.map((item: any) => {
+    const product = productMap.get(item.productId);
 
-      if (product.trackInventory && product.stockQuantity < item.quantity) {
-        throw new AppError(`Insufficient stock for ${product.name}`, 400);
-      }
+    if (!product) {
+      throw new AppError(`Product not found: ${item.productId}`, 404);
+    }
 
-      const itemSubtotal = item.price * item.quantity;
-      const itemDiscount = item.discount || 0;
-      const itemTotal = itemSubtotal - itemDiscount;
+    if (product.trackInventory && product.stockQuantity < item.quantity) {
+      throw new AppError(`Insufficient stock for ${product.name}`, 400);
+    }
 
-      // Calculate tax if product is taxable
-      let itemTax = 0;
-      if (product.isTaxable) {
-        // Get default tax rate
-        const taxRate = await prisma.taxRate.findFirst({
-          where: { isDefault: true, isActive: true },
-        });
-        if (taxRate) {
-          itemTax = (itemTotal * taxRate.rate) / 100;
-        }
-      }
+    const itemSubtotal = item.price * item.quantity;
+    const itemDiscount = item.discount || 0;
+    const itemTotal = itemSubtotal - itemDiscount;
 
-      subtotal += itemSubtotal;
-      totalDiscount += itemDiscount;
-      totalTax += itemTax;
+    let itemTax = 0;
+    if (product.isTaxable && defaultTaxRate) {
+      itemTax = (itemTotal * defaultTaxRate.rate) / 100;
+    }
 
-      return {
-        productId: product.id,
-        sku: product.sku,
-        productName: product.name,
-        quantity: item.quantity,
-        price: item.price,
-        discount: itemDiscount,
-        tax: itemTax,
-        total: itemTotal + itemTax,
-        notes: item.notes,
-      };
-    })
-  );
+    subtotal += itemSubtotal;
+    totalDiscount += itemDiscount;
+    totalTax += itemTax;
+
+    return {
+      productId: product.id,
+      sku: product.sku,
+      productName: product.name,
+      quantity: item.quantity,
+      price: item.price,
+      discount: itemDiscount,
+      tax: itemTax,
+      total: itemTotal + itemTax,
+      notes: item.notes,
+    };
+  });
 
   const total = subtotal - totalDiscount + totalTax;
   const changeDue = amountPaid - total;
@@ -180,9 +189,9 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       }
     }
 
-    // Update customer stats
+    // Update customer stats and loyalty tier
     if (customerId) {
-      await tx.customer.update({
+      const updatedCust = await tx.customer.update({
         where: { id: customerId },
         data: {
           totalSpent: { increment: total },
@@ -191,6 +200,14 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
           lastVisitAt: new Date(),
         },
       });
+
+      const newTier = calculateLoyaltyTier(updatedCust.loyaltyPoints);
+      if (newTier !== updatedCust.loyaltyTier) {
+        await tx.customer.update({
+          where: { id: customerId },
+          data: { loyaltyTier: newTier },
+        });
+      }
     }
 
     // Update shift totals

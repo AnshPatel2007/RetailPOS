@@ -177,6 +177,7 @@ export const shiftService = {
  */
 export const reportService = {
   getDashboard: () => api.get('/reports/dashboard'),
+  getDashboardHourly: () => api.get('/reports/dashboard/hourly'),
 
   getOverall: (params?: any) => api.get('/reports/overall', { params }),
 
@@ -374,19 +375,6 @@ export const financialService = {
 };
 
 /**
- * Layaway service
- */
-export const layawayService = {
-  getAll: (params?: any) => api.get('/layaways', { params }),
-  getById: (id: string) => api.get(`/layaways/${id}`),
-  getSummary: () => api.get('/layaways/summary'),
-  getCustomerLayaways: (customerId: string) => api.get(`/layaways/customer/${customerId}`),
-  create: (data: any) => api.post('/layaways', data),
-  makePayment: (id: string, data: any) => api.post(`/layaways/${id}/payment`, data),
-  cancel: (id: string, reason?: string) => api.post(`/layaways/${id}/cancel`, { reason }),
-};
-
-/**
  * Location service (Super Admin)
  */
 export const locationService = {
@@ -410,4 +398,115 @@ export const userService = {
   update: (id: string, data: any) => api.put(`/users/${id}`, data),
   resetPassword: (id: string, newPassword: string) => api.post(`/users/${id}/reset-password`, { newPassword }),
   delete: (id: string) => api.delete(`/users/${id}`),
+
+  // Current user profile management
+  getProfile: () => api.get('/users/profile'),
+  updateProfile: (data: { firstName: string; lastName: string; email: string }) =>
+    api.put('/users/profile', data),
+  changePassword: (data: { currentPassword: string; newPassword: string; confirmPassword: string }) =>
+    api.post('/users/change-password', data),
+};
+
+/**
+ * Gift Card service
+ */
+export const giftCardService = {
+  getAll: (params?: any) => api.get('/gift-cards', { params }),
+  getById: (id: string) => api.get(`/gift-cards/${id}`),
+  checkBalance: (code: string) => api.get(`/gift-cards/check/${code}`),
+  issue: (data: any) => api.post('/gift-cards/issue', data),
+  reload: (id: string, data: { amount: number }) => api.post(`/gift-cards/${id}/reload`, data),
+  redeem: (id: string, data: { amount: number; saleId?: string }) => api.post(`/gift-cards/${id}/redeem`, data),
+  deactivate: (id: string) => api.post(`/gift-cards/${id}/deactivate`),
+};
+
+/**
+ * Store Credit service
+ */
+export const storeCreditService = {
+  getBalance: (customerId: string) => api.get(`/store-credit/${customerId}`),
+  addCredit: (customerId: string, data: { amount: number; notes?: string; saleId?: string }) =>
+    api.post(`/store-credit/${customerId}/credit`, data),
+  debit: (customerId: string, data: { amount: number; saleId?: string }) =>
+    api.post(`/store-credit/${customerId}/debit`, data),
+};
+
+/**
+ * Exchange / Return service
+ */
+export const exchangeService = {
+  getAll: (params?: any) => api.get('/exchanges', { params }),
+  getById: (id: string) => api.get(`/exchanges/${id}`),
+  create: (data: any) => api.post('/exchanges', data),
+};
+
+/**
+ * Inventory Transfer service
+ */
+export const inventoryTransferService = {
+  getAll: (params?: any) => api.get('/inventory-transfers', { params }),
+  getById: (id: string) => api.get(`/inventory-transfers/${id}`),
+  create: (data: any) => api.post('/inventory-transfers', data),
+  ship: (id: string) => api.post(`/inventory-transfers/${id}/ship`),
+  receive: (id: string, data?: { receivedItems?: any[] }) =>
+    api.post(`/inventory-transfers/${id}/receive`, data),
+  cancel: (id: string) => api.post(`/inventory-transfers/${id}/cancel`),
+};
+
+/**
+ * Cycle Count service
+ */
+export const cycleCountService = {
+  getAll: (params?: any) => api.get('/cycle-counts', { params }),
+  getById: (id: string) => api.get(`/cycle-counts/${id}`),
+  create: (data: any) => api.post('/cycle-counts', data),
+  updateItems: (id: string, items: any[]) => api.put(`/cycle-counts/${id}/items`, { items }),
+  submit: (id: string) => api.post(`/cycle-counts/${id}/submit`),
+  approve: (id: string) => api.post(`/cycle-counts/${id}/approve`),
+  cancel: (id: string) => api.post(`/cycle-counts/${id}/cancel`),
+};
+
+/**
+ * Lottery service
+ */
+export const lotteryService = {
+  // Batches
+  getBatches: (params?: any) => api.get('/lottery/batches', { params }),
+  getBatchById: (id: string) => api.get(`/lottery/batches/${id}`),
+  createBatch: (data: any) => api.post('/lottery/batches', data),
+  updateBatch: (id: string, data: any) => api.put(`/lottery/batches/${id}`, data),
+  deleteBatch: (id: string) => api.delete(`/lottery/batches/${id}`),
+
+  // Transactions
+  getTransactions: (params?: any) => api.get('/lottery/transactions', { params }),
+  getTransactionById: (id: string) => api.get(`/lottery/transactions/${id}`),
+  upsertTransaction: (data: any) => api.post('/lottery/transactions', data),
+  closeTransaction: (id: string, data: any) => api.post(`/lottery/transactions/${id}/close`, data),
+
+  // Scans
+  scanTicket: (data: any) => api.post('/lottery/scan', data),
+  getScans: (params?: any) => api.get('/lottery/scans', { params }),
+
+  // Reports
+  getDailySummary: (params?: any) => api.get('/lottery/reports/daily-summary', { params }),
+
+  // Ticket Types
+  getTicketTypes: (params?: any) => api.get('/lottery/ticket-types', { params }),
+  getTicketTypeById: (id: string) => api.get(`/lottery/ticket-types/${id}`),
+  createTicketType: (data: any) => api.post('/lottery/ticket-types', data),
+  updateTicketType: (id: string, data: any) => api.put(`/lottery/ticket-types/${id}`, data),
+  deleteTicketType: (id: string) => api.delete(`/lottery/ticket-types/${id}`),
+
+  // Daily Entries
+  getDailyEntries: (params?: any) => api.get('/lottery/daily-entries', { params }),
+  createDailyEntry: (data: any) => api.post('/lottery/daily-entries', data),
+  updateDailyEntry: (id: string, data: any) => api.put(`/lottery/daily-entries/${id}`, data),
+  deleteDailyEntry: (id: string) => api.delete(`/lottery/daily-entries/${id}`),
+  getCarryForwardInfo: (params?: any) => api.get('/lottery/daily-entries/carry-forward', { params }),
+
+  // Day Status
+  getDayStatus: (params?: any) => api.get('/lottery/day-status', { params }),
+  updateDayStatusCashout: (id: string, data: any) => api.put(`/lottery/day-status/${id}`, data),
+  closeDay: (data: any) => api.post('/lottery/day-status/close', data),
+  reopenDay: (id: string, data: any) => api.post(`/lottery/day-status/${id}/reopen`, data),
 };

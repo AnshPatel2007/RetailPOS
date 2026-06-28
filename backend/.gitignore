@@ -1,0 +1,4 @@
+
+# Winston logs
+logs/
+*.log

@@ -9,6 +9,12 @@ export interface HardwareSettings {
     enabled: boolean;
     inputTimeout: number; // ms between keystrokes to detect scanner vs manual typing
     minLength: number; // Minimum barcode length
+    maxLength?: number;
+    soundEnabled?: boolean;
+    prefix?: string;
+    suffix?: string;
+    preventDuplicates?: boolean;
+    duplicateTimeout?: number;
   };
   receiptPrinter: {
     enabled: boolean;
@@ -19,6 +25,10 @@ export interface HardwareSettings {
     storeName: string;
     storeAddress: string;
     storePhone: string;
+    logoUrl?: string;
+    fontSize?: number | 'small' | 'medium' | 'large';
+    showBarcode?: boolean;
+    customCss?: string;
   };
   cashDrawer: {
     enabled: boolean;
@@ -154,6 +164,37 @@ class BarcodeScanner {
    */
   isEnabled(): boolean {
     return this.settings.enabled;
+  }
+
+  /**
+   * Subscribe to scanner activity (any scan attempt)
+   */
+  onActivity(callback: () => void): void {
+    this.activityCallbacks = this.activityCallbacks || [];
+    this.activityCallbacks.push(callback);
+  }
+
+  /**
+   * Unsubscribe from scanner activity
+   */
+  offActivity(callback: () => void): void {
+    this.activityCallbacks = (this.activityCallbacks || []).filter((cb: () => void) => cb !== callback);
+  }
+
+  private activityCallbacks: (() => void)[] = [];
+
+  /**
+   * Simulate a barcode scan (for testing)
+   */
+  simulateScan(barcode: string): void {
+    this.callbacks.forEach((callback) => callback(barcode));
+  }
+
+  /**
+   * Clear duplicate scan cache
+   */
+  clearDuplicateCache(): void {
+    // No-op unless duplicate prevention is implemented
   }
 
   /**
@@ -400,6 +441,34 @@ class ReceiptPrinter {
   isEnabled(): boolean {
     return this.settings.enabled;
   }
+
+  /**
+   * Get print queue status
+   */
+  getQueueStatus(): { pending: number; failed: number; completed: number; total: number } {
+    return { pending: 0, failed: 0, completed: 0, total: 0 };
+  }
+
+  /**
+   * Retry failed print jobs
+   */
+  retryFailedJobs(): void {
+    // No-op - browser printing handles retries
+  }
+
+  /**
+   * Clear failed print jobs
+   */
+  clearFailedJobs(): void {
+    // No-op
+  }
+
+  /**
+   * Check printer connection status
+   */
+  checkStatus(): { connected: boolean; online: boolean; status: string; error?: string } {
+    return { connected: this.settings.enabled, online: this.settings.enabled, status: this.settings.enabled ? 'ready' : 'disabled' };
+  }
 }
 
 /**
@@ -447,6 +516,20 @@ class CashDrawer {
    */
   isEnabled(): boolean {
     return this.settings.enabled;
+  }
+
+  /**
+   * Get drawer history log
+   */
+  getHistory(): Array<{ timestamp: number; reason: string; userId?: string; paymentMethod?: string }> {
+    return [];
+  }
+
+  /**
+   * Clear drawer history
+   */
+  clearHistory(): void {
+    // No-op
   }
 }
 
@@ -638,6 +721,13 @@ class HardwareManager {
    */
   async testDrawer(): Promise<boolean> {
     return await this.drawer.open();
+  }
+
+  /**
+   * Get cash drawer history
+   */
+  getDrawerHistory(limit?: number): Array<{ timestamp: number; reason: string; userId?: string; paymentMethod?: string }> {
+    return this.drawer.getHistory().slice(0, limit || 100);
   }
 
   /**

@@ -55,10 +55,10 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
         <div
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer
             ${isOffline
-              ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+              ? 'bg-red-500/10 text-red-500'
               : pendingSalesCount > 0
-                ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                ? 'bg-yellow-500/10 text-yellow-500'
+                : 'bg-green-500/10 text-green-500'
             }`}
           onClick={handleSync}
         >
@@ -87,24 +87,24 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
 
         {/* Tooltip */}
         {showTooltip && showDetails && (
-          <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+          <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-card rounded-lg shadow-lg border border-border z-50">
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-500">Status:</span>
-                <span className={isOnline ? 'text-green-600' : 'text-red-600'}>
+                <span className="text-muted-foreground">Status:</span>
+                <span className={isOnline ? 'text-green-500' : 'text-red-500'}>
                   {isOnline ? 'Online' : 'Offline'}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Pending sales:</span>
+                <span className="text-muted-foreground">Pending sales:</span>
                 <span>{pendingSalesCount}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Last sync:</span>
+                <span className="text-muted-foreground">Last sync:</span>
                 <span>{formatLastSync(lastSyncTime)}</span>
               </div>
               {lastError && (
-                <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded text-red-600 dark:text-red-400 text-xs">
+                <div className="mt-2 p-2 bg-red-500/10 rounded text-red-500 text-xs">
                   {lastError}
                 </div>
               )}

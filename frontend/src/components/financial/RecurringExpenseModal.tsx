@@ -173,7 +173,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
               <select
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md bg-background"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
                 required
               >
                 <option value="">Select category</option>
@@ -209,7 +209,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
                 <select
                   value={formData.frequency}
                   onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md bg-background"
+                  className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
                   required
                 >
                   {FREQUENCIES.map((freq) => (

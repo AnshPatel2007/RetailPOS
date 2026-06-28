@@ -146,31 +146,36 @@ export const createPurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
   // Generate order number
   const orderNumber = await generateOrderNumber();
 
-  // Calculate total
-  let totalAmount = 0;
-  const orderItems = [];
+  // Batch-fetch all products to avoid N+1 queries
+  const productIds = items.map((item: any) => item.productId);
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, sku: true, name: true },
+  });
+  const productMap = new Map(products.map(p => [p.id, p]));
 
+  // Verify all products exist
   for (const item of items) {
-    const product = await prisma.product.findUnique({
-      where: { id: item.productId },
-    });
-
-    if (!product) {
+    if (!productMap.has(item.productId)) {
       throw new AppError(`Product not found: ${item.productId}`, 404);
     }
+  }
 
+  // Calculate total
+  let totalAmount = 0;
+  const orderItems = items.map((item: any) => {
+    const product = productMap.get(item.productId)!;
     const itemTotal = item.cost * item.quantity;
     totalAmount += itemTotal;
-
-    orderItems.push({
+    return {
       productId: item.productId,
       sku: product.sku,
       productName: product.name,
       quantity: item.quantity,
       cost: item.cost,
       total: itemTotal,
-    });
-  }
+    };
+  });
 
   // Create purchase order with items
   const order = await prisma.purchaseOrder.create({
@@ -230,22 +235,26 @@ export const updatePurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
       where: { purchaseOrderId: id },
     });
 
-    let totalAmount = 0;
-    const orderItems = [];
+    // Batch-fetch all products to avoid N+1 queries
+    const productIds = items.map((item: any) => item.productId);
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, sku: true, name: true },
+    });
+    const productMap = new Map(products.map((p: any) => [p.id, p]));
 
     for (const item of items) {
-      const product = await prisma.product.findUnique({
-        where: { id: item.productId },
-      });
-
-      if (!product) {
+      if (!productMap.has(item.productId)) {
         throw new AppError(`Product not found: ${item.productId}`, 404);
       }
+    }
 
+    let totalAmount = 0;
+    const orderItems = items.map((item: any) => {
+      const product = productMap.get(item.productId)!;
       const itemTotal = item.cost * item.quantity;
       totalAmount += itemTotal;
-
-      orderItems.push({
+      return {
         purchaseOrderId: id,
         productId: item.productId,
         sku: product.sku,
@@ -253,8 +262,8 @@ export const updatePurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
         quantity: item.quantity,
         cost: item.cost,
         total: itemTotal,
-      });
-    }
+      };
+    });
 
     await prisma.purchaseOrderItem.createMany({
       data: orderItems,
@@ -467,13 +476,10 @@ export const cancelPurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
  */
 export const autoGeneratePurchaseOrders = asyncHandler(async (_req: AuthRequest, res: Response) => {
   // Find products below reorder point
-  const lowStockProducts = await prisma.product.findMany({
+  const allActiveProducts = await prisma.product.findMany({
     where: {
       isActive: true,
       trackInventory: true,
-      stockQuantity: {
-        lte: prisma.product.fields.lowStockAlert,
-      },
     },
     include: {
       suppliers: {
@@ -486,6 +492,8 @@ export const autoGeneratePurchaseOrders = asyncHandler(async (_req: AuthRequest,
       },
     },
   });
+
+  const lowStockProducts = allActiveProducts.filter(p => p.stockQuantity <= p.lowStockAlert);
 
   if (lowStockProducts.length === 0) {
     res.json({

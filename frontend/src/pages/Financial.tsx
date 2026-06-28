@@ -698,7 +698,7 @@ export const Financial: React.FC = () => {
                   </Card>
                   <Card className="p-4">
                     <p className="text-sm text-muted-foreground">Remaining</p>
-                    <p className={`text-2xl font-bold ${budgetSummary.totals.remaining >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <p className={`text-2xl font-bold ${budgetSummary.totals.remaining >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                       {formatCurrency(budgetSummary.totals.remaining)}
                     </p>
                   </Card>
@@ -785,7 +785,7 @@ export const Financial: React.FC = () => {
                           <TableCell>{budget.period}</TableCell>
                           <TableCell>{formatCurrency(budget.amount)}</TableCell>
                           <TableCell>{formatCurrency(budget.spent)}</TableCell>
-                          <TableCell className={budget.remaining >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          <TableCell className={budget.remaining >= 0 ? 'text-green-500' : 'text-red-500'}>
                             {formatCurrency(budget.remaining)}
                           </TableCell>
                           <TableCell>
@@ -929,7 +929,7 @@ export const Financial: React.FC = () => {
                 <div className="space-y-4">
                   {/* Revenue Section */}
                   <div className="border-b pb-4">
-                    <h4 className="font-medium text-green-600 mb-2">Revenue</h4>
+                    <h4 className="font-medium text-green-500 mb-2">Revenue</h4>
                     <div className="space-y-2 ml-4">
                       <div className="flex justify-between">
                         <span>Gross Sales</span>
@@ -954,13 +954,13 @@ export const Financial: React.FC = () => {
                     </div>
                     <div className="flex justify-between font-medium mt-2">
                       <span>Gross Profit</span>
-                      <span className="text-green-600">{formatCurrency(pnlData.grossProfit)}</span>
+                      <span className="text-green-500">{formatCurrency(pnlData.grossProfit)}</span>
                     </div>
                   </div>
 
                   {/* Operating Expenses */}
                   <div className="border-b pb-4">
-                    <h4 className="font-medium text-red-600 mb-2">Operating Expenses</h4>
+                    <h4 className="font-medium text-red-500 mb-2">Operating Expenses</h4>
                     <div className="space-y-2 ml-4">
                       {pnlData.operatingExpenses.byCategory.map((exp: any) => (
                         <div key={exp.category} className="flex justify-between text-muted-foreground">
@@ -979,7 +979,7 @@ export const Financial: React.FC = () => {
                   <div className="pt-2">
                     <div className="flex justify-between text-xl font-bold">
                       <span>Net Income</span>
-                      <span className={pnlData.netIncome >= 0 ? 'text-green-600' : 'text-red-600'}>
+                      <span className={pnlData.netIncome >= 0 ? 'text-green-500' : 'text-red-500'}>
                         {formatCurrency(pnlData.netIncome)}
                       </span>
                     </div>

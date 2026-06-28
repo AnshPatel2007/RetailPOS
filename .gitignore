@@ -3,6 +3,9 @@ node_modules/
 /.pnp
 .pnp.js
 
+# Claude Code
+.claude/
+
 # Testing
 /coverage
 
@@ -70,3 +73,14 @@ settings.gradle.kts
 build.gradle.kts
 nul
 backend/src/nul
+
+# Winston logs
+logs/
+*.log
+
+# Stale/duplicate directories
+node_modules_2/
+
+# Junk files
+virus.*
+*.backup

@@ -1,254 +1,173 @@
 # Square-Style POS System
 
-A complete, production-ready Point of Sale system built with modern technologies, replicating Square POS functionality.
-
-## Features
-
-### Core Functionality
-- **Multi-role Authentication**: Admin, Manager, Cashier with granular permissions
-- **Smart Inventory Management**: Products, variants, SKUs, low-stock alerts, supplier management
-- **Advanced Sales Register**: Fast checkout, discounts, taxes, refunds, multiple payment methods
-- **Comprehensive Reporting**: Sales analytics, employee performance, inventory reports, profit tracking
-- **Customer Management**: Customer directory, loyalty points, purchase history
-- **Employee Management**: Time tracking, shift management, activity logs
-- **Multi-store Support**: Manage multiple locations from one system
-- **Hardware Integration**: Barcode scanners, receipt printers, cash drawers, card readers
-
-### Advanced Features
-- **Offline Mode**: Continue operations without internet connectivity
-- **Hold & Retrieve Orders**: Save incomplete transactions
-- **Custom Receipt Builder**: Design your own receipt templates
-- **Inventory Audit Logs**: Complete tracking of all inventory changes
-- **Shift Reports**: Detailed cash management and drawer reconciliation
-- **Export Capabilities**: CSV/PDF export for all reports
+A complete Point of Sale system built with modern technologies, replicating Square POS functionality with multi-store support.
 
 ## Tech Stack
 
-### Frontend
-- React 18 with TypeScript
-- Vite for blazing-fast builds
-- Tailwind CSS for styling
-- Zustand for state management
-- React Router for navigation
-- Recharts for analytics visualization
+**Frontend:** React 18, TypeScript, Vite, Tailwind CSS, Zustand, Recharts
+**Backend:** Node.js, Express, TypeScript, Prisma ORM, PostgreSQL, JWT
 
-### Backend
-- Node.js with Express
-- TypeScript
-- Prisma ORM
-- PostgreSQL database
-- JWT authentication
-- Zod validation
+## Features
+
+### Core POS
+- Fast, touch-friendly product grid with stock badges (green/amber/red)
+- Product search by name, SKU, or barcode
+- Quantity numpad for quick entry
+- Cart persistence across page refreshes (localStorage)
+- Hold up to 5 sales and recall them later
+- Multiple payment methods (Cash, Card, Gift Card, Store Credit)
+- Automatic tax calculation (pulled from location settings)
+- Keyboard shortcuts: F1 Cash, F2 Card, F4 Checkout, F5 Hold, F6 Held Sales, / Search
+- Void and refund transactions
+- Customer association with sales
+
+### Live Dashboard
+- Auto-refreshes every 30 seconds with manual refresh button
+- KPI cards with trend indicators (% change vs yesterday/last week)
+- Hourly sales bar chart (last 12 hours)
+- Top 5 products today widget
+- Active shifts with live timer
+- Low stock alerts (clickable, navigates to inventory)
+
+### Inventory Management
+- Products, variants, SKUs, barcodes
+- Real-time stock tracking with low-stock alerts
+- Stock adjustments and audit logs
+- Bulk operations (update stock, prices, categories, activate/deactivate)
+- Supplier management and purchase orders
+- Auto-deduction on sales, auto-restoration on refunds
+
+### Multi-Store Architecture
+- Complete data isolation per location via `locationId` scoping
+- All entities scoped: products, customers, sales, suppliers, categories, tax rates, discounts, expenses
+- Admin override: `?locationId=<id>` on any endpoint
+- Admin POS viewing: read-only access to any store's POS
+- Cross-store reporting and analytics
+
+### Reporting & Analytics
+- Sales reports by date range, location, employee, customer
+- Inventory reports with stock value and profit margins
+- Employee performance metrics
+- Category performance analysis
+- Hourly sales patterns
+- Financial summaries and profit/loss statements
+
+### Employee Management
+- Role-based access: SUPER_ADMIN, ADMIN, MANAGER, CASHIER
+- Clock in/out with shift tracking
+- Cash drawer reconciliation
+- Activity logging
+
+### Additional
+- Customer directory with loyalty points
+- Expense tracking with approval workflows
+- Barcode scanner support (USB keyboard emulation)
+- Receipt printer support (ESC/POS)
+- Dark mode support
 
 ## Project Structure
 
 ```
-/frontend          # React frontend application
+/frontend              # React frontend
   /src
-    /components    # Reusable UI components
-    /pages         # Page components
-    /hooks         # Custom React hooks
-    /services      # API service layer
-    /store         # State management
-    /types         # TypeScript types
-    /utils         # Utility functions
-    /lib           # Library configurations
+    /components        # Reusable UI components
+    /pages             # Page components
+    /hooks             # Custom React hooks
+    /services          # API service layer
+    /store             # Zustand state management
+    /types             # TypeScript types
+    /utils             # Utility functions
 
-/backend           # Express backend API
+/backend               # Express backend API
   /src
-    /controllers   # Request handlers
-    /routes        # API routes
-    /services      # Business logic
-    /middleware    # Express middleware
-    /utils         # Utility functions
-    /config        # Configuration files
-    /types         # TypeScript types
-    /validators    # Request validators
-  /prisma          # Database schema and migrations
-
-/shared            # Shared types between frontend and backend
+    /controllers       # Request handlers
+    /routes            # API routes
+    /services          # Business logic
+    /middleware         # Auth, error handling
+    /utils             # Utilities
+    /config            # Configuration
+    /validators        # Request validators
+  /prisma              # Schema and migrations
 ```
 
 ## Getting Started
 
-### Prerequisites
-- Node.js 18+
-- PostgreSQL 14+
-- npm or yarn
+See [SETUP.md](./SETUP.md) for detailed installation instructions.
 
-### Installation
+### Quick Start
 
-1. Clone the repository
-2. Install dependencies:
 ```bash
+# 1. Install dependencies
 npm install
-```
 
-3. Set up environment variables:
+# 2. Configure backend environment
+#    Create backend/.env with DATABASE_URL, JWT_SECRET, etc.
 
-**Backend (.env in /backend):**
-```env
-DATABASE_URL="postgresql://username:password@localhost:5432/pos_system"
-JWT_SECRET="your-super-secret-jwt-key-change-in-production"
-JWT_EXPIRES_IN="7d"
-PORT=5000
-NODE_ENV="development"
-```
-
-**Frontend (.env in /frontend):**
-```env
-VITE_API_URL=http://localhost:5000/api
-```
-
-4. Set up the database:
-```bash
+# 3. Run database migrations and seed
 npm run db:migrate
 npm run db:seed
-```
 
-5. Start the development servers:
-```bash
+# 4. Start development servers
 npm run dev
 ```
 
-The frontend will run on `http://localhost:5173`
-The backend will run on `http://localhost:5000`
+- Frontend: http://localhost:5173
+- Backend: http://localhost:5000/api
 
-### Default Login Credentials
+### Default Credentials
 
-**Admin:**
-- Email: admin@pos.com
-- Password: admin123
+> **WARNING**: Development credentials only. Change immediately in production.
 
-**Manager:**
-- Email: manager@pos.com
-- Password: manager123
+| Role | Email | Password |
+|------|-------|----------|
+| Super Admin | admin@pos.com | admin123 |
+| Manager | manager@pos.com | manager123 |
+| Cashier | cashier@pos.com | cashier123 |
 
-**Cashier:**
-- Email: cashier@pos.com
-- Password: cashier123
+## API Endpoints
 
-## API Documentation
+All endpoints support `?locationId=<id>` for admin users to access specific store data.
 
-### Authentication
-- `POST /api/auth/login` - User login
-- `POST /api/auth/logout` - User logout
-- `GET /api/auth/me` - Get current user
-- `POST /api/auth/refresh` - Refresh token
+| Route | Description |
+|-------|-------------|
+| `GET /api/health` | Health check |
+| `/api/auth/*` | Authentication (login, logout, refresh, change password) |
+| `/api/products/*` | Products CRUD, low-stock, bulk operations |
+| `/api/categories/*` | Categories CRUD |
+| `/api/sales/*` | Sales, refunds, voids, receipts |
+| `/api/customers/*` | Customers, loyalty points, purchase history |
+| `/api/suppliers/*` | Suppliers, product links, performance |
+| `/api/purchase-orders/*` | Purchase orders, receiving, auto-generate |
+| `/api/expenses/*` | Expenses, approval, payment tracking |
+| `/api/shifts/*` | Clock in/out, shift management |
+| `/api/reports/*` | Dashboard, sales, inventory, employee reports |
+| `/api/analytics/*` | Trends, top products/customers, hourly patterns |
+| `/api/financial/*` | P&L, cash flow, financial summaries |
+| `/api/locations/*` | Store management (admin) |
+| `/api/users/*` | User management, roles, location assignment |
 
-### Products
-- `GET /api/products` - List all products
-- `POST /api/products` - Create product
-- `GET /api/products/:id` - Get product details
-- `PUT /api/products/:id` - Update product
-- `DELETE /api/products/:id` - Delete product
-- `GET /api/products/low-stock` - Get low stock products
+## Performance
 
-### Sales
-- `POST /api/sales` - Create sale
-- `GET /api/sales` - List sales
-- `GET /api/sales/:id` - Get sale details
-- `POST /api/sales/:id/refund` - Refund sale
-- `POST /api/sales/:id/void` - Void sale
-
-### Customers
-- `GET /api/customers` - List customers
-- `POST /api/customers` - Create customer
-- `GET /api/customers/:id` - Get customer details
-- `PUT /api/customers/:id` - Update customer
-- `GET /api/customers/:id/history` - Purchase history
-
-### Reports
-- `GET /api/reports/sales` - Sales reports
-- `GET /api/reports/inventory` - Inventory reports
-- `GET /api/reports/employees` - Employee reports
-- `GET /api/reports/dashboard` - Dashboard metrics
-
-### Shifts
-- `POST /api/shifts/clock-in` - Clock in
-- `POST /api/shifts/clock-out` - Clock out
-- `GET /api/shifts` - List shifts
-- `POST /api/shifts/:id/close` - Close shift
-
-## Hardware Integration
-
-### Barcode Scanner
-The system supports standard USB barcode scanners that emulate keyboard input. Simply scan while focused on the product search field.
-
-### Receipt Printer
-Configure ESC/POS compatible printers in Settings > Printers. The system supports:
-- USB printers
-- Network printers (via IP)
-- Bluetooth printers
-
-### Cash Drawer
-Cash drawers connected to receipt printers will open automatically on cash transactions.
-
-### Card Reader
-Integrate with payment processors via the payment gateway configuration in Settings.
-
-## Offline Mode
-
-The POS system includes offline capabilities:
-- Sales are queued locally
-- Automatic sync when connection restored
-- Local product catalog caching
-- Offline receipt printing
-
-## Security Features
-
-- JWT-based authentication
-- Role-based access control (RBAC)
-- Password hashing with bcrypt
-- SQL injection protection via Prisma
-- XSS protection
-- CORS configuration
-- Rate limiting
-- Request validation
-
-## Performance Optimizations
-
-- Database query optimization with indexes
-- Response caching
-- Lazy loading for frontend components
-- Image optimization
-- Code splitting
-- Gzip compression
+- Auth middleware caches user lookups (5-minute TTL, avoids DB hit per request)
+- Low-stock queries run at SQL level (field-to-field comparison via raw query)
+- Tax rate fetched once per transaction (not per line item)
+- Dashboard queries run concurrently via `Promise.all`
+- Frontend cart persisted to localStorage (survives refresh)
+- Database indexes on frequently queried columns
 
 ## Deployment
 
-### Production Build
 ```bash
 npm run build
 ```
 
-### Environment Variables
-Update the environment variables for production:
-- Use strong JWT secrets
-- Configure production database
-- Set NODE_ENV=production
-- Enable HTTPS
-- Configure CORS for production domains
-
-### Recommended Hosting
-- **Frontend**: Vercel, Netlify, or AWS S3 + CloudFront
-- **Backend**: AWS EC2, DigitalOcean, Heroku, or Railway
-- **Database**: AWS RDS, DigitalOcean Managed PostgreSQL
-
-## Contributing
-
-This is a production-ready system built with best practices:
-- TypeScript for type safety
-- Comprehensive error handling
-- Input validation
-- Logging and monitoring
-- Database migrations
-- Seed data for testing
+Update environment variables for production:
+- Strong JWT secret (32+ characters)
+- Production DATABASE_URL
+- `NODE_ENV=production`
+- HTTPS enabled
+- CORS configured for production domain
 
 ## License
 
-MIT License - See LICENSE file for details
-
-## Support
-
-For issues and questions, please open an issue on the repository.
+MIT

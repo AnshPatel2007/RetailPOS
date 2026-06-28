@@ -1,7 +1,8 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
+import { Prisma } from '@prisma/client';
 import { logger } from '../utils/logger';
 
 /**
@@ -51,17 +52,22 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
     where.stockQuantity = { gt: 0 };
   }
 
-  if (lowStock === 'true') {
-    where.AND = [
-      { trackInventory: true },
-      { stockQuantity: { lte: prisma.product.fields.lowStockAlert } },
-    ];
-  }
-
   // Get products
-  const [products, total] = await Promise.all([
-    prisma.product.findMany({
-      where,
+  let products;
+  let total;
+
+  if (lowStock === 'true') {
+    // Prisma doesn't support field-to-field comparison in the where clause natively yet.
+    // We can use $queryRaw for this specific case or filter in memory if the dataset is small.
+    // Given the context of a POS system, products might be many, but for now let's use a workaround.
+    // Another way is to use a fixed threshold if available, or fetch and filter.
+    // For now, let's use a common threshold or raw query.
+    // Actually, we'll fetch all products that track inventory and then filter.
+    const allTrackedProducts = await prisma.product.findMany({
+      where: {
+        ...where,
+        trackInventory: true,
+      },
       include: {
         category: {
           select: {
@@ -77,12 +83,38 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
           },
         },
       },
-      skip,
-      take: limitNum,
       orderBy: { createdAt: 'desc' },
-    }),
-    prisma.product.count({ where }),
-  ]);
+    });
+
+    const lowStockProducts = allTrackedProducts.filter(p => p.stockQuantity <= p.lowStockAlert);
+    total = lowStockProducts.length;
+    products = lowStockProducts.slice(skip, skip + limitNum);
+  } else {
+    [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        include: {
+          category: {
+            select: {
+              id: true,
+              name: true,
+              color: true,
+            },
+          },
+          location: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        skip,
+        take: limitNum,
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.product.count({ where }),
+    ]);
+  }
 
   res.json({
     success: true,
@@ -291,39 +323,37 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
 /**
  * Get low stock products
  * GET /api/products/low-stock
+ *
+ * Uses a raw SQL query to compare stockQuantity <= lowStockAlert at the DB level,
+ * avoiding the previous in-memory filter that loaded all tracked products.
  */
 export const getLowStockProducts = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const where: any = {
-    trackInventory: true,
-    stockQuantity: {
-      lte: prisma.product.fields.lowStockAlert,
-    },
-    isActive: true,
-  };
+  const locationId = req.user?.locationId ?? null;
 
-  // Filter by user's location
-  if (req.user?.locationId) {
-    where.locationId = req.user.locationId;
-  }
+  // Field-to-field comparison requires raw SQL (Prisma ORM doesn't support it in where)
+  const locationClause = locationId
+    ? Prisma.sql`AND p."locationId" = ${locationId}`
+    : Prisma.empty;
 
-  const products = await prisma.product.findMany({
-    where,
-    include: {
-      category: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-    },
-    orderBy: {
-      stockQuantity: 'asc',
-    },
-  });
+  const lowStockProducts = await prisma.$queryRaw<any[]>`
+    SELECT
+      p.id, p.name, p.sku, p.barcode, p.price, p.cost,
+      p."stockQuantity", p."lowStockAlert", p."trackInventory",
+      p."isActive", p."locationId", p."categoryId", p."createdAt", p."updatedAt",
+      p.image, p.description,
+      json_build_object('id', c.id, 'name', c.name) AS category
+    FROM products p
+    LEFT JOIN categories c ON c.id = p."categoryId"
+    WHERE p."trackInventory" = true
+      AND p."isActive" = true
+      AND p."stockQuantity" <= p."lowStockAlert"
+      ${locationClause}
+    ORDER BY p."stockQuantity" ASC
+  `;
 
   res.json({
     success: true,
-    data: products,
+    data: lowStockProducts,
   });
 });
 

@@ -230,8 +230,8 @@ export const UserManagement: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <UserCheck className="h-5 w-5 text-green-600" />
+              <div className="p-2 bg-green-500/10 rounded-lg">
+                <UserCheck className="h-5 w-5 text-green-500" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Active Users</p>
@@ -246,8 +246,8 @@ export const UserManagement: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <UserX className="h-5 w-5 text-red-600" />
+              <div className="p-2 bg-red-500/10 rounded-lg">
+                <UserX className="h-5 w-5 text-red-500" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Inactive Users</p>
@@ -276,7 +276,7 @@ export const UserManagement: React.FC = () => {
             <select
               value={filterLocation}
               onChange={(e) => setFilterLocation(e.target.value)}
-              className="px-3 py-2 border rounded-md bg-background min-w-[150px]"
+              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
             >
               <option value="">All Stores</option>
               {locations.map((loc) => (
@@ -288,7 +288,7 @@ export const UserManagement: React.FC = () => {
             <select
               value={filterRole}
               onChange={(e) => setFilterRole(e.target.value)}
-              className="px-3 py-2 border rounded-md bg-background min-w-[150px]"
+              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
             >
               <option value="">All Roles</option>
               <option value="SUPER_ADMIN">Super Admin</option>
@@ -436,7 +436,7 @@ export const UserManagement: React.FC = () => {
               <select
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md bg-background"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
               >
                 <option value="CASHIER">Cashier</option>
                 <option value="MANAGER">Manager</option>
@@ -448,7 +448,7 @@ export const UserManagement: React.FC = () => {
               <select
                 value={formData.locationId}
                 onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md bg-background"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
               >
                 <option value="">No store assigned</option>
                 {locations.map((loc) => (
@@ -580,7 +580,7 @@ export const UserManagement: React.FC = () => {
               <select
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md bg-background"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
               >
                 <option value="CASHIER">Cashier</option>
                 <option value="MANAGER">Manager</option>
@@ -593,7 +593,7 @@ export const UserManagement: React.FC = () => {
               <select
                 value={formData.locationId}
                 onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md bg-background"
+                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
               >
                 <option value="">No store assigned</option>
                 {locations.map((loc) => (

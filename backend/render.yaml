@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: pos-system-api
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm run db:migrate:deploy && npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        sync: false

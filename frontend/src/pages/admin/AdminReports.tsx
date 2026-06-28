@@ -162,7 +162,7 @@ export const AdminReports: React.FC = () => {
           <select
             value={period}
             onChange={(e) => setPeriod(parseInt(e.target.value))}
-            className="px-3 py-2 border rounded-md bg-background"
+            className="px-3 py-2 border border-input rounded-md bg-background text-foreground"
           >
             <option value={7}>Last 7 days</option>
             <option value={30}>Last 30 days</option>
@@ -185,8 +185,8 @@ export const AdminReports: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <DollarSign className="h-5 w-5 text-green-600" />
+              <div className="p-2 bg-green-500/10 rounded-lg">
+                <DollarSign className="h-5 w-5 text-green-500" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Revenue</p>
@@ -199,8 +199,8 @@ export const AdminReports: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <BarChart3 className="h-5 w-5 text-blue-600" />
+              <div className="p-2 bg-blue-500/10 rounded-lg">
+                <BarChart3 className="h-5 w-5 text-blue-500" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Transactions</p>
@@ -213,8 +213,8 @@ export const AdminReports: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <TrendingDown className="h-5 w-5 text-red-600" />
+              <div className="p-2 bg-red-500/10 rounded-lg">
+                <TrendingDown className="h-5 w-5 text-red-500" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Expenses</p>
@@ -227,8 +227,8 @@ export const AdminReports: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-100 rounded-lg">
-                <TrendingUp className="h-5 w-5 text-emerald-600" />
+              <div className="p-2 bg-emerald-500/10 rounded-lg">
+                <TrendingUp className="h-5 w-5 text-emerald-500" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Profit</p>
@@ -241,8 +241,8 @@ export const AdminReports: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Users className="h-5 w-5 text-purple-600" />
+              <div className="p-2 bg-purple-500/10 rounded-lg">
+                <Users className="h-5 w-5 text-purple-500" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Active Users</p>
@@ -346,16 +346,16 @@ export const AdminReports: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-right">{location.transactions}</TableCell>
                   <TableCell className="text-right">{formatCurrency(avgOrder)}</TableCell>
-                  <TableCell className="text-right text-red-600">
+                  <TableCell className="text-right text-red-500">
                     {formatCurrency(location.expenses)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <span className={location.profit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                    <span className={location.profit >= 0 ? 'text-green-500' : 'text-red-500'}>
                       {formatCurrency(location.profit)}
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <span className={margin >= 0 ? 'text-green-600' : 'text-red-600'}>
+                    <span className={margin >= 0 ? 'text-green-500' : 'text-red-500'}>
                       {margin.toFixed(1)}%
                     </span>
                   </TableCell>
@@ -375,16 +375,16 @@ export const AdminReports: React.FC = () => {
                     : 0
                 )}
               </TableCell>
-              <TableCell className="text-right text-red-600">
+              <TableCell className="text-right text-red-500">
                 {formatCurrency(data.totals.totalExpenses)}
               </TableCell>
               <TableCell className="text-right">
-                <span className={data.totals.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                <span className={data.totals.totalProfit >= 0 ? 'text-green-500' : 'text-red-500'}>
                   {formatCurrency(data.totals.totalProfit)}
                 </span>
               </TableCell>
               <TableCell className="text-right">
-                <span className={data.totals.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                <span className={data.totals.totalProfit >= 0 ? 'text-green-500' : 'text-red-500'}>
                   {data.totals.totalRevenue > 0
                     ? ((data.totals.totalProfit / data.totals.totalRevenue) * 100).toFixed(1)
                     : 0}%
