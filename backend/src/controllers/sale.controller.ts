@@ -139,7 +139,8 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
   const total = subtotal - totalDiscount + totalTax;
   const changeDue = amountPaid - total;
 
-  if (amountPaid < total) {
+  // Allow 1 cent tolerance for floating point rounding differences
+  if (amountPaid < total - 0.01) {
     throw new AppError('Insufficient payment amount', 400);
   }
 
