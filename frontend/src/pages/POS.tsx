@@ -140,6 +140,8 @@ export const POS: React.FC = () => {
         limit: 50,
       });
       let result = response.data.data;
+      // Hide MISC product from grid — it's only used internally for ad-hoc charges
+      result = result.filter((p: Product) => p.sku !== 'MISC-001');
       if (isFavoritesTab) {
         result = result.filter((p: Product) => favoriteIds.includes(p.id));
       }
