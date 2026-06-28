@@ -60,6 +60,9 @@
     "typescript": "^5.3.3",
     "zod": "^3.22.4"
   },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/supertest": "^6.0.3",

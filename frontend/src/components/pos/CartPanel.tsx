@@ -1,11 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
 import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { CartItemCard } from '@/components/pos/CartItemCard';
-import { RecentTransactions } from '@/components/pos/RecentTransactions';
-import { CustomerLinkSection, LinkedCustomer } from '@/components/pos/CustomerLinkSection';
 import { Receipt } from '@/services/hardware';
 import { hardware } from '@/services/hardware';
 import {
@@ -14,30 +12,25 @@ import {
   List,
   RotateCcw,
   PauseCircle,
+  StickyNote,
 } from 'lucide-react';
 
 interface CartPanelProps {
-  linkedCustomer: LinkedCustomer | null;
-  onCustomerChange: (customer: LinkedCustomer | null) => void;
   lastReceipt: Receipt | null;
   onPrintReceipt: () => void;
   onShowHeldSales: () => void;
   onShowRefund: () => void;
   onCheckout: () => void;
   onHoldSale: () => void;
-  saleRefreshTrigger: number;
 }
 
 export const CartPanel: React.FC<CartPanelProps> = ({
-  linkedCustomer,
-  onCustomerChange,
   lastReceipt,
   onPrintReceipt,
   onShowHeldSales,
   onShowRefund,
   onCheckout,
   onHoldSale,
-  saleRefreshTrigger,
 }) => {
   const {
     items,
@@ -59,6 +52,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   const { user } = useAuthStore();
   const canOverridePrice = user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const isManagerOrAdmin = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const [showNotes, setShowNotes] = useState(false);
 
   return (
     <div className="w-full md:w-80 lg:w-96 bg-card md:border-l border-border flex flex-col">
@@ -153,32 +147,34 @@ export const CartPanel: React.FC<CartPanelProps> = ({
         )}
       </div>
 
-      {/* Recent Transactions */}
-      <RecentTransactions refreshTrigger={saleRefreshTrigger} />
-
       {/* Cart footer */}
       <div className="border-t border-border p-4 space-y-3">
-        {/* Customer Linking Section */}
-        <CustomerLinkSection
-          linkedCustomer={linkedCustomer}
-          onCustomerChange={onCustomerChange}
-        />
-
-        {/* Order Notes */}
+        {/* Notes toggle */}
         {items.length > 0 && (
-          <div className="pt-2 border-t">
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Order notes..."
-              rows={2}
-              className="w-full text-sm px-3 py-2 border border-input rounded-md bg-background text-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-            />
+          <div>
+            <button
+              onClick={() => setShowNotes(!showNotes)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <StickyNote className="h-3.5 w-3.5" />
+              {notes ? 'Edit note' : 'Add note'}
+              {notes && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
+            </button>
+            {showNotes && (
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Order notes..."
+                rows={2}
+                className="mt-2 w-full text-sm px-3 py-2 border border-input rounded-md bg-background text-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                autoFocus
+              />
+            )}
           </div>
         )}
 
         {/* Totals */}
-        <div className="space-y-2 text-sm pt-3 border-t">
+        <div className="space-y-1.5 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Subtotal</span>
             <span className="font-medium">{formatCurrency(getSubtotal())}</span>

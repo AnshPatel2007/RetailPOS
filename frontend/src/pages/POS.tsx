@@ -35,7 +35,6 @@ export const POS: React.FC = () => {
   const [lastReceipt, setLastReceipt] = useState<Receipt | null>(null);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
-  const [saleRefreshTrigger, setSaleRefreshTrigger] = useState(0);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -270,7 +269,7 @@ export const POS: React.FC = () => {
       setLinkedCustomer(null);
       setShowPaymentModal(false);
       setShowReceiptPreview(true);
-      setSaleRefreshTrigger((n) => n + 1);
+
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to complete sale');
     } finally {
@@ -316,15 +315,12 @@ export const POS: React.FC = () => {
       {/* Right side - Cart (desktop) */}
       <div className="hidden md:flex">
         <CartPanel
-          linkedCustomer={linkedCustomer}
-          onCustomerChange={setLinkedCustomer}
           lastReceipt={lastReceipt}
           onPrintReceipt={handlePrintReceipt}
           onShowHeldSales={() => setShowHeldSalesModal(true)}
           onShowRefund={() => setShowRefundModal(true)}
           onCheckout={() => { if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); } }}
           onHoldSale={handleHoldSale}
-          saleRefreshTrigger={saleRefreshTrigger}
         />
       </div>
 
@@ -341,15 +337,12 @@ export const POS: React.FC = () => {
             </div>
             <div className="flex-1 overflow-auto">
               <CartPanel
-                linkedCustomer={linkedCustomer}
-                onCustomerChange={setLinkedCustomer}
                 lastReceipt={lastReceipt}
                 onPrintReceipt={handlePrintReceipt}
                 onShowHeldSales={() => setShowHeldSalesModal(true)}
                 onShowRefund={() => setShowRefundModal(true)}
                 onCheckout={() => { if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); setMobileCartOpen(false); } }}
                 onHoldSale={() => { handleHoldSale(); setMobileCartOpen(false); }}
-                saleRefreshTrigger={saleRefreshTrigger}
               />
             </div>
           </div>
@@ -379,6 +372,8 @@ export const POS: React.FC = () => {
         onComplete={handlePaymentComplete}
         isProcessing={isProcessing}
         initialPaymentMethod={initialPaymentMethod}
+        linkedCustomer={linkedCustomer}
+        onCustomerChange={setLinkedCustomer}
       />
 
       <HeldSalesModal
@@ -392,7 +387,7 @@ export const POS: React.FC = () => {
       <QuickRefundModal
         isOpen={showRefundModal}
         onClose={() => setShowRefundModal(false)}
-        onRefundComplete={() => setSaleRefreshTrigger((n) => n + 1)}
+        onRefundComplete={() => {}}
       />
 
       {lastReceipt && (
