@@ -30,11 +30,10 @@ export const errorHandler = (
   }
 
   // Prisma errors
-  if (err.name === 'PrismaClientKnownRequestError' || err.name === 'PrismaClientValidationError' || err.name === 'PrismaClientInitializationError') {
+  if (err.name === 'PrismaClientKnownRequestError') {
     return res.status(400).json({
       success: false,
       error: 'Database operation failed',
-      debug: err.message,
     });
   }
 
@@ -50,8 +49,7 @@ export const errorHandler = (
   // Default error
   return res.status(500).json({
     success: false,
-    error: err.message,
-    errorName: err.name,
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
   });
 };
 
