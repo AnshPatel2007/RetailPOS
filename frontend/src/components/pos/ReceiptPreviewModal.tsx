@@ -3,7 +3,6 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Receipt, hardware } from '@/services/hardware';
-import { formatCurrency } from '@/lib/utils';
 import { Printer, Mail, X, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -47,78 +46,84 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Receipt">
+    <Modal isOpen={isOpen} onClose={onClose} title="Receipt" size="sm">
       <div className="space-y-4">
-        {/* Receipt Preview */}
-        <div className="bg-card text-foreground rounded-md p-4 max-h-[60vh] overflow-auto font-mono text-xs leading-relaxed">
+        {/* Receipt Preview - styled like actual thermal receipt */}
+        <div className="mx-auto bg-white text-black rounded shadow-md max-h-[60vh] overflow-auto font-mono text-xs leading-relaxed" style={{ width: '280px', padding: '16px 12px' }}>
           <div className="text-center font-bold text-sm mb-1">
             {hardware.getSettings().receiptPrinter.storeName || 'POS System'}
           </div>
           {hardware.getSettings().receiptPrinter.storeAddress && (
-            <div className="text-center text-[10px]">
+            <div className="text-center text-[10px] text-gray-600">
               {hardware.getSettings().receiptPrinter.storeAddress}
             </div>
           )}
-          <div className="border-t border-dashed border-border my-2" />
+          {hardware.getSettings().receiptPrinter.storePhone && (
+            <div className="text-center text-[10px] text-gray-600">
+              Tel: {hardware.getSettings().receiptPrinter.storePhone}
+            </div>
+          )}
+          <div className="border-t border-dashed border-gray-400 my-2" />
 
-          <div className="text-center">
+          <div className="text-center text-[11px]">
             <div>Receipt #{receipt.saleNumber}</div>
             <div>{new Date(receipt.date).toLocaleString()}</div>
             {receipt.employeeName && <div>Cashier: {receipt.employeeName}</div>}
           </div>
-          <div className="border-t border-dashed border-border my-2" />
+          <div className="border-t border-dashed border-gray-400 my-2" />
 
           {/* Items */}
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             {receipt.items.map((item, i) => (
               <div key={i}>
-                <div className="font-medium">{item.name}</div>
-                <div className="flex justify-between pl-2">
+                <div className="font-medium text-[11px]">{item.name}</div>
+                <div className="flex justify-between pl-2 text-gray-700">
                   <span>{item.quantity} x ${item.price.toFixed(2)}</span>
                   <span>${item.total.toFixed(2)}</span>
                 </div>
               </div>
             ))}
           </div>
-          <div className="border-t border-dashed border-border my-2" />
+          <div className="border-t border-dashed border-gray-400 my-2" />
 
           {/* Totals */}
           <div className="space-y-0.5">
             <div className="flex justify-between">
               <span>Subtotal</span>
-              <span>{formatCurrency(receipt.subtotal)}</span>
+              <span>${receipt.subtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
               <span>Tax</span>
-              <span>{formatCurrency(receipt.tax)}</span>
+              <span>${receipt.tax.toFixed(2)}</span>
             </div>
             {receipt.discount > 0 && (
               <div className="flex justify-between">
                 <span>Discount</span>
-                <span>-{formatCurrency(receipt.discount)}</span>
+                <span>-${receipt.discount.toFixed(2)}</span>
               </div>
             )}
-            <div className="border-t border-border my-1" />
+            <div className="border-t border-gray-800 my-1" />
             <div className="flex justify-between font-bold text-sm">
               <span>TOTAL</span>
-              <span>{formatCurrency(receipt.total)}</span>
+              <span>${receipt.total.toFixed(2)}</span>
             </div>
+            <div className="border-t border-gray-800 my-1" />
             <div className="flex justify-between">
               <span>Paid ({receipt.paymentMethod})</span>
-              <span>{formatCurrency(receipt.amountPaid)}</span>
+              <span>${receipt.amountPaid.toFixed(2)}</span>
             </div>
             {receipt.change > 0 && (
               <div className="flex justify-between font-bold">
                 <span>Change</span>
-                <span>{formatCurrency(receipt.change)}</span>
+                <span>${receipt.change.toFixed(2)}</span>
               </div>
             )}
           </div>
 
           {receipt.customerName && (
             <>
-              <div className="border-t border-dashed border-border my-2" />
-              <div className="text-center">
+              <div className="border-t border-dashed border-gray-400 my-2" />
+              <div className="text-center text-[11px]">
                 <div>Customer: {receipt.customerName}</div>
                 {receipt.loyaltyPoints !== undefined && (
                   <div>Loyalty Points: {receipt.loyaltyPoints}</div>
@@ -127,8 +132,8 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
             </>
           )}
 
-          <div className="border-t border-dashed border-border my-2" />
-          <div className="text-center text-[10px]">
+          <div className="border-t border-dashed border-gray-400 my-2" />
+          <div className="text-center text-[10px] text-gray-600">
             {hardware.getSettings().receiptPrinter.footerText || 'Thank you for your business!'}
           </div>
         </div>

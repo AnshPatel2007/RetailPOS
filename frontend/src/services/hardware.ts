@@ -292,115 +292,89 @@ class ReceiptPrinter {
    * Generate HTML for receipt
    */
   private generateReceiptHTML(receipt: Receipt): string {
-    const width = this.settings.paperWidth === 58 ? '58mm' : '80mm';
+    const widthMm = this.settings.paperWidth === 58 ? '58mm' : '80mm';
+    const widthPx = this.settings.paperWidth === 58 ? '220px' : '302px';
 
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Receipt - ${receipt.saleNumber}</title>
-        <style>
-          @media print {
-            @page { margin: 0; size: ${width} auto; }
-            body { margin: 0; padding: 5mm; }
-          }
-          body {
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            width: ${width};
-            margin: 0 auto;
-            padding: 5mm;
-          }
-          .center { text-align: center; }
-          .bold { font-weight: bold; }
-          .line { border-top: 1px dashed #000; margin: 5px 0; }
-          table { width: 100%; border-collapse: collapse; }
-          td { padding: 2px 0; }
-          .right { text-align: right; }
-          .grand-total { font-size: 14px; font-weight: bold; }
-        </style>
-      </head>
-      <body>
-        ${this.settings.showLogo ? `
-          <div class="center bold" style="font-size: 16px; margin-bottom: 5px;">
-            ${this.settings.storeName}
-          </div>
-        ` : ''}
-        ${this.settings.storeAddress ? `<div class="center">${this.settings.storeAddress}</div>` : ''}
-        ${this.settings.storePhone ? `<div class="center">Tel: ${this.settings.storePhone}</div>` : ''}
-        <div class="line"></div>
-        <div class="center">
-          <div>Receipt #${receipt.saleNumber}</div>
-          <div>${new Date(receipt.date).toLocaleString()}</div>
-        </div>
-        <div class="line"></div>
-        <table>
-          ${receipt.items
-            .map(
-              (item) => `
-            <tr>
-              <td colspan="2">${item.name}</td>
-            </tr>
-            <tr>
-              <td>${item.quantity} x $${item.price.toFixed(2)}</td>
-              <td class="right">$${item.total.toFixed(2)}</td>
-            </tr>
-          `
-            )
-            .join('')}
-        </table>
-        <div class="line"></div>
-        <table>
-          <tr>
-            <td>Subtotal:</td>
-            <td class="right">$${receipt.subtotal.toFixed(2)}</td>
-          </tr>
-          <tr>
-            <td>Tax:</td>
-            <td class="right">$${receipt.tax.toFixed(2)}</td>
-          </tr>
-          ${
-            receipt.discount > 0
-              ? `
-          <tr>
-            <td>Discount:</td>
-            <td class="right">-$${receipt.discount.toFixed(2)}</td>
-          </tr>
-          `
-              : ''
-          }
-          <tr class="grand-total">
-            <td>Total:</td>
-            <td class="right">$${receipt.total.toFixed(2)}</td>
-          </tr>
-          <tr>
-            <td>Payment (${receipt.paymentMethod}):</td>
-            <td class="right">$${receipt.amountPaid.toFixed(2)}</td>
-          </tr>
-          ${
-            receipt.change > 0
-              ? `
-          <tr>
-            <td>Change:</td>
-            <td class="right">$${receipt.change.toFixed(2)}</td>
-          </tr>
-          `
-              : ''
-          }
-        </table>
-        <div class="line"></div>
-        <div class="center">
-          <div>Served by: ${receipt.employeeName}</div>
-          ${receipt.customerName ? `<div>Customer: ${receipt.customerName}</div>` : ''}
-          ${receipt.loyaltyPoints ? `<div>Loyalty Points: ${receipt.loyaltyPoints}</div>` : ''}
-        </div>
-        <div class="line"></div>
-        <div class="center">
-          ${this.settings.footerText}
-        </div>
-      </body>
-      </html>
-    `;
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <title>Receipt - ${receipt.saleNumber}</title>
+  <style>
+    @media print {
+      @page { margin: 0; size: ${widthMm} auto; }
+      body { margin: 0; padding: 3mm; }
+      .no-print { display: none !important; }
+    }
+    @media screen {
+      body { display: flex; justify-content: center; padding: 20px; background: #f5f5f5; }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    .receipt {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      width: ${widthPx};
+      background: #fff;
+      color: #000;
+      padding: 10px;
+      line-height: 1.4;
+    }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .line { border-top: 1px dashed #000; margin: 6px 0; }
+    .store-name { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+    .store-info { font-size: 10px; color: #555; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 1px 0; vertical-align: top; }
+    .right { text-align: right; }
+    .item-name { font-weight: 500; }
+    .item-detail { padding-left: 8px; color: #333; }
+    .grand-total { font-size: 14px; font-weight: bold; border-top: 2px solid #000; border-bottom: 2px solid #000; }
+    .grand-total td { padding: 4px 0; }
+    .footer { font-size: 10px; color: #555; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="receipt">
+    ${this.settings.showLogo ? `<div class="center store-name">${this.settings.storeName}</div>` : ''}
+    ${this.settings.storeAddress ? `<div class="center store-info">${this.settings.storeAddress}</div>` : ''}
+    ${this.settings.storePhone ? `<div class="center store-info">Tel: ${this.settings.storePhone}</div>` : ''}
+    <div class="line"></div>
+    <div class="center">
+      <div>Receipt #${receipt.saleNumber}</div>
+      <div>${new Date(receipt.date).toLocaleString()}</div>
+      ${receipt.employeeName ? `<div>Cashier: ${receipt.employeeName}</div>` : ''}
+    </div>
+    <div class="line"></div>
+    <table>
+      ${receipt.items.map((item) => `
+      <tr><td class="item-name" colspan="2">${item.name}</td></tr>
+      <tr><td class="item-detail">${item.quantity} x $${item.price.toFixed(2)}</td><td class="right">$${item.total.toFixed(2)}</td></tr>
+      `).join('')}
+    </table>
+    <div class="line"></div>
+    <table>
+      <tr><td>Subtotal:</td><td class="right">$${receipt.subtotal.toFixed(2)}</td></tr>
+      <tr><td>Tax:</td><td class="right">$${receipt.tax.toFixed(2)}</td></tr>
+      ${receipt.discount > 0 ? `<tr><td>Discount:</td><td class="right">-$${receipt.discount.toFixed(2)}</td></tr>` : ''}
+    </table>
+    <table>
+      <tr class="grand-total"><td>TOTAL:</td><td class="right">$${receipt.total.toFixed(2)}</td></tr>
+    </table>
+    <table>
+      <tr><td>Paid (${receipt.paymentMethod}):</td><td class="right">$${receipt.amountPaid.toFixed(2)}</td></tr>
+      ${receipt.change > 0 ? `<tr><td>Change:</td><td class="right">$${receipt.change.toFixed(2)}</td></tr>` : ''}
+    </table>
+    ${receipt.customerName ? `
+    <div class="line"></div>
+    <div class="center">
+      <div>Customer: ${receipt.customerName}</div>
+      ${receipt.loyaltyPoints ? `<div>Loyalty Points: ${receipt.loyaltyPoints}</div>` : ''}
+    </div>` : ''}
+    <div class="line"></div>
+    <div class="center footer">${this.settings.footerText}</div>
+  </div>
+</body>
+</html>`;
   }
 
   /**
@@ -408,26 +382,10 @@ class ReceiptPrinter {
    */
   async openDrawer(): Promise<boolean> {
     try {
-      // ESC/POS command to open drawer: ESC p 0 25 250
-      const escPosCommand = '\x1B\x70\x00\x19\xFA';
-
-      // Create a hidden iframe to send command
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
-
-      const doc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (doc) {
-        doc.write(`<html><body><pre>${escPosCommand}</pre></body></html>`);
-        doc.close();
-        iframe.contentWindow?.print();
-
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-        }, 1000);
-      }
-
-      console.log('Cash drawer open command sent');
+      // In a web browser environment, we can't directly send ESC/POS commands
+      // to a cash drawer. This would require a local print server or native app.
+      // For now, just log the action.
+      console.log('Cash drawer open command sent (requires hardware connection)');
       return true;
     } catch (error) {
       console.error('Failed to open drawer:', error);

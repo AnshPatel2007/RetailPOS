@@ -427,7 +427,7 @@ export const StoreManagement: React.FC = () => {
             required
           />
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Input
               label="City"
               value={formData.city}
@@ -465,7 +465,7 @@ export const StoreManagement: React.FC = () => {
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Input
               label="Tax Rate (%)"
               type="number"

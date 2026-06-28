@@ -323,7 +323,7 @@ export const Customers: React.FC = () => {
           ) : customerData ? (
             <>
               {/* Overview Cards */}
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card className="p-4">
                   <p className="text-sm text-muted-foreground">Total Customers</p>
                   <p className="text-2xl font-bold">{customerData.overview.totalCustomers}</p>
@@ -559,7 +559,7 @@ export const Customers: React.FC = () => {
             onChange={(e) => setFormData({ ...formData, address: e.target.value })}
           />
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Input
               label="City"
               value={formData.city}

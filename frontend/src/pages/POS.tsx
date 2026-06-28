@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { ShoppingCart, X } from 'lucide-react';
 import { productService, saleService, locationService, categoryService } from '@/services/api';
 import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
@@ -26,6 +27,7 @@ export const POS: React.FC = () => {
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [initialPaymentMethod, setInitialPaymentMethod] = useState<'CASH' | 'CARD' | undefined>(undefined);
   const [isProcessing, setIsProcessing] = useState(false);
   const [linkedCustomer, setLinkedCustomer] = useState<LinkedCustomer | null>(null);
   const [showHeldSalesModal, setShowHeldSalesModal] = useState(false);
@@ -34,6 +36,7 @@ export const POS: React.FC = () => {
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [saleRefreshTrigger, setSaleRefreshTrigger] = useState(0);
+  const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const { user } = useAuthStore();
@@ -95,8 +98,9 @@ export const POS: React.FC = () => {
     const tag = (e.target as HTMLElement).tagName;
     const inInput = tag === 'INPUT' || tag === 'TEXTAREA';
 
-    if (e.key === 'F1' || e.key === 'F2') { e.preventDefault(); if (items.length > 0) setShowPaymentModal(true); return; }
-    if (e.key === 'F4') { e.preventDefault(); if (items.length > 0) setShowPaymentModal(true); return; }
+    if (e.key === 'F1') { e.preventDefault(); if (items.length > 0) { setInitialPaymentMethod('CASH'); setShowPaymentModal(true); } return; }
+    if (e.key === 'F2') { e.preventDefault(); if (items.length > 0) { setInitialPaymentMethod('CARD'); setShowPaymentModal(true); } return; }
+    if (e.key === 'F4') { e.preventDefault(); if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); } return; }
     if (e.key === 'F5') { e.preventDefault(); handleHoldSale(); return; }
     if (e.key === 'F6') { e.preventDefault(); setShowHeldSalesModal(true); return; }
     if ((e.key === '/' || e.key === 'F3') && !inInput) {
@@ -281,7 +285,7 @@ export const POS: React.FC = () => {
   ];
 
   return (
-    <div className="h-screen flex">
+    <div className="h-screen flex flex-col md:flex-row">
       {/* Quantity Numpad overlay */}
       {numpadProduct && (
         <QuantityNumpad
@@ -309,18 +313,63 @@ export const POS: React.FC = () => {
         searchInputRef={searchInputRef}
       />
 
-      {/* Right side - Cart */}
-      <CartPanel
-        linkedCustomer={linkedCustomer}
-        onCustomerChange={setLinkedCustomer}
-        lastReceipt={lastReceipt}
-        onPrintReceipt={handlePrintReceipt}
-        onShowHeldSales={() => setShowHeldSalesModal(true)}
-        onShowRefund={() => setShowRefundModal(true)}
-        onCheckout={() => { if (items.length > 0) setShowPaymentModal(true); }}
-        onHoldSale={handleHoldSale}
-        saleRefreshTrigger={saleRefreshTrigger}
-      />
+      {/* Right side - Cart (desktop) */}
+      <div className="hidden md:flex">
+        <CartPanel
+          linkedCustomer={linkedCustomer}
+          onCustomerChange={setLinkedCustomer}
+          lastReceipt={lastReceipt}
+          onPrintReceipt={handlePrintReceipt}
+          onShowHeldSales={() => setShowHeldSalesModal(true)}
+          onShowRefund={() => setShowRefundModal(true)}
+          onCheckout={() => { if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); } }}
+          onHoldSale={handleHoldSale}
+          saleRefreshTrigger={saleRefreshTrigger}
+        />
+      </div>
+
+      {/* Mobile cart overlay */}
+      {mobileCartOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex flex-col">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setMobileCartOpen(false)} />
+          <div className="relative mt-auto bg-background rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col z-10">
+            <div className="flex items-center justify-between p-3 border-b">
+              <h2 className="text-lg font-bold">Cart ({items.reduce((c, i) => c + i.quantity, 0)})</h2>
+              <button onClick={() => setMobileCartOpen(false)} className="p-2 rounded-md hover:bg-accent">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <CartPanel
+                linkedCustomer={linkedCustomer}
+                onCustomerChange={setLinkedCustomer}
+                lastReceipt={lastReceipt}
+                onPrintReceipt={handlePrintReceipt}
+                onShowHeldSales={() => setShowHeldSalesModal(true)}
+                onShowRefund={() => setShowRefundModal(true)}
+                onCheckout={() => { if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); setMobileCartOpen(false); } }}
+                onHoldSale={() => { handleHoldSale(); setMobileCartOpen(false); }}
+                saleRefreshTrigger={saleRefreshTrigger}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile floating cart button */}
+      {!mobileCartOpen && (
+        <button
+          onClick={() => setMobileCartOpen(true)}
+          className="md:hidden fixed bottom-4 right-4 z-40 bg-primary text-primary-foreground rounded-full p-4 shadow-lg hover:bg-primary/90 transition-colors"
+        >
+          <ShoppingCart className="h-6 w-6" />
+          {items.length > 0 && (
+            <span className="absolute -top-1 -right-1 bg-destructive text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
+              {items.reduce((c, i) => c + i.quantity, 0)}
+            </span>
+          )}
+        </button>
+      )}
 
       {/* Modals */}
       <EnhancedPaymentModal
@@ -329,6 +378,7 @@ export const POS: React.FC = () => {
         total={getTotal()}
         onComplete={handlePaymentComplete}
         isProcessing={isProcessing}
+        initialPaymentMethod={initialPaymentMethod}
       />
 
       <HeldSalesModal

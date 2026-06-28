@@ -61,7 +61,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   const isManagerOrAdmin = user?.role === 'ADMIN' || user?.role === 'MANAGER';
 
   return (
-    <div className="w-96 bg-card border-l border-border flex flex-col">
+    <div className="w-full md:w-80 lg:w-96 bg-card md:border-l border-border flex flex-col">
       {/* Cart header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-2">

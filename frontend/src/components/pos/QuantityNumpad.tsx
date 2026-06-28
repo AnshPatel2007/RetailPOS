@@ -62,8 +62,8 @@ export const QuantityNumpad: React.FC<QuantityNumpadProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center"
       onClick={(e) => { if (e.target === overlayRef.current) onCancel(); }}
     >
-      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
-      <div className="relative bg-card border border-border rounded-xl shadow-2xl p-4 w-64 z-10">
+      <div className="absolute inset-0 bg-black/60" onClick={onCancel} />
+      <div className="relative bg-background border-2 border-border rounded-xl shadow-2xl p-5 w-72 z-10">
         <p className="text-sm font-medium text-center mb-1 truncate text-foreground">{productName}</p>
         {maxQty !== undefined && (
           <p className="text-xs text-center text-muted-foreground mb-2">{maxQty} in stock</p>

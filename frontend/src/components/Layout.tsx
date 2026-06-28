@@ -318,7 +318,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Mobile overlay */}
       {isMobileMenuOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-40 bg-black/50"
+          className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
@@ -326,13 +326,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Sidebar — mobile drawer */}
       <aside
         className={cn(
-          'lg:hidden fixed inset-y-0 left-0 z-50 w-64 bg-card border-r border-border flex flex-col transition-transform duration-300',
+          'lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-background border-r border-border flex flex-col transition-transform duration-300 shadow-2xl',
           isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         <button
           onClick={() => setMobileMenuOpen(false)}
-          className="absolute top-4 right-4 p-1 rounded hover:bg-accent"
+          className="absolute top-4 right-4 p-1.5 rounded-md hover:bg-accent bg-muted"
         >
           <X className="h-5 w-5" />
         </button>

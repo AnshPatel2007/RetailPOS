@@ -70,7 +70,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
   const isOutOfStock = (product: Product) => product.trackInventory && product.stockQuantity <= 0;
 
   return (
-    <div className="flex-1 flex flex-col bg-background">
+    <div className="flex-1 flex flex-col bg-background min-h-0">
       {/* Search bar */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center gap-2">

@@ -687,7 +687,7 @@ export const Financial: React.FC = () => {
             <div className="space-y-6">
               {/* Budget Summary */}
               {budgetSummary && (
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                   <Card className="p-4">
                     <p className="text-sm text-muted-foreground">Total Budgeted</p>
                     <p className="text-2xl font-bold">{formatCurrency(budgetSummary.totals.budgeted)}</p>

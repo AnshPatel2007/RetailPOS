@@ -908,7 +908,7 @@ export const Reports: React.FC = () => {
                 <div className="space-y-4">
                   <div>
                     <p className="text-sm text-muted-foreground mb-2">Average Order Value</p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div className="text-center p-2 bg-muted rounded">
                         <p className="text-xs text-muted-foreground">Today</p>
                         <p className="font-medium">{formatCurrency(overallData.averageOrderValue?.today || 0)}</p>

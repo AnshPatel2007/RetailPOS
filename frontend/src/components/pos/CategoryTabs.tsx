@@ -16,11 +16,11 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({ categories, selected
   if (categories.length === 0) return null;
 
   return (
-    <div className="px-4 pb-2 border-b border-border">
+    <div className="px-4 py-3 border-b border-border">
       <div className="flex gap-2 overflow-x-auto no-scrollbar">
         <button
           onClick={() => onSelect(null)}
-          className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+          className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
             selectedId === null
               ? 'bg-primary text-primary-foreground'
               : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -32,7 +32,7 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({ categories, selected
           <button
             key={cat.id}
             onClick={() => onSelect(cat.id)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors flex items-center gap-1.5 ${
+            className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors flex items-center gap-1.5 ${
               selectedId === cat.id
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'

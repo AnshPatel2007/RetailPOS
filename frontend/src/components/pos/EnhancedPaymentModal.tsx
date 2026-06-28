@@ -27,6 +27,7 @@ interface EnhancedPaymentModalProps {
   total: number;
   onComplete: (payments: Payment[], totalPaid: number) => Promise<void>;
   isProcessing: boolean;
+  initialPaymentMethod?: PaymentMethod;
 }
 
 const QUICK_AMOUNTS = [5, 10, 20, 50, 100];
@@ -37,6 +38,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   total,
   onComplete,
   isProcessing,
+  initialPaymentMethod,
 }) => {
   const [activeTab, setActiveTab] = useState<'single' | 'split'>('single');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
@@ -47,11 +49,11 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setActiveTab('single');
-      setPaymentMethod('CASH');
+      setPaymentMethod(initialPaymentMethod || 'CASH');
       setAmountInput(total.toFixed(2));
       setPayments([]);
     }
-  }, [isOpen, total]);
+  }, [isOpen, total, initialPaymentMethod]);
 
   const getTotalPaid = () => payments.reduce((sum, p) => sum + p.amount, 0);
   const getRemainingBalance = () => Math.max(0, total - getTotalPaid());
@@ -141,7 +143,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
         </div>
 
         {/* Payment Summary */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Card className="p-3 text-center">
             <p className="text-xs text-muted-foreground mb-1">Total</p>
             <p className="text-lg font-bold">{formatCurrency(total)}</p>
@@ -270,16 +272,10 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    setPayments([...payments, {
-                      paymentMethod,
-                      amount: getRemainingBalance(),
-                    }]);
-                    setAmountInput('');
-                  }}
+                  onClick={() => setAmountInput(getRemainingBalance().toFixed(2))}
                   className="flex-1 min-w-[80px]"
                 >
-                  Full Balance
+                  Exact ({formatCurrency(getRemainingBalance())})
                 </Button>
               )}
             </div>

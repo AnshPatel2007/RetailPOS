@@ -739,7 +739,7 @@ export const Suppliers: React.FC = () => {
             </div>
             <div className="border-t pt-6">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Business Terms</h3>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1"><Clock className="w-3 h-3 inline mr-1" />Lead Time (days)</label>
                   <Input type="number" value={supplierForm.leadTimeDays} onChange={(e) => setSupplierForm({ ...supplierForm, leadTimeDays: e.target.value })} placeholder="e.g., 7" min="0" />

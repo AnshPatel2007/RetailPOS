@@ -256,7 +256,7 @@ export const Analytics: React.FC = () => {
 
       {/* Real-time Summary */}
       {realtimeData && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <Card className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -400,7 +400,7 @@ export const Analytics: React.FC = () => {
       {/* Comparison Analytics Tab */}
       {activeTab === 'overview' && comparisonData && (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Daily Comparison */}
             <Card className="p-6">
               <h3 className="text-lg font-semibold mb-4">Daily Performance</h3>
@@ -522,7 +522,7 @@ export const Analytics: React.FC = () => {
           </div>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Card className="p-4 border-l-4 border-l-green-500">
               <div className="flex items-center justify-between">
                 <div>
@@ -649,7 +649,7 @@ export const Analytics: React.FC = () => {
           </div>
 
           {/* Quadrant Cards */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card className="p-4 border-t-4 border-t-green-500">
               <div className="flex items-center gap-2 mb-2">
                 <Star className="w-5 h-5 text-green-500" />
@@ -804,7 +804,7 @@ export const Analytics: React.FC = () => {
           </div>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Forecast Total</p>
               <p className="text-2xl font-bold">{formatCurrency(forecastData.summary.totalForecastRevenue)}</p>
@@ -941,8 +941,8 @@ export const Analytics: React.FC = () => {
           </div>
 
           {/* Health Score */}
-          <div className="grid grid-cols-5 gap-4">
-            <Card className="p-4 col-span-1">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <Card className="p-4 col-span-2 sm:col-span-1">
               <div className="text-center">
                 <p className="text-sm text-muted-foreground mb-2">Overall Health</p>
                 <div className={`text-4xl font-bold ${
@@ -985,7 +985,7 @@ export const Analytics: React.FC = () => {
           </div>
 
           {/* Revenue Overview */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Today's Revenue</p>
               <p className="text-2xl font-bold">{formatCurrency(healthData.overview.todayRevenue)}</p>
@@ -1006,7 +1006,7 @@ export const Analytics: React.FC = () => {
           {/* Profitability */}
           <Card className="p-6">
             <h4 className="font-medium mb-4">Monthly P&L</h4>
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span>Gross Revenue</span>
@@ -1057,7 +1057,7 @@ export const Analytics: React.FC = () => {
           </Card>
 
           {/* KPIs and Cash Flow */}
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card className="p-6">
               <h4 className="font-medium mb-4">Inventory Health</h4>
               <div className="space-y-3">
@@ -1127,67 +1127,164 @@ export const Analytics: React.FC = () => {
               AI Inventory Predictions
             </h3>
             <p className="text-sm text-muted-foreground">
-              Auto-reorder suggestions and dead stock alerts
+              Smart reorder recommendations based on sales velocity, lead times, and stock levels
             </p>
           </div>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             <Card className="p-4 border-l-4 border-l-red-500">
               <p className="text-sm text-muted-foreground">Critical</p>
               <p className="text-2xl font-bold text-red-500">{inventoryPredictions.summary.critical}</p>
-              <p className="text-xs">Needs immediate action</p>
+              <p className="text-xs">Order immediately</p>
             </Card>
             <Card className="p-4 border-l-4 border-l-orange-500">
               <p className="text-sm text-muted-foreground">Needs Reorder</p>
               <p className="text-2xl font-bold text-orange-500">{inventoryPredictions.summary.needsReorder}</p>
-              <p className="text-xs">Order soon</p>
+              <p className="text-xs">Order within this week</p>
             </Card>
             <Card className="p-4 border-l-4 border-l-yellow-500">
               <p className="text-sm text-muted-foreground">Overstock</p>
               <p className="text-2xl font-bold text-yellow-500">{inventoryPredictions.summary.overstock}</p>
-              <p className="text-xs">Too much inventory</p>
+              <p className="text-xs">Stop buying, run promos</p>
             </Card>
-            <Card className="p-4 border-l-4 border-l-muted-foreground">
+            <Card className="p-4 border-l-4 border-l-red-500/50">
               <p className="text-sm text-muted-foreground">Dead Stock</p>
-              <p className="text-2xl font-bold">{inventoryPredictions.summary.deadStock}</p>
-              <p className="text-xs">No sales in 60d</p>
+              <p className="text-2xl font-bold text-red-500">{inventoryPredictions.summary.deadStock}</p>
+              <p className="text-xs">No sales in 60+ days</p>
             </Card>
             <Card className="p-4">
-              <p className="text-sm text-muted-foreground">Total Value</p>
+              <p className="text-sm text-muted-foreground">Inventory Value</p>
               <p className="text-2xl font-bold">{formatCurrency(inventoryPredictions.summary.totalInventoryValue)}</p>
-              <p className="text-xs">At cost</p>
+              <p className="text-xs">Total at cost</p>
             </Card>
           </div>
 
-          {/* Auto Order Suggestions */}
+          {/* AI Insights Summary */}
+          {(() => {
+            const deadStockValue = inventoryPredictions.deadStock.reduce((sum: number, d: any) => sum + d.value, 0);
+            const overstockItems = inventoryPredictions.predictions.filter((p: any) => p.status === 'overstock');
+            const overstockValue = overstockItems.reduce((sum: number, p: any) => sum + p.totalValue, 0);
+            const criticalItems = inventoryPredictions.predictions.filter((p: any) => p.status === 'critical');
+            const reorderCost = inventoryPredictions.autoOrderSuggestions.reduce((sum: number, s: any) => sum + s.estimatedCost, 0);
+            const fastMovers = inventoryPredictions.predictions.filter((p: any) => p.dailyVelocity >= 1).sort((a: any, b: any) => b.dailyVelocity - a.dailyVelocity);
+            const insights: string[] = [];
+
+            if (deadStockValue > 0) insights.push(`${formatCurrency(deadStockValue)} tied up in dead stock — consider clearance sales or discontinuing these products`);
+            if (overstockValue > 0) insights.push(`${formatCurrency(overstockValue)} in overstock across ${overstockItems.length} products — stop purchasing these until stock depletes`);
+            if (criticalItems.length > 0) insights.push(`${criticalItems.length} products will run out before next delivery — place orders today`);
+            if (reorderCost > 0) insights.push(`Estimated ${formatCurrency(reorderCost)} needed to restock critical and low-stock items`);
+            if (fastMovers.length > 0) insights.push(`Top seller: ${fastMovers[0].name} at ${fastMovers[0].dailyVelocity} units/day — ensure consistent supply`);
+
+            return insights.length > 0 ? (
+              <Card className="p-4 bg-purple-500/5 border-purple-500/20">
+                <h4 className="font-medium mb-2 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-500" />
+                  AI Recommendations
+                </h4>
+                <ul className="space-y-1.5 text-sm">
+                  {insights.map((insight, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <Brain className="w-4 h-4 text-purple-500 mt-0.5 shrink-0" />
+                      {insight}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            ) : null;
+          })()}
+
+          {/* Buy More - Auto Order Suggestions */}
           {inventoryPredictions.autoOrderSuggestions.length > 0 && (
-            <Card className="p-6">
-              <h4 className="font-medium mb-4 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-yellow-500" />
-                Auto-Order Suggestions
+            <Card className="p-6 border-green-500/20">
+              <h4 className="font-medium mb-1 flex items-center gap-2 text-green-500">
+                <ArrowUpRight className="w-5 h-5" />
+                Buy More — Restock These Products
               </h4>
+              <p className="text-sm text-muted-foreground mb-4">
+                These products are selling fast and need restocking based on velocity and lead time
+              </p>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Product</TableHead>
-                    <TableHead>Qty to Order</TableHead>
+                    <TableHead>Current Stock</TableHead>
+                    <TableHead>Recommended Order</TableHead>
                     <TableHead>Supplier</TableHead>
                     <TableHead>Est. Cost</TableHead>
                     <TableHead>Urgency</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {inventoryPredictions.autoOrderSuggestions.map((item: any) => (
-                    <TableRow key={item.productId}>
-                      <TableCell className="font-medium">{item.productName}</TableCell>
-                      <TableCell>{item.quantity} units</TableCell>
-                      <TableCell>{item.supplier}</TableCell>
-                      <TableCell>{formatCurrency(item.estimatedCost)}</TableCell>
+                  {inventoryPredictions.autoOrderSuggestions.map((item: any) => {
+                    const prediction = inventoryPredictions.predictions.find((p: any) => p.id === item.productId);
+                    return (
+                      <TableRow key={item.productId}>
+                        <TableCell className="font-medium">{item.productName}</TableCell>
+                        <TableCell>{prediction?.currentStock ?? '—'} units</TableCell>
+                        <TableCell className="font-bold text-green-500">{item.quantity} units</TableCell>
+                        <TableCell>{item.supplier}</TableCell>
+                        <TableCell>{formatCurrency(item.estimatedCost)}</TableCell>
+                        <TableCell>
+                          <Badge variant={item.urgency === 'critical' ? 'destructive' : 'warning'}>
+                            {item.urgency === 'critical' ? 'Order Now' : 'Order Soon'}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+
+          {/* Stop Buying - Overstock & Dead Stock */}
+          {(inventoryPredictions.predictions.filter((p: any) => p.status === 'overstock').length > 0 || inventoryPredictions.deadStock.length > 0) && (
+            <Card className="p-6 border-red-500/20">
+              <h4 className="font-medium mb-1 flex items-center gap-2 text-red-500">
+                <ArrowDownRight className="w-5 h-5" />
+                Stop Buying — Reduce These Products
+              </h4>
+              <p className="text-sm text-muted-foreground mb-4">
+                These products are not selling well enough to justify current stock levels
+              </p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Stock</TableHead>
+                    <TableHead>Sales/Day</TableHead>
+                    <TableHead>Days to Sell</TableHead>
+                    <TableHead>Capital Tied Up</TableHead>
+                    <TableHead>Recommendation</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {[
+                    ...inventoryPredictions.deadStock.map((d: any) => ({
+                      ...d,
+                      status: 'dead',
+                      dailyVelocity: 0,
+                      daysOfStock: 999,
+                      totalValue: d.value,
+                      action: 'Clearance sale or discontinue — no sales in 60+ days',
+                    })),
+                    ...inventoryPredictions.predictions.filter((p: any) => p.status === 'overstock'),
+                  ].map((item: any) => (
+                    <TableRow key={item.id}>
                       <TableCell>
-                        <Badge variant={item.urgency === 'critical' ? 'destructive' : 'warning'}>
-                          {item.urgency}
+                        <Badge variant={item.status === 'dead' ? 'destructive' : 'warning'}>
+                          {item.status === 'dead' ? 'Dead Stock' : 'Overstock'}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell>{item.stock ?? item.currentStock} units</TableCell>
+                      <TableCell>{item.dailyVelocity?.toFixed(1) ?? '0'} /day</TableCell>
+                      <TableCell>{item.daysOfStock === 999 ? 'Never' : `${item.daysOfStock} days`}</TableCell>
+                      <TableCell className="font-medium text-red-500">{formatCurrency(item.totalValue ?? item.value)}</TableCell>
+                      <TableCell className="text-sm max-w-xs">
+                        {item.action}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1196,10 +1293,11 @@ export const Analytics: React.FC = () => {
             </Card>
           )}
 
-          {/* Predictions Table */}
+          {/* All Predictions Table */}
           <Card>
             <div className="p-4 border-b">
-              <h4 className="font-medium">All Inventory Predictions</h4>
+              <h4 className="font-medium">Complete Inventory Analysis</h4>
+              <p className="text-sm text-muted-foreground">All products sorted by urgency</p>
             </div>
             <Table>
               <TableHeader>
@@ -1207,8 +1305,9 @@ export const Analytics: React.FC = () => {
                   <TableHead>Status</TableHead>
                   <TableHead>Product</TableHead>
                   <TableHead>Stock</TableHead>
-                  <TableHead>Daily Velocity</TableHead>
+                  <TableHead>Velocity</TableHead>
                   <TableHead>Days Left</TableHead>
+                  <TableHead>Reorder Point</TableHead>
                   <TableHead>Action</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1226,12 +1325,15 @@ export const Analytics: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <p className="font-medium">{item.name}</p>
-                      <p className="text-xs text-muted-foreground">{item.sku}</p>
+                      <p className="text-xs text-muted-foreground">{item.sku} · {item.category}</p>
                     </TableCell>
                     <TableCell>{item.currentStock}</TableCell>
                     <TableCell>{item.dailyVelocity.toFixed(1)} /day</TableCell>
-                    <TableCell>{item.daysOfStock === 999 ? '∞' : item.daysOfStock}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
+                    <TableCell className={item.daysOfStock <= 7 ? 'text-red-500 font-bold' : ''}>
+                      {item.daysOfStock === 999 ? '∞' : `${item.daysOfStock}d`}
+                    </TableCell>
+                    <TableCell>{item.reorderPoint}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-xs">
                       {item.action}
                     </TableCell>
                   </TableRow>
@@ -1239,27 +1341,6 @@ export const Analytics: React.FC = () => {
               </TableBody>
             </Table>
           </Card>
-
-          {/* Dead Stock */}
-          {inventoryPredictions.deadStock.length > 0 && (
-            <Card className="p-6">
-              <h4 className="font-medium mb-4 text-red-500">Dead Stock Alert</h4>
-              <p className="text-sm text-muted-foreground mb-4">
-                These products haven't sold in 60+ days. Consider markdowns or discontinuation.
-              </p>
-              <div className="grid grid-cols-2 gap-4">
-                {inventoryPredictions.deadStock.map((item: any) => (
-                  <div key={item.id} className="flex justify-between items-center p-3 bg-muted rounded">
-                    <div>
-                      <p className="font-medium">{item.name}</p>
-                      <p className="text-xs text-muted-foreground">{item.stock} units</p>
-                    </div>
-                    <p className="font-medium">{formatCurrency(item.value)}</p>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
         </div>
       )}
 
@@ -1277,7 +1358,7 @@ export const Analytics: React.FC = () => {
           </div>
 
           {/* Summary */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Daily Anomalies</p>
               <p className="text-2xl font-bold">{anomaliesData.summary.dailyAnomalies}</p>
@@ -1401,7 +1482,7 @@ export const Analytics: React.FC = () => {
           </div>
 
           {/* Summary */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Bundles Found</p>
               <p className="text-2xl font-bold">{bundlesData.summary.totalBundlesFound}</p>
@@ -1432,7 +1513,7 @@ export const Analytics: React.FC = () => {
           )}
 
           {/* Bundle Cards */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {bundlesData.recommendations.map((bundle: any, i: number) => (
               <Card key={i} className="p-4">
                 <div className="flex justify-between items-start mb-3">
@@ -1504,7 +1585,7 @@ export const Analytics: React.FC = () => {
           </div>
 
           {/* Team Stats */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Total Revenue</p>
               <p className="text-2xl font-bold">{formatCurrency(employeeData.teamStats.totalRevenue)}</p>
@@ -1619,7 +1700,7 @@ export const Analytics: React.FC = () => {
           {/* Input Controls */}
           <Card className="p-6">
             <h4 className="font-medium mb-4">Adjust Parameters</h4>
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
                 <label className="text-sm font-medium">Price Change (%)</label>
                 <input
@@ -1687,7 +1768,7 @@ export const Analytics: React.FC = () => {
               {/* Comparison Table */}
               <Card className="p-6">
                 <h4 className="font-medium mb-4">Projected Impact</h4>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground mb-2">Current</p>
                     <div className="space-y-2">
