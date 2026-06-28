@@ -234,7 +234,23 @@ async function main() {
     ],
   });
 
-  console.log('✅ Created', products.count, 'products');
+  // Create MISC product for ad-hoc charges
+  await prisma.product.create({
+    data: {
+      sku: 'MISC-001',
+      name: 'Misc Item',
+      description: 'Miscellaneous / ad-hoc item',
+      cost: 0,
+      price: 0,
+      stockQuantity: 0,
+      lowStockAlert: 0,
+      trackInventory: false,
+      isTaxable: true,
+      locationId: location.id,
+    },
+  });
+
+  console.log('✅ Created', products.count + 1, 'products (including MISC)');
 
   // Create customers
   await prisma.customer.create({

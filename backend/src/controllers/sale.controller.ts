@@ -62,22 +62,51 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
   let totalTax = 0;
   let totalDiscount = 0;
 
-  // Batch-fetch all products at once (avoids N+1 queries)
-  const productIds = items.map((item: any) => item.productId);
+  // Separate misc items (no real productId) from regular items
+  const regularItems = items.filter((item: any) => item.productId && !item.productId.startsWith('misc-'));
+  const miscItems = items.filter((item: any) => !item.productId || item.productId.startsWith('misc-'));
+
+  // Batch-fetch all real products at once (avoids N+1 queries)
+  const productIds = regularItems.map((item: any) => item.productId);
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
   });
   const productMap = new Map(products.map(p => [p.id, p]));
 
+  // Find or create a MISC product for ad-hoc items
+  let miscProduct: any = null;
+  if (miscItems.length > 0) {
+    miscProduct = await prisma.product.findFirst({
+      where: { sku: 'MISC-001' },
+    });
+    if (!miscProduct) {
+      miscProduct = await prisma.product.create({
+        data: {
+          sku: 'MISC-001',
+          name: 'Misc Item',
+          description: 'Miscellaneous / ad-hoc item',
+          cost: 0,
+          price: 0,
+          stockQuantity: 0,
+          lowStockAlert: 0,
+          trackInventory: false,
+          isTaxable: true,
+          locationId: req.user!.locationId,
+        },
+      });
+    }
+  }
+
   // Validate and calculate
   const itemsWithDetails = items.map((item: any) => {
-    const product = productMap.get(item.productId);
+    const isMisc = !item.productId || item.productId.startsWith('misc-');
+    const product = isMisc ? miscProduct : productMap.get(item.productId);
 
     if (!product) {
       throw new AppError(`Product not found: ${item.productId}`, 404);
     }
 
-    if (product.trackInventory && product.stockQuantity < item.quantity) {
+    if (!isMisc && product.trackInventory && product.stockQuantity < item.quantity) {
       throw new AppError(`Insufficient stock for ${product.name}`, 400);
     }
 
@@ -96,8 +125,8 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
     return {
       productId: product.id,
-      sku: product.sku,
-      productName: product.name,
+      sku: isMisc ? 'MISC' : product.sku,
+      productName: isMisc ? (item.name || 'Misc Item') : product.name,
       quantity: item.quantity,
       price: item.price,
       discount: itemDiscount,
@@ -159,8 +188,8 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       },
     });
 
-    // Update inventory
-    for (const item of items) {
+    // Update inventory (skip misc items)
+    for (const item of regularItems) {
       const product = await tx.product.findUnique({
         where: { id: item.productId },
       });

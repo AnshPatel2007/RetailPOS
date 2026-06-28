@@ -255,6 +255,7 @@ export const POS: React.FC = () => {
           price: item.product.price,
           discount: item.discount,
           notes: item.notes,
+          ...(item.product.id.startsWith('misc-') ? { name: item.product.name } : {}),
         })),
         paymentMethod: primaryPayment.paymentMethod,
         amountPaid: totalPaid,
