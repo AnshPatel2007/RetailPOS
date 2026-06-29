@@ -539,54 +539,160 @@ export const exportExpensesPDF = asyncHandler(async (req: AuthRequest, res: Resp
 
   // Calculate summary
   const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const avgExpense = expenses.length > 0 ? totalExpenses / expenses.length : 0;
+
   const byStatus = expenses.reduce((acc: any, exp) => {
-    acc[exp.status] = (acc[exp.status] || 0) + exp.amount;
+    if (!acc[exp.status]) acc[exp.status] = { count: 0, total: 0 };
+    acc[exp.status].count++;
+    acc[exp.status].total += exp.amount;
     return acc;
   }, {});
 
-  // Create PDF
-  const doc = new PDFDocument({ margin: 50 });
+  const byCategory = expenses.reduce((acc: any, exp) => {
+    if (!acc[exp.category]) acc[exp.category] = { count: 0, total: 0 };
+    acc[exp.category].count++;
+    acc[exp.category].total += exp.amount;
+    return acc;
+  }, {});
+
+  // PDF helpers (same as report controller)
+  const PRIMARY = '#2563eb';
+  const DARK = '#1e293b';
+  const MUTED = '#64748b';
+  const BG = '#f8fafc';
+
+  const doc = new PDFDocument({ margin: 50, bufferPages: true });
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename=expense-report.pdf');
-
   doc.pipe(res);
 
-  // Header
-  doc.fontSize(20).text('Expense Report', { align: 'center' });
-  doc.moveDown();
-  doc.fontSize(10).text(`Generated: ${new Date().toLocaleDateString()}`, { align: 'center' });
+  // Header banner
+  doc.rect(0, 0, doc.page.width, 80).fill(PRIMARY);
+  doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold')
+    .text('Expense Report', 50, 25);
+  doc.fontSize(10).font('Helvetica').text('POS System', 50, 52);
+  doc.fontSize(9).text(`Generated: ${new Date().toLocaleString()}`, doc.page.width - 250, 30, { width: 200, align: 'right' });
   if (startDate || endDate) {
-    const dateRange = `${startDate || 'All'} to ${endDate || 'All'}`;
-    doc.text(`Period: ${dateRange}`, { align: 'center' });
+    doc.text(`Period: ${startDate || 'All'} to ${endDate || 'All'}`, doc.page.width - 250, 45, { width: 200, align: 'right' });
   }
-  doc.moveDown(2);
+  doc.fillColor(DARK);
+  doc.y = 100;
 
-  // Summary
-  doc.fontSize(14).text('Summary', { underline: true });
-  doc.moveDown(0.5);
-  doc.fontSize(10).text(`Total Expenses: $${totalExpenses.toFixed(2)}`);
-  doc.text(`Number of Expenses: ${expenses.length}`);
-  Object.keys(byStatus).forEach((status) => {
-    doc.text(`${status}: $${byStatus[status].toFixed(2)}`);
+  // Summary boxes
+  const summaryItems = [
+    { label: 'TOTAL EXPENSES', value: `$${totalExpenses.toFixed(2)}` },
+    { label: 'NUMBER OF EXPENSES', value: expenses.length.toString() },
+    { label: 'AVERAGE EXPENSE', value: `$${avgExpense.toFixed(2)}` },
+  ];
+  const boxW = (doc.page.width - 100) / 3;
+  const sy = doc.y;
+  doc.rect(50, sy, doc.page.width - 100, 50).fill(BG).stroke('#e2e8f0');
+  summaryItems.forEach((item, i) => {
+    const x = 50 + i * boxW + 15;
+    doc.fillColor(MUTED).fontSize(8).font('Helvetica').text(item.label, x, sy + 10);
+    doc.fillColor(DARK).fontSize(13).font('Helvetica-Bold').text(item.value, x, sy + 22);
   });
-  doc.moveDown(2);
+  doc.fillColor(DARK);
+  doc.y = sy + 65;
 
-  // Expense Details
-  doc.fontSize(14).text('Expense Details', { underline: true });
+  // By Status
+  doc.fillColor(PRIMARY).fontSize(12).font('Helvetica-Bold').text('Expenses by Status');
+  doc.moveTo(50, doc.y + 2).lineTo(doc.page.width - 50, doc.y + 2).strokeColor(PRIMARY).lineWidth(1.5).stroke();
   doc.moveDown(0.5);
 
-  expenses.forEach((exp, index) => {
-    if (index > 0) doc.moveDown(1);
+  const statusHeader = [
+    { label: 'STATUS', x: 60, width: 120 },
+    { label: 'COUNT', x: 200, width: 80, align: 'right' },
+    { label: 'AMOUNT', x: 300, width: 100, align: 'right' },
+    { label: '% OF TOTAL', x: 420, width: 80, align: 'right' },
+  ];
+  let ty = doc.y;
+  doc.rect(50, ty, doc.page.width - 100, 18).fill('#eef2ff');
+  doc.fillColor(DARK).fontSize(8).font('Helvetica-Bold');
+  statusHeader.forEach(c => doc.text(c.label, c.x, ty + 5, { width: c.width, align: (c.align as any) || 'left' }));
+  doc.font('Helvetica');
+  doc.y = ty + 20;
 
-    doc.fontSize(10);
-    doc.text(`${exp.expenseNumber} - ${exp.expenseDate.toLocaleDateString()}`, { continued: true });
-    doc.text(` - $${exp.amount.toFixed(2)}`, { align: 'right' });
-    doc.fontSize(9);
-    doc.text(`Category: ${exp.category} | Status: ${exp.status}`);
-    doc.text(`Description: ${exp.description}`);
-    if (exp.vendor) doc.text(`Vendor: ${exp.vendor}`);
+  Object.entries(byStatus).forEach(([s, d]: [string, any], i) => {
+    const ry = doc.y;
+    if (i % 2 === 0) doc.rect(50, ry - 1, doc.page.width - 100, 15).fill(BG);
+    doc.fillColor(DARK).fontSize(8);
+    doc.text(s, 60, ry + 2, { width: 120 });
+    doc.text(d.count.toString(), 200, ry + 2, { width: 80, align: 'right' });
+    doc.text(`$${d.total.toFixed(2)}`, 300, ry + 2, { width: 100, align: 'right' });
+    doc.text(`${(d.total / totalExpenses * 100).toFixed(1)}%`, 420, ry + 2, { width: 80, align: 'right' });
+    doc.y = ry + 15;
   });
+
+  // By Category
+  doc.moveDown(1);
+  doc.fillColor(PRIMARY).fontSize(12).font('Helvetica-Bold').text('Expenses by Category');
+  doc.moveTo(50, doc.y + 2).lineTo(doc.page.width - 50, doc.y + 2).strokeColor(PRIMARY).lineWidth(1.5).stroke();
+  doc.moveDown(0.5);
+
+  ty = doc.y;
+  doc.rect(50, ty, doc.page.width - 100, 18).fill('#eef2ff');
+  doc.fillColor(DARK).fontSize(8).font('Helvetica-Bold');
+  doc.text('CATEGORY', 60, ty + 5, { width: 150 });
+  doc.text('COUNT', 220, ty + 5, { width: 80, align: 'right' });
+  doc.text('AMOUNT', 320, ty + 5, { width: 100, align: 'right' });
+  doc.text('% OF TOTAL', 440, ty + 5, { width: 80, align: 'right' });
+  doc.font('Helvetica');
+  doc.y = ty + 20;
+
+  Object.entries(byCategory).sort((a: any, b: any) => b[1].total - a[1].total).forEach(([c, d]: [string, any], i) => {
+    const ry = doc.y;
+    if (i % 2 === 0) doc.rect(50, ry - 1, doc.page.width - 100, 15).fill(BG);
+    doc.fillColor(DARK).fontSize(8);
+    doc.text(c, 60, ry + 2, { width: 150 });
+    doc.text(d.count.toString(), 220, ry + 2, { width: 80, align: 'right' });
+    doc.text(`$${d.total.toFixed(2)}`, 320, ry + 2, { width: 100, align: 'right' });
+    doc.text(`${(d.total / totalExpenses * 100).toFixed(1)}%`, 440, ry + 2, { width: 80, align: 'right' });
+    doc.y = ry + 15;
+  });
+
+  // Expense details
+  doc.addPage();
+  doc.fillColor(PRIMARY).fontSize(12).font('Helvetica-Bold').text(`Expense Details (${expenses.length} records)`);
+  doc.moveTo(50, doc.y + 2).lineTo(doc.page.width - 50, doc.y + 2).strokeColor(PRIMARY).lineWidth(1.5).stroke();
+  doc.moveDown(0.5);
+
+  ty = doc.y;
+  doc.rect(50, ty, doc.page.width - 100, 18).fill('#eef2ff');
+  doc.fillColor(DARK).fontSize(7).font('Helvetica-Bold');
+  doc.text('EXP #', 50, ty + 5, { width: 65 });
+  doc.text('DATE', 115, ty + 5, { width: 55 });
+  doc.text('DESCRIPTION', 170, ty + 5, { width: 110 });
+  doc.text('CATEGORY', 280, ty + 5, { width: 65 });
+  doc.text('VENDOR', 345, ty + 5, { width: 70 });
+  doc.text('STATUS', 415, ty + 5, { width: 45 });
+  doc.text('AMOUNT', 460, ty + 5, { width: 85, align: 'right' });
+  doc.font('Helvetica');
+  doc.y = ty + 20;
+
+  expenses.forEach((exp, i) => {
+    if (doc.y > doc.page.height - 50) doc.addPage();
+    const ry = doc.y;
+    if (i % 2 === 0) doc.rect(50, ry - 1, doc.page.width - 100, 15).fill(BG);
+    doc.fillColor(DARK).fontSize(7);
+    doc.text(exp.expenseNumber, 50, ry + 2, { width: 65 });
+    doc.text(exp.expenseDate.toISOString().split('T')[0], 115, ry + 2, { width: 55 });
+    doc.text(exp.description.substring(0, 22), 170, ry + 2, { width: 110 });
+    doc.text(exp.category.substring(0, 12), 280, ry + 2, { width: 65 });
+    doc.text((exp.vendor || '-').substring(0, 12), 345, ry + 2, { width: 70 });
+    doc.text(exp.status, 415, ry + 2, { width: 45 });
+    doc.text(`$${exp.amount.toFixed(2)}`, 460, ry + 2, { width: 85, align: 'right' });
+    doc.y = ry + 15;
+  });
+
+  // Footer with page numbers
+  const pages = doc.bufferedPageRange();
+  for (let i = 0; i < pages.count; i++) {
+    doc.switchToPage(i);
+    doc.fillColor(MUTED).fontSize(7).font('Helvetica');
+    doc.text(`Page ${i + 1} of ${pages.count}`, 50, doc.page.height - 30, { align: 'center', width: doc.page.width - 100 });
+  }
 
   doc.end();
 });

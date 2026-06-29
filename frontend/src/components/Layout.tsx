@@ -235,17 +235,10 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         isSidebarCollapsed ? 'justify-center px-2' : 'justify-between px-6'
       )}>
         {isSidebarCollapsed ? (
-          <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-            <ShoppingCart className="h-5 w-5 text-primary-foreground" />
-          </div>
+          <span className="text-lg font-bold text-primary">P</span>
         ) : (
           <>
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center shrink-0">
-                <ShoppingCart className="h-5 w-5 text-primary-foreground" />
-              </div>
-              <h1 className="text-lg font-bold text-foreground whitespace-nowrap">RetailPOS</h1>
-            </div>
+            <h1 className="text-base font-bold text-primary whitespace-nowrap">POS System</h1>
             <div className="flex items-center gap-1 shrink-0">
               <OfflineIndicator variant="badge" showDetails />
               <button

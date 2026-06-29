@@ -76,7 +76,17 @@ export const Dashboard: React.FC = () => {
       ]);
       setMetrics(dashRes.data.data);
       const hourly = hourlyRes.data.data;
-      setHourlyData(hourly.hourlyData || []);
+      // Convert UTC hours from server to local timezone hours
+      const offsetHours = new Date().getTimezoneOffset() / -60;
+      const localHourly = (hourly.hourlyData || []).map((entry: HourlyEntry) => {
+        const localHour = ((entry.hour + offsetHours) % 24 + 24) % 24;
+        return {
+          ...entry,
+          hour: localHour,
+          label: `${localHour % 12 || 12}${localHour < 12 ? 'am' : 'pm'}`,
+        };
+      });
+      setHourlyData(localHourly);
       setTopProducts(hourly.topProducts || []);
       setActiveShifts(hourly.activeShifts || []);
       setLastUpdated(new Date());

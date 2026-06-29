@@ -724,19 +724,20 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
     select: { createdAt: true, total: true },
   });
 
-  // Bucket into hours
+  // Bucket into hours using UTC so the client can convert to local time
   const hourMap: Record<number, number> = {};
   for (let h = 0; h < 12; h++) {
     const hourStart = new Date(twelveHoursAgo.getTime() + h * 60 * 60 * 1000);
-    hourMap[hourStart.getHours()] = 0;
+    hourMap[hourStart.getUTCHours()] = 0;
   }
   hourlySales.forEach((sale) => {
-    const h = new Date(sale.createdAt).getHours();
+    const h = new Date(sale.createdAt).getUTCHours();
     hourMap[h] = (hourMap[h] || 0) + (sale.total || 0);
   });
 
   const hourlyData = Object.entries(hourMap).map(([hour, total]) => ({
     hour: parseInt(hour),
+    utcHour: parseInt(hour),
     label: `${parseInt(hour) % 12 || 12}${parseInt(hour) < 12 ? 'am' : 'pm'}`,
     total: Math.round(total * 100) / 100,
   }));
@@ -1317,6 +1318,97 @@ export const exportSalesCSV = asyncHandler(async (req: Request, res: Response) =
   res.send(csv);
 });
 
+// ─── PDF Helper Functions ───
+const PRIMARY_COLOR = '#2563eb';
+const DARK_COLOR = '#1e293b';
+const MUTED_COLOR = '#64748b';
+const BORDER_COLOR = '#e2e8f0';
+const BG_LIGHT = '#f8fafc';
+
+function drawPdfHeader(doc: any, title: string, subtitle?: string) {
+  // Blue banner
+  doc.rect(0, 0, doc.page.width, 80).fill(PRIMARY_COLOR);
+  doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold')
+    .text(title, 50, 25, { align: 'left' });
+  doc.fontSize(10).font('Helvetica')
+    .text('POS System', 50, 52, { align: 'left' });
+  doc.fontSize(9)
+    .text(`Generated: ${new Date().toLocaleString()}`, doc.page.width - 250, 30, { width: 200, align: 'right' });
+  if (subtitle) {
+    doc.text(subtitle, doc.page.width - 250, 45, { width: 200, align: 'right' });
+  }
+  doc.fillColor(DARK_COLOR);
+  doc.y = 100;
+}
+
+function drawSummaryBox(doc: any, items: { label: string; value: string }[], columns = 3) {
+  const startX = 50;
+  const boxWidth = (doc.page.width - 100) / columns;
+  const startY = doc.y;
+
+  doc.rect(startX, startY, doc.page.width - 100, 60).fill(BG_LIGHT).stroke(BORDER_COLOR);
+
+  items.forEach((item, i) => {
+    const col = i % columns;
+    const row = Math.floor(i / columns);
+    const x = startX + col * boxWidth + 15;
+    const y = startY + row * 30 + 10;
+
+    doc.fillColor(MUTED_COLOR).fontSize(8).font('Helvetica').text(item.label, x, y);
+    doc.fillColor(DARK_COLOR).fontSize(13).font('Helvetica-Bold').text(item.value, x, y + 11);
+  });
+
+  doc.fillColor(DARK_COLOR);
+  doc.y = startY + Math.ceil(items.length / columns) * 30 + 20;
+}
+
+function drawSectionTitle(doc: any, title: string) {
+  doc.moveDown(0.5);
+  doc.fillColor(PRIMARY_COLOR).fontSize(12).font('Helvetica-Bold').text(title);
+  doc.moveTo(50, doc.y + 2).lineTo(doc.page.width - 50, doc.y + 2).strokeColor(PRIMARY_COLOR).lineWidth(1.5).stroke();
+  doc.fillColor(DARK_COLOR).moveDown(0.5);
+}
+
+function drawTableHeader(doc: any, columns: { label: string; x: number; width: number; align?: string }[]) {
+  const y = doc.y;
+  doc.rect(50, y, doc.page.width - 100, 18).fill('#eef2ff');
+  doc.fillColor(DARK_COLOR).fontSize(8).font('Helvetica-Bold');
+  columns.forEach(col => {
+    doc.text(col.label, col.x, y + 5, { width: col.width, align: (col.align as any) || 'left' });
+  });
+  doc.fillColor(DARK_COLOR).font('Helvetica');
+  doc.y = y + 20;
+}
+
+function drawTableRow(doc: any, columns: { value: string; x: number; width: number; align?: string }[], index: number) {
+  const y = doc.y;
+  if (index % 2 === 0) {
+    doc.rect(50, y - 1, doc.page.width - 100, 15).fill(BG_LIGHT);
+  }
+  doc.fillColor(DARK_COLOR).fontSize(8).font('Helvetica');
+  columns.forEach(col => {
+    doc.text(col.value, col.x, y + 2, { width: col.width, align: (col.align as any) || 'left' });
+  });
+  doc.y = y + 15;
+}
+
+function checkPageBreak(doc: any, needed = 50) {
+  if (doc.y > doc.page.height - needed) {
+    doc.addPage();
+    return true;
+  }
+  return false;
+}
+
+function drawFooter(doc: any) {
+  const pages = doc.bufferedPageRange();
+  for (let i = 0; i < pages.count; i++) {
+    doc.switchToPage(i);
+    doc.fillColor(MUTED_COLOR).fontSize(7).font('Helvetica');
+    doc.text(`Page ${i + 1} of ${pages.count}`, 50, doc.page.height - 30, { align: 'center', width: doc.page.width - 100 });
+  }
+}
+
 /**
  * Export sales report to PDF
  * GET /api/reports/sales/export/pdf
@@ -1352,6 +1444,7 @@ export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) =
     include: {
       user: { select: { firstName: true, lastName: true } },
       customer: { select: { firstName: true, lastName: true } },
+      items: { include: { product: { select: { name: true, sku: true } } } },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -1361,16 +1454,28 @@ export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) =
   const totalTax = sales.reduce((sum, sale) => sum + sale.tax, 0);
   const totalDiscount = sales.reduce((sum, sale) => sum + sale.discount, 0);
   const avgOrderValue = sales.length > 0 ? totalSales / sales.length : 0;
+  const netRevenue = totalSales - totalTax - totalDiscount;
 
   // Payment method breakdown
   const paymentBreakdown = sales.reduce((acc: any, sale) => {
     const method = sale.paymentMethod;
-    acc[method] = (acc[method] || 0) + sale.total;
+    if (!acc[method]) acc[method] = { count: 0, total: 0 };
+    acc[method].count++;
+    acc[method].total += sale.total;
+    return acc;
+  }, {});
+
+  // Daily breakdown
+  const dailyBreakdown = sales.reduce((acc: any, sale) => {
+    const day = sale.createdAt.toISOString().split('T')[0];
+    if (!acc[day]) acc[day] = { count: 0, total: 0 };
+    acc[day].count++;
+    acc[day].total += sale.total;
     return acc;
   }, {});
 
   // Create PDF
-  const doc = new PDFDocument({ margin: 50 });
+  const doc = new PDFDocument({ margin: 50, bufferPages: true });
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename=sales-report.pdf');
@@ -1378,58 +1483,87 @@ export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) =
   doc.pipe(res);
 
   // Header
-  doc.fontSize(20).text('Sales Report', { align: 'center' });
-  doc.moveDown();
-  doc.fontSize(10).text(`Generated: ${new Date().toLocaleDateString()}`, { align: 'center' });
-  if (startDate || endDate) {
-    const dateRange = `${startDate || 'All'} to ${endDate || 'All'}`;
-    doc.text(`Period: ${dateRange}`, { align: 'center' });
-  }
-  doc.moveDown(2);
+  const period = (startDate || endDate) ? `${startDate || 'All'} to ${endDate || 'All'}` : 'All Time';
+  drawPdfHeader(doc, 'Sales Report', `Period: ${period}`);
 
-  // Summary
-  doc.fontSize(14).text('Summary', { underline: true });
-  doc.moveDown(0.5);
-  doc.fontSize(10).text(`Total Sales: $${totalSales.toFixed(2)}`);
-  doc.text(`Number of Transactions: ${sales.length}`);
-  doc.text(`Average Order Value: $${avgOrderValue.toFixed(2)}`);
-  doc.text(`Total Tax: $${totalTax.toFixed(2)}`);
-  doc.text(`Total Discount: $${totalDiscount.toFixed(2)}`);
-  doc.moveDown(1);
-  doc.text('Sales by Payment Method:', { underline: true });
-  Object.keys(paymentBreakdown).forEach((method) => {
-    doc.text(`  ${method}: $${paymentBreakdown[method].toFixed(2)}`);
-  });
-  doc.moveDown(2);
+  // Summary boxes
+  drawSummaryBox(doc, [
+    { label: 'TOTAL REVENUE', value: `$${totalSales.toFixed(2)}` },
+    { label: 'TRANSACTIONS', value: sales.length.toString() },
+    { label: 'AVG ORDER VALUE', value: `$${avgOrderValue.toFixed(2)}` },
+    { label: 'NET REVENUE', value: `$${netRevenue.toFixed(2)}` },
+    { label: 'TOTAL TAX', value: `$${totalTax.toFixed(2)}` },
+    { label: 'TOTAL DISCOUNT', value: `$${totalDiscount.toFixed(2)}` },
+  ]);
 
-  // Sales Details
-  doc.fontSize(14).text('Sales Details', { underline: true });
-  doc.moveDown(0.5);
-
-  sales.slice(0, 100).forEach((sale, index) => {
-    if (index > 0) doc.moveDown(1);
-
-    doc.fontSize(10).text(`${sale.saleNumber}`, { continued: true });
-    doc.text(` - ${sale.createdAt.toLocaleDateString()}`, { continued: true });
-    doc.text(` - $${sale.total.toFixed(2)}`);
-    doc.fontSize(9).text(`  Employee: ${sale.user ? `${sale.user.firstName} ${sale.user.lastName}` : 'N/A'}`);
-    doc.text(`  Customer: ${sale.customer ? `${sale.customer.firstName} ${sale.customer.lastName}` : 'Walk-in'}`);
-    doc.text(`  Payment: ${sale.paymentMethod}`);
-
-    // Add page break if needed
-    if (index % 15 === 14 && index < sales.length - 1) {
-      doc.addPage();
-    }
+  // Payment breakdown
+  drawSectionTitle(doc, 'Payment Method Breakdown');
+  const pmCols = [
+    { label: 'METHOD', x: 60, width: 150 },
+    { label: 'TRANSACTIONS', x: 220, width: 100, align: 'right' },
+    { label: 'AMOUNT', x: 340, width: 120, align: 'right' },
+    { label: '% OF TOTAL', x: 470, width: 80, align: 'right' },
+  ];
+  drawTableHeader(doc, pmCols);
+  Object.entries(paymentBreakdown).forEach(([method, data]: [string, any], i) => {
+    drawTableRow(doc, [
+      { value: method, x: 60, width: 150 },
+      { value: data.count.toString(), x: 220, width: 100, align: 'right' },
+      { value: `$${data.total.toFixed(2)}`, x: 340, width: 120, align: 'right' },
+      { value: `${(data.total / totalSales * 100).toFixed(1)}%`, x: 470, width: 80, align: 'right' },
+    ], i);
   });
 
-  if (sales.length > 100) {
-    doc.moveDown(2);
-    doc.fontSize(9).text(`Note: Showing first 100 of ${sales.length} sales. Export to CSV for complete data.`, {
-      align: 'center',
-      italics: true
+  // Daily summary
+  const dailyEntries = Object.entries(dailyBreakdown).sort();
+  if (dailyEntries.length > 1) {
+    doc.moveDown(1);
+    drawSectionTitle(doc, 'Daily Summary');
+    const dayCols = [
+      { label: 'DATE', x: 60, width: 150 },
+      { label: 'TRANSACTIONS', x: 220, width: 100, align: 'right' },
+      { label: 'REVENUE', x: 340, width: 120, align: 'right' },
+    ];
+    drawTableHeader(doc, dayCols);
+    dailyEntries.forEach(([day, data]: [string, any], i) => {
+      checkPageBreak(doc);
+      drawTableRow(doc, [
+        { value: day, x: 60, width: 150 },
+        { value: data.count.toString(), x: 220, width: 100, align: 'right' },
+        { value: `$${data.total.toFixed(2)}`, x: 340, width: 120, align: 'right' },
+      ], i);
     });
   }
 
+  // Transaction details
+  doc.addPage();
+  drawSectionTitle(doc, `Transaction Details (${sales.length} records)`);
+
+  const saleCols = [
+    { label: 'SALE #', x: 50, width: 75 },
+    { label: 'DATE', x: 125, width: 70 },
+    { label: 'CUSTOMER', x: 195, width: 90 },
+    { label: 'EMPLOYEE', x: 285, width: 80 },
+    { label: 'PAYMENT', x: 365, width: 55 },
+    { label: 'TAX', x: 420, width: 55, align: 'right' },
+    { label: 'TOTAL', x: 475, width: 70, align: 'right' },
+  ];
+  drawTableHeader(doc, saleCols);
+
+  sales.forEach((sale, i) => {
+    checkPageBreak(doc, 20);
+    drawTableRow(doc, [
+      { value: sale.saleNumber, x: 50, width: 75 },
+      { value: sale.createdAt.toISOString().split('T')[0], x: 125, width: 70 },
+      { value: sale.customer ? `${sale.customer.firstName} ${sale.customer.lastName}` : 'Walk-in', x: 195, width: 90 },
+      { value: sale.user ? `${sale.user.firstName} ${sale.user.lastName}` : 'N/A', x: 285, width: 80 },
+      { value: sale.paymentMethod, x: 365, width: 55 },
+      { value: `$${sale.tax.toFixed(2)}`, x: 420, width: 55, align: 'right' },
+      { value: `$${sale.total.toFixed(2)}`, x: 475, width: 70, align: 'right' },
+    ], i);
+  });
+
+  drawFooter(doc);
   doc.end();
 });
 
@@ -1520,94 +1654,91 @@ export const exportInventoryPDF = asyncHandler(async (req: Request, res: Respons
   }
 
   // Calculate summary
-  const totalInventoryValue = filteredProducts.reduce(
-    (sum, p) => sum + (p.cost * p.stockQuantity),
-    0
-  );
-  const totalRetailValue = filteredProducts.reduce(
-    (sum, p) => sum + (p.price * p.stockQuantity),
-    0
-  );
+  const totalInventoryValue = filteredProducts.reduce((sum, p) => sum + (p.cost * p.stockQuantity), 0);
+  const totalRetailValue = filteredProducts.reduce((sum, p) => sum + (p.price * p.stockQuantity), 0);
   const potentialProfit = totalRetailValue - totalInventoryValue;
-  const lowStockCount = filteredProducts.filter(
-    (p) => p.trackInventory && p.stockQuantity <= p.lowStockAlert
-  ).length;
+  const lowStockCount = filteredProducts.filter((p) => p.trackInventory && p.stockQuantity <= p.lowStockAlert).length;
+  const outOfStockCount = filteredProducts.filter((p) => p.trackInventory && p.stockQuantity === 0).length;
+  const margin = totalRetailValue > 0 ? ((potentialProfit / totalRetailValue) * 100) : 0;
 
   // Category breakdown
   const categoryBreakdown = filteredProducts.reduce((acc: any, product) => {
     const catName = product.category?.name || 'Uncategorized';
-    if (!acc[catName]) {
-      acc[catName] = { count: 0, value: 0 };
-    }
+    if (!acc[catName]) acc[catName] = { count: 0, costValue: 0, retailValue: 0, stock: 0 };
     acc[catName].count++;
-    acc[catName].value += product.cost * product.stockQuantity;
+    acc[catName].costValue += product.cost * product.stockQuantity;
+    acc[catName].retailValue += product.price * product.stockQuantity;
+    acc[catName].stock += product.stockQuantity;
     return acc;
   }, {});
 
-  // Create PDF
-  const doc = new PDFDocument({ margin: 50 });
+  const doc = new PDFDocument({ margin: 50, bufferPages: true });
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename=inventory-report.pdf');
-
   doc.pipe(res);
 
-  // Header
-  doc.fontSize(20).text('Inventory Report', { align: 'center' });
-  doc.moveDown();
-  doc.fontSize(10).text(`Generated: ${new Date().toLocaleDateString()}`, { align: 'center' });
-  doc.moveDown(2);
+  drawPdfHeader(doc, 'Inventory Report');
 
-  // Summary
-  doc.fontSize(14).text('Summary', { underline: true });
-  doc.moveDown(0.5);
-  doc.fontSize(10).text(`Total Products: ${filteredProducts.length}`);
-  doc.text(`Total Inventory Value: $${totalInventoryValue.toFixed(2)}`);
-  doc.text(`Total Retail Value: $${totalRetailValue.toFixed(2)}`);
-  doc.text(`Potential Profit: $${potentialProfit.toFixed(2)}`);
-  doc.text(`Low Stock Items: ${lowStockCount}`);
-  doc.moveDown(1);
-  doc.text('Inventory by Category:', { underline: true });
-  Object.keys(categoryBreakdown).forEach((category) => {
-    const data = categoryBreakdown[category];
-    doc.text(`  ${category}: ${data.count} items - $${data.value.toFixed(2)}`);
-  });
-  doc.moveDown(2);
+  drawSummaryBox(doc, [
+    { label: 'TOTAL PRODUCTS', value: filteredProducts.length.toString() },
+    { label: 'INVENTORY VALUE (COST)', value: `$${totalInventoryValue.toFixed(2)}` },
+    { label: 'RETAIL VALUE', value: `$${totalRetailValue.toFixed(2)}` },
+    { label: 'POTENTIAL PROFIT', value: `$${potentialProfit.toFixed(2)}` },
+    { label: 'PROFIT MARGIN', value: `${margin.toFixed(1)}%` },
+    { label: 'LOW / OUT OF STOCK', value: `${lowStockCount} / ${outOfStockCount}` },
+  ]);
 
-  // Product Details
-  doc.fontSize(14).text('Product Details', { underline: true });
-  doc.moveDown(0.5);
-
-  filteredProducts.slice(0, 80).forEach((product, index) => {
-    if (index > 0) doc.moveDown(0.8);
-
-    const inventoryValue = product.cost * product.stockQuantity;
-    const isLowStock = product.trackInventory && product.stockQuantity <= product.lowStockAlert;
-
-    doc.fontSize(10).text(`${product.sku} - ${product.name}`, { continued: true });
-    if (isLowStock) {
-      doc.fillColor('red').text(' [LOW STOCK]', { continued: false });
-      doc.fillColor('black');
-    } else {
-      doc.text('');
-    }
-
-    doc.fontSize(9).text(`  Category: ${product.category?.name || 'N/A'} | Stock: ${product.stockQuantity} | Price: $${product.price.toFixed(2)}`);
-    doc.text(`  Inventory Value: $${inventoryValue.toFixed(2)}`);
-
-    // Add page break if needed
-    if (index % 20 === 19 && index < filteredProducts.length - 1) {
-      doc.addPage();
-    }
+  // Category breakdown table
+  drawSectionTitle(doc, 'Inventory by Category');
+  const catCols = [
+    { label: 'CATEGORY', x: 50, width: 120 },
+    { label: 'PRODUCTS', x: 170, width: 60, align: 'right' },
+    { label: 'TOTAL STOCK', x: 230, width: 70, align: 'right' },
+    { label: 'COST VALUE', x: 310, width: 80, align: 'right' },
+    { label: 'RETAIL VALUE', x: 400, width: 80, align: 'right' },
+  ];
+  drawTableHeader(doc, catCols);
+  Object.entries(categoryBreakdown).forEach(([cat, data]: [string, any], i) => {
+    drawTableRow(doc, [
+      { value: cat, x: 50, width: 120 },
+      { value: data.count.toString(), x: 170, width: 60, align: 'right' },
+      { value: data.stock.toString(), x: 230, width: 70, align: 'right' },
+      { value: `$${data.costValue.toFixed(2)}`, x: 310, width: 80, align: 'right' },
+      { value: `$${data.retailValue.toFixed(2)}`, x: 400, width: 80, align: 'right' },
+    ], i);
   });
 
-  if (filteredProducts.length > 80) {
-    doc.moveDown(2);
-    doc.fontSize(9).text(`Note: Showing first 80 of ${filteredProducts.length} products. Export to CSV for complete data.`, {
-      align: 'center',
-      italics: true
-    });
-  }
+  // Product details
+  doc.addPage();
+  drawSectionTitle(doc, `Product Details (${filteredProducts.length} items)`);
 
+  const prodCols = [
+    { label: 'SKU', x: 50, width: 70 },
+    { label: 'PRODUCT', x: 120, width: 130 },
+    { label: 'CATEGORY', x: 250, width: 75 },
+    { label: 'STOCK', x: 325, width: 45, align: 'right' },
+    { label: 'COST', x: 370, width: 55, align: 'right' },
+    { label: 'PRICE', x: 425, width: 55, align: 'right' },
+    { label: 'VALUE', x: 480, width: 65, align: 'right' },
+  ];
+  drawTableHeader(doc, prodCols);
+
+  filteredProducts.forEach((product, i) => {
+    checkPageBreak(doc, 20);
+    const isLow = product.trackInventory && product.stockQuantity <= product.lowStockAlert;
+    const stockStr = isLow ? `${product.stockQuantity} !` : product.stockQuantity.toString();
+    drawTableRow(doc, [
+      { value: product.sku, x: 50, width: 70 },
+      { value: product.name.substring(0, 25), x: 120, width: 130 },
+      { value: (product.category?.name || 'N/A').substring(0, 15), x: 250, width: 75 },
+      { value: stockStr, x: 325, width: 45, align: 'right' },
+      { value: `$${product.cost.toFixed(2)}`, x: 370, width: 55, align: 'right' },
+      { value: `$${product.price.toFixed(2)}`, x: 425, width: 55, align: 'right' },
+      { value: `$${(product.cost * product.stockQuantity).toFixed(2)}`, x: 480, width: 65, align: 'right' },
+    ], i);
+  });
+
+  drawFooter(doc);
   doc.end();
 });

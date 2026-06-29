@@ -3,6 +3,7 @@ import { locationService } from '@/services/api';
 import { formatCurrency } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { ExportPreviewModal } from '@/components/reports/ExportPreviewModal';
 import {
   Table,
   TableHeader,
@@ -63,6 +64,7 @@ export const AdminReports: React.FC = () => {
   const [data, setData] = useState<CrossLocationData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [period, setPeriod] = useState(30);
+  const [showExportPreview, setShowExportPreview] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -173,7 +175,7 @@ export const AdminReports: React.FC = () => {
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
-          <Button onClick={exportToCSV}>
+          <Button onClick={() => setShowExportPreview(true)}>
             <Download className="h-4 w-4 mr-2" />
             Export
           </Button>
@@ -395,6 +397,24 @@ export const AdminReports: React.FC = () => {
           </TableBody>
         </Table>
       </Card>
+
+      {/* Export Preview Modal */}
+      {showExportPreview && data && (
+        <ExportPreviewModal
+          isOpen={showExportPreview}
+          onClose={() => setShowExportPreview(false)}
+          type="locations"
+          data={data.locations}
+          onExportCSV={async () => {
+            exportToCSV();
+            setShowExportPreview(false);
+          }}
+          onExportPDF={async () => {
+            exportToCSV();
+            setShowExportPreview(false);
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -14,10 +14,10 @@ import {
   Search,
   Filter,
   Eye,
-  ChevronDown,
   BarChart3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { ExportPreviewModal } from '@/components/reports/ExportPreviewModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
@@ -412,29 +412,12 @@ export const Financial: React.FC = () => {
                   <Plus className="h-4 w-4 mr-2" />
                   Add Expense
                 </Button>
-                <div className="relative">
-                  <Button variant="outline" onClick={() => setShowExportMenu(!showExportMenu)}>
+                {filteredExpenses.length > 0 && (
+                  <Button variant="outline" onClick={() => setShowExportMenu(true)}>
                     <Download className="h-4 w-4 mr-2" />
                     Export
-                    <ChevronDown className="h-4 w-4 ml-1" />
                   </Button>
-                  {showExportMenu && (
-                    <div className="absolute right-0 mt-2 w-48 bg-background border rounded-md shadow-lg z-10">
-                      <button
-                        onClick={() => handleExport('csv')}
-                        className="block w-full text-left px-4 py-2 hover:bg-accent"
-                      >
-                        Export as CSV
-                      </button>
-                      <button
-                        onClick={() => handleExport('pdf')}
-                        className="block w-full text-left px-4 py-2 hover:bg-accent"
-                      >
-                        Export as PDF
-                      </button>
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
 
               {/* Bulk Actions Toolbar */}
@@ -1095,6 +1078,24 @@ export const Financial: React.FC = () => {
         onSuccess={fetchData}
         recurringExpense={editingRecurring}
       />
+
+      {/* Export Preview Modal */}
+      {showExportMenu && (
+        <ExportPreviewModal
+          isOpen={showExportMenu}
+          onClose={() => setShowExportMenu(false)}
+          type="expenses"
+          data={filteredExpenses}
+          onExportCSV={async () => {
+            await handleExport('csv');
+            setShowExportMenu(false);
+          }}
+          onExportPDF={async () => {
+            await handleExport('pdf');
+            setShowExportMenu(false);
+          }}
+        />
+      )}
     </div>
   );
 };
