@@ -40,6 +40,7 @@ import {
   Target,
   Activity,
   ArrowRight,
+  Download,
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
 import type { SalesReportData, Sale } from '@/types';
@@ -50,7 +51,7 @@ import { InventoryFilters } from '@/components/reports/InventoryFilters';
 import { InventoryDetailsModal } from '@/components/reports/InventoryDetailsModal';
 import { InventoryBulkActions } from '@/components/reports/InventoryBulkActions';
 import { FilterDropdown } from '@/components/common/FilterDropdown';
-import { ExportMenu } from '@/components/reports/ExportMenu';
+import { ExportPreviewModal } from '@/components/reports/ExportPreviewModal';
 import { DataVisualizationCard } from '@/components/reports/DataVisualizationCard';
 
 export const Reports: React.FC = () => {
@@ -77,6 +78,9 @@ export const Reports: React.FC = () => {
     maxAmount: '',
     showCharts: false,
   });
+
+  // Export preview state
+  const [showExportPreview, setShowExportPreview] = useState<'sales' | 'inventory' | null>(null);
 
   // Inventory-specific state
   const [showProductDetails, setShowProductDetails] = useState(false);
@@ -405,17 +409,17 @@ export const Reports: React.FC = () => {
               Refresh
             </Button>
           )}
-          {activeTab === 'sales' && (
-            <ExportMenu
-              onExportCSV={() => handleSalesExport('csv')}
-              onExportPDF={() => handleSalesExport('pdf')}
-            />
+          {activeTab === 'sales' && filteredSales.length > 0 && (
+            <Button variant="outline" onClick={() => setShowExportPreview('sales')}>
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
           )}
-          {activeTab === 'inventory' && (
-            <ExportMenu
-              onExportCSV={() => handleInventoryExport('csv')}
-              onExportPDF={() => handleInventoryExport('pdf')}
-            />
+          {activeTab === 'inventory' && filteredProducts.length > 0 && (
+            <Button variant="outline" onClick={() => setShowExportPreview('inventory')}>
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
           )}
         </div>
       </div>
@@ -1493,6 +1497,26 @@ export const Reports: React.FC = () => {
         <div className="flex justify-center p-12">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
         </div>
+      )}
+
+      {/* Export Preview Modal */}
+      {showExportPreview && (
+        <ExportPreviewModal
+          isOpen={!!showExportPreview}
+          onClose={() => setShowExportPreview(null)}
+          type={showExportPreview}
+          data={showExportPreview === 'sales' ? filteredSales : filteredProducts}
+          onExportCSV={async () => {
+            if (showExportPreview === 'sales') await handleSalesExport('csv');
+            else await handleInventoryExport('csv');
+            setShowExportPreview(null);
+          }}
+          onExportPDF={async () => {
+            if (showExportPreview === 'sales') await handleSalesExport('pdf');
+            else await handleInventoryExport('pdf');
+            setShowExportPreview(null);
+          }}
+        />
       )}
     </div>
   );

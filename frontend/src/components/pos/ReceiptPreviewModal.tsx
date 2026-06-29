@@ -67,7 +67,7 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
 
           <div className="text-center text-[11px]">
             <div>Receipt #{receipt.saleNumber}</div>
-            <div>{new Date(receipt.date).toLocaleString()}</div>
+            <div>{receipt.date}</div>
             {receipt.employeeName && <div>Cashier: {receipt.employeeName}</div>}
           </div>
           <div className="border-t border-dashed border-gray-400 my-2" />

@@ -280,7 +280,7 @@ export const POS: React.FC = () => {
 
       const receipt: Receipt = {
         saleNumber,
-        date: new Date().toISOString(),
+        date: new Date().toLocaleString(),
         items: items.map(item => ({
           name: item.product.name,
           quantity: item.quantity,
