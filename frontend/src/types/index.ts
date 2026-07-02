@@ -70,6 +70,7 @@ export interface Customer {
   state: string | null;
   zipCode: string | null;
   loyaltyPoints: number;
+  loyaltyTier?: string;
   totalSpent: number;
   visitCount: number;
   lastVisitAt: string | null;

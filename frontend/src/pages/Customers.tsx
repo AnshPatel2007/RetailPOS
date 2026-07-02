@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { customerService, analyticsService } from '@/services/api';
 import { Customer } from '@/types';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -16,7 +16,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Plus, Search, Edit, Trash2, Users as UsersIcon, Star, BarChart3, PieChart } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Users as UsersIcon, Star, BarChart3, PieChart, Eye } from 'lucide-react';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 export const Customers: React.FC = () => {
@@ -24,12 +24,31 @@ export const Customers: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+
+  // Customer detail modal
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [customerHistory, setCustomerHistory] = useState<any[]>([]);
 
   // Customer insights data
   const [customerData, setCustomerData] = useState<any>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
+
+  // Debounce search
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    searchTimer.current = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(searchTimer.current);
+  }, [search]);
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -50,17 +69,19 @@ export const Customers: React.FC = () => {
     } else if (activeTab === 'insights' || activeTab === 'segments') {
       loadCustomerInsights();
     }
-  }, [search, activeTab]);
+  }, [debouncedSearch, page, activeTab]);
 
   const loadCustomers = async () => {
     setIsLoading(true);
     try {
       const response = await customerService.getAll({
-        search,
-        page: 1,
-        limit: 100,
+        search: debouncedSearch,
+        page,
+        limit: 20,
       });
       setCustomers(response.data.data);
+      setTotalPages(response.data.pagination?.totalPages || 1);
+      setTotal(response.data.pagination?.total || 0);
     } catch (error) {
       console.error('Failed to load customers:', error);
     } finally {
@@ -117,14 +138,28 @@ export const Customers: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this customer?')) return;
+    if (!confirm('Are you sure you want to delete this customer? This is a soft delete — the customer can be restored.')) return;
 
     try {
       await customerService.delete(id);
       loadCustomers();
       toast.success('Customer deleted');
-    } catch (error) {
-      toast.error('Failed to delete customer');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to delete customer');
+    }
+  };
+
+  const viewCustomerDetail = async (customer: Customer) => {
+    try {
+      const [detailRes, historyRes] = await Promise.all([
+        customerService.getById(customer.id),
+        customerService.getHistory(customer.id),
+      ]);
+      setSelectedCustomer(detailRes.data.data);
+      setCustomerHistory(historyRes.data.data || []);
+      setShowDetailModal(true);
+    } catch {
+      toast.error('Failed to load customer details');
     }
   };
 
@@ -239,7 +274,7 @@ export const Customers: React.FC = () => {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Contact</TableHead>
-                <TableHead>Loyalty Points</TableHead>
+                <TableHead>Loyalty</TableHead>
                 <TableHead>Total Spent</TableHead>
                 <TableHead>Visits</TableHead>
                 <TableHead>Last Visit</TableHead>
@@ -265,9 +300,19 @@ export const Customers: React.FC = () => {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center">
-                      <Star className="h-4 w-4 text-yellow-500 mr-1" />
-                      <span className="font-medium">{customer.loyaltyPoints}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center">
+                        <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                        <span className="font-medium">{customer.loyaltyPoints}</span>
+                      </div>
+                      {customer.loyaltyTier && (
+                        <Badge variant={
+                          customer.loyaltyTier === 'GOLD' ? 'warning' :
+                          customer.loyaltyTier === 'SILVER' ? 'secondary' : 'default'
+                        }>
+                          {customer.loyaltyTier}
+                        </Badge>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -286,11 +331,20 @@ export const Customers: React.FC = () => {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => viewCustomerDetail(customer)}
+                        title="View Details"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => handleEdit(customer)}
+                        title="Edit"
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
@@ -299,6 +353,7 @@ export const Customers: React.FC = () => {
                         size="sm"
                         onClick={() => handleDelete(customer.id)}
                         className="text-destructive"
+                        title="Delete"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -310,6 +365,15 @@ export const Customers: React.FC = () => {
           </Table>
         )}
           </Card>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex justify-center items-center gap-2 mt-4">
+              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
+              <span className="px-3 py-1 text-sm text-muted-foreground">Page {page} of {totalPages} ({total} customers)</span>
+              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next</Button>
+            </div>
+          )}
         </>
       )}
 
@@ -619,6 +683,101 @@ export const Customers: React.FC = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Customer Detail Modal */}
+      <Modal
+        isOpen={showDetailModal}
+        onClose={() => { setShowDetailModal(false); setSelectedCustomer(null); }}
+        title={selectedCustomer ? `${selectedCustomer.firstName} ${selectedCustomer.lastName}` : 'Customer Details'}
+        size="lg"
+      >
+        {selectedCustomer && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">Email</p>
+                <p className="font-medium">{selectedCustomer.email || 'Not provided'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Phone</p>
+                <p className="font-medium">{selectedCustomer.phone || 'Not provided'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Loyalty Tier</p>
+                <Badge variant={
+                  selectedCustomer.loyaltyTier === 'GOLD' ? 'warning' :
+                  selectedCustomer.loyaltyTier === 'SILVER' ? 'secondary' : 'default'
+                }>
+                  {selectedCustomer.loyaltyTier || 'BRONZE'}
+                </Badge>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Loyalty Points</p>
+                <p className="font-medium">{selectedCustomer.loyaltyPoints}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Total Spent</p>
+                <p className="font-medium">{formatCurrency(selectedCustomer.totalSpent)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Visits</p>
+                <p className="font-medium">{selectedCustomer.visitCount}</p>
+              </div>
+              {selectedCustomer.address && (
+                <div className="col-span-2 sm:col-span-3">
+                  <p className="text-muted-foreground">Address</p>
+                  <p className="font-medium">
+                    {[selectedCustomer.address, selectedCustomer.city, selectedCustomer.state, selectedCustomer.zipCode].filter(Boolean).join(', ')}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Purchase History */}
+            <div className="border-t pt-4">
+              <h4 className="font-medium mb-2">Recent Purchases ({customerHistory.length})</h4>
+              {customerHistory.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No purchase history</p>
+              ) : (
+                <div className="max-h-[250px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Sale #</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Items</TableHead>
+                        <TableHead>Total</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {customerHistory.map((sale: any) => (
+                        <TableRow key={sale.id}>
+                          <TableCell className="font-mono text-sm">{sale.saleNumber}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{new Date(sale.createdAt).toLocaleDateString()}</TableCell>
+                          <TableCell className="text-sm">{sale.items?.length || 0}</TableCell>
+                          <TableCell className="font-medium">{formatCurrency(sale.total)}</TableCell>
+                          <TableCell>
+                            <Badge variant={sale.status === 'COMPLETED' ? 'success' : sale.status === 'REFUNDED' ? 'destructive' : 'secondary'}>
+                              {sale.status}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => { setShowDetailModal(false); handleEdit(selectedCustomer); }}>
+                <Edit className="w-4 h-4 mr-1" /> Edit
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
