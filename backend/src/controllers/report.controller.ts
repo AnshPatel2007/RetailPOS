@@ -599,20 +599,14 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
  * GET /api/reports/dashboard
  */
 export const getDashboardMetrics = asyncHandler(async (_req: Request, res: Response) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  const weekAgo = new Date(today);
-  weekAgo.setDate(weekAgo.getDate() - 7);
-
-  const twoWeeksAgo = new Date(weekAgo);
-  twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 7);
-
-  const monthAgo = new Date(today);
-  monthAgo.setMonth(monthAgo.getMonth() - 1);
+  // Use UTC boundaries to avoid server-timezone drift
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const twoWeeksAgo = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
+  const monthAgo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, now.getUTCDate()));
+  const prevMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, now.getUTCDate()));
 
   // Run all queries concurrently
   const [
@@ -621,80 +615,130 @@ export const getDashboardMetrics = asyncHandler(async (_req: Request, res: Respo
     weekSales,
     prevWeekSales,
     monthSales,
-    products,
+    prevMonthSales,
+    todayRefunds,
+    lowStockProducts,
+    totalProducts,
     totalCustomers,
     activeEmployees,
+    recentSales,
+    todayPaymentBreakdown,
   ] = await Promise.all([
-    // Today's sales
     prisma.sale.aggregate({
       where: { createdAt: { gte: today }, status: SaleStatus.COMPLETED },
       _sum: { total: true },
       _count: true,
     }),
-    // Yesterday's sales (for trend)
     prisma.sale.aggregate({
       where: { createdAt: { gte: yesterday, lt: today }, status: SaleStatus.COMPLETED },
       _sum: { total: true },
       _count: true,
     }),
-    // This week sales
     prisma.sale.aggregate({
       where: { createdAt: { gte: weekAgo }, status: SaleStatus.COMPLETED },
       _sum: { total: true },
     }),
-    // Previous week (for trend)
     prisma.sale.aggregate({
       where: { createdAt: { gte: twoWeeksAgo, lt: weekAgo }, status: SaleStatus.COMPLETED },
       _sum: { total: true },
     }),
-    // Month sales
     prisma.sale.aggregate({
       where: { createdAt: { gte: monthAgo }, status: SaleStatus.COMPLETED },
       _sum: { total: true },
     }),
-    // Low stock products
+    prisma.sale.aggregate({
+      where: { createdAt: { gte: prevMonthStart, lt: monthAgo }, status: SaleStatus.COMPLETED },
+      _sum: { total: true },
+    }),
+    // Today's refunds
+    prisma.sale.aggregate({
+      where: { createdAt: { gte: today }, status: SaleStatus.REFUNDED },
+      _sum: { total: true },
+      _count: true,
+    }),
+    // Low stock products (with names)
     prisma.product.findMany({
       where: { trackInventory: true, isActive: true },
-      select: { stockQuantity: true, lowStockAlert: true },
+      select: { id: true, name: true, sku: true, stockQuantity: true, lowStockAlert: true },
     }),
-    // Total customers
+    prisma.product.count({ where: { isActive: true } }),
     prisma.customer.count({ where: { isActive: true } }),
-    // Active employees
     prisma.user.count({ where: { isActive: true } }),
+    // Recent 5 sales
+    prisma.sale.findMany({
+      where: { status: SaleStatus.COMPLETED },
+      select: {
+        id: true, saleNumber: true, total: true, paymentMethod: true, createdAt: true,
+        customer: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    }),
+    // Today's payment method breakdown
+    prisma.sale.groupBy({
+      by: ['paymentMethod'],
+      where: { createdAt: { gte: today }, status: SaleStatus.COMPLETED },
+      _sum: { total: true },
+      _count: true,
+    }),
   ]);
 
-  const lowStockCount = products.filter(p => p.stockQuantity <= p.lowStockAlert).length;
-
-  const avgOrderValue = todaySales._count > 0
-    ? (todaySales._sum.total || 0) / todaySales._count
-    : 0;
-
-  // Trend: % change vs comparison period
-  const calcTrend = (current: number, previous: number) => {
-    if (previous === 0) return current > 0 ? 100 : 0;
-    return Math.round(((current - previous) / previous) * 100 * 10) / 10;
-  };
+  const lowStockItems = lowStockProducts
+    .filter(p => p.stockQuantity <= p.lowStockAlert)
+    .sort((a, b) => a.stockQuantity - b.stockQuantity)
+    .slice(0, 5)
+    .map(p => ({ id: p.id, name: p.name, sku: p.sku, stock: p.stockQuantity, alert: p.lowStockAlert }));
 
   const todayTotal = todaySales._sum.total || 0;
   const yesterdayTotal = yesterdaySales._sum.total || 0;
   const weekTotal = weekSales._sum.total || 0;
   const prevWeekTotal = prevWeekSales._sum.total || 0;
+  const monthTotal = monthSales._sum.total || 0;
+  const prevMonthTotal = prevMonthSales._sum.total || 0;
+
+  const avgOrderValue = todaySales._count > 0
+    ? (todaySales._sum.total || 0) / todaySales._count
+    : null; // null = no sales, frontend shows "N/A"
+
+  const calcTrend = (current: number, previous: number): number | null => {
+    if (previous === 0 && current === 0) return null;
+    if (previous === 0) return null; // can't compare to zero baseline
+    return Math.round(((current - previous) / previous) * 100 * 10) / 10;
+  };
+
+  const paymentBreakdown = todayPaymentBreakdown.map(p => ({
+    method: p.paymentMethod,
+    total: p._sum.total || 0,
+    count: p._count,
+  }));
 
   res.json({
     success: true,
     data: {
       todaySales: todayTotal,
       todayTransactions: todaySales._count,
-      yesterdaySales: yesterdayTotal,
       todayTrend: calcTrend(todayTotal, yesterdayTotal),
       weekSales: weekTotal,
-      prevWeekSales: prevWeekTotal,
       weekTrend: calcTrend(weekTotal, prevWeekTotal),
-      monthSales: monthSales._sum.total || 0,
-      lowStockProducts: lowStockCount,
+      monthSales: monthTotal,
+      monthTrend: calcTrend(monthTotal, prevMonthTotal),
+      averageOrderValue: avgOrderValue !== null ? Math.round(avgOrderValue * 100) / 100 : null,
+      todayRefunds: todayRefunds._sum.total || 0,
+      todayRefundCount: todayRefunds._count,
+      lowStockCount: lowStockItems.length,
+      lowStockItems,
+      totalProducts,
       totalCustomers,
       activeEmployees,
-      averageOrderValue: Math.round(avgOrderValue * 100) / 100,
+      recentSales: recentSales.map(s => ({
+        id: s.id,
+        saleNumber: s.saleNumber,
+        total: s.total,
+        paymentMethod: s.paymentMethod,
+        createdAt: s.createdAt,
+        customerName: s.customer ? `${s.customer.firstName} ${s.customer.lastName}` : null,
+      })),
+      paymentBreakdown,
     },
   });
 });
@@ -709,8 +753,7 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
 
   const now = new Date();
   const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
   const locationFilter = locationId ? { locationId } : {};
 
@@ -738,7 +781,6 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
   const hourlyData = Object.entries(hourMap).map(([hour, total]) => ({
     hour: parseInt(hour),
     utcHour: parseInt(hour),
-    label: `${parseInt(hour) % 12 || 12}${parseInt(hour) < 12 ? 'am' : 'pm'}`,
     total: Math.round(total * 100) / 100,
   }));
 
@@ -752,7 +794,7 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
         ...locationFilter,
       },
     },
-    _sum: { quantity: true, price: true },
+    _sum: { quantity: true, total: true },
     _count: { productId: true },
     orderBy: { _sum: { quantity: 'desc' } },
     take: 5,
@@ -770,7 +812,7 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
       productId: p.productId,
       name: detail?.name || 'Unknown',
       qty: p._sum.quantity || 0,
-      revenue: Math.round((p._sum.price || 0) * (p._sum.quantity || 0) * 100) / 100,
+      revenue: Math.round((p._sum.total || 0) * 100) / 100,
     };
   });
 
@@ -785,6 +827,7 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
       user: { select: { firstName: true, lastName: true } },
     },
     orderBy: { clockInAt: 'asc' },
+    take: 10,
   });
 
   res.json({

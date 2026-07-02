@@ -25,9 +25,13 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
   const [email, setEmail] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
 
-  const handlePrint = () => {
-    hardware.printer.print(receipt);
-    toast.success('Receipt sent to printer');
+  const handlePrint = async () => {
+    const success = await hardware.printer.print(receipt);
+    if (success) {
+      toast.success('Receipt sent to printer');
+    } else {
+      toast.error('Print failed. Check your popup blocker settings.');
+    }
   };
 
   const handleSendEmail = async () => {

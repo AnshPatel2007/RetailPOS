@@ -32,6 +32,8 @@ router.post(
   saleController.voidSale
 );
 
+router.post('/:id/email-receipt', saleController.emailReceipt);
+
 router.post(
   '/bulk-void',
   authorize('ADMIN', 'MANAGER'),

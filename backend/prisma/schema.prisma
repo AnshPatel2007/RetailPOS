@@ -280,6 +280,7 @@ model Sale {
   refundedAt    DateTime?
   refunds       Refund[]
   items         SaleItem[]
+  payments      SalePayment[]
   customer      Customer?     @relation(fields: [customerId], references: [id])
   location      Location?     @relation(fields: [locationId], references: [id])
   shift         Shift?        @relation(fields: [shiftId], references: [id])
@@ -314,6 +315,19 @@ model SaleItem {
   @@index([saleId])
   @@index([productId])
   @@map("sale_items")
+}
+
+model SalePayment {
+  id            String        @id @default(uuid())
+  saleId        String
+  paymentMethod PaymentMethod
+  amount        Float
+  reference     String?
+  createdAt     DateTime      @default(now())
+  sale          Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@map("sale_payments")
 }
 
 model Refund {

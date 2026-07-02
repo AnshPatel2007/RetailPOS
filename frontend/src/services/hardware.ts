@@ -79,6 +79,8 @@ class BarcodeScanner {
   private callbacks: ((barcode: string) => void)[] = [];
   private settings: HardwareSettings['barcodeScanner'];
   private boundHandler: ((event: KeyboardEvent) => void) | null = null;
+  private lastScannedBarcode: string = '';
+  private lastScanTime: number = 0;
 
   constructor(settings: HardwareSettings['barcodeScanner']) {
     this.settings = settings;
@@ -109,7 +111,9 @@ class BarcodeScanner {
         event.preventDefault();
         const barcode = this.buffer.trim();
         this.buffer = '';
-        this.callbacks.forEach((callback) => callback(barcode));
+        if (!this.isDuplicate(barcode)) {
+          this.callbacks.forEach((callback) => callback(barcode));
+        }
         return;
       }
 
@@ -122,7 +126,9 @@ class BarcodeScanner {
       this.timeout = setTimeout(() => {
         if (this.buffer.length >= this.settings.minLength) {
           const barcode = this.buffer.trim();
-          this.callbacks.forEach((callback) => callback(barcode));
+          if (!this.isDuplicate(barcode)) {
+            this.callbacks.forEach((callback) => callback(barcode));
+          }
         }
         this.buffer = '';
       }, this.settings.inputTimeout);
@@ -191,10 +197,26 @@ class BarcodeScanner {
   }
 
   /**
+   * Check if barcode is a duplicate scan (same barcode within timeout window)
+   */
+  private isDuplicate(barcode: string): boolean {
+    if (!this.settings.preventDuplicates) return false;
+    const now = Date.now();
+    const timeout = this.settings.duplicateTimeout || 1500; // default 1.5s
+    if (barcode === this.lastScannedBarcode && (now - this.lastScanTime) < timeout) {
+      return true;
+    }
+    this.lastScannedBarcode = barcode;
+    this.lastScanTime = now;
+    return false;
+  }
+
+  /**
    * Clear duplicate scan cache
    */
   clearDuplicateCache(): void {
-    // No-op unless duplicate prevention is implemented
+    this.lastScannedBarcode = '';
+    this.lastScanTime = 0;
   }
 
   /**
@@ -262,7 +284,33 @@ class ReceiptPrinter {
 
     try {
       const printWindow = window.open('', '_blank', 'width=350,height=600');
-      if (!printWindow) return false;
+      if (!printWindow) {
+        // Popup blocked — fallback to iframe printing
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.top = '-10000px';
+        iframe.style.left = '-10000px';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        document.body.appendChild(iframe);
+
+        const doc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (!doc) {
+          document.body.removeChild(iframe);
+          return false;
+        }
+        doc.open();
+        doc.write(this.generateReceiptHTML(receipt));
+        doc.close();
+
+        iframe.onload = () => {
+          try {
+            iframe.contentWindow?.print();
+          } catch { /* ignore */ }
+          setTimeout(() => document.body.removeChild(iframe), 1000);
+        };
+        return true;
+      }
 
       printWindow.document.write(this.generateReceiptHTML(receipt));
       printWindow.document.close();

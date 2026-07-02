@@ -126,7 +126,7 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
           <span className="w-12 text-center font-medium">{item.quantity}</span>
           <button
             onClick={() => {
-              if (item.product.trackInventory && item.quantity >= item.product.stockQuantity) {
+              if (item.product.trackInventory && item.quantity + 1 > item.product.stockQuantity) {
                 toast.error(`Only ${item.product.stockQuantity} in stock`);
                 return;
               }

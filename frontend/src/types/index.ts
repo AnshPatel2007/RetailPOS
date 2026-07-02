@@ -145,12 +145,21 @@ export interface Shift {
 export interface DashboardMetrics {
   todaySales: number;
   todayTransactions: number;
+  todayTrend: number | null;
   weekSales: number;
+  weekTrend: number | null;
   monthSales: number;
-  lowStockProducts: number;
+  monthTrend: number | null;
+  averageOrderValue: number | null;
+  todayRefunds: number;
+  todayRefundCount: number;
+  lowStockCount: number;
+  lowStockItems: { id: string; name: string; sku: string; stock: number; alert: number }[];
+  totalProducts: number;
   totalCustomers: number;
   activeEmployees: number;
-  averageOrderValue: number;
+  recentSales: { id: string; saleNumber: string; total: number; paymentMethod: string; createdAt: string; customerName: string | null }[];
+  paymentBreakdown: { method: string; total: number; count: number }[];
 }
 
 export interface ApiResponse<T = any> {

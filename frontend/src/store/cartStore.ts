@@ -35,6 +35,7 @@ interface CartState {
   holdSale: () => void;
   restoreHeldSale: (id: string) => void;
   discardHeldSale: (id: string) => void;
+  cleanupExpiredHeldSales: () => number;
 
   // Computed values
   getSubtotal: () => number;
@@ -215,28 +216,50 @@ export const useCartStore = create<CartState>()(
         });
       },
 
+      cleanupExpiredHeldSales: () => {
+        const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+        const now = Date.now();
+        const before = get().heldSales.length;
+        set({
+          heldSales: get().heldSales.filter(
+            (h) => now - new Date(h.heldAt).getTime() < MAX_AGE_MS
+          ),
+        });
+        return before - get().heldSales.length;
+      },
+
       getSubtotal: () => {
-        return get().items.reduce((total, item) => {
+        return Math.round(get().items.reduce((total, item) => {
           return total + item.product.price * item.quantity - item.discount;
-        }, 0);
+        }, 0) * 100) / 100;
       },
 
       getTax: () => {
         const taxRate = get().taxRate;
+        const globalDiscount = get().discount;
+        const subtotal = get().getSubtotal();
+
+        // Calculate what proportion of the subtotal is taxable
         const taxableAmount = get().items.reduce((total, item) => {
           if (item.product.isTaxable) {
             return total + (item.product.price * item.quantity - item.discount);
           }
           return total;
         }, 0);
-        return (taxableAmount * taxRate) / 100;
+
+        // Apply global discount proportionally to taxable amount
+        const discountedTaxable = subtotal > 0
+          ? taxableAmount - (globalDiscount * (taxableAmount / subtotal))
+          : taxableAmount;
+
+        return Math.round((Math.max(0, discountedTaxable) * taxRate) / 100 * 100) / 100;
       },
 
       getTotal: () => {
         const subtotal = get().getSubtotal();
         const tax = get().getTax();
         const globalDiscount = get().discount;
-        return subtotal + tax - globalDiscount;
+        return Math.round((subtotal - globalDiscount + tax) * 100) / 100;
       },
 
       getItemCount: () => {

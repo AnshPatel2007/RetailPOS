@@ -47,7 +47,10 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
               0
             );
             const itemCount = held.items.reduce((c, i) => c + i.quantity, 0);
-            const elapsed = Math.round((Date.now() - new Date(held.heldAt).getTime()) / 60000);
+            const elapsedMins = Math.round((Date.now() - new Date(held.heldAt).getTime()) / 60000);
+            const elapsed = elapsedMins >= 60
+              ? `${Math.floor(elapsedMins / 60)}h ${elapsedMins % 60}m`
+              : `${elapsedMins}m`;
             return (
               <Card key={held.id} className="p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -60,7 +63,7 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
                       </p>
                       <span className="text-xs text-muted-foreground flex items-center gap-0.5 shrink-0">
                         <Clock className="h-3 w-3" />
-                        {elapsed}m ago
+                        {elapsed} ago
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -75,8 +78,10 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        onDiscard(held.id);
-                        toast.success('Held sale discarded');
+                        if (window.confirm(`Discard this held sale (${itemCount} item${itemCount !== 1 ? 's' : ''}, ${formatCurrency(total)})?`)) {
+                          onDiscard(held.id);
+                          toast.success('Held sale discarded');
+                        }
                       }}
                       className="text-destructive border-destructive/30 hover:bg-destructive/10"
                     >

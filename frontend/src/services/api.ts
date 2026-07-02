@@ -134,6 +134,8 @@ export const saleService = {
   bulkVoid: (saleIds: string[]) => api.post('/sales/bulk-void', { saleIds }),
 
   bulkRefund: (saleIds: string[]) => api.post('/sales/bulk-refund', { saleIds }),
+
+  emailReceipt: (id: string, email: string) => api.post(`/sales/${id}/email-receipt`, { email }),
 };
 
 /**

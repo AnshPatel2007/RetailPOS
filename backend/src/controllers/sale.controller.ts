@@ -6,6 +6,8 @@ import { logger } from '../utils/logger';
 import { PaymentMethod, SaleStatus } from '@prisma/client';
 import { createDateFilter } from '../utils/dateFilter.util';
 import { businessConfig } from '../config/business.config';
+import { sendEmail } from '../utils/email';
+import { config } from '../config';
 
 function calculateLoyaltyTier(points: number): string {
   const tiers = businessConfig.customer.loyaltyTiers;
@@ -35,7 +37,7 @@ const generateSaleNumber = async (): Promise<string> => {
  * POST /api/sales
  */
 export const createSale = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { customerId, items, paymentMethod, amountPaid, notes, receiptEmail } = req.body;
+  const { customerId, items, paymentMethod, amountPaid, notes, receiptEmail, payments, pointsRedeemed } = req.body;
 
   if (!req.user) {
     throw new AppError('User not authenticated', 401);
@@ -103,11 +105,14 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     const product = isMisc ? miscProduct : productMap.get(item.productId);
 
     if (!product) {
-      throw new AppError(`Product not found: ${item.productId}`, 404);
+      throw new AppError(`Product not found: ${item.productId}. It may have been deleted.`, 404);
     }
 
     if (!isMisc && product.trackInventory && product.stockQuantity < item.quantity) {
-      throw new AppError(`Insufficient stock for ${product.name}`, 400);
+      throw new AppError(
+        `Insufficient stock for "${product.name}": requested ${item.quantity}, only ${product.stockQuantity} available`,
+        400
+      );
     }
 
     const itemSubtotal = item.price * item.quantity;
@@ -116,7 +121,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
     let itemTax = 0;
     if (product.isTaxable && defaultTaxRate) {
-      itemTax = (itemTotal * defaultTaxRate.rate) / 100;
+      itemTax = Math.round((itemTotal * defaultTaxRate.rate) / 100 * 100) / 100;
     }
 
     subtotal += itemSubtotal;
@@ -136,12 +141,19 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     };
   });
 
-  const total = subtotal - totalDiscount + totalTax;
-  const changeDue = amountPaid - total;
+  // Round all monetary values to 2 decimal places
+  subtotal = Math.round(subtotal * 100) / 100;
+  totalDiscount = Math.round(totalDiscount * 100) / 100;
+  totalTax = Math.round(totalTax * 100) / 100;
+  const total = Math.round((subtotal - totalDiscount + totalTax) * 100) / 100;
+  const changeDue = Math.round((amountPaid - total) * 100) / 100;
 
   // Allow 1 cent tolerance for floating point rounding differences
   if (amountPaid < total - 0.01) {
-    throw new AppError('Insufficient payment amount', 400);
+    throw new AppError(
+      `Insufficient payment: received $${amountPaid.toFixed(2)} but total is $${total.toFixed(2)}. Short by $${(total - amountPaid).toFixed(2)}`,
+      400
+    );
   }
 
   // Generate sale number
@@ -149,6 +161,15 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
   // Create sale with transaction
   const sale = await prisma.$transaction(async (tx) => {
+    // Build split payment records if provided
+    const paymentRecords = payments && payments.length > 0
+      ? payments.map((p: { paymentMethod: string; amount: number; reference?: string }) => ({
+          paymentMethod: p.paymentMethod as PaymentMethod,
+          amount: Math.round(p.amount * 100) / 100,
+          reference: p.reference || null,
+        }))
+      : [{ paymentMethod: paymentMethod as PaymentMethod, amount: Math.round(amountPaid * 100) / 100, reference: null }];
+
     // Create sale
     const newSale = await tx.sale.create({
       data: {
@@ -171,6 +192,9 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
         items: {
           create: itemsWithDetails,
         },
+        payments: {
+          create: paymentRecords,
+        },
       },
       include: {
         items: {
@@ -178,6 +202,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
             product: true,
           },
         },
+        payments: true,
         customer: true,
         user: {
           select: {
@@ -221,12 +246,17 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
     // Update customer stats and loyalty tier
     if (customerId) {
+      // Points earned on this sale minus any redeemed
+      const pointsEarned = Math.floor(total);
+      const pointsUsed = pointsRedeemed || 0;
+      const netPoints = pointsEarned - pointsUsed;
+
       const updatedCust = await tx.customer.update({
         where: { id: customerId },
         data: {
           totalSpent: { increment: total },
           visitCount: { increment: 1 },
-          loyaltyPoints: { increment: Math.floor(total) }, // 1 point per dollar
+          loyaltyPoints: { increment: netPoints },
           lastVisitAt: new Date(),
         },
       });
@@ -383,6 +413,7 @@ export const getSale = asyncHandler(async (req: AuthRequest, res: Response) => {
           product: true,
         },
       },
+      payments: true,
       location: true,
       refunds: true,
     },
@@ -417,7 +448,7 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
   const sale = await prisma.sale.findUnique({
     where: { id },
-    include: { items: true },
+    include: { items: true, refunds: true },
   });
 
   if (!sale) {
@@ -429,12 +460,23 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
     throw new AppError('Sale not found', 404);
   }
 
-  if (sale.status === SaleStatus.REFUNDED) {
-    throw new AppError('Sale already refunded', 400);
+  if (sale.status === SaleStatus.VOIDED) {
+    throw new AppError('Cannot refund a voided sale', 400);
   }
 
-  if (amount > sale.total) {
-    throw new AppError('Refund amount exceeds sale total', 400);
+  // Calculate already-refunded amount
+  const previouslyRefunded = sale.refunds.reduce((sum, r) => sum + r.amount, 0);
+  const refundableAmount = Math.round((sale.total - previouslyRefunded) * 100) / 100;
+
+  if (refundableAmount <= 0) {
+    throw new AppError('Sale has already been fully refunded', 400);
+  }
+
+  if (amount > refundableAmount) {
+    throw new AppError(
+      `Refund amount exceeds refundable balance. Max refundable: $${refundableAmount.toFixed(2)}`,
+      400
+    );
   }
 
   // Update sale and restore inventory
@@ -450,12 +492,15 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
       },
     });
 
-    // Update sale status
+    // Mark fully refunded if total refunds now equal sale total
+    const totalRefundedNow = previouslyRefunded + amount;
+    const isFullyRefunded = totalRefundedNow >= sale.total - 0.01;
+
     const updated = await tx.sale.update({
       where: { id },
       data: {
-        status: SaleStatus.REFUNDED,
-        refundedAt: new Date(),
+        status: isFullyRefunded ? SaleStatus.REFUNDED : SaleStatus.COMPLETED,
+        refundedAt: isFullyRefunded ? new Date() : undefined,
       },
       include: {
         items: true,
@@ -463,8 +508,8 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
       },
     });
 
-    // Restore inventory
-    for (const item of sale.items) {
+    // Restore inventory only on full refund
+    if (isFullyRefunded) for (const item of sale.items) {
       const product = await tx.product.findUnique({
         where: { id: item.productId },
       });
@@ -822,5 +867,104 @@ export const bulkRefundSales = asyncHandler(async (req: AuthRequest, res: Respon
       refundedSales,
     },
     message: `${refundedSales.length} sale(s) refunded successfully`,
+  });
+});
+
+/**
+ * Email receipt
+ * POST /api/sales/:id/email-receipt
+ */
+export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const { email } = req.body;
+
+  if (!email) {
+    throw new AppError('Email address is required', 400);
+  }
+
+  const sale = await prisma.sale.findUnique({
+    where: { id },
+    include: {
+      items: { include: { product: true } },
+      customer: true,
+      user: { select: { firstName: true, lastName: true } },
+      location: true,
+      payments: true,
+    },
+  });
+
+  if (!sale) {
+    throw new AppError('Sale not found', 404);
+  }
+
+  const storeName = config.app.name || 'POS System';
+  const itemsHtml = sale.items.map(item =>
+    `<tr>
+      <td style="padding:4px 0;">${item.productName}</td>
+      <td style="padding:4px 0;text-align:center;">${item.quantity}</td>
+      <td style="padding:4px 0;text-align:right;">$${item.price.toFixed(2)}</td>
+      <td style="padding:4px 0;text-align:right;">$${item.total.toFixed(2)}</td>
+    </tr>`
+  ).join('');
+
+  const paymentInfo = sale.payments.length > 1
+    ? sale.payments.map(p => `${p.paymentMethod}: $${p.amount.toFixed(2)}`).join(', ')
+    : sale.paymentMethod;
+
+  const html = `
+    <!DOCTYPE html><html><head><style>
+      body { font-family: Arial, sans-serif; color: #333; }
+      .receipt { max-width: 500px; margin: 0 auto; padding: 20px; }
+      .header { text-align: center; border-bottom: 2px solid #4F46E5; padding-bottom: 16px; margin-bottom: 16px; }
+      .header h1 { color: #4F46E5; margin: 0; }
+      table { width: 100%; border-collapse: collapse; }
+      th { text-align: left; border-bottom: 1px solid #ddd; padding: 6px 0; }
+      .totals td { padding: 4px 0; }
+      .grand-total td { font-size: 18px; font-weight: bold; border-top: 2px solid #333; padding-top: 8px; }
+      .footer { text-align: center; color: #666; font-size: 12px; margin-top: 20px; }
+    </style></head><body>
+    <div class="receipt">
+      <div class="header">
+        <h1>${storeName}</h1>
+        <p>Receipt #${sale.saleNumber}</p>
+        <p>${new Date(sale.createdAt).toLocaleString()}</p>
+        ${sale.user ? `<p>Cashier: ${sale.user.firstName} ${sale.user.lastName}</p>` : ''}
+      </div>
+      <table>
+        <thead><tr><th>Item</th><th style="text-align:center;">Qty</th><th style="text-align:right;">Price</th><th style="text-align:right;">Total</th></tr></thead>
+        <tbody>${itemsHtml}</tbody>
+      </table>
+      <hr>
+      <table class="totals">
+        <tr><td>Subtotal</td><td style="text-align:right;">$${sale.subtotal.toFixed(2)}</td></tr>
+        <tr><td>Tax</td><td style="text-align:right;">$${sale.tax.toFixed(2)}</td></tr>
+        ${sale.discount > 0 ? `<tr><td>Discount</td><td style="text-align:right;">-$${sale.discount.toFixed(2)}</td></tr>` : ''}
+        <tr class="grand-total"><td>Total</td><td style="text-align:right;">$${sale.total.toFixed(2)}</td></tr>
+        <tr><td>Paid (${paymentInfo})</td><td style="text-align:right;">$${sale.amountPaid.toFixed(2)}</td></tr>
+        ${sale.changeDue > 0 ? `<tr><td>Change</td><td style="text-align:right;">$${sale.changeDue.toFixed(2)}</td></tr>` : ''}
+      </table>
+      ${sale.customer ? `<p>Customer: ${sale.customer.firstName} ${sale.customer.lastName}</p>` : ''}
+      <div class="footer"><p>Thank you for your business!</p></div>
+    </div>
+    </body></html>
+  `;
+
+  await sendEmail({
+    to: email,
+    subject: `Receipt #${sale.saleNumber} from ${storeName}`,
+    html,
+  });
+
+  // Save email for reference
+  await prisma.sale.update({
+    where: { id },
+    data: { receiptEmail: email },
+  });
+
+  logger.info(`Receipt emailed: ${sale.saleNumber} to ${email}`);
+
+  res.json({
+    success: true,
+    message: `Receipt emailed to ${email}`,
   });
 });

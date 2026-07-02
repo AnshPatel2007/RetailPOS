@@ -34,7 +34,7 @@ interface EnhancedPaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   total: number;
-  onComplete: (payments: Payment[], totalPaid: number) => Promise<void>;
+  onComplete: (payments: Payment[], totalPaid: number, pointsRedeemed?: number) => Promise<void>;
   isProcessing: boolean;
   initialPaymentMethod?: PaymentMethod;
   linkedCustomer: LinkedCustomer | null;
@@ -58,6 +58,8 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [amountInput, setAmountInput] = useState('');
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [referenceInput, setReferenceInput] = useState('');
+  const [pointsToRedeem, setPointsToRedeem] = useState('');
 
   // Customer search state
   const [customerPhone, setCustomerPhone] = useState('');
@@ -76,8 +78,10 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
       setStep(linkedCustomer ? 'payment' : 'customer');
       setActiveTab('single');
       setPaymentMethod(initialPaymentMethod || 'CASH');
-      setAmountInput(total.toFixed(2));
+      setAmountInput(Math.round(total * 100 / 100).toFixed(2));
       setPayments([]);
+      setReferenceInput('');
+      setPointsToRedeem('');
       setCustomerPhone('');
       setIsSearching(false);
       setSearchDone(false);
@@ -144,14 +148,24 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     return { name: 'Bronze', css: 'bg-amber-500/10 text-amber-500' };
   };
 
-  const getTotalPaid = () => payments.reduce((sum, p) => sum + p.amount, 0);
-  const getRemainingBalance = () => Math.max(0, total - getTotalPaid());
+  const POINTS_PER_DOLLAR = 100; // 100 points = $1
+  const getPointsDiscount = () => {
+    const pts = parseInt(pointsToRedeem) || 0;
+    if (!linkedCustomer || pts <= 0) return 0;
+    const maxPoints = Math.min(pts, linkedCustomer.loyaltyPoints);
+    const maxDiscount = maxPoints / POINTS_PER_DOLLAR;
+    return Math.round(Math.min(maxDiscount, total) * 100) / 100;
+  };
+  const effectiveTotal = Math.round((total - getPointsDiscount()) * 100) / 100;
+
+  const getTotalPaid = () => Math.round(payments.reduce((sum, p) => sum + p.amount, 0) * 100) / 100;
+  const getRemainingBalance = () => Math.round(Math.max(0, effectiveTotal - getTotalPaid()) * 100) / 100;
   const getChange = () => {
     if (activeTab === 'single') {
       const paid = parseFloat(amountInput) || 0;
-      return Math.max(0, paid - total);
+      return Math.max(0, paid - effectiveTotal);
     }
-    return Math.max(0, getTotalPaid() - total);
+    return Math.max(0, getTotalPaid() - effectiveTotal);
   };
 
   const handleQuickAmount = (amount: number) => {
@@ -171,8 +185,9 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     if (activeTab === 'split') {
       const remaining = getRemainingBalance();
       if (amount > remaining) return;
-      setPayments([...payments, { paymentMethod, amount }]);
+      setPayments([...payments, { paymentMethod, amount, reference: referenceInput || undefined }]);
       setAmountInput('');
+      setReferenceInput('');
     }
   };
 
@@ -181,14 +196,23 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   };
 
   const handleSubmit = async () => {
-    const roundedTotal = Math.round(total * 100) / 100;
+    const redeemed = parseInt(pointsToRedeem) || 0;
     if (activeTab === 'single') {
       const paid = parseFloat(amountInput);
-      if (paid < roundedTotal) return;
-      await onComplete([{ paymentMethod, amount: paid }], paid);
+      if (paid < effectiveTotal) return;
+      await onComplete([{ paymentMethod, amount: paid, reference: referenceInput || undefined }], paid, redeemed > 0 ? redeemed : undefined);
     } else {
-      if (getTotalPaid() < roundedTotal) return;
-      await onComplete(payments, getTotalPaid());
+      if (getTotalPaid() < effectiveTotal) return;
+      await onComplete(payments, getTotalPaid(), redeemed > 0 ? redeemed : undefined);
+    }
+  };
+
+  const getReferencePlaceholder = (method: PaymentMethod): string | null => {
+    switch (method) {
+      case 'CARD': return 'Transaction ID / last 4 digits';
+      case 'GIFT_CARD': return 'Gift card number';
+      case 'STORE_CREDIT': return 'Store credit account / ID';
+      default: return null;
     }
   };
 
@@ -199,10 +223,9 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     { value: 'STORE_CREDIT' as const, label: 'Store Credit', icon: Wallet },
   ];
 
-  const roundedTotalForCheck = Math.round(total * 100) / 100;
   const canSubmit = activeTab === 'single'
-    ? parseFloat(amountInput) >= roundedTotalForCheck
-    : getTotalPaid() >= roundedTotalForCheck;
+    ? parseFloat(amountInput) >= effectiveTotal
+    : getTotalPaid() >= effectiveTotal;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={step === 'customer' ? 'Link Customer' : 'Payment'} size="lg">
@@ -378,6 +401,59 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
               </div>
             )}
 
+            {/* Loyalty Points Redemption */}
+            {linkedCustomer && linkedCustomer.loyaltyPoints >= POINTS_PER_DOLLAR && (
+              <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium flex items-center gap-1">
+                    <Star className="h-3.5 w-3.5 text-yellow-500" />
+                    Redeem Loyalty Points
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {linkedCustomer.loyaltyPoints} pts = {formatCurrency(linkedCustomer.loyaltyPoints / POINTS_PER_DOLLAR)} value
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    value={pointsToRedeem}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value) || 0;
+                      setPointsToRedeem(Math.min(v, linkedCustomer.loyaltyPoints).toString());
+                    }}
+                    placeholder="Points to redeem"
+                    min="0"
+                    max={linkedCustomer.loyaltyPoints}
+                    step={POINTS_PER_DOLLAR}
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const maxRedeemable = Math.min(
+                        linkedCustomer.loyaltyPoints,
+                        Math.floor(total * POINTS_PER_DOLLAR)
+                      );
+                      setPointsToRedeem(maxRedeemable.toString());
+                    }}
+                  >
+                    Max
+                  </Button>
+                  {parseInt(pointsToRedeem) > 0 && (
+                    <Button variant="ghost" size="sm" onClick={() => setPointsToRedeem('')}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                {getPointsDiscount() > 0 && (
+                  <p className="text-xs text-yellow-600 mt-1.5 font-medium">
+                    -{formatCurrency(getPointsDiscount())} discount applied ({parseInt(pointsToRedeem)} pts)
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Tabs */}
             <div className="flex border-b border-border">
               <button
@@ -406,7 +482,14 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Card className="p-3 text-center">
                 <p className="text-xs text-muted-foreground mb-1">Total</p>
-                <p className="text-lg font-bold">{formatCurrency(total)}</p>
+                {getPointsDiscount() > 0 ? (
+                  <>
+                    <p className="text-xs text-muted-foreground line-through">{formatCurrency(total)}</p>
+                    <p className="text-lg font-bold text-yellow-600">{formatCurrency(effectiveTotal)}</p>
+                  </>
+                ) : (
+                  <p className="text-lg font-bold">{formatCurrency(total)}</p>
+                )}
               </Card>
               <Card className="p-3 text-center bg-primary/10 border-primary">
                 <p className="text-xs text-muted-foreground mb-1">
@@ -430,10 +513,13 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                     key={index}
                     className="flex items-center justify-between p-2 bg-muted rounded"
                   >
-                    <div className="flex items-center gap-2">
+                    <div>
                       <span className="text-sm font-medium">
                         {payment.paymentMethod.replace('_', ' ')}
                       </span>
+                      {payment.reference && (
+                        <span className="text-xs text-muted-foreground ml-1">({payment.reference})</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold">{formatCurrency(payment.amount)}</span>
@@ -505,6 +591,19 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                   </div>
                 </div>
 
+                {/* Reference input for non-cash methods */}
+                {getReferencePlaceholder(paymentMethod) && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Reference</label>
+                    <Input
+                      type="text"
+                      value={referenceInput}
+                      onChange={(e) => setReferenceInput(e.target.value)}
+                      placeholder={getReferencePlaceholder(paymentMethod) || ''}
+                    />
+                  </div>
+                )}
+
                 {/* Quick Amount Buttons */}
                 <div className="flex gap-2 flex-wrap">
                   {QUICK_AMOUNTS.map((amount) => (
@@ -522,7 +621,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setAmountInput(total.toFixed(2))}
+                      onClick={() => setAmountInput(effectiveTotal.toFixed(2))}
                       className="flex-1 min-w-[80px]"
                     >
                       Exact

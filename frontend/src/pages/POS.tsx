@@ -36,6 +36,7 @@ export const POS: React.FC = () => {
   const [showHeldSalesModal, setShowHeldSalesModal] = useState(false);
   const [numpadProduct, setNumpadProduct] = useState<Product | null>(null);
   const [lastReceipt, setLastReceipt] = useState<Receipt | null>(null);
+  const [lastSaleId, setLastSaleId] = useState<string | null>(null);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
@@ -51,7 +52,16 @@ export const POS: React.FC = () => {
     items, addItem, clearCart, notes,
     getSubtotal, getTax, getTotal, setTaxRate,
     heldSales, holdSale, restoreHeldSale, discardHeldSale,
+    cleanupExpiredHeldSales,
   } = useCartStore();
+
+  // Cleanup expired held sales on mount
+  useEffect(() => {
+    const expired = cleanupExpiredHeldSales();
+    if (expired > 0) {
+      toast(`Removed ${expired} expired held sale${expired > 1 ? 's' : ''} (older than 24h)`, { icon: '🧹' });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load location tax rate
   useEffect(() => {
@@ -78,8 +88,12 @@ export const POS: React.FC = () => {
     return () => window.removeEventListener('focus', handleFocus);
   }, [loadCategories]);
 
-  // Load products when search/category changes
+  // Load products when search/category changes (debounce search)
   useEffect(() => {
+    if (search) {
+      const timer = setTimeout(() => loadProducts(), 300);
+      return () => clearTimeout(timer);
+    }
     loadProducts();
   }, [search, selectedCategoryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -244,7 +258,8 @@ export const POS: React.FC = () => {
 
   const handlePaymentComplete = async (
     payments: { paymentMethod: PaymentMethod; amount: number; reference?: string }[],
-    totalPaid: number
+    totalPaid: number,
+    pointsRedeemed?: number
   ) => {
     if (items.length === 0) return;
     const total = getTotal();
@@ -263,9 +278,15 @@ export const POS: React.FC = () => {
         })),
         paymentMethod: primaryPayment.paymentMethod,
         amountPaid: totalPaid,
+        payments: payments.map((p) => ({
+          paymentMethod: p.paymentMethod,
+          amount: p.amount,
+          reference: p.reference,
+        })),
       };
 
       if (linkedCustomer) saleData.customerId = linkedCustomer.id;
+      if (pointsRedeemed && pointsRedeemed > 0) saleData.pointsRedeemed = pointsRedeemed;
 
       const noteParts: string[] = [];
       if (notes.trim()) noteParts.push(notes.trim());
@@ -276,7 +297,9 @@ export const POS: React.FC = () => {
       if (noteParts.length > 0) saleData.notes = noteParts.join(' | ');
 
       const response = await saleService.create(saleData);
-      const saleNumber = response.data.data?.saleNumber || `SALE-${Date.now()}`;
+      const createdSale = response.data.data;
+      const saleNumber = createdSale?.saleNumber || `SALE-${Date.now()}`;
+      setLastSaleId(createdSale?.id || null);
 
       const receipt: Receipt = {
         saleNumber,
@@ -291,7 +314,9 @@ export const POS: React.FC = () => {
         tax: getTax(),
         discount: 0,
         total: getTotal(),
-        paymentMethod: primaryPayment.paymentMethod,
+        paymentMethod: payments.length > 1
+          ? payments.map(p => `${p.paymentMethod}: ${formatCurrency(p.amount)}`).join(' / ')
+          : primaryPayment.paymentMethod,
         amountPaid: totalPaid,
         change: totalPaid - getTotal(),
         employeeName: user ? `${user.firstName} ${user.lastName}` : 'Unknown',
@@ -443,6 +468,10 @@ export const POS: React.FC = () => {
           isOpen={showReceiptPreview}
           onClose={() => setShowReceiptPreview(false)}
           receipt={lastReceipt}
+          saleId={lastSaleId || undefined}
+          onEmailReceipt={async (saleId: string, email: string) => {
+            await saleService.emailReceipt(saleId, email);
+          }}
         />
       )}
 

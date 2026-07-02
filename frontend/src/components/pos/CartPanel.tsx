@@ -99,7 +99,11 @@ export const CartPanel: React.FC<CartPanelProps> = ({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={clearCart}
+                onClick={() => {
+                  if (window.confirm(`Clear all ${getItemCount()} item${getItemCount() > 1 ? 's' : ''} from cart?`)) {
+                    clearCart();
+                  }
+                }}
                 className="text-destructive"
                 title="Clear cart"
               >

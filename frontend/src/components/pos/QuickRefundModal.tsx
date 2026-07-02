@@ -16,6 +16,13 @@ interface SaleItem {
   product: { name: string; sku: string };
 }
 
+interface RefundRecord {
+  id: string;
+  amount: number;
+  reason: string;
+  createdAt: string;
+}
+
 interface SaleDetails {
   id: string;
   saleNumber: string;
@@ -25,6 +32,7 @@ interface SaleDetails {
   createdAt: string;
   items: SaleItem[];
   customer?: { firstName: string; lastName: string } | null;
+  refunds?: RefundRecord[];
 }
 
 interface QuickRefundModalProps {
@@ -58,8 +66,12 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
       }
       // Fetch full details
       const detailResponse = await saleService.getById(sales[0].id);
-      setSale(detailResponse.data.data);
-      setRefundAmount(detailResponse.data.data.total.toString());
+      const saleData = detailResponse.data.data;
+      setSale(saleData);
+      // Default to the remaining refundable amount
+      const previouslyRefunded = (saleData.refunds || []).reduce((s: number, r: RefundRecord) => s + r.amount, 0);
+      const refundable = Math.round((saleData.total - previouslyRefunded) * 100) / 100;
+      setRefundAmount(Math.max(0, refundable).toString());
     } catch {
       toast.error('Failed to find sale');
     } finally {
@@ -67,11 +79,24 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
     }
   };
 
+  const getRefundableAmount = () => {
+    if (!sale) return 0;
+    const previouslyRefunded = (sale.refunds || []).reduce((s, r) => s + r.amount, 0);
+    return Math.round((sale.total - previouslyRefunded) * 100) / 100;
+  };
+
   const handleRefund = async () => {
     if (!sale) return;
     const amount = parseFloat(refundAmount);
-    if (!amount || amount <= 0 || amount > sale.total) {
-      toast.error('Invalid refund amount');
+    const maxRefundable = getRefundableAmount();
+    if (!amount || amount <= 0 || amount > maxRefundable) {
+      toast.error(amount > maxRefundable
+        ? `Max refundable: ${formatCurrency(maxRefundable)}`
+        : 'Invalid refund amount');
+      return;
+    }
+
+    if (!window.confirm(`Process refund of ${formatCurrency(amount)} for sale #${sale.saleNumber}?`)) {
       return;
     }
 
@@ -158,20 +183,37 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
               </div>
             </Card>
 
-            {sale.status === 'REFUNDED' ? (
+            {/* Show previous refunds */}
+            {sale.refunds && sale.refunds.length > 0 && (
+              <div className="space-y-1 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <p className="text-xs font-medium text-amber-600">Previous Refunds:</p>
+                {sale.refunds.map((r) => (
+                  <div key={r.id} className="flex justify-between text-xs text-amber-700">
+                    <span>{r.reason}</span>
+                    <span>{formatCurrency(r.amount)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between text-xs font-bold text-amber-700 pt-1 border-t border-amber-500/20">
+                  <span>Remaining refundable</span>
+                  <span>{formatCurrency(getRefundableAmount())}</span>
+                </div>
+              </div>
+            )}
+
+            {sale.status === 'REFUNDED' || getRefundableAmount() <= 0 ? (
               <div className="flex items-center gap-2 text-destructive text-sm">
                 <AlertTriangle className="h-4 w-4" />
-                This sale has already been refunded.
+                This sale has been fully refunded.
               </div>
             ) : (
               <div className="space-y-3">
                 <Input
                   type="number"
-                  label="Refund Amount"
+                  label={`Refund Amount (max: ${formatCurrency(getRefundableAmount())})`}
                   value={refundAmount}
                   onChange={(e) => setRefundAmount(e.target.value)}
                   step="0.01"
-                  max={sale.total}
+                  max={getRefundableAmount()}
                 />
                 <Input
                   type="text"
