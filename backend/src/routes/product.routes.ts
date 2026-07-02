@@ -3,6 +3,7 @@ import * as productController from '../controllers/product.controller';
 import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { createProductSchema, updateProductSchema } from '../validators/product.validator';
+import { upload } from '../middleware/upload';
 
 const router = Router();
 
@@ -42,6 +43,20 @@ router.post(
   '/:id/adjust-inventory',
   authorize('ADMIN', 'MANAGER'),
   productController.adjustInventory
+);
+
+// Receipt scanning routes (must be before /:id routes)
+router.post(
+  '/scan-receipt',
+  authorize('ADMIN', 'MANAGER'),
+  upload.single('receipt'),
+  productController.scanReceipt
+);
+
+router.post(
+  '/apply-receipt',
+  authorize('ADMIN', 'MANAGER'),
+  productController.applyReceipt
 );
 
 router.post(

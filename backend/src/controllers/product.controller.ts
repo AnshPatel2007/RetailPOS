@@ -4,6 +4,9 @@ import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { Prisma } from '@prisma/client';
 import { logger } from '../utils/logger';
+import Anthropic from '@anthropic-ai/sdk';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Get all products with filtering and pagination
@@ -639,5 +642,304 @@ export const bulkToggleActive = asyncHandler(async (req: AuthRequest, res: Respo
       isActive,
     },
     message: `${updatedProducts.count} product(s) ${isActive ? 'activated' : 'deactivated'}`,
+  });
+});
+
+/**
+ * Scan a supplier receipt/invoice image and extract product data
+ * POST /api/products/scan-receipt
+ */
+export const scanReceipt = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new AppError('Receipt scanning is not configured. Please set ANTHROPIC_API_KEY in your environment.', 500);
+  }
+
+  const file = req.file;
+  if (!file) {
+    throw new AppError('No receipt image uploaded', 400);
+  }
+
+  // Read the file and convert to base64
+  const imageBuffer = fs.readFileSync(file.path);
+  const base64Image = imageBuffer.toString('base64');
+
+  // Determine media type
+  const mimeMap: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+  };
+  const ext = path.extname(file.originalname).toLowerCase();
+  const mediaType = mimeMap[ext] || 'image/jpeg';
+
+  // Also fetch existing products so Claude can try to match names
+  const locationWhere: any = {};
+  if (req.user?.locationId) {
+    locationWhere.locationId = req.user.locationId;
+  }
+  const existingProducts = await prisma.product.findMany({
+    where: { ...locationWhere, isActive: true },
+    select: { id: true, name: true, sku: true, barcode: true, price: true, cost: true },
+    orderBy: { name: 'asc' },
+  });
+
+  const productListForContext = existingProducts
+    .map(p => `${p.name} (SKU: ${p.sku}${p.barcode ? ', Barcode: ' + p.barcode : ''})`)
+    .join('\n');
+
+  const anthropic = new Anthropic({ apiKey });
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 4096,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+              data: base64Image,
+            },
+          },
+          {
+            type: 'text',
+            text: `You are a POS system assistant. Analyze this supplier receipt/invoice image and extract all product information.
+
+Return ONLY valid JSON (no markdown, no code fences) in this exact format:
+{
+  "supplier": "Company/Supplier name from the receipt",
+  "invoiceNumber": "Invoice/receipt number if visible, or null",
+  "invoiceDate": "Date on the receipt if visible (YYYY-MM-DD), or null",
+  "items": [
+    {
+      "name": "Product name exactly as shown",
+      "quantity": 1,
+      "packSize": 1,
+      "unitQuantity": 1,
+      "unitCost": 0.00,
+      "totalCost": 0.00,
+      "barcode": "barcode if visible, or null",
+      "matchedProductName": "name of best matching existing product or null"
+    }
+  ]
+}
+
+IMPORTANT rules for quantities:
+- "quantity" = number of cases/packs/cartons received (what's on the receipt)
+- "packSize" = number of individual units per case/pack (e.g., a carton of cigarettes has 10 packs, a case of soda has 24 cans)
+- "unitQuantity" = quantity × packSize = total individual units to add to inventory
+- If the receipt says "2 x Marlboro Red (10pk)" that means quantity=2, packSize=10, unitQuantity=20
+- If pack size is not specified, assume packSize=1
+- Extract unit costs if visible. unitCost should be per individual unit (totalCost / unitQuantity)
+
+Here are the existing products in the system. Try to match receipt items to these:
+${productListForContext}
+
+If an item closely matches an existing product, put the existing product name in "matchedProductName". Otherwise set it to null.`,
+          },
+        ],
+      },
+    ],
+  });
+
+  // Clean up uploaded file
+  fs.unlinkSync(file.path);
+
+  // Extract the text response
+  const textContent = response.content.find(c => c.type === 'text');
+  if (!textContent || textContent.type !== 'text') {
+    throw new AppError('Failed to analyze receipt image', 500);
+  }
+
+  try {
+    // Parse the JSON response - strip any markdown fences if present
+    let jsonText = textContent.text.trim();
+    if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+    const extractedData = JSON.parse(jsonText);
+
+    // Enrich with existing product matches
+    if (extractedData.items && Array.isArray(extractedData.items)) {
+      for (const item of extractedData.items) {
+        if (item.matchedProductName) {
+          const match = existingProducts.find(
+            p => p.name.toLowerCase() === item.matchedProductName.toLowerCase()
+          );
+          if (match) {
+            item.matchedProductId = match.id;
+            item.matchedProductSku = match.sku;
+            item.existingPrice = match.price;
+            item.existingCost = match.cost;
+          }
+        }
+      }
+    }
+
+    // Also return the full product list for the frontend to allow manual matching
+    extractedData.existingProducts = existingProducts;
+
+    logger.info(`Receipt scanned: ${extractedData.supplier || 'Unknown'}, ${extractedData.items?.length || 0} items extracted`);
+
+    res.json({
+      success: true,
+      data: extractedData,
+    });
+  } catch (parseError) {
+    logger.error('Failed to parse receipt scan response:', textContent.text);
+    throw new AppError('Failed to parse receipt data. Please try again with a clearer image.', 500);
+  }
+});
+
+/**
+ * Apply scanned receipt data - create/update products and adjust inventory
+ * POST /api/products/apply-receipt
+ */
+export const applyReceipt = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { supplier, invoiceNumber, items } = req.body;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new AppError('No items to apply', 400);
+  }
+
+  if (!req.user) {
+    throw new AppError('User not authenticated', 401);
+  }
+
+  // Find or create supplier
+  let supplierId: string | null = null;
+  if (supplier) {
+    let existingSupplier = await prisma.supplier.findFirst({
+      where: { name: { equals: supplier, mode: 'insensitive' } },
+    });
+
+    if (!existingSupplier) {
+      existingSupplier = await prisma.supplier.create({
+        data: { name: supplier },
+      });
+      logger.info(`Created new supplier: ${supplier}`);
+    }
+
+    supplierId = existingSupplier.id;
+  }
+
+  const results = await prisma.$transaction(async (tx) => {
+    const processed: any[] = [];
+
+    for (const item of items) {
+      const {
+        matchedProductId,
+        name,
+        unitQuantity,
+        unitCost,
+        sku,
+        barcode,
+        categoryId,
+      } = item;
+
+      let product;
+
+      if (matchedProductId) {
+        // Update existing product inventory
+        product = await tx.product.findUnique({ where: { id: matchedProductId } });
+        if (!product) {
+          throw new AppError(`Product not found: ${matchedProductId}`, 404);
+        }
+
+        const previousQty = product.stockQuantity;
+        const newQty = previousQty + (unitQuantity || 0);
+
+        // Update cost if provided
+        const updateData: any = { stockQuantity: newQty };
+        if (unitCost && unitCost > 0) {
+          updateData.cost = unitCost;
+        }
+
+        product = await tx.product.update({
+          where: { id: matchedProductId },
+          data: updateData,
+        });
+
+        await tx.inventoryLog.create({
+          data: {
+            productId: matchedProductId,
+            type: 'RECEIVED',
+            quantity: unitQuantity || 0,
+            previousQty,
+            newQty,
+            notes: `Receipt scan${invoiceNumber ? ` - Invoice #${invoiceNumber}` : ''}${supplier ? ` from ${supplier}` : ''}`,
+            userId: req.user!.id,
+          },
+        });
+
+        processed.push({ action: 'updated', product: { id: product.id, name: product.name }, addedQty: unitQuantity });
+      } else {
+        // Create new product
+        const newSku = sku || `NEW-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+        const createData: any = {
+          sku: newSku,
+          name: name || 'Unknown Product',
+          stockQuantity: unitQuantity || 0,
+          lowStockAlert: 5,
+          cost: unitCost || 0,
+          price: unitCost ? Math.round(unitCost * 1.3 * 100) / 100 : 0, // Default 30% markup
+          isTaxable: true,
+          trackInventory: true,
+          isActive: true,
+        };
+
+        if (barcode) createData.barcode = barcode;
+        if (categoryId) createData.categoryId = categoryId;
+        if (req.user?.locationId) createData.locationId = req.user.locationId;
+
+        product = await tx.product.create({ data: createData });
+
+        await tx.inventoryLog.create({
+          data: {
+            productId: product.id,
+            type: 'RECEIVED',
+            quantity: unitQuantity || 0,
+            previousQty: 0,
+            newQty: unitQuantity || 0,
+            notes: `Initial stock from receipt scan${invoiceNumber ? ` - Invoice #${invoiceNumber}` : ''}${supplier ? ` from ${supplier}` : ''}`,
+            userId: req.user!.id,
+          },
+        });
+
+        // Link to supplier if found
+        if (supplierId) {
+          await tx.productSupplier.create({
+            data: {
+              productId: product.id,
+              supplierId,
+              cost: unitCost || 0,
+            },
+          });
+        }
+
+        processed.push({ action: 'created', product: { id: product.id, name: product.name, sku: newSku }, addedQty: unitQuantity });
+      }
+    }
+
+    return processed;
+  });
+
+  logger.info(`Receipt applied: ${results.length} products processed from ${supplier || 'unknown supplier'}`);
+
+  res.json({
+    success: true,
+    data: {
+      processedCount: results.length,
+      items: results,
+      supplier,
+    },
+    message: `${results.length} product(s) processed successfully`,
   });
 });

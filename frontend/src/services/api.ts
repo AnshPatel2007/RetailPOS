@@ -100,6 +100,18 @@ export const productService = {
 
   bulkToggleActive: (productIds: string[], isActive: boolean) =>
     api.post('/products/bulk-toggle-active', { productIds, isActive }),
+
+  scanReceipt: (file: File) => {
+    const formData = new FormData();
+    formData.append('receipt', file);
+    return api.post('/products/scan-receipt', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000, // 60s timeout for AI processing
+    });
+  },
+
+  applyReceipt: (data: any) =>
+    api.post('/products/apply-receipt', data),
 };
 
 /**

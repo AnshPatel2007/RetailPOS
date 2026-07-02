@@ -16,8 +16,9 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Plus, Search, Edit, Trash2, AlertTriangle, Package, FolderPlus, RotateCcw, ChevronLeft, ChevronRight, DollarSign, TrendingDown } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, AlertTriangle, Package, FolderPlus, RotateCcw, ChevronLeft, ChevronRight, DollarSign, TrendingDown, Camera } from 'lucide-react';
 import { StockAdjustmentModal } from '@/components/inventory/StockAdjustmentModal';
+import { ReceiptScanModal } from '@/components/inventory/ReceiptScanModal';
 
 export const Inventory: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -31,6 +32,7 @@ export const Inventory: React.FC = () => {
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [showStockAdjustModal, setShowStockAdjustModal] = useState(false);
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null);
+  const [showReceiptScanModal, setShowReceiptScanModal] = useState(false);
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStatus, setFilterStatus] = useState<'' | 'true' | 'false'>('');
   const [lowStockCount, setLowStockCount] = useState(0);
@@ -248,10 +250,16 @@ export const Inventory: React.FC = () => {
             Manage your products and track stock levels
           </p>
         </div>
-        <Button variant="primary" onClick={openCreateModal}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Product
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowReceiptScanModal(true)}>
+            <Camera className="h-4 w-4 mr-2" />
+            Scan Receipt
+          </Button>
+          <Button variant="primary" onClick={openCreateModal}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Product
+          </Button>
+        </div>
       </div>
 
       {/* Summary Stats */}
@@ -714,6 +722,13 @@ export const Inventory: React.FC = () => {
         }}
         onSuccess={() => { loadProducts(); loadLowStockCount(); }}
         product={adjustingProduct}
+      />
+
+      {/* Receipt Scan Modal */}
+      <ReceiptScanModal
+        isOpen={showReceiptScanModal}
+        onClose={() => setShowReceiptScanModal(false)}
+        onSuccess={() => { loadProducts(); loadLowStockCount(); }}
       />
     </div>
   );
