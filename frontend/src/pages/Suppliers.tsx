@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
+import { formatCurrency } from '@/lib/utils';
 import {
   Table,
   TableHeader,
@@ -94,6 +95,7 @@ export const Suppliers: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState('');
 
   // Modal states
   const [showSupplierModal, setShowSupplierModal] = useState(false);
@@ -232,6 +234,11 @@ export const Suppliers: React.FC = () => {
   };
 
   const handleOrderAction = async (orderId: string, action: string) => {
+    if (action === 'receive') {
+      if (!confirm('Receive this order? This will update inventory quantities.')) return;
+    } else if (action === 'cancel') {
+      if (!confirm('Cancel this order? This action cannot be undone.')) return;
+    }
     try {
       if (action === 'receive') {
         await purchaseOrderService.receive(orderId);
@@ -470,10 +477,12 @@ export const Suppliers: React.FC = () => {
     s.email?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const filteredOrders = orders.filter(o =>
-    o.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
-    o.supplier.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredOrders = orders.filter(o => {
+    const matchesSearch = o.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
+      o.supplier.name.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus = !orderStatusFilter || o.status === orderStatusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   if (loading) {
     return (
@@ -633,6 +642,27 @@ export const Suppliers: React.FC = () => {
       )}
 
       {activeTab === 'orders' && (
+        <div className="flex gap-2 mb-4">
+          {[
+            { value: '', label: 'All' },
+            { value: 'PENDING', label: 'Pending' },
+            { value: 'ORDERED', label: 'Ordered' },
+            { value: 'RECEIVED', label: 'Received' },
+            { value: 'CANCELLED', label: 'Cancelled' },
+          ].map((status) => (
+            <Button
+              key={status.value}
+              variant={orderStatusFilter === status.value ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setOrderStatusFilter(status.value)}
+            >
+              {status.label}
+            </Button>
+          ))}
+        </div>
+      )}
+
+      {activeTab === 'orders' && (
         <Card>
           {filteredOrders.length === 0 ? (
             <div className="p-12 text-center">
@@ -663,7 +693,7 @@ export const Suppliers: React.FC = () => {
                     </TableCell>
                     <TableCell>{order.supplier.name}</TableCell>
                     <TableCell>{order._count?.items || 0} items</TableCell>
-                    <TableCell className="font-medium">${order.totalAmount.toFixed(2)}</TableCell>
+                    <TableCell className="font-medium">{formatCurrency(order.totalAmount)}</TableCell>
                     <TableCell>{getStatusBadge(order.status)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {new Date(order.createdAt).toLocaleDateString()}
@@ -822,7 +852,7 @@ export const Suppliers: React.FC = () => {
                           {getFilteredProducts(productSearches[index]).map((product) => (
                             <div key={product.id} className="px-3 py-2 hover:bg-muted cursor-pointer" onMouseDown={() => selectProduct(index, product)}>
                               <p className="font-medium text-sm">{product.name}</p>
-                              <p className="text-xs text-muted-foreground">{product.sku} | Stock: {product.stockQuantity} | Cost: ${product.cost.toFixed(2)}</p>
+                              <p className="text-xs text-muted-foreground">{product.sku} | Stock: {product.stockQuantity} | Cost: {formatCurrency(product.cost)}</p>
                             </div>
                           ))}
                           {getFilteredProducts(productSearches[index]).length === 0 && (
@@ -864,7 +894,7 @@ export const Suppliers: React.FC = () => {
             <div className="pt-4 border-t">
               <div className="flex justify-between text-lg font-bold">
                 <span>Total:</span>
-                <span>${orderForm.items.reduce((sum, item) => sum + (item.cost * item.quantity), 0).toFixed(2)}</span>
+                <span>{formatCurrency(orderForm.items.reduce((sum, item) => sum + (item.cost * item.quantity), 0))}</span>
               </div>
             </div>
           </div>
@@ -982,15 +1012,15 @@ export const Suppliers: React.FC = () => {
                         <p className="text-xs text-muted-foreground">{item.sku}</p>
                       </TableCell>
                       <TableCell>{item.quantity}</TableCell>
-                      <TableCell>${item.cost.toFixed(2)}</TableCell>
-                      <TableCell className="font-medium">${(item.quantity * item.cost).toFixed(2)}</TableCell>
+                      <TableCell>{formatCurrency(item.cost)}</TableCell>
+                      <TableCell className="font-medium">{formatCurrency(item.quantity * item.cost)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
             <div className="flex justify-between items-center pt-4 border-t">
-              <div className="text-lg font-bold">Total: ${selectedOrder.totalAmount.toFixed(2)}</div>
+              <div className="text-lg font-bold">Total: {formatCurrency(selectedOrder.totalAmount)}</div>
               <div className="flex gap-2">
                 {selectedOrder.status === 'PENDING' && (
                   <>

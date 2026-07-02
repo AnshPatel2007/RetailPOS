@@ -21,7 +21,7 @@ export const getTransfers = asyncHandler(async (req: AuthRequest, res: Response)
   const [transfers, total] = await Promise.all([
     prisma.inventoryTransfer.findMany({
       where,
-      include: { items: { include: {} } },
+      include: { items: { include: { product: { select: { id: true, name: true, sku: true } } } } },
       orderBy: { createdAt: 'desc' },
       skip,
       take: parseInt(limit as string),
@@ -39,7 +39,7 @@ export const getTransfers = asyncHandler(async (req: AuthRequest, res: Response)
 export const getTransfer = asyncHandler(async (req: AuthRequest, res: Response) => {
   const transfer = await prisma.inventoryTransfer.findUnique({
     where: { id: req.params.id },
-    include: { items: true },
+    include: { items: { include: { product: { select: { id: true, name: true, sku: true } } } } },
   });
   if (!transfer) throw new AppError('Transfer not found', 404);
   res.json({ success: true, data: transfer });
@@ -100,6 +100,20 @@ export const shipTransfer = asyncHandler(async (req: AuthRequest, res: Response)
   });
   if (!transfer) throw new AppError('Transfer not found', 404);
   if (transfer.status !== 'PENDING') throw new AppError('Transfer is not in PENDING status', 400);
+
+  // Validate stock before shipping
+  for (const item of transfer.items) {
+    const product = await prisma.product.findFirst({
+      where: { id: item.productId, locationId: transfer.fromLocationId },
+      select: { stockQuantity: true, name: true },
+    });
+    if (!product || product.stockQuantity < item.quantity) {
+      throw new AppError(
+        `Insufficient stock for ${product?.name || item.productId}: available ${product?.stockQuantity ?? 0}, required ${item.quantity}`,
+        400
+      );
+    }
+  }
 
   await prisma.$transaction(async (tx) => {
     // Deduct stock from source products

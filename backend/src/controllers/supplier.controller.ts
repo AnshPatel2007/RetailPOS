@@ -117,7 +117,7 @@ export const getSupplier = asyncHandler(async (req: AuthRequest, res: Response) 
  * POST /api/suppliers
  */
 export const createSupplier = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { name, contactName, email, phone, address, notes } = req.body;
+  const { name, contactName, email, phone, address, notes, paymentTerms, leadTimeDays, minimumOrder } = req.body;
 
   const supplier = await prisma.supplier.create({
     data: {
@@ -127,6 +127,9 @@ export const createSupplier = asyncHandler(async (req: AuthRequest, res: Respons
       phone,
       address,
       notes,
+      paymentTerms,
+      leadTimeDays,
+      minimumOrder,
     },
   });
 
@@ -145,7 +148,7 @@ export const createSupplier = asyncHandler(async (req: AuthRequest, res: Respons
  */
 export const updateSupplier = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const { name, contactName, email, phone, address, notes, isActive } = req.body;
+  const { name, contactName, email, phone, address, notes, isActive, paymentTerms, leadTimeDays, minimumOrder } = req.body;
 
   const existing = await prisma.supplier.findUnique({ where: { id } });
   if (!existing) {
@@ -162,6 +165,9 @@ export const updateSupplier = asyncHandler(async (req: AuthRequest, res: Respons
       address,
       notes,
       isActive,
+      paymentTerms,
+      leadTimeDays,
+      minimumOrder,
     },
   });
 

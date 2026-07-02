@@ -34,6 +34,11 @@ interface TransferItem {
   productId: string;
   quantity: number;
   receivedQty: number | null;
+  product?: {
+    id: string;
+    name: string;
+    sku: string;
+  };
 }
 
 interface Location {
@@ -149,24 +154,26 @@ export const InventoryTransfers: React.FC = () => {
   };
 
   const handleShip = async (id: string) => {
+    if (!confirm('Ship this transfer? Stock will be deducted from the source location.')) return;
     try {
       await inventoryTransferService.ship(id);
       toast.success('Transfer shipped');
       fetchTransfers();
       setShowDetailModal(false);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to ship');
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to ship');
     }
   };
 
   const handleReceive = async (id: string) => {
+    if (!confirm('Receive this transfer? Stock will be added to the destination location.')) return;
     try {
       await inventoryTransferService.receive(id);
       toast.success('Transfer received');
       fetchTransfers();
       setShowDetailModal(false);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to receive');
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to receive');
     }
   };
 
@@ -388,7 +395,12 @@ export const InventoryTransfers: React.FC = () => {
               <div className="space-y-1">
                 {selectedTransfer.items.map((item) => (
                   <div key={item.id} className="flex justify-between text-sm p-2 bg-muted/50 rounded">
-                    <span>{item.productId}</span>
+                    <div>
+                      <span className="font-medium">{item.product?.name || item.productId}</span>
+                      {item.product?.sku && (
+                        <span className="text-xs text-muted-foreground ml-2">{item.product.sku}</span>
+                      )}
+                    </div>
                     <span className="text-muted-foreground">
                       Qty: {item.quantity}
                       {item.receivedQty !== null && ` / Received: ${item.receivedQty}`}

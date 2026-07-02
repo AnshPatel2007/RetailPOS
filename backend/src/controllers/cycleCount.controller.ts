@@ -19,7 +19,7 @@ export const getCycleCounts = asyncHandler(async (req: AuthRequest, res: Respons
   const [counts, total] = await Promise.all([
     prisma.cycleCount.findMany({
       where,
-      include: { items: { include: {} } },
+      include: { items: { include: { product: { select: { id: true, name: true, sku: true } } } } },
       orderBy: { createdAt: 'desc' },
       skip,
       take: parseInt(limit as string),
@@ -37,7 +37,7 @@ export const getCycleCounts = asyncHandler(async (req: AuthRequest, res: Respons
 export const getCycleCount = asyncHandler(async (req: AuthRequest, res: Response) => {
   const count = await prisma.cycleCount.findUnique({
     where: { id: req.params.id },
-    include: { items: true },
+    include: { items: { include: { product: { select: { id: true, name: true, sku: true } } } } },
   });
   if (!count) throw new AppError('Cycle count not found', 404);
   res.json({ success: true, data: count });

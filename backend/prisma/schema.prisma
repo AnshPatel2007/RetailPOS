@@ -179,6 +179,9 @@ model Supplier {
   phone          String?
   address        String?
   notes          String?
+  paymentTerms   String?
+  leadTimeDays   Int?
+  minimumOrder   Float?
   isActive       Boolean           @default(true)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt

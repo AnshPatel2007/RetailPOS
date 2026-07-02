@@ -39,6 +39,11 @@ interface CycleCountItem {
   countedQty: number | null;
   discrepancy: number | null;
   notes: string | null;
+  product?: {
+    id: string;
+    name: string;
+    sku: string;
+  };
 }
 
 interface Location {
@@ -157,6 +162,7 @@ export const CycleCount: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!selectedCount) return;
+    if (!confirm('Submit this cycle count for review? Make sure all items have been counted.')) return;
     try {
       await cycleCountService.submit(selectedCount.id);
       toast.success('Submitted for review');
@@ -169,6 +175,8 @@ export const CycleCount: React.FC = () => {
 
   const handleApprove = async () => {
     if (!selectedCount) return;
+    const discrepancies = selectedCount.items.filter(i => i.discrepancy && i.discrepancy !== 0).length;
+    if (!confirm(`Approve this cycle count? ${discrepancies} item(s) with discrepancies will have their inventory adjusted.`)) return;
     try {
       await cycleCountService.approve(selectedCount.id);
       toast.success('Cycle count approved, inventory adjusted');
@@ -366,7 +374,7 @@ export const CycleCount: React.FC = () => {
               <div className="max-h-[300px] overflow-y-auto space-y-1">
                 {selectedCount.items.map((item) => (
                   <div key={item.id} className="flex items-center gap-3 text-sm p-2 bg-muted/50 rounded">
-                    <span className="flex-1 truncate">{item.productId}</span>
+                    <span className="flex-1 truncate" title={item.product?.sku}>{item.product?.name || item.productId}</span>
                     <span className="text-muted-foreground w-20 text-right">Expected: {item.expectedQty}</span>
                     {selectedCount.status === 'IN_PROGRESS' ? (
                       <Input
