@@ -59,24 +59,24 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
     setIsSubmitting(true);
 
     try {
-      let newQuantity: number;
+      // Backend expects `quantity` as a delta (added to current stock)
+      // and `type` as the reason string
+      let delta: number;
       switch (adjustmentType) {
         case 'add':
-          newQuantity = product.stockQuantity + qty;
+          delta = qty;
           break;
         case 'remove':
-          newQuantity = product.stockQuantity - qty;
+          delta = -qty;
           break;
         case 'set':
-          newQuantity = qty;
+          delta = qty - product.stockQuantity;
           break;
       }
 
       await productService.adjustInventory(product.id, {
-        quantity: newQuantity,
-        adjustmentType,
-        adjustmentQuantity: qty,
-        reason,
+        quantity: delta,
+        type: reason,
         notes: notes || undefined,
       });
 

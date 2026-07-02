@@ -253,6 +253,17 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     }
   }
 
+  // Check barcode uniqueness if changing
+  if (data.barcode && data.barcode !== product.barcode) {
+    const existingBarcode = await prisma.product.findUnique({
+      where: { barcode: data.barcode },
+    });
+
+    if (existingBarcode) {
+      throw new AppError('Product with this barcode already exists', 400);
+    }
+  }
+
   const updatedProduct = await prisma.product.update({
     where: { id },
     data,
@@ -365,44 +376,49 @@ export const adjustInventory = asyncHandler(async (req: AuthRequest, res: Respon
   const { id } = req.params;
   const { quantity, type, notes } = req.body;
 
-  const product = await prisma.product.findUnique({ where: { id } });
+  // Wrap in transaction to prevent race conditions
+  const updatedProduct = await prisma.$transaction(async (tx) => {
+    const product = await tx.product.findUnique({ where: { id } });
 
-  if (!product) {
-    throw new AppError('Product not found', 404);
-  }
+    if (!product) {
+      throw new AppError('Product not found', 404);
+    }
 
-  // Verify user has access to this product's location
-  if (req.user?.locationId && product.locationId !== req.user.locationId) {
-    throw new AppError('Product not found', 404);
-  }
+    // Verify user has access to this product's location
+    if (req.user?.locationId && product.locationId !== req.user.locationId) {
+      throw new AppError('Product not found', 404);
+    }
 
-  const previousQty = product.stockQuantity;
-  const newQty = previousQty + quantity;
+    const previousQty = product.stockQuantity;
+    const newQty = previousQty + quantity;
 
-  if (newQty < 0) {
-    throw new AppError('Insufficient stock', 400);
-  }
+    if (newQty < 0) {
+      throw new AppError(`Insufficient stock. Current: ${previousQty}, adjustment: ${quantity}`, 400);
+    }
 
-  // Update product stock
-  const updatedProduct = await prisma.product.update({
-    where: { id },
-    data: { stockQuantity: newQty },
+    // Update product stock
+    const updated = await tx.product.update({
+      where: { id },
+      data: { stockQuantity: newQty },
+    });
+
+    // Create inventory log
+    await tx.inventoryLog.create({
+      data: {
+        productId: id,
+        type: type || 'ADJUSTMENT',
+        quantity,
+        previousQty,
+        newQty,
+        notes,
+        userId: req.user?.id,
+      },
+    });
+
+    logger.info(`Inventory adjusted for ${product.name}: ${previousQty} -> ${newQty}`);
+
+    return updated;
   });
-
-  // Create inventory log
-  await prisma.inventoryLog.create({
-    data: {
-      productId: id,
-      type: type || 'ADJUSTMENT',
-      quantity,
-      previousQty,
-      newQty,
-      notes,
-      userId: req.user?.id,
-    },
-  });
-
-  logger.info(`Inventory adjusted for ${product.name}: ${previousQty} -> ${newQty}`);
 
   res.json({
     success: true,

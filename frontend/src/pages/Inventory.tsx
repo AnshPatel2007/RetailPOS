@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { productService, categoryService } from '@/services/api';
 import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils';
@@ -16,7 +16,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Plus, Search, Edit, Trash2, AlertTriangle, Package, FolderPlus, RotateCcw } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, AlertTriangle, Package, FolderPlus, RotateCcw, ChevronLeft, ChevronRight, DollarSign, TrendingDown } from 'lucide-react';
 import { StockAdjustmentModal } from '@/components/inventory/StockAdjustmentModal';
 
 export const Inventory: React.FC = () => {
@@ -31,23 +31,60 @@ export const Inventory: React.FC = () => {
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [showStockAdjustModal, setShowStockAdjustModal] = useState(false);
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null);
+  const [filterCategory, setFilterCategory] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'' | 'true' | 'false'>('');
+  const [lowStockCount, setLowStockCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const ITEMS_PER_PAGE = 20;
   const [formData, setFormData] = useState({
     sku: '',
     name: '',
     description: '',
     cost: '',
     price: '',
+    compareAtPrice: '',
     stockQuantity: '',
     lowStockAlert: '',
     barcode: '',
+    image: '',
     isTaxable: true,
+    isActive: true,
+    trackInventory: true,
+    allowBackorder: false,
     categoryId: '',
   });
 
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  // Debounce search input and reset page
+  useEffect(() => {
+    debounceTimer.current = setTimeout(() => {
+      setDebouncedSearch(search);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(debounceTimer.current);
+  }, [search]);
+
+  useEffect(() => {
+    loadCategories();
+    loadLowStockCount();
+  }, []);
+
+  const loadLowStockCount = async () => {
+    try {
+      const response = await productService.getLowStock();
+      setLowStockCount(response.data.data?.length || 0);
+    } catch (error) {
+      console.error('Failed to load low stock count:', error);
+    }
+  };
+
   useEffect(() => {
     loadProducts();
-    loadCategories();
-  }, [search]);
+  }, [debouncedSearch, currentPage, filterCategory, filterStatus]);
 
   const loadCategories = async () => {
     try {
@@ -80,12 +117,17 @@ export const Inventory: React.FC = () => {
   const loadProducts = async () => {
     setIsLoading(true);
     try {
-      const response = await productService.getAll({
-        search,
-        page: 1,
-        limit: 100,
-      });
+      const params: any = {
+        search: debouncedSearch,
+        page: currentPage,
+        limit: ITEMS_PER_PAGE,
+      };
+      if (filterCategory) params.categoryId = filterCategory;
+      if (filterStatus) params.isActive = filterStatus;
+      const response = await productService.getAll(params);
       setProducts(response.data.data);
+      setTotalPages(response.data.pagination?.totalPages || 1);
+      setTotalProducts(response.data.pagination?.total || response.data.data.length);
     } catch (error) {
       console.error('Failed to load products:', error);
     } finally {
@@ -97,12 +139,22 @@ export const Inventory: React.FC = () => {
     e.preventDefault();
 
     try {
-      const data = {
-        ...formData,
+      const data: any = {
+        sku: formData.sku,
+        name: formData.name,
+        description: formData.description || undefined,
+        categoryId: formData.categoryId || undefined,
         cost: parseFloat(formData.cost),
         price: parseFloat(formData.price),
-        stockQuantity: parseInt(formData.stockQuantity),
-        lowStockAlert: parseInt(formData.lowStockAlert),
+        compareAtPrice: formData.compareAtPrice ? parseFloat(formData.compareAtPrice) : undefined,
+        stockQuantity: parseInt(formData.stockQuantity) || 0,
+        lowStockAlert: parseInt(formData.lowStockAlert) || 0,
+        barcode: formData.barcode || undefined,
+        image: formData.image || undefined,
+        isTaxable: formData.isTaxable,
+        isActive: formData.isActive,
+        trackInventory: formData.trackInventory,
+        allowBackorder: formData.allowBackorder,
       };
 
       if (editingProduct) {
@@ -114,6 +166,7 @@ export const Inventory: React.FC = () => {
       setShowModal(false);
       resetForm();
       loadProducts();
+      loadLowStockCount();
       toast.success(editingProduct ? 'Product updated' : 'Product created');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to save product');
@@ -128,10 +181,15 @@ export const Inventory: React.FC = () => {
       description: product.description || '',
       cost: product.cost.toString(),
       price: product.price.toString(),
+      compareAtPrice: product.compareAtPrice?.toString() || '',
       stockQuantity: product.stockQuantity.toString(),
       lowStockAlert: product.lowStockAlert.toString(),
       barcode: product.barcode || '',
+      image: product.image || '',
       isTaxable: product.isTaxable,
+      isActive: product.isActive,
+      trackInventory: product.trackInventory,
+      allowBackorder: product.allowBackorder,
       categoryId: product.categoryId || '',
     });
     setShowNewCategoryInput(false);
@@ -145,6 +203,7 @@ export const Inventory: React.FC = () => {
     try {
       await productService.delete(id);
       loadProducts();
+      loadLowStockCount();
       toast.success('Product deleted');
     } catch (error) {
       toast.error('Failed to delete product');
@@ -159,10 +218,15 @@ export const Inventory: React.FC = () => {
       description: '',
       cost: '',
       price: '',
+      compareAtPrice: '',
       stockQuantity: '',
       lowStockAlert: '',
       barcode: '',
+      image: '',
       isTaxable: true,
+      isActive: true,
+      trackInventory: true,
+      allowBackorder: false,
       categoryId: '',
     });
     setShowNewCategoryInput(false);
@@ -190,9 +254,57 @@ export const Inventory: React.FC = () => {
         </Button>
       </div>
 
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative max-w-md">
+      {/* Summary Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Package className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Total Products</p>
+              <p className="text-xl font-bold">{totalProducts}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-warning/10">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Low Stock</p>
+              <p className="text-xl font-bold">{lowStockCount}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-destructive/10">
+              <TrendingDown className="h-5 w-5 text-destructive" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Out of Stock</p>
+              <p className="text-xl font-bold">{products.filter(p => p.stockQuantity === 0).length}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-success/10">
+              <DollarSign className="h-5 w-5 text-success" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Inventory Value</p>
+              <p className="text-xl font-bold">{formatCurrency(products.reduce((sum, p) => sum + p.cost * p.stockQuantity, 0))}</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Search & Filters */}
+      <div className="flex flex-wrap items-end gap-4 mb-6">
+        <div className="relative flex-1 min-w-[200px] max-w-md">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
           <Input
             type="text"
@@ -201,6 +313,31 @@ export const Inventory: React.FC = () => {
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10"
           />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">Category</label>
+          <select
+            value={filterCategory}
+            onChange={(e) => { setFilterCategory(e.target.value); setCurrentPage(1); }}
+            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm min-w-[150px]"
+          >
+            <option value="">All Categories</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>{cat.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">Status</label>
+          <select
+            value={filterStatus}
+            onChange={(e) => { setFilterStatus(e.target.value as '' | 'true' | 'false'); setCurrentPage(1); }}
+            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm min-w-[130px]"
+          >
+            <option value="">All</option>
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+          </select>
         </div>
       </div>
 
@@ -276,14 +413,19 @@ export const Inventory: React.FC = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {isLowStock ? (
-                        <Badge variant="warning">
-                          <AlertTriangle className="h-3 w-3 mr-1" />
-                          Low Stock
-                        </Badge>
-                      ) : (
-                        <Badge variant="success">In Stock</Badge>
-                      )}
+                      <div className="flex flex-col gap-1">
+                        {!product.isActive && (
+                          <Badge variant="secondary">Inactive</Badge>
+                        )}
+                        {product.isActive && isLowStock ? (
+                          <Badge variant="warning">
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            Low Stock
+                          </Badge>
+                        ) : product.isActive ? (
+                          <Badge variant="success">In Stock</Badge>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
@@ -322,6 +464,36 @@ export const Inventory: React.FC = () => {
           </Table>
         )}
       </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <p className="text-sm text-muted-foreground">
+            Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, totalProducts)} of {totalProducts} products
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm px-2">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Product Modal */}
       <Modal
@@ -417,13 +589,14 @@ export const Inventory: React.FC = () => {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <Input
               type="number"
               label="Cost Price"
               value={formData.cost}
               onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
               step="0.01"
+              min="0"
               required
             />
             <Input
@@ -432,9 +605,30 @@ export const Inventory: React.FC = () => {
               value={formData.price}
               onChange={(e) => setFormData({ ...formData, price: e.target.value })}
               step="0.01"
+              min="0.01"
               required
             />
+            <Input
+              type="number"
+              label="Compare-at Price"
+              value={formData.compareAtPrice}
+              onChange={(e) => setFormData({ ...formData, compareAtPrice: e.target.value })}
+              step="0.01"
+              min="0"
+            />
           </div>
+          {formData.cost && formData.price && parseFloat(formData.price) < parseFloat(formData.cost) && (
+            <p className="text-xs text-warning flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" /> Retail price is below cost
+            </p>
+          )}
+
+          <Input
+            label="Image URL"
+            value={formData.image}
+            onChange={(e) => setFormData({ ...formData, image: e.target.value })}
+            placeholder="https://example.com/image.jpg"
+          />
 
           <div className="grid grid-cols-2 gap-4">
             <Input
@@ -453,15 +647,44 @@ export const Inventory: React.FC = () => {
             />
           </div>
 
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={formData.isTaxable}
-              onChange={(e) => setFormData({ ...formData, isTaxable: e.target.checked })}
-              className="rounded border-input"
-            />
-            <span className="text-sm">Taxable item</span>
-          </label>
+          <div className="grid grid-cols-2 gap-4">
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={formData.isTaxable}
+                onChange={(e) => setFormData({ ...formData, isTaxable: e.target.checked })}
+                className="rounded border-input"
+              />
+              <span className="text-sm">Taxable item</span>
+            </label>
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={formData.isActive}
+                onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
+                className="rounded border-input"
+              />
+              <span className="text-sm">Active</span>
+            </label>
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={formData.trackInventory}
+                onChange={(e) => setFormData({ ...formData, trackInventory: e.target.checked })}
+                className="rounded border-input"
+              />
+              <span className="text-sm">Track inventory</span>
+            </label>
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={formData.allowBackorder}
+                onChange={(e) => setFormData({ ...formData, allowBackorder: e.target.checked })}
+                className="rounded border-input"
+              />
+              <span className="text-sm">Allow backorder</span>
+            </label>
+          </div>
 
           <div className="flex gap-3 pt-4">
             <Button
@@ -489,7 +712,7 @@ export const Inventory: React.FC = () => {
           setShowStockAdjustModal(false);
           setAdjustingProduct(null);
         }}
-        onSuccess={loadProducts}
+        onSuccess={() => { loadProducts(); loadLowStockCount(); }}
         product={adjustingProduct}
       />
     </div>
