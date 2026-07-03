@@ -768,8 +768,9 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
   });
 
   // Bucket into hours using UTC so the client can convert to local time
+  // Include current hour (13 buckets: 12 hours ago through now)
   const hourMap: Record<number, number> = {};
-  for (let h = 0; h < 12; h++) {
+  for (let h = 0; h <= 12; h++) {
     const hourStart = new Date(twelveHoursAgo.getTime() + h * 60 * 60 * 1000);
     hourMap[hourStart.getUTCHours()] = 0;
   }

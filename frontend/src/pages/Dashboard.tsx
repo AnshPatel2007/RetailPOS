@@ -104,8 +104,6 @@ export const Dashboard: React.FC = () => {
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
   const [activeShifts, setActiveShifts] = useState<ActiveShift[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [secondsAgo, setSecondsAgo] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -139,8 +137,6 @@ export const Dashboard: React.FC = () => {
       setHourlyData(localHourly);
       setTopProducts(hourly.topProducts || []);
       setActiveShifts(hourly.activeShifts || []);
-      setLastUpdated(new Date());
-      setSecondsAgo(0);
     } catch (error) {
       console.error('Failed to load metrics:', error);
     } finally {
@@ -157,14 +153,9 @@ export const Dashboard: React.FC = () => {
   }, [loadMetrics]);
 
   useEffect(() => {
-    const tick = setInterval(() => {
-      if (lastUpdated) {
-        setSecondsAgo(Math.round((Date.now() - lastUpdated.getTime()) / 1000));
-      }
-      setCurrentTime(new Date());
-    }, 1000);
+    const tick = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(tick);
-  }, [lastUpdated]);
+  }, []);
 
   if (isLoading) {
     return (
@@ -218,21 +209,14 @@ export const Dashboard: React.FC = () => {
               {currentTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            {lastUpdated && (
-              <span className="text-xs text-muted-foreground">
-                Updated {secondsAgo < 10 ? 'just now' : `${secondsAgo}s ago`}
-              </span>
-            )}
-            <button
-              onClick={() => loadMetrics(true)}
-              disabled={isRefreshing}
-              className="p-2 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
-              title="Refresh dashboard"
-            >
-              <RefreshCw className={`h-4 w-4 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
+          <button
+            onClick={() => loadMetrics(true)}
+            disabled={isRefreshing}
+            className="p-2 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+            title="Refresh dashboard"
+          >
+            <RefreshCw className={`h-4 w-4 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </div>
 
