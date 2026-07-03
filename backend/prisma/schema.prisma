@@ -142,7 +142,9 @@ model Product {
   variants       ProductVariant[]
   category       Category?         @relation(fields: [categoryId], references: [id])
   location       Location?         @relation(fields: [locationId], references: [id])
-  saleItems      SaleItem[]
+  saleItems       SaleItem[]
+  transferItems   TransferItem[]
+  cycleCountItems CycleCountItem[]
 
   @@index([sku])
   @@index([barcode])
@@ -490,6 +492,7 @@ model TransferItem {
   receivedQty Int               @default(0)
   createdAt   DateTime          @default(now())
   transfer    InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  product     Product           @relation(fields: [productId], references: [id])
 
   @@index([transferId])
   @@index([productId])
@@ -527,6 +530,7 @@ model CycleCountItem {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   cycleCount  CycleCount @relation(fields: [cycleCountId], references: [id], onDelete: Cascade)
+  product     Product    @relation(fields: [productId], references: [id])
 
   @@index([cycleCountId])
   @@index([productId])

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { userService, locationService } from '@/services/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -54,6 +54,9 @@ export const UserManagement: React.FC = () => {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState('');
 
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>();
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -64,16 +67,24 @@ export const UserManagement: React.FC = () => {
     isActive: true,
   });
 
+  // Debounce search input
+  useEffect(() => {
+    searchTimer.current = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(searchTimer.current);
+  }, [search]);
+
   useEffect(() => {
     loadData();
-  }, [search, filterLocation, filterRole]);
+  }, [debouncedSearch, filterLocation, filterRole]);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
       const [usersResponse, locationsResponse] = await Promise.all([
         userService.getAll({
-          search,
+          search: debouncedSearch,
           locationId: filterLocation || undefined,
           role: filterRole || undefined,
         }),
