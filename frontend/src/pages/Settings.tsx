@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useAuthStore } from '@/store/authStore';
+import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import {
   Store,
   Receipt,
@@ -20,43 +21,17 @@ import toast from 'react-hot-toast';
 
 export const Settings: React.FC = () => {
   const { user } = useAuthStore();
+  const settingsStore = useStoreSettingsStore();
   const [hardwareSettings, setHardwareSettings] = useState<HardwareSettings>(
     hardware.getSettings()
   );
   const [scannerTestResult, setScannerTestResult] = useState<string>('');
 
-  // Store settings state
-  const [storeSettings, setStoreSettings] = useState({
-    storeName: 'Main Store',
-    address: '123 Main Street',
-    city: 'New York',
-    state: 'NY',
-    taxRate: '8.875',
-  });
-
-  // Receipt settings state
-  const [receiptSettings, setReceiptSettings] = useState({
-    header: 'Thank you for your purchase!',
-    footer: 'Please come again!',
-    showAddress: true,
-    showTaxBreakdown: true,
-  });
-
-  // Payment methods state
-  const [paymentMethods, setPaymentMethods] = useState({
-    cash: true,
-    card: true,
-    giftCard: false,
-    storeCredit: false,
-  });
-
-  // Notification settings state
-  const [notificationSettings, setNotificationSettings] = useState({
-    lowStockAlerts: true,
-    endOfDayReports: true,
-    emailNotifications: false,
-    notificationEmail: user?.email || '',
-  });
+  // Local form state initialized from the Zustand store
+  const [storeSettings, setStoreSettings] = useState(settingsStore.storeInfo);
+  const [receiptSettings, setReceiptSettings] = useState(settingsStore.receiptSettings);
+  const [paymentMethods, setPaymentMethods] = useState(settingsStore.paymentMethods);
+  const [notificationSettings, setNotificationSettings] = useState(settingsStore.notificationSettings);
 
   // User profile state
   const [profileSettings, setProfileSettings] = useState({
@@ -68,19 +43,6 @@ export const Settings: React.FC = () => {
     confirmPassword: '',
   });
 
-  // Load saved settings on mount
-  useEffect(() => {
-    const savedStore = localStorage.getItem('pos_store_settings');
-    const savedReceipt = localStorage.getItem('pos_receipt_settings');
-    const savedPayment = localStorage.getItem('pos_payment_methods');
-    const savedNotifications = localStorage.getItem('pos_notification_settings');
-
-    if (savedStore) setStoreSettings(JSON.parse(savedStore));
-    if (savedReceipt) setReceiptSettings(JSON.parse(savedReceipt));
-    if (savedPayment) setPaymentMethods(JSON.parse(savedPayment));
-    if (savedNotifications) setNotificationSettings(JSON.parse(savedNotifications));
-  }, []);
-
   // Update profile state when user changes
   useEffect(() => {
     if (user) {
@@ -90,31 +52,51 @@ export const Settings: React.FC = () => {
         lastName: user.lastName || '',
         email: user.email || '',
       }));
-      setNotificationSettings(prev => ({
-        ...prev,
-        notificationEmail: user.email || '',
-      }));
     }
   }, [user]);
 
-  // Save handlers
+  // Save handlers — write to Zustand store (auto-persisted to localStorage)
   const saveStoreSettings = () => {
-    localStorage.setItem('pos_store_settings', JSON.stringify(storeSettings));
+    settingsStore.setStoreInfo(storeSettings);
+    // Also sync store name/address/phone to hardware receipt printer settings
+    const updatedHw = {
+      ...hardwareSettings,
+      receiptPrinter: {
+        ...hardwareSettings.receiptPrinter,
+        storeName: storeSettings.storeName,
+        storeAddress: storeSettings.address
+          ? `${storeSettings.address}${storeSettings.city ? ', ' + storeSettings.city : ''}${storeSettings.state ? ', ' + storeSettings.state : ''}`
+          : '',
+        storePhone: storeSettings.phone,
+      },
+    };
+    setHardwareSettings(updatedHw);
+    hardware.saveSettings(updatedHw);
     toast.success('Store settings saved');
   };
 
   const saveReceiptSettings = () => {
-    localStorage.setItem('pos_receipt_settings', JSON.stringify(receiptSettings));
+    settingsStore.setReceiptSettings(receiptSettings);
+    // Sync footer text to hardware settings
+    const updatedHw = {
+      ...hardwareSettings,
+      receiptPrinter: {
+        ...hardwareSettings.receiptPrinter,
+        footerText: receiptSettings.footer,
+      },
+    };
+    setHardwareSettings(updatedHw);
+    hardware.saveSettings(updatedHw);
     toast.success('Receipt settings saved');
   };
 
   const savePaymentMethods = () => {
-    localStorage.setItem('pos_payment_methods', JSON.stringify(paymentMethods));
+    settingsStore.setPaymentMethods(paymentMethods);
     toast.success('Payment methods saved');
   };
 
   const saveNotificationSettings = () => {
-    localStorage.setItem('pos_notification_settings', JSON.stringify(notificationSettings));
+    settingsStore.setNotificationSettings(notificationSettings);
     toast.success('Notification settings saved');
   };
 
@@ -268,11 +250,9 @@ export const Settings: React.FC = () => {
               />
             </div>
             <Input
-              label="Tax Rate (%)"
-              type="number"
-              value={storeSettings.taxRate}
-              onChange={(e) => setStoreSettings({ ...storeSettings, taxRate: e.target.value })}
-              step="0.001"
+              label="Phone"
+              value={storeSettings.phone}
+              onChange={(e) => setStoreSettings({ ...storeSettings, phone: e.target.value })}
             />
             <Button variant="primary" onClick={saveStoreSettings}>Save Changes</Button>
           </CardContent>
@@ -520,30 +500,9 @@ export const Settings: React.FC = () => {
               />
               <span className="text-sm">Show store logo</span>
             </label>
-            <Input
-              label="Store Name"
-              value={hardwareSettings.receiptPrinter.storeName}
-              onChange={(e) => updateHardwareSettings('receiptPrinter', 'storeName', e.target.value)}
-              disabled={!hardwareSettings.receiptPrinter.enabled}
-            />
-            <Input
-              label="Store Address"
-              value={hardwareSettings.receiptPrinter.storeAddress}
-              onChange={(e) => updateHardwareSettings('receiptPrinter', 'storeAddress', e.target.value)}
-              disabled={!hardwareSettings.receiptPrinter.enabled}
-            />
-            <Input
-              label="Store Phone"
-              value={hardwareSettings.receiptPrinter.storePhone}
-              onChange={(e) => updateHardwareSettings('receiptPrinter', 'storePhone', e.target.value)}
-              disabled={!hardwareSettings.receiptPrinter.enabled}
-            />
-            <Input
-              label="Footer Text"
-              value={hardwareSettings.receiptPrinter.footerText}
-              onChange={(e) => updateHardwareSettings('receiptPrinter', 'footerText', e.target.value)}
-              disabled={!hardwareSettings.receiptPrinter.enabled}
-            />
+            <p className="text-xs text-muted-foreground">
+              Store name, address, phone, and footer are configured in Store Information and Receipt Settings above.
+            </p>
             <Button
               variant="outline"
               onClick={testPrinter}

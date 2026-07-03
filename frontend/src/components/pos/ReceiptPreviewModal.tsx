@@ -3,6 +3,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Receipt, hardware } from '@/services/hardware';
+import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { Printer, Mail, X, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -21,9 +22,19 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
   onEmailReceipt,
   saleId,
 }) => {
+  const { storeInfo, receiptSettings: storeReceiptSettings } = useStoreSettingsStore();
   const [showEmailInput, setShowEmailInput] = useState(false);
   const [email, setEmail] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  const storeName = storeInfo.storeName || hardware.getSettings().receiptPrinter.storeName || 'POS System';
+  const storeAddress = storeInfo.address
+    ? `${storeInfo.address}${storeInfo.city ? ', ' + storeInfo.city : ''}${storeInfo.state ? ', ' + storeInfo.state : ''}`
+    : hardware.getSettings().receiptPrinter.storeAddress;
+  const storePhone = storeInfo.phone || hardware.getSettings().receiptPrinter.storePhone;
+  const headerText = storeReceiptSettings.header;
+  const footerText = storeReceiptSettings.footer || hardware.getSettings().receiptPrinter.footerText || 'Thank you for your business!';
+  const showAddress = storeReceiptSettings.showAddress;
 
   const handlePrint = async () => {
     const success = await hardware.printer.print(receipt);
@@ -54,17 +65,22 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
       <div className="space-y-4">
         {/* Receipt Preview - styled like actual thermal receipt */}
         <div className="mx-auto bg-white text-black rounded shadow-md max-h-[60vh] overflow-auto font-mono text-xs leading-relaxed" style={{ width: '280px', padding: '16px 12px' }}>
-          <div className="text-center font-bold text-sm mb-1">
-            {hardware.getSettings().receiptPrinter.storeName || 'POS System'}
-          </div>
-          {hardware.getSettings().receiptPrinter.storeAddress && (
-            <div className="text-center text-[10px] text-gray-600">
-              {hardware.getSettings().receiptPrinter.storeAddress}
+          {headerText && (
+            <div className="text-center text-[10px] text-gray-600 mb-1">
+              {headerText}
             </div>
           )}
-          {hardware.getSettings().receiptPrinter.storePhone && (
+          <div className="text-center font-bold text-sm mb-1">
+            {storeName}
+          </div>
+          {showAddress && storeAddress && (
             <div className="text-center text-[10px] text-gray-600">
-              Tel: {hardware.getSettings().receiptPrinter.storePhone}
+              {storeAddress}
+            </div>
+          )}
+          {storePhone && (
+            <div className="text-center text-[10px] text-gray-600">
+              Tel: {storePhone}
             </div>
           )}
           <div className="border-t border-dashed border-gray-400 my-2" />
@@ -138,7 +154,7 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
 
           <div className="border-t border-dashed border-gray-400 my-2" />
           <div className="text-center text-[10px] text-gray-600">
-            {hardware.getSettings().receiptPrinter.footerText || 'Thank you for your business!'}
+            {footerText}
           </div>
         </div>
 

@@ -21,6 +21,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 
 type PaymentMethod = 'CASH' | 'CARD' | 'GIFT_CARD' | 'STORE_CREDIT';
 
@@ -77,7 +78,10 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     if (isOpen) {
       setStep(linkedCustomer ? 'payment' : 'customer');
       setActiveTab('single');
-      setPaymentMethod(initialPaymentMethod || 'CASH');
+      const defaultMethod = initialPaymentMethod && allPaymentMethods.find(m => m.value === initialPaymentMethod && m.enabled)
+        ? initialPaymentMethod
+        : (paymentMethods[0]?.value || 'CASH');
+      setPaymentMethod(defaultMethod);
       setAmountInput(Math.round(total * 100 / 100).toFixed(2));
       setPayments([]);
       setReferenceInput('');
@@ -216,12 +220,16 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     }
   };
 
-  const paymentMethods = [
-    { value: 'CASH' as const, label: 'Cash', icon: DollarSign },
-    { value: 'CARD' as const, label: 'Card', icon: CreditCard },
-    { value: 'GIFT_CARD' as const, label: 'Gift Card', icon: Gift },
-    { value: 'STORE_CREDIT' as const, label: 'Store Credit', icon: Wallet },
+  const enabledMethods = useStoreSettingsStore((s) => s.paymentMethods);
+
+  const allPaymentMethods = [
+    { value: 'CASH' as const, label: 'Cash', icon: DollarSign, enabled: enabledMethods.cash },
+    { value: 'CARD' as const, label: 'Card', icon: CreditCard, enabled: enabledMethods.card },
+    { value: 'GIFT_CARD' as const, label: 'Gift Card', icon: Gift, enabled: enabledMethods.giftCard },
+    { value: 'STORE_CREDIT' as const, label: 'Store Credit', icon: Wallet, enabled: enabledMethods.storeCredit },
   ];
+
+  const paymentMethods = allPaymentMethods.filter((m) => m.enabled);
 
   const canSubmit = activeTab === 'single'
     ? parseFloat(amountInput) >= effectiveTotal

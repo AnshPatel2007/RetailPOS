@@ -66,18 +66,17 @@ const timeAgo = (iso: string) => {
   return `${Math.floor(hrs / 24)}d ago`;
 };
 
-/** Convert UTC hour to local hour, supporting fractional timezone offsets (e.g., UTC+5:30) */
+/** Convert UTC hour to local hour using a real Date object so DST + fractional offsets are correct */
 const utcHourToLocal = (utcHour: number): number => {
-  const offsetMinutes = new Date().getTimezoneOffset() * -1; // positive = ahead of UTC
-  const totalMinutes = utcHour * 60 + offsetMinutes;
-  const localHour = Math.floor(((totalMinutes / 60) % 24 + 24) % 24);
-  return localHour;
+  const d = new Date();
+  d.setUTCHours(utcHour, 0, 0, 0);
+  return d.getHours();
 };
 
-const formatHourLabel = (hour: number): string => {
-  const h12 = hour % 12 || 12;
-  const ampm = hour < 12 ? 'am' : 'pm';
-  return `${h12}${ampm}`;
+const formatHourLabel = (localHour: number): string => {
+  const d = new Date();
+  d.setHours(localHour, 0, 0, 0);
+  return d.toLocaleTimeString([], { hour: 'numeric', hour12: true }).toLowerCase();
 };
 
 const getGreeting = (): string => {
@@ -108,6 +107,7 @@ export const Dashboard: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [secondsAgo, setSecondsAgo] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   const loadMetrics = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
@@ -161,7 +161,8 @@ export const Dashboard: React.FC = () => {
       if (lastUpdated) {
         setSecondsAgo(Math.round((Date.now() - lastUpdated.getTime()) / 1000));
       }
-    }, 5000);
+      setCurrentTime(new Date());
+    }, 1000);
     return () => clearInterval(tick);
   }, [lastUpdated]);
 
@@ -208,20 +209,30 @@ export const Dashboard: React.FC = () => {
             Here's what's happening at your store today.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {lastUpdated && (
-            <span className="text-xs text-muted-foreground">
-              Updated {secondsAgo < 10 ? 'just now' : `${secondsAgo}s ago`}
-            </span>
-          )}
-          <button
-            onClick={() => loadMetrics(true)}
-            disabled={isRefreshing}
-            className="p-2 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
-            title="Refresh dashboard"
-          >
-            <RefreshCw className={`h-4 w-4 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
-          </button>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <p className="text-sm font-medium">
+              {currentTime.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {currentTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {lastUpdated && (
+              <span className="text-xs text-muted-foreground">
+                Updated {secondsAgo < 10 ? 'just now' : `${secondsAgo}s ago`}
+              </span>
+            )}
+            <button
+              onClick={() => loadMetrics(true)}
+              disabled={isRefreshing}
+              className="p-2 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+              title="Refresh dashboard"
+            >
+              <RefreshCw className={`h-4 w-4 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
       </div>
 
