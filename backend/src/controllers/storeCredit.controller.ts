@@ -5,6 +5,82 @@ import prisma from '../config/database';
 import { logger } from '../utils/logger';
 
 /**
+ * List all store credit accounts with balances
+ * GET /api/store-credit
+ */
+export const listAccounts = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { page = '1', limit = '25', search } = req.query as Record<string, string>;
+  const pageNum = parseInt(page) || 1;
+  const limitNum = Math.min(parseInt(limit) || 25, 100);
+  const skip = (pageNum - 1) * limitNum;
+
+  const where: any = {};
+  if (search) {
+    where.customer = {
+      OR: [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ],
+    };
+  }
+
+  const [accounts, total] = await Promise.all([
+    prisma.storeCreditAccount.findMany({
+      where,
+      include: {
+        customer: { select: { id: true, firstName: true, lastName: true, phone: true, email: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+      skip,
+      take: limitNum,
+    }),
+    prisma.storeCreditAccount.count({ where }),
+  ]);
+
+  res.json({
+    success: true,
+    data: accounts,
+    pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
+  });
+});
+
+/**
+ * Get transaction history for a store credit account
+ * GET /api/store-credit/:customerId/transactions
+ */
+export const getTransactions = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { customerId } = req.params;
+  const { page = '1', limit = '50' } = req.query as Record<string, string>;
+  const pageNum = parseInt(page) || 1;
+  const limitNum = Math.min(parseInt(limit) || 50, 200);
+  const skip = (pageNum - 1) * limitNum;
+
+  const account = await prisma.storeCreditAccount.findUnique({ where: { customerId } });
+  if (!account) {
+    res.json({ success: true, data: [], pagination: { page: 1, limit: limitNum, total: 0, totalPages: 0 } });
+    return;
+  }
+
+  const [transactions, total] = await Promise.all([
+    prisma.storeCreditTransaction.findMany({
+      where: { accountId: account.id },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limitNum,
+    }),
+    prisma.storeCreditTransaction.count({ where: { accountId: account.id } }),
+  ]);
+
+  res.json({
+    success: true,
+    data: transactions,
+    pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
+  });
+});
+
+/**
  * Get store credit balance for a customer
  * GET /api/store-credit/:customerId
  */

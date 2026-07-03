@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingCart, X, DollarSign, Keyboard } from 'lucide-react';
 import { productService, saleService, locationService, categoryService } from '@/services/api';
+import { syncService } from '@/services/syncService';
+import { offlineDb } from '@/services/offlineDb';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -181,8 +183,28 @@ export const POS: React.FC = () => {
         result = result.filter((p: Product) => favoriteIds.includes(p.id));
       }
       setProducts(result);
+
+      // Cache products for offline use (fire-and-forget)
+      if (!search && !selectedCategoryId) {
+        offlineDb.cacheProducts(result).catch(() => {});
+      }
     } catch {
-      // silently fail
+      // Fallback to cached products when offline
+      if (!navigator.onLine) {
+        try {
+          const cached = await offlineDb.getAllProducts();
+          let result = cached
+            .filter(p => p.isActive && p.sku !== 'MISC-001')
+            .map(p => ({ ...p, category: p.categoryName ? { id: p.categoryId || '', name: p.categoryName } : null }) as any);
+          if (search) {
+            const q = search.toLowerCase();
+            result = result.filter((p: any) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.barcode && p.barcode.includes(search)));
+          }
+          setProducts(result);
+        } catch {
+          // no cached data available
+        }
+      }
     } finally {
       setIsLoading(false);
     }
@@ -363,7 +385,41 @@ export const POS: React.FC = () => {
       setShowReceiptPreview(true);
 
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to complete sale');
+      // If network error, queue offline
+      const isNetworkError = !error.response && (error.code === 'ERR_NETWORK' || !navigator.onLine);
+      if (isNetworkError && primaryPayment.paymentMethod === 'CASH') {
+        try {
+          await syncService.createOfflineSale({
+            customerId: linkedCustomer?.id,
+            items: items.map((item) => ({
+              productId: item.product.id,
+              sku: item.product.sku,
+              productName: item.product.name,
+              quantity: item.quantity,
+              price: item.product.price,
+              discount: item.discount,
+            })),
+            paymentMethod: primaryPayment.paymentMethod,
+            amountPaid: totalPaid,
+            notes: notes.trim() || undefined,
+          });
+
+          const change = totalPaid - total;
+          toast.success(`Sale saved offline! Will sync when connection restores.${change > 0 ? ` Change: ${formatCurrency(change)}` : ''}`);
+
+          if (hardware.drawer.shouldOpen('CASH')) {
+            hardware.drawer.open();
+          }
+
+          clearCart();
+          setLinkedCustomer(null);
+          setShowPaymentModal(false);
+        } catch {
+          toast.error('Failed to save sale offline');
+        }
+      } else {
+        toast.error(error.response?.data?.error || 'Failed to complete sale');
+      }
     } finally {
       setIsProcessing(false);
     }

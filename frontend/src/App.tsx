@@ -24,6 +24,8 @@ const GiftCards = lazy(() => import('./pages/GiftCards').then(m => ({ default: m
 const InventoryTransfers = lazy(() => import('./pages/InventoryTransfers').then(m => ({ default: m.InventoryTransfers })));
 const CycleCount = lazy(() => import('./pages/CycleCount').then(m => ({ default: m.CycleCount })));
 const Lottery = lazy(() => import('./pages/Lottery').then(m => ({ default: m.Lottery })));
+const AuditLog = lazy(() => import('./pages/AuditLog').then(m => ({ default: m.AuditLog })));
+const StoreCredits = lazy(() => import('./pages/StoreCredits').then(m => ({ default: m.StoreCredits })));
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 const StoreManagement = lazy(() => import('./pages/admin/StoreManagement').then(m => ({ default: m.StoreManagement })));
 const UserManagement = lazy(() => import('./pages/admin/UserManagement').then(m => ({ default: m.UserManagement })));
@@ -149,6 +151,8 @@ function App() {
         <Route path="/inventory-transfers" element={<PageRoute page={<InventoryTransfers />} roles={MANAGER_ROLES} />} />
         <Route path="/cycle-counts" element={<PageRoute page={<CycleCount />} roles={MANAGER_ROLES} />} />
         <Route path="/lottery" element={<PageRoute page={<Lottery />} />} />
+        <Route path="/audit-log" element={<PageRoute page={<AuditLog />} roles={MANAGER_ROLES} />} />
+        <Route path="/store-credits" element={<PageRoute page={<StoreCredits />} roles={MANAGER_ROLES} />} />
 
         {/* Admin routes — SUPER_ADMIN only */}
         <Route path="/admin" element={<PageRoute page={<AdminDashboard />} layout="admin" roles={['SUPER_ADMIN']} />} />

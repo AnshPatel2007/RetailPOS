@@ -6,8 +6,10 @@ const router = Router();
 
 router.use(authenticate);
 
+router.get('/', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), storeCreditController.listAccounts);
 router.get('/:customerId', storeCreditController.getBalance);
-router.post('/:customerId/credit', authorize('ADMIN', 'MANAGER'), storeCreditController.addCredit);
+router.get('/:customerId/transactions', storeCreditController.getTransactions);
+router.post('/:customerId/credit', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), storeCreditController.addCredit);
 router.post('/:customerId/debit', storeCreditController.debitCredit);
 
 export default router;

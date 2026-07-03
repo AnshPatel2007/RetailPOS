@@ -654,6 +654,17 @@ export const voidSale = asyncHandler(async (req: AuthRequest, res: Response) => 
     return updated;
   });
 
+  // Log activity
+  await prisma.activityLog.create({
+    data: {
+      userId: req.user.id,
+      action: 'VOID',
+      entity: 'SALE',
+      entityId: id,
+      details: { saleNumber: sale.saleNumber, total: sale.total },
+    },
+  });
+
   logger.info(`Sale voided: ${sale.saleNumber}`);
 
   res.json({

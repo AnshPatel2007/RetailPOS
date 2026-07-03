@@ -24,6 +24,8 @@ import {
   ClipboardCheck,
   Ticket,
   ChevronDown,
+  FileText,
+  Wallet,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
@@ -73,6 +75,7 @@ const navigation: NavEntry[] = [
     roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'],
     children: [
       { name: 'Gift Cards', href: '/gift-cards', icon: Gift, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+      { name: 'Store Credits', href: '/store-credits', icon: Wallet, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
       { name: 'Lottery', href: '/lottery', icon: Ticket, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
     ],
   },
@@ -86,6 +89,7 @@ const navigation: NavEntry[] = [
       { name: 'Financial', href: '/financial', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
       { name: 'Reports', href: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
       { name: 'Analytics', href: '/analytics', icon: TrendingUp, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+      { name: 'Audit Log', href: '/audit-log', icon: FileText, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
     ],
   },
   { name: 'Settings', href: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },

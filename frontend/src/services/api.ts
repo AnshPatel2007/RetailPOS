@@ -438,7 +438,9 @@ export const giftCardService = {
  * Store Credit service
  */
 export const storeCreditService = {
+  getAll: (params?: any) => api.get('/store-credit', { params }),
   getBalance: (customerId: string) => api.get(`/store-credit/${customerId}`),
+  getTransactions: (customerId: string, params?: any) => api.get(`/store-credit/${customerId}/transactions`, { params }),
   addCredit: (customerId: string, data: { amount: number; notes?: string; saleId?: string }) =>
     api.post(`/store-credit/${customerId}/credit`, data),
   debit: (customerId: string, data: { amount: number; saleId?: string }) =>
@@ -523,4 +525,10 @@ export const lotteryService = {
   updateDayStatusCashout: (id: string, data: any) => api.put(`/lottery/day-status/${id}`, data),
   closeDay: (data: any) => api.post('/lottery/day-status/close', data),
   reopenDay: (id: string, data: any) => api.post(`/lottery/day-status/${id}/reopen`, data),
+};
+
+export const auditLogService = {
+  getAll: (params?: any) => api.get('/audit-logs', { params }),
+  getActions: () => api.get('/audit-logs/actions'),
+  getEntities: () => api.get('/audit-logs/entities'),
 };

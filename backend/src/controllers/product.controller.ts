@@ -275,14 +275,25 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     },
   });
 
-  // Log activity
+  // Log activity with change details
+  const changes: Record<string, { from: any; to: any }> = {};
+  if (data.price !== undefined && data.price !== product.price) {
+    changes.price = { from: product.price, to: data.price };
+  }
+  if (data.cost !== undefined && data.cost !== product.cost) {
+    changes.cost = { from: product.cost, to: data.cost };
+  }
+  if (data.stockQuantity !== undefined && data.stockQuantity !== product.stockQuantity) {
+    changes.stockQuantity = { from: product.stockQuantity, to: data.stockQuantity };
+  }
+
   await prisma.activityLog.create({
     data: {
       userId: req.user?.id,
-      action: 'UPDATE',
+      action: Object.keys(changes).includes('price') ? 'PRICE_CHANGE' : 'UPDATE',
       entity: 'PRODUCT',
       entityId: id,
-      details: { productName: updatedProduct.name },
+      details: { productName: updatedProduct.name, sku: updatedProduct.sku, changes },
     },
   });
 

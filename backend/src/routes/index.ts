@@ -19,6 +19,7 @@ import exchangeRoutes from './exchange.routes';
 import inventoryTransferRoutes from './inventoryTransfer.routes';
 import cycleCountRoutes from './cycleCount.routes';
 import lotteryRoutes from './lottery.routes';
+import auditLogRoutes from './auditLog.routes';
 
 const router = Router();
 
@@ -56,5 +57,6 @@ router.use('/exchanges', exchangeRoutes);
 router.use('/inventory-transfers', inventoryTransferRoutes);
 router.use('/cycle-counts', cycleCountRoutes);
 router.use('/lottery', lotteryRoutes);
+router.use('/audit-logs', auditLogRoutes);
 
 export default router;
