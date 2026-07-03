@@ -6,7 +6,7 @@ import { logger } from '../utils/logger';
 import { PaymentMethod, SaleStatus } from '@prisma/client';
 import { createDateFilter } from '../utils/dateFilter.util';
 import { businessConfig } from '../config/business.config';
-import { sendEmail } from '../utils/email';
+import { sendEmail, sendLowStockAlert } from '../utils/email';
 import { config } from '../config';
 
 function calculateLoyaltyTier(points: number): string {
@@ -159,6 +159,9 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
   // Generate sale number
   const saleNumber = await generateSaleNumber();
 
+  // Track products that drop below low-stock threshold
+  const lowStockProducts: { name: string; sku: string; stock: number; threshold: number }[] = [];
+
   // Create sale with transaction
   const sale = await prisma.$transaction(async (tx) => {
     // Build split payment records if provided
@@ -221,6 +224,8 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       });
 
       if (product?.trackInventory) {
+        const newQty = product.stockQuantity - item.quantity;
+
         await tx.product.update({
           where: { id: item.productId },
           data: {
@@ -237,10 +242,15 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
             type: 'SALE',
             quantity: -item.quantity,
             previousQty: product.stockQuantity,
-            newQty: product.stockQuantity - item.quantity,
+            newQty,
             userId: req.user!.id,
           },
         });
+
+        // Check low stock alert (fire-and-forget, don't block sale)
+        if (product.lowStockAlert > 0 && newQty <= product.lowStockAlert && product.stockQuantity > product.lowStockAlert) {
+          lowStockProducts.push({ name: product.name, sku: product.sku, stock: newQty, threshold: product.lowStockAlert });
+        }
       }
     }
 
@@ -302,6 +312,13 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     data: sale,
     message: 'Sale completed successfully',
   });
+
+  // Fire-and-forget: send low stock alert email if any products dropped below threshold
+  if (lowStockProducts.length > 0) {
+    sendLowStockAlert(lowStockProducts).catch((err) => {
+      logger.error('Failed to send low stock alert email:', err);
+    });
+  }
 });
 
 /**

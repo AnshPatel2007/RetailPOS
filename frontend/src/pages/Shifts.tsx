@@ -65,17 +65,27 @@ export const Shifts: React.FC = () => {
     }
   };
 
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [shiftSummary, setShiftSummary] = useState<any>(null);
+
   const handleClockOut = async () => {
     if (!currentShift) return;
 
     try {
-      await shiftService.clockOut({
+      const response = await shiftService.clockOut({
         endingCash: parseFloat(endingCash),
       });
       setShowClockOutModal(false);
       setEndingCash('0');
-      await loadData(); // Reload data to update UI state
-      toast.success('Clocked out successfully');
+      // Show shift summary
+      const summary = response.data?.data?.shiftSummary;
+      if (summary) {
+        setShiftSummary(summary);
+        setShowSummaryModal(true);
+      } else {
+        toast.success('Clocked out successfully');
+      }
+      await loadData();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to clock out');
     }
@@ -367,6 +377,76 @@ export const Shifts: React.FC = () => {
                 Clock Out
               </Button>
             </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Shift Summary Modal */}
+      <Modal
+        isOpen={showSummaryModal}
+        onClose={() => setShowSummaryModal(false)}
+        title="Shift Summary"
+        size="lg"
+      >
+        {shiftSummary && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm text-muted-foreground">Duration</p>
+                <p className="text-xl font-bold">{shiftSummary.duration}h</p>
+              </div>
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm text-muted-foreground">Transactions</p>
+                <p className="text-xl font-bold">{shiftSummary.totalTransactions}</p>
+              </div>
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm text-muted-foreground">Total Sales</p>
+                <p className="text-xl font-bold text-green-600">{formatCurrency(shiftSummary.totalSales)}</p>
+              </div>
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm text-muted-foreground">Cash Difference</p>
+                <p className={`text-xl font-bold ${Math.abs(shiftSummary.cashDifference) < 0.01 ? 'text-green-600' : 'text-red-500'}`}>
+                  {formatCurrency(shiftSummary.cashDifference)}
+                </p>
+              </div>
+            </div>
+
+            {/* Payment Breakdown */}
+            <div className="border rounded-lg overflow-hidden">
+              <div className="p-3 bg-muted font-medium text-sm">Payment Breakdown</div>
+              <div className="divide-y">
+                {Object.entries(shiftSummary.paymentBreakdown).map(([method, data]: [string, any]) => (
+                  <div key={method} className="flex justify-between items-center px-3 py-2 text-sm">
+                    <span>{method.replace('_', ' ')}</span>
+                    <div className="text-right">
+                      <span className="font-medium">{formatCurrency(data.total)}</span>
+                      <span className="text-muted-foreground ml-2">({data.count} txn{data.count !== 1 ? 's' : ''})</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Cash Reconciliation */}
+            <div className="border rounded-lg overflow-hidden">
+              <div className="p-3 bg-muted font-medium text-sm">Cash Reconciliation</div>
+              <div className="p-3 space-y-1 text-sm">
+                <div className="flex justify-between"><span>Starting Cash</span><span>{formatCurrency(shiftSummary.startingCash)}</span></div>
+                <div className="flex justify-between"><span>Cash Sales (net)</span><span>+{formatCurrency(shiftSummary.cashSales)}</span></div>
+                <div className="flex justify-between font-medium border-t pt-1"><span>Expected</span><span>{formatCurrency(shiftSummary.expectedCash)}</span></div>
+                <div className="flex justify-between"><span>Actual Count</span><span>{formatCurrency(shiftSummary.endingCash)}</span></div>
+                <div className="flex justify-between font-bold border-t pt-1">
+                  <span>Difference</span>
+                  <span className={Math.abs(shiftSummary.cashDifference) < 0.01 ? 'text-green-600' : 'text-red-500'}>
+                    {formatCurrency(shiftSummary.cashDifference)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <Button variant="primary" className="w-full" onClick={() => setShowSummaryModal(false)}>
+              Done
+            </Button>
           </div>
         )}
       </Modal>

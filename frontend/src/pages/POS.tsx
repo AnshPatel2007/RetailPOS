@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ShoppingCart, X, DollarSign } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ShoppingCart, X, DollarSign, Keyboard } from 'lucide-react';
 import { productService, saleService, locationService, categoryService } from '@/services/api';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -44,6 +45,8 @@ export const POS: React.FC = () => {
   const [miscPrice, setMiscPrice] = useState('');
   const [miscName, setMiscName] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
   const { user } = useAuthStore();
   const { locationId } = useEffectiveLocation();
@@ -126,17 +129,33 @@ export const POS: React.FC = () => {
     const tag = (e.target as HTMLElement).tagName;
     const inInput = tag === 'INPUT' || tag === 'TEXTAREA';
 
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // Close any open modal first, then navigate away
+      if (showPaymentModal) { setShowPaymentModal(false); return; }
+      if (showHeldSalesModal) { setShowHeldSalesModal(false); return; }
+      if (showRefundModal) { setShowRefundModal(false); return; }
+      if (showMiscModal) { setShowMiscModal(false); return; }
+      if (showReceiptPreview) { setShowReceiptPreview(false); return; }
+      if (showShortcutsHelp) { setShowShortcutsHelp(false); return; }
+      if (numpadProduct) { setNumpadProduct(null); return; }
+      if (inInput) { (e.target as HTMLElement).blur(); return; }
+      navigate('/dashboard');
+      return;
+    }
     if (e.key === 'F1') { e.preventDefault(); if (items.length > 0) { setInitialPaymentMethod('CASH'); setShowPaymentModal(true); } return; }
     if (e.key === 'F2') { e.preventDefault(); if (items.length > 0) { setInitialPaymentMethod('CARD'); setShowPaymentModal(true); } return; }
     if (e.key === 'F4') { e.preventDefault(); if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); } return; }
     if (e.key === 'F5') { e.preventDefault(); handleHoldSale(); return; }
     if (e.key === 'F6') { e.preventDefault(); setShowHeldSalesModal(true); return; }
     if (e.key === 'F7') { e.preventDefault(); setMiscPrice(''); setMiscName(''); setShowMiscModal(true); return; }
+    if (e.key === 'F8') { e.preventDefault(); setShowRefundModal(true); return; }
+    if (e.key === '?' && !inInput) { e.preventDefault(); setShowShortcutsHelp(prev => !prev); return; }
     if ((e.key === '/' || e.key === 'F3') && !inInput) {
       e.preventDefault();
       searchInputRef.current?.focus();
     }
-  }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, showPaymentModal, showHeldSalesModal, showRefundModal, showMiscModal, showReceiptPreview, showShortcutsHelp, numpadProduct]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyboardShortcuts);
@@ -510,6 +529,50 @@ export const POS: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Keyboard shortcuts help overlay */}
+      {showShortcutsHelp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowShortcutsHelp(false)}>
+          <div className="bg-card border rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold flex items-center gap-2"><Keyboard className="h-5 w-5" /> Keyboard Shortcuts</h3>
+              <button onClick={() => setShowShortcutsHelp(false)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="space-y-2 text-sm">
+              {[
+                ['F1', 'Pay with Cash'],
+                ['F2', 'Pay with Card'],
+                ['F3 / /', 'Search products'],
+                ['F4', 'Checkout'],
+                ['F5', 'Hold sale'],
+                ['F6', 'Recall held sale'],
+                ['F7', 'Add misc item'],
+                ['F8', 'Refund'],
+                ['Esc', 'Close / Back'],
+                ['?', 'Toggle this help'],
+              ].map(([key, desc]) => (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{desc}</span>
+                  <kbd className="px-2 py-0.5 bg-muted rounded text-xs font-mono font-bold">{key}</kbd>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom shortcut hints bar (desktop only) */}
+      <div className="hidden md:flex fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur border-t px-4 py-1.5 justify-center gap-4 text-[11px] text-muted-foreground z-30">
+        <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F1</kbd> Cash</span>
+        <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F2</kbd> Card</span>
+        <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F4</kbd> Pay</span>
+        <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F5</kbd> Hold</span>
+        <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F6</kbd> Recall</span>
+        <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F7</kbd> Misc</span>
+        <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F8</kbd> Refund</span>
+        <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">Esc</kbd> Back</span>
+        <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">?</kbd> Help</span>
+      </div>
     </div>
   );
 };

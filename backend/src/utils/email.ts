@@ -156,6 +156,66 @@ export const send2FAEnabledEmail = async (
 };
 
 /**
+ * Send low stock alert email
+ */
+export const sendLowStockAlert = async (
+  products: { name: string; sku: string; stock: number; threshold: number }[]
+): Promise<void> => {
+  // Read notification email from the store settings stored by the frontend
+  // For now, use the configured email from env or skip if not set
+  const to = config.email.from; // Default to store email — admin can configure in settings
+  if (!to) return;
+
+  const rows = products
+    .map(
+      (p) =>
+        `<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">${p.name}</td><td style="padding:6px 12px;border-bottom:1px solid #eee">${p.sku}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;color:#DC2626;font-weight:bold">${p.stock}</td><td style="padding:6px 12px;border-bottom:1px solid #eee">${p.threshold}</td></tr>`
+    )
+    .join('');
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #F59E0B; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background-color: #f9f9f9; }
+        table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+        th { background: #f3f4f6; padding: 8px 12px; text-align: left; font-size: 13px; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Low Stock Alert</h1>
+        </div>
+        <div class="content">
+          <p>${products.length} product${products.length > 1 ? 's have' : ' has'} fallen below the low stock threshold:</p>
+          <table>
+            <thead><tr><th>Product</th><th>SKU</th><th>Current Stock</th><th>Threshold</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <p>Please reorder these items to avoid stockouts.</p>
+        </div>
+        <div class="footer">
+          <p>&copy; ${new Date().getFullYear()} ${config.app.name}. All rights reserved.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  await sendEmail({
+    to,
+    subject: `Low Stock Alert: ${products.length} product${products.length > 1 ? 's' : ''} need reorder - ${config.app.name}`,
+    html,
+  });
+};
+
+/**
  * Send account lockout notification
  */
 export const sendAccountLockoutEmail = async (

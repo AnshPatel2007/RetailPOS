@@ -136,11 +136,46 @@ export const clockOut = asyncHandler(async (req: AuthRequest, res: Response) => 
     },
   });
 
+  // Build shift summary
+  const durationMs = new Date().getTime() - new Date(openShift.clockInAt).getTime();
+  const durationHours = Math.round((durationMs / 3600000) * 100) / 100;
+
+  const paymentBreakdown: Record<string, { count: number; total: number }> = {};
+  for (const sale of openShift.sales) {
+    if (sale.payments && sale.payments.length > 0) {
+      for (const p of sale.payments) {
+        if (!paymentBreakdown[p.paymentMethod]) paymentBreakdown[p.paymentMethod] = { count: 0, total: 0 };
+        paymentBreakdown[p.paymentMethod].count++;
+        paymentBreakdown[p.paymentMethod].total += p.amount;
+      }
+    } else {
+      if (!paymentBreakdown[sale.paymentMethod]) paymentBreakdown[sale.paymentMethod] = { count: 0, total: 0 };
+      paymentBreakdown[sale.paymentMethod].count++;
+      paymentBreakdown[sale.paymentMethod].total += sale.total;
+    }
+  }
+  // Round totals
+  for (const key of Object.keys(paymentBreakdown)) {
+    paymentBreakdown[key].total = Math.round(paymentBreakdown[key].total * 100) / 100;
+  }
+
+  const shiftSummary = {
+    duration: durationHours,
+    totalSales: openShift.totalSales,
+    totalTransactions: openShift.totalTransactions,
+    cashSales: cashIn,
+    startingCash: openShift.startingCash,
+    expectedCash,
+    endingCash,
+    cashDifference,
+    paymentBreakdown,
+  };
+
   logger.info(`User ${req.user.email} clocked out`);
 
   res.json({
     success: true,
-    data: shift,
+    data: { ...shift, shiftSummary },
     message: 'Clocked out successfully',
   });
 });
