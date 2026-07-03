@@ -41,6 +41,7 @@ import {
   Area,
 } from 'recharts';
 import { analyticsService } from '../services/api';
+import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -95,6 +96,7 @@ export const Analytics: React.FC = () => {
       ]);
     } catch (error) {
       console.error('Failed to fetch analytics:', error);
+      toast.error('Failed to load analytics data');
     } finally {
       setLoading(false);
     }

@@ -121,14 +121,14 @@ export const Settings: React.FC = () => {
   const saveUserProfile = async () => {
     try {
       // Update profile (name and email)
-      const { data: updatedUser } = await userService.updateProfile({
+      const response = await userService.updateProfile({
         firstName: profileSettings.firstName,
         lastName: profileSettings.lastName,
         email: profileSettings.email,
       });
 
       // Update auth store with new user data
-      useAuthStore.setState({ user: updatedUser });
+      useAuthStore.setState({ user: response.data.data });
 
       // If password change is requested, handle separately
       if (profileSettings.newPassword) {
