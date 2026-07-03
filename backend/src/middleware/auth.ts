@@ -89,6 +89,11 @@ export const authorize = (...roles: UserRole[]) => {
       return next(new AppError('User not authenticated', 401));
     }
 
+    // SUPER_ADMIN always has access to everything
+    if (req.user.role === 'SUPER_ADMIN') {
+      return next();
+    }
+
     if (!roles.includes(req.user.role)) {
       return next(new AppError('Insufficient permissions', 403));
     }

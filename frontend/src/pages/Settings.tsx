@@ -221,14 +221,21 @@ export const Settings: React.FC = () => {
     }
   };
 
+  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+
   return (
     <div className="p-8">
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2">Settings</h1>
-        <p className="text-muted-foreground">Configure your POS system</p>
+        <p className="text-muted-foreground">
+          {isAdmin ? 'Configure your POS system' : 'Manage your profile settings'}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Store Settings — Admin only */}
+        {isAdmin && (
+        <>
         {/* Store Settings */}
         <Card>
           <CardHeader>
@@ -649,7 +656,10 @@ export const Settings: React.FC = () => {
           </CardContent>
         </Card>
 
-        {/* User Profile */}
+        </>
+        )}
+
+        {/* User Profile — visible to all roles */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>User Profile</CardTitle>

@@ -9,6 +9,7 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  ArrowLeft,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
@@ -105,7 +106,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
         </nav>
 
         {/* Footer */}
-        <div className="p-4 border-t shrink-0">
+        <div className="p-4 border-t shrink-0 space-y-1">
+          <Link
+            to="/dashboard"
+            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground w-full"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Store View
+          </Link>
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-destructive hover:bg-destructive/10 w-full"

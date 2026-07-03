@@ -31,7 +31,6 @@ const AdminReports = lazy(() => import('./pages/admin/AdminReports').then(m => (
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings').then(m => ({ default: m.AdminSettings })));
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
-const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN'];
 
 const LoadingSpinner: React.FC = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -142,7 +141,7 @@ function App() {
         <Route path="/customers" element={<PageRoute page={<Customers />} />} />
         <Route path="/shifts" element={<PageRoute page={<Shifts />} />} />
         <Route path="/reports" element={<PageRoute page={<Reports />} roles={MANAGER_ROLES} />} />
-        <Route path="/settings" element={<PageRoute page={<Settings />} roles={ADMIN_ROLES} />} />
+        <Route path="/settings" element={<PageRoute page={<Settings />} />} />
         <Route path="/suppliers" element={<PageRoute page={<Suppliers />} roles={MANAGER_ROLES} />} />
         <Route path="/analytics" element={<PageRoute page={<Analytics />} roles={MANAGER_ROLES} />} />
         <Route path="/financial" element={<PageRoute page={<Financial />} roles={MANAGER_ROLES} />} />
@@ -151,12 +150,12 @@ function App() {
         <Route path="/cycle-counts" element={<PageRoute page={<CycleCount />} roles={MANAGER_ROLES} />} />
         <Route path="/lottery" element={<PageRoute page={<Lottery />} />} />
 
-        {/* Admin routes */}
-        <Route path="/admin" element={<PageRoute page={<AdminDashboard />} layout="admin" />} />
-        <Route path="/admin/stores" element={<PageRoute page={<StoreManagement />} layout="admin" />} />
-        <Route path="/admin/users" element={<PageRoute page={<UserManagement />} layout="admin" />} />
-        <Route path="/admin/reports" element={<PageRoute page={<AdminReports />} layout="admin" />} />
-        <Route path="/admin/settings" element={<PageRoute page={<AdminSettings />} layout="admin" />} />
+        {/* Admin routes — SUPER_ADMIN only */}
+        <Route path="/admin" element={<PageRoute page={<AdminDashboard />} layout="admin" roles={['SUPER_ADMIN']} />} />
+        <Route path="/admin/stores" element={<PageRoute page={<StoreManagement />} layout="admin" roles={['SUPER_ADMIN']} />} />
+        <Route path="/admin/users" element={<PageRoute page={<UserManagement />} layout="admin" roles={['SUPER_ADMIN']} />} />
+        <Route path="/admin/reports" element={<PageRoute page={<AdminReports />} layout="admin" roles={['SUPER_ADMIN']} />} />
+        <Route path="/admin/settings" element={<PageRoute page={<AdminSettings />} layout="admin" roles={['SUPER_ADMIN']} />} />
 
         <Route path="/" element={<SmartRedirect />} />
         <Route
