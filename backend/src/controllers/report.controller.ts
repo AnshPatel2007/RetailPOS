@@ -767,22 +767,28 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
     select: { createdAt: true, total: true },
   });
 
-  // Bucket into hours using UTC so the client can convert to local time
-  // Include current hour (13 buckets: 12 hours ago through now)
-  const hourMap: Record<number, number> = {};
+  // Bucket into hours with epoch timestamps so the client can sort and format locally
+  const buckets: { timestamp: number; total: number }[] = [];
   for (let h = 0; h <= 12; h++) {
     const hourStart = new Date(twelveHoursAgo.getTime() + h * 60 * 60 * 1000);
-    hourMap[hourStart.getUTCHours()] = 0;
+    // Truncate to the start of that hour
+    hourStart.setUTCMinutes(0, 0, 0);
+    buckets.push({ timestamp: hourStart.getTime(), total: 0 });
   }
   hourlySales.forEach((sale) => {
-    const h = new Date(sale.createdAt).getUTCHours();
-    hourMap[h] = (hourMap[h] || 0) + (sale.total || 0);
+    const saleTime = new Date(sale.createdAt).getTime();
+    // Find the correct bucket
+    for (let i = buckets.length - 1; i >= 0; i--) {
+      if (saleTime >= buckets[i].timestamp) {
+        buckets[i].total += sale.total || 0;
+        break;
+      }
+    }
   });
 
-  const hourlyData = Object.entries(hourMap).map(([hour, total]) => ({
-    hour: parseInt(hour),
-    utcHour: parseInt(hour),
-    total: Math.round(total * 100) / 100,
+  const hourlyData = buckets.map((b) => ({
+    timestamp: b.timestamp,
+    total: Math.round(b.total * 100) / 100,
   }));
 
   // Top 5 products today

@@ -30,7 +30,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 
-interface HourlyEntry { hour: number; utcHour: number; total: number; label?: string; }
+interface HourlyEntry { timestamp: number; total: number; label: string; }
 interface TopProduct { productId: string; name: string; qty: number; revenue: number; }
 interface ActiveShift { id: string; employeeName: string; clockInAt: string; totalSales: number; totalTransactions: number; }
 
@@ -66,17 +66,10 @@ const timeAgo = (iso: string) => {
   return `${Math.floor(hrs / 24)}d ago`;
 };
 
-/** Convert UTC hour to local hour using a real Date object so DST + fractional offsets are correct */
-const utcHourToLocal = (utcHour: number): number => {
-  const d = new Date();
-  d.setUTCHours(utcHour, 0, 0, 0);
-  return d.getHours();
-};
-
-const formatHourLabel = (localHour: number): string => {
-  const d = new Date();
-  d.setHours(localHour, 0, 0, 0);
-  return d.toLocaleTimeString([], { hour: 'numeric', hour12: true }).toLowerCase();
+const formatHourLabel = (timestamp: number): string => {
+  const h = new Date(timestamp).getHours();
+  const h12 = h % 12 || 12;
+  return `${h12}${h < 12 ? 'am' : 'pm'}`;
 };
 
 const getGreeting = (): string => {
@@ -117,23 +110,12 @@ export const Dashboard: React.FC = () => {
       ]);
       setMetrics(dashRes.data.data);
       const hourly = hourlyRes.data.data;
-      // Convert UTC hours to local, handling fractional timezone offsets
-      const localHourly = (hourly.hourlyData || []).map((entry: HourlyEntry) => {
-        const localHour = utcHourToLocal(entry.utcHour);
-        return {
-          ...entry,
-          hour: localHour,
-          label: formatHourLabel(localHour),
-        };
-      });
-      // Sort by chronological order
-      localHourly.sort((a: HourlyEntry, b: HourlyEntry) => {
-        const now = new Date().getHours();
-        const aDist = ((a.hour - now + 24) % 24);
-        const bDist = ((b.hour - now + 24) % 24);
-        // hours further in the past come first
-        return bDist - aDist;
-      });
+      // Already sorted chronologically by timestamp from backend
+      const localHourly = (hourly.hourlyData || []).map((entry: any) => ({
+        timestamp: entry.timestamp,
+        total: entry.total,
+        label: formatHourLabel(entry.timestamp),
+      }));
       setHourlyData(localHourly);
       setTopProducts(hourly.topProducts || []);
       setActiveShifts(hourly.activeShifts || []);
