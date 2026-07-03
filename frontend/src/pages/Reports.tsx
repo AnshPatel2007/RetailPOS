@@ -122,6 +122,7 @@ export const Reports: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to load reports:', error);
+      toast.error('Failed to load report data');
     } finally {
       setIsLoading(false);
     }
@@ -1011,8 +1012,8 @@ export const Reports: React.FC = () => {
                       status: [],
                       employeeId: [],
                       customerId: '',
-                      startDate: new Date().toISOString().split('T')[0],
-                      endDate: new Date().toISOString().split('T')[0],
+                      startDate: getLocalDateString(new Date(new Date().setDate(new Date().getDate() - 30))),
+                      endDate: getLocalDateString(),
                       minAmount: '',
                       maxAmount: '',
                       showCharts: false,
@@ -1214,6 +1215,12 @@ export const Reports: React.FC = () => {
             </Table>
           </Card>
 
+          {filteredSales.length > 50 && (
+            <p className="text-sm text-muted-foreground text-center mt-2">
+              Showing 50 of {filteredSales.length} sales. Use filters or export to view all.
+            </p>
+          )}
+
           {/* Sale Details Modal */}
           <SaleDetailsModal
             isOpen={showSaleDetails}
@@ -1287,10 +1294,8 @@ export const Reports: React.FC = () => {
                       maxPrice: '',
                       trackInventory: null,
                       isActive: null,
-                      startDate: new Date(new Date().setDate(new Date().getDate() - 30))
-                        .toISOString()
-                        .split('T')[0],
-                      endDate: new Date().toISOString().split('T')[0],
+                      startDate: getLocalDateString(new Date(new Date().setDate(new Date().getDate() - 30))),
+                      endDate: getLocalDateString(),
                       showCharts: false,
                     })
                   }
@@ -1480,6 +1485,12 @@ export const Reports: React.FC = () => {
               </TableBody>
             </Table>
           </Card>
+
+          {filteredProducts.length > 50 && (
+            <p className="text-sm text-muted-foreground text-center mt-2">
+              Showing 50 of {filteredProducts.length} products. Use filters or export to view all.
+            </p>
+          )}
 
           {/* Product Details Modal */}
           <InventoryDetailsModal
