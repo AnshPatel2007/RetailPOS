@@ -26,21 +26,24 @@ export const Shifts: React.FC = () => {
   const [showClockOutModal, setShowClockOutModal] = useState(false);
   const [startingCash, setStartingCash] = useState('0');
   const [endingCash, setEndingCash] = useState('0');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [page]);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
       const [currentResponse, shiftsResponse] = await Promise.all([
-        shiftService.getCurrent(),
-        shiftService.getAll({ limit: 20 }),
+        shiftService.getCurrent().catch(() => ({ data: { data: null } })),
+        shiftService.getAll({ page, limit: 20 }),
       ]);
 
-      setCurrentShift(currentResponse.data.data);
+      setCurrentShift(currentResponse.data.data || null);
       setShifts(shiftsResponse.data.data);
+      setTotalPages(shiftsResponse.data.pagination?.totalPages || 1);
     } catch (error) {
       console.error('Failed to load shifts:', error);
     } finally {
@@ -64,6 +67,7 @@ export const Shifts: React.FC = () => {
 
   const handleClockOut = async () => {
     if (!currentShift) return;
+    if (!confirm('End your shift? Make sure your cash drawer count is correct.')) return;
 
     try {
       await shiftService.clockOut({
@@ -171,13 +175,11 @@ export const Shifts: React.FC = () => {
             </TableHeader>
             <TableBody>
               {shifts.map((shift) => {
-                const duration = shift.clockOutAt
-                  ? Math.floor(
-                      (new Date(shift.clockOutAt).getTime() -
-                        new Date(shift.clockInAt).getTime()) /
-                        (1000 * 60 * 60)
-                    )
+                const durationMs = shift.clockOutAt
+                  ? new Date(shift.clockOutAt).getTime() - new Date(shift.clockInAt).getTime()
                   : 0;
+                const durationHours = Math.floor(durationMs / (1000 * 60 * 60));
+                const durationMins = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
 
                 return (
                   <TableRow key={shift.id}>
@@ -200,7 +202,7 @@ export const Shifts: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       {shift.clockOutAt ? (
-                        <span>{duration}h</span>
+                        <span>{durationHours}h {durationMins}m</span>
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
@@ -244,6 +246,15 @@ export const Shifts: React.FC = () => {
           </Table>
         )}
       </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex justify-center gap-2 mt-4">
+          <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
+          <span className="px-3 py-1 text-sm text-muted-foreground">Page {page} of {totalPages}</span>
+          <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next</Button>
+        </div>
+      )}
 
       {/* Clock In Modal */}
       <Modal
