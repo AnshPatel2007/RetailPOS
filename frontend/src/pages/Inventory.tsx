@@ -16,9 +16,11 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Plus, Search, Edit, Trash2, AlertTriangle, Package, FolderPlus, RotateCcw, ChevronLeft, ChevronRight, DollarSign, TrendingDown, Camera } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, AlertTriangle, Package, FolderPlus, RotateCcw, ChevronLeft, ChevronRight, DollarSign, TrendingDown, Camera, Tag, Upload } from 'lucide-react';
 import { StockAdjustmentModal } from '@/components/inventory/StockAdjustmentModal';
 import { ReceiptScanModal } from '@/components/inventory/ReceiptScanModal';
+import { BarcodeLabelPrint } from '@/components/inventory/BarcodeLabelPrint';
+import { CSVImportModal } from '@/components/inventory/CSVImportModal';
 
 export const Inventory: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -33,6 +35,9 @@ export const Inventory: React.FC = () => {
   const [showStockAdjustModal, setShowStockAdjustModal] = useState(false);
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null);
   const [showReceiptScanModal, setShowReceiptScanModal] = useState(false);
+  const [showLabelPrintModal, setShowLabelPrintModal] = useState(false);
+  const [showCSVImportModal, setShowCSVImportModal] = useState(false);
+  const [selectedForLabels, setSelectedForLabels] = useState<Product[]>([]);
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStatus, setFilterStatus] = useState<'' | 'true' | 'false'>('');
   const [lowStockCount, setLowStockCount] = useState(0);
@@ -251,6 +256,14 @@ export const Inventory: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowCSVImportModal(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Import CSV
+          </Button>
+          <Button variant="outline" onClick={() => { setSelectedForLabels(products); setShowLabelPrintModal(true); }}>
+            <Tag className="h-4 w-4 mr-2" />
+            Print Labels
+          </Button>
           <Button variant="outline" onClick={() => setShowReceiptScanModal(true)}>
             <Camera className="h-4 w-4 mr-2" />
             Scan Receipt
@@ -729,6 +742,18 @@ export const Inventory: React.FC = () => {
         isOpen={showReceiptScanModal}
         onClose={() => setShowReceiptScanModal(false)}
         onSuccess={() => { loadProducts(); loadLowStockCount(); }}
+      />
+
+      <BarcodeLabelPrint
+        isOpen={showLabelPrintModal}
+        onClose={() => setShowLabelPrintModal(false)}
+        products={selectedForLabels}
+      />
+
+      <CSVImportModal
+        isOpen={showCSVImportModal}
+        onClose={() => setShowCSVImportModal(false)}
+        onImportComplete={() => { loadProducts(); loadLowStockCount(); }}
       />
     </div>
   );

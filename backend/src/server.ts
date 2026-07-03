@@ -78,6 +78,12 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 /**
+ * Input sanitization — strip XSS from all string inputs
+ */
+import { sanitizeInput } from './middleware/sanitize';
+app.use(sanitizeInput);
+
+/**
  * Logging middleware
  */
 if (config.nodeEnv === 'development') {
