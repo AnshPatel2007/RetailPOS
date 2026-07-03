@@ -67,7 +67,6 @@ export const Shifts: React.FC = () => {
 
   const handleClockOut = async () => {
     if (!currentShift) return;
-    if (!confirm('End your shift? Make sure your cash drawer count is correct.')) return;
 
     try {
       await shiftService.clockOut({
@@ -312,10 +311,16 @@ export const Shifts: React.FC = () => {
                   {formatCurrency(currentShift.totalSales)}
                 </span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Cash Sales (net):</span>
+                <span className="font-medium">
+                  {formatCurrency((currentShift as any).totalCashSales ?? currentShift.totalSales)}
+                </span>
+              </div>
               <div className="flex justify-between font-bold pt-2 border-t">
-                <span>Expected Cash:</span>
+                <span>Expected Cash in Drawer:</span>
                 <span>
-                  {formatCurrency(currentShift.startingCash + currentShift.totalSales)}
+                  {formatCurrency(currentShift.startingCash + ((currentShift as any).totalCashSales ?? currentShift.totalSales))}
                 </span>
               </div>
             </div>
@@ -335,16 +340,15 @@ export const Shifts: React.FC = () => {
                   <span className="font-medium">Cash Difference:</span>
                   <span
                     className={`text-xl font-bold ${
-                      parseFloat(endingCash) -
-                        (currentShift.startingCash + currentShift.totalSales) ===
-                      0
+                      Math.abs(parseFloat(endingCash) -
+                        (currentShift.startingCash + ((currentShift as any).totalCashSales ?? currentShift.totalSales))) < 0.01
                         ? 'text-success'
                         : 'text-destructive'
                     }`}
                   >
                     {formatCurrency(
                       parseFloat(endingCash) -
-                        (currentShift.startingCash + currentShift.totalSales)
+                        (currentShift.startingCash + ((currentShift as any).totalCashSales ?? currentShift.totalSales))
                     )}
                   </span>
                 </div>

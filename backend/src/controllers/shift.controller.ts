@@ -77,6 +77,12 @@ export const clockOut = asyncHandler(async (req: AuthRequest, res: Response) => 
       userId: req.user.id,
       isClosed: false,
     },
+    include: {
+      sales: {
+        where: { status: 'COMPLETED' },
+        select: { paymentMethod: true, total: true, changeDue: true, payments: true },
+      },
+    },
     orderBy: {
       clockInAt: 'desc',
     },
@@ -86,8 +92,29 @@ export const clockOut = asyncHandler(async (req: AuthRequest, res: Response) => 
     throw new AppError('No open shift found', 404);
   }
 
-  const expectedCash = openShift.startingCash + openShift.totalSales;
-  const cashDifference = endingCash - expectedCash;
+  // Calculate cash that should be in the drawer:
+  // For each sale, sum the cash portion paid minus change given back
+  let cashIn = 0;
+  for (const sale of openShift.sales) {
+    if (sale.payments && sale.payments.length > 0) {
+      // Split payment — sum only CASH portions
+      for (const p of sale.payments) {
+        if (p.paymentMethod === 'CASH') {
+          cashIn += p.amount;
+        }
+      }
+      // Subtract change given back (change is always cash)
+      cashIn -= sale.changeDue || 0;
+    } else if (sale.paymentMethod === 'CASH') {
+      // Single cash payment — total paid minus change
+      cashIn += sale.total; // net cash kept = total (amountPaid - changeDue = total for exact/over payments)
+    }
+    // Non-cash single payments don't affect the drawer
+  }
+  cashIn = Math.round(cashIn * 100) / 100;
+
+  const expectedCash = Math.round((openShift.startingCash + cashIn) * 100) / 100;
+  const cashDifference = Math.round((endingCash - expectedCash) * 100) / 100;
 
   const shift = await prisma.shift.update({
     where: { id: openShift.id },
@@ -237,12 +264,17 @@ export const getCurrentShift = asyncHandler(async (req: AuthRequest, res: Respon
     },
     include: {
       sales: {
+        where: { status: 'COMPLETED' },
         select: {
           id: true,
           saleNumber: true,
           total: true,
           paymentMethod: true,
+          changeDue: true,
           createdAt: true,
+          payments: {
+            select: { paymentMethod: true, amount: true },
+          },
         },
         orderBy: { createdAt: 'desc' },
       },
@@ -252,9 +284,25 @@ export const getCurrentShift = asyncHandler(async (req: AuthRequest, res: Respon
     },
   });
 
+  // Calculate cash-only total for expected drawer amount
+  let totalCashSales = 0;
+  if (shift) {
+    for (const sale of shift.sales) {
+      if (sale.payments && sale.payments.length > 0) {
+        for (const p of sale.payments) {
+          if (p.paymentMethod === 'CASH') totalCashSales += p.amount;
+        }
+        totalCashSales -= sale.changeDue || 0;
+      } else if (sale.paymentMethod === 'CASH') {
+        totalCashSales += sale.total;
+      }
+    }
+    totalCashSales = Math.round(totalCashSales * 100) / 100;
+  }
+
   res.json({
     success: true,
-    data: shift,
+    data: shift ? { ...shift, totalCashSales } : null,
   });
 });
 
