@@ -8,12 +8,18 @@ import {
   deleteLocation,
   getLocationStats,
   getCrossLocationStats,
+  getMyStoreSettings,
+  updateMyStoreSettings,
 } from '../controllers/location.controller';
 
 const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+// Store settings — readable by all authenticated users, writable by ADMIN/MANAGER/SUPER_ADMIN
+router.get('/my-settings', getMyStoreSettings);
+router.put('/my-settings', authorize('ADMIN', 'MANAGER'), updateMyStoreSettings);
 
 // Any authenticated user can read a location (needed for POS tax rate)
 router.get('/:id', getLocationById);

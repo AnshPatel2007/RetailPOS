@@ -205,6 +205,8 @@ export const reportService = {
 
   getExpenses: (params?: any) => api.get('/reports/expenses', { params }),
 
+  getEmployeeSales: (params?: any) => api.get('/reports/employee-sales', { params }),
+
   exportSalesCSV: (params?: any) => {
     return api.get('/reports/sales/export/csv', {
       params,
@@ -399,6 +401,8 @@ export const locationService = {
   create: (data: any) => api.post('/locations', data),
   update: (id: string, data: any) => api.put(`/locations/${id}`, data),
   delete: (id: string) => api.delete(`/locations/${id}`),
+  getMySettings: (locationId?: string) => api.get('/locations/my-settings', { params: locationId ? { locationId } : {} }),
+  updateMySettings: (data: any) => api.put('/locations/my-settings', data),
 };
 
 /**

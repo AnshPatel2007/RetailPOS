@@ -77,6 +77,7 @@ model Location {
   taxRate           Float              @default(0)
   isActive          Boolean            @default(true)
   businessHours     Json?
+  settings          Json?
   currency          String             @default("USD")
   timezone          String             @default("America/New_York")
   createdAt         DateTime           @default(now())

@@ -3,6 +3,123 @@ import prisma from '../config/database';
 import { AuthRequest } from '../types';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 
+// Get store settings for the current user's location (or specified location for SUPER_ADMIN)
+export const getMyStoreSettings = asyncHandler(async (req: AuthRequest, res: Response) => {
+  let locationId = (req.query.locationId as string) || req.user?.locationId;
+
+  // SUPER_ADMIN with no locationId: default to first active location
+  if (!locationId && req.user?.role === 'SUPER_ADMIN') {
+    const firstLocation = await prisma.location.findFirst({
+      where: { isActive: true },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    locationId = firstLocation?.id || null;
+  }
+
+  if (!locationId) {
+    throw new AppError('No location assigned to this user', 400);
+  }
+
+  // Non-SUPER_ADMIN can only access their own location
+  if (req.user?.role !== 'SUPER_ADMIN' && locationId !== req.user?.locationId) {
+    throw new AppError('Cannot access settings for another location', 403);
+  }
+
+  const location = await prisma.location.findUnique({
+    where: { id: locationId },
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      city: true,
+      state: true,
+      zipCode: true,
+      phone: true,
+      email: true,
+      taxRate: true,
+      settings: true,
+    },
+  });
+
+  if (!location) {
+    throw new AppError('Location not found', 404);
+  }
+
+  res.json({ success: true, data: location });
+});
+
+// Update store settings for the current user's location
+export const updateMyStoreSettings = asyncHandler(async (req: AuthRequest, res: Response) => {
+  let locationId = (req.body.locationId as string) || req.user?.locationId;
+
+  // SUPER_ADMIN with no locationId: default to first active location
+  if (!locationId && req.user?.role === 'SUPER_ADMIN') {
+    const firstLocation = await prisma.location.findFirst({
+      where: { isActive: true },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    locationId = firstLocation?.id || null;
+  }
+
+  if (!locationId) {
+    throw new AppError('No location assigned to this user', 400);
+  }
+
+  // Non-SUPER_ADMIN can only update their own location
+  if (req.user?.role !== 'SUPER_ADMIN' && locationId !== req.user?.locationId) {
+    throw new AppError('Cannot update settings for another location', 403);
+  }
+
+  const { storeInfo, receiptSettings, paymentMethods, notificationSettings } = req.body;
+
+  // Build update data
+  const updateData: any = {};
+
+  if (storeInfo) {
+    updateData.name = storeInfo.storeName;
+    updateData.address = storeInfo.address || '';
+    updateData.city = storeInfo.city || '';
+    updateData.state = storeInfo.state || '';
+    updateData.phone = storeInfo.phone || '';
+  }
+
+  // Store receipt, payment, notification settings in the JSON `settings` field
+  const existingLocation = await prisma.location.findUnique({
+    where: { id: locationId },
+    select: { settings: true },
+  });
+
+  const currentSettings = (existingLocation?.settings as any) || {};
+  const newSettings = { ...currentSettings };
+
+  if (receiptSettings !== undefined) newSettings.receiptSettings = receiptSettings;
+  if (paymentMethods !== undefined) newSettings.paymentMethods = paymentMethods;
+  if (notificationSettings !== undefined) newSettings.notificationSettings = notificationSettings;
+
+  updateData.settings = newSettings;
+
+  const location = await prisma.location.update({
+    where: { id: locationId },
+    data: updateData,
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      city: true,
+      state: true,
+      zipCode: true,
+      phone: true,
+      email: true,
+      taxRate: true,
+      settings: true,
+    },
+  });
+
+  res.json({ success: true, data: location });
+});
+
 // Get all locations (super-admin only)
 export const getAllLocations = asyncHandler(async (_req: AuthRequest, res: Response) => {
   const locations = await prisma.location.findMany({

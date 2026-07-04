@@ -53,9 +53,96 @@ import { InventoryBulkActions } from '@/components/reports/InventoryBulkActions'
 import { FilterDropdown } from '@/components/common/FilterDropdown';
 import { ExportPreviewModal } from '@/components/reports/ExportPreviewModal';
 import { DataVisualizationCard } from '@/components/reports/DataVisualizationCard';
+import { Badge } from '@/components/ui/Badge';
+
+const EmployeeSalesTab: React.FC = () => {
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 30);
+    return getLocalDateString(d);
+  });
+  const [endDate, setEndDate] = useState(() => getLocalDateString());
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const res = await reportService.getEmployeeSales({ startDate, endDate });
+        setData(res.data.data);
+      } catch {
+        toast.error('Failed to load employee sales');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [startDate, endDate]);
+
+  const totalRevenue = data.reduce((sum: number, e: any) => sum + e.totalRevenue, 0);
+  const totalTx = data.reduce((sum: number, e: any) => sum + e.transactionCount, 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-3 items-end">
+        <div>
+          <label className="block text-xs font-medium mb-1">From</label>
+          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-40" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium mb-1">To</label>
+          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-40" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Card><CardContent className="p-3 text-center"><p className="text-sm text-muted-foreground">Employees</p><p className="text-2xl font-bold">{data.length}</p></CardContent></Card>
+        <Card><CardContent className="p-3 text-center"><p className="text-sm text-muted-foreground">Revenue</p><p className="text-2xl font-bold text-green-600">{formatCurrency(totalRevenue)}</p></CardContent></Card>
+        <Card><CardContent className="p-3 text-center"><p className="text-sm text-muted-foreground">Transactions</p><p className="text-2xl font-bold">{totalTx}</p></CardContent></Card>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+        </div>
+      ) : data.length === 0 ? (
+        <p className="text-center py-8 text-muted-foreground">No sales data for this period</p>
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>#</TableHead>
+                  <TableHead>Employee</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead className="text-right">Transactions</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead className="text-right">Avg Transaction</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.map((emp: any, idx: number) => (
+                  <TableRow key={emp.user.id}>
+                    <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
+                    <TableCell className="font-medium">{emp.user.firstName} {emp.user.lastName}</TableCell>
+                    <TableCell><Badge variant="secondary" className="text-xs">{emp.user.role.replace(/_/g, ' ')}</Badge></TableCell>
+                    <TableCell className="text-right">{emp.transactionCount}</TableCell>
+                    <TableCell className="text-right font-medium text-green-600">{formatCurrency(emp.totalRevenue)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(emp.avgTransaction)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+};
 
 export const Reports: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'overall' | 'sales' | 'inventory'>('sales');
+  const [activeTab, setActiveTab] = useState<'overall' | 'sales' | 'inventory' | 'employee'>('sales');
   const [overallData, setOverallData] = useState<any>(null);
   const [salesData, setSalesData] = useState<SalesReportData | null>(null);
   const [inventoryData, setInventoryData] = useState<any>(null);
@@ -388,6 +475,7 @@ export const Reports: React.FC = () => {
     { id: 'sales', label: 'Sales Reports' },
     { id: 'inventory', label: 'Inventory Reports' },
     { id: 'overall', label: 'Overall Report' },
+    { id: 'employee', label: 'Employee Sales' },
   ];
 
   // Chart colors
@@ -1504,7 +1592,12 @@ export const Reports: React.FC = () => {
         </>
       )}
 
-      {isLoading && (
+      {/* Employee Sales Tab */}
+      {activeTab === 'employee' && (
+        <EmployeeSalesTab />
+      )}
+
+      {isLoading && activeTab !== 'employee' && (
         <div className="flex justify-center p-12">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
         </div>

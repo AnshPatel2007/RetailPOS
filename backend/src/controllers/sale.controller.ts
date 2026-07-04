@@ -358,6 +358,11 @@ export const getSales = asyncHandler(async (req: AuthRequest, res: Response) => 
   if (status) where.status = status;
   if (paymentMethod) where.paymentMethod = paymentMethod;
 
+  // Cashiers can only see their own sales (override any userId param)
+  if (req.user?.role === 'CASHIER') {
+    where.userId = req.user.id;
+  }
+
   const [sales, total] = await Promise.all([
     prisma.sale.findMany({
       where,

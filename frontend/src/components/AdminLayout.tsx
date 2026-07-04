@@ -10,6 +10,7 @@ import {
   Settings,
   LogOut,
   ArrowLeft,
+  TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
@@ -32,6 +33,11 @@ const adminNavItems = [
     label: 'Users',
     href: '/admin/users',
     icon: Users,
+  },
+  {
+    label: 'Employee Sales',
+    href: '/admin/employee-sales',
+    icon: TrendingUp,
   },
   {
     label: 'Reports',

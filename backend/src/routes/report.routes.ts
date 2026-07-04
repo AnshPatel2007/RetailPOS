@@ -17,6 +17,12 @@ router.get('/dashboard', reportController.getDashboardMetrics);
 router.get('/dashboard/hourly', reportController.getDashboardHourly);
 
 router.get(
+  '/employee-sales',
+  authorize('ADMIN', 'MANAGER'),
+  reportController.getEmployeeSalesBreakdown
+);
+
+router.get(
   '/overall',
   authorize('ADMIN', 'MANAGER'),
   reportController.getOverallReport

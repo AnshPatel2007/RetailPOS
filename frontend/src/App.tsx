@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
+import { useStoreSettingsStore } from './store/storeSettingsStore';
 import { Layout } from './components/Layout';
 
 // Eager-load Login (needed immediately) and AdminLayout (small)
@@ -31,6 +32,7 @@ const StoreManagement = lazy(() => import('./pages/admin/StoreManagement').then(
 const UserManagement = lazy(() => import('./pages/admin/UserManagement').then(m => ({ default: m.UserManagement })));
 const AdminReports = lazy(() => import('./pages/admin/AdminReports').then(m => ({ default: m.AdminReports })));
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings').then(m => ({ default: m.AdminSettings })));
+const EmployeeSales = lazy(() => import('./pages/admin/EmployeeSales').then(m => ({ default: m.EmployeeSales })));
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
 
@@ -108,13 +110,21 @@ const PageRoute: React.FC<{
 };
 
 function App() {
-  const { loadUser, isAuthenticated } = useAuthStore();
+  const { loadUser, isAuthenticated, user } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
+  const { fetchSettings, isLoaded: settingsLoaded } = useStoreSettingsStore();
 
   useEffect(() => {
     loadUser();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fetch shared store settings once user is authenticated
+  useEffect(() => {
+    if (isAuthenticated && user && !settingsLoaded) {
+      fetchSettings();
+    }
+  }, [isAuthenticated, user, settingsLoaded, fetchSettings]);
 
   useEffect(() => {
     setTheme(theme);
@@ -160,6 +170,7 @@ function App() {
         <Route path="/admin/users" element={<PageRoute page={<UserManagement />} layout="admin" roles={['SUPER_ADMIN']} />} />
         <Route path="/admin/reports" element={<PageRoute page={<AdminReports />} layout="admin" roles={['SUPER_ADMIN']} />} />
         <Route path="/admin/settings" element={<PageRoute page={<AdminSettings />} layout="admin" roles={['SUPER_ADMIN']} />} />
+        <Route path="/admin/employee-sales" element={<PageRoute page={<EmployeeSales />} layout="admin" roles={['SUPER_ADMIN', 'ADMIN']} />} />
 
         <Route path="/" element={<SmartRedirect />} />
         <Route

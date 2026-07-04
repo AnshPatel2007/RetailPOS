@@ -598,7 +598,19 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
  * Get dashboard metrics
  * GET /api/reports/dashboard
  */
-export const getDashboardMetrics = asyncHandler(async (_req: Request, res: Response) => {
+export const getDashboardMetrics = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+
+  // Build base filter for role-based sales visibility
+  const baseWhere: any = { status: SaleStatus.COMPLETED };
+  if (authReq.user?.locationId) {
+    baseWhere.locationId = authReq.user.locationId;
+  }
+  // Cashiers only see their own sales
+  if (authReq.user?.role === 'CASHIER') {
+    baseWhere.userId = authReq.user.id;
+  }
+
   // Use UTC boundaries to avoid server-timezone drift
   const now = new Date();
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -625,48 +637,48 @@ export const getDashboardMetrics = asyncHandler(async (_req: Request, res: Respo
     todayPaymentBreakdown,
   ] = await Promise.all([
     prisma.sale.aggregate({
-      where: { createdAt: { gte: today }, status: SaleStatus.COMPLETED },
+      where: { ...baseWhere, createdAt: { gte: today } },
       _sum: { total: true },
       _count: true,
     }),
     prisma.sale.aggregate({
-      where: { createdAt: { gte: yesterday, lt: today }, status: SaleStatus.COMPLETED },
+      where: { ...baseWhere, createdAt: { gte: yesterday, lt: today } },
       _sum: { total: true },
       _count: true,
     }),
     prisma.sale.aggregate({
-      where: { createdAt: { gte: weekAgo }, status: SaleStatus.COMPLETED },
+      where: { ...baseWhere, createdAt: { gte: weekAgo } },
       _sum: { total: true },
     }),
     prisma.sale.aggregate({
-      where: { createdAt: { gte: twoWeeksAgo, lt: weekAgo }, status: SaleStatus.COMPLETED },
+      where: { ...baseWhere, createdAt: { gte: twoWeeksAgo, lt: weekAgo } },
       _sum: { total: true },
     }),
     prisma.sale.aggregate({
-      where: { createdAt: { gte: monthAgo }, status: SaleStatus.COMPLETED },
+      where: { ...baseWhere, createdAt: { gte: monthAgo } },
       _sum: { total: true },
     }),
     prisma.sale.aggregate({
-      where: { createdAt: { gte: prevMonthStart, lt: monthAgo }, status: SaleStatus.COMPLETED },
+      where: { ...baseWhere, createdAt: { gte: prevMonthStart, lt: monthAgo } },
       _sum: { total: true },
     }),
-    // Today's refunds
-    prisma.sale.aggregate({
-      where: { createdAt: { gte: today }, status: SaleStatus.REFUNDED },
-      _sum: { total: true },
+    // Today's refunds (from Refund table, includes partial refunds)
+    prisma.refund.aggregate({
+      where: { createdAt: { gte: today }, ...(authReq.user?.role === 'CASHIER' ? { sale: { userId: authReq.user.id } } : {}) },
+      _sum: { amount: true },
       _count: true,
     }),
     // Low stock products (with names)
     prisma.product.findMany({
-      where: { trackInventory: true, isActive: true },
+      where: { trackInventory: true, isActive: true, ...(authReq.user?.locationId ? { locationId: authReq.user.locationId } : {}) },
       select: { id: true, name: true, sku: true, stockQuantity: true, lowStockAlert: true },
     }),
-    prisma.product.count({ where: { isActive: true } }),
+    prisma.product.count({ where: { isActive: true, ...(authReq.user?.locationId ? { locationId: authReq.user.locationId } : {}) } }),
     prisma.customer.count({ where: { isActive: true } }),
-    prisma.user.count({ where: { isActive: true } }),
+    prisma.shift.count({ where: { isClosed: false, ...(authReq.user?.locationId ? { locationId: authReq.user.locationId } : {}) } }),
     // Recent 5 sales
     prisma.sale.findMany({
-      where: { status: SaleStatus.COMPLETED },
+      where: baseWhere,
       select: {
         id: true, saleNumber: true, total: true, paymentMethod: true, createdAt: true,
         customer: { select: { firstName: true, lastName: true } },
@@ -677,15 +689,16 @@ export const getDashboardMetrics = asyncHandler(async (_req: Request, res: Respo
     // Today's payment method breakdown
     prisma.sale.groupBy({
       by: ['paymentMethod'],
-      where: { createdAt: { gte: today }, status: SaleStatus.COMPLETED },
+      where: { ...baseWhere, createdAt: { gte: today } },
       _sum: { total: true },
       _count: true,
     }),
   ]);
 
-  const lowStockItems = lowStockProducts
+  const allLowStock = lowStockProducts
     .filter(p => p.stockQuantity <= p.lowStockAlert)
-    .sort((a, b) => a.stockQuantity - b.stockQuantity)
+    .sort((a, b) => a.stockQuantity - b.stockQuantity);
+  const lowStockItems = allLowStock
     .slice(0, 5)
     .map(p => ({ id: p.id, name: p.name, sku: p.sku, stock: p.stockQuantity, alert: p.lowStockAlert }));
 
@@ -723,9 +736,9 @@ export const getDashboardMetrics = asyncHandler(async (_req: Request, res: Respo
       monthSales: monthTotal,
       monthTrend: calcTrend(monthTotal, prevMonthTotal),
       averageOrderValue: avgOrderValue !== null ? Math.round(avgOrderValue * 100) / 100 : null,
-      todayRefunds: todayRefunds._sum.total || 0,
+      todayRefunds: todayRefunds._sum.amount || 0,
       todayRefundCount: todayRefunds._count,
-      lowStockCount: lowStockItems.length,
+      lowStockCount: allLowStock.length,
       lowStockItems,
       totalProducts,
       totalCustomers,
@@ -756,6 +769,8 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
   const locationFilter = locationId ? { locationId } : {};
+  // Cashiers only see their own sales
+  const userFilter = authReq.user?.role === 'CASHIER' ? { userId: authReq.user.id } : {};
 
   // Hourly sales for the last 12 hours
   const hourlySales = await prisma.sale.findMany({
@@ -763,6 +778,7 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
       createdAt: { gte: twelveHoursAgo },
       status: SaleStatus.COMPLETED,
       ...locationFilter,
+      ...userFilter,
     },
     select: { createdAt: true, total: true },
   });
@@ -799,6 +815,7 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
         createdAt: { gte: today },
         status: SaleStatus.COMPLETED,
         ...locationFilter,
+        ...userFilter,
       },
     },
     _sum: { quantity: true, total: true },
@@ -1791,4 +1808,61 @@ export const exportInventoryPDF = asyncHandler(async (req: Request, res: Respons
 
   drawFooter(doc);
   doc.end();
+});
+
+/**
+ * Get employee sales breakdown
+ * GET /api/reports/employee-sales
+ */
+export const getEmployeeSalesBreakdown = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  const { startDate, endDate, locationId } = req.query;
+
+  const where: any = { status: SaleStatus.COMPLETED };
+
+  // SUPER_ADMIN can filter by location; others auto-scoped
+  if (authReq.user?.role === 'SUPER_ADMIN' && locationId) {
+    where.locationId = locationId;
+  } else if (authReq.user?.locationId) {
+    where.locationId = authReq.user.locationId;
+  }
+
+  if (startDate || endDate) {
+    where.createdAt = {};
+    if (startDate) where.createdAt.gte = new Date(startDate as string);
+    if (endDate) {
+      const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999);
+      where.createdAt.lte = end;
+    }
+  }
+
+  // Group sales by userId
+  const salesByEmployee = await prisma.sale.groupBy({
+    by: ['userId'],
+    where,
+    _sum: { total: true },
+    _count: true,
+    _avg: { total: true },
+  });
+
+  // Fetch user details
+  const userIds = salesByEmployee.map((s: any) => s.userId).filter(Boolean);
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, firstName: true, lastName: true, email: true, role: true },
+  });
+  const userMap = new Map(users.map(u => [u.id, u]));
+
+  const data = salesByEmployee
+    .filter((entry: any) => entry.userId)
+    .map((entry: any) => ({
+      user: userMap.get(entry.userId) || { id: entry.userId, firstName: 'Unknown', lastName: '', email: '', role: 'CASHIER' },
+      totalRevenue: Math.round((entry._sum.total || 0) * 100) / 100,
+      transactionCount: entry._count,
+      avgTransaction: Math.round((entry._avg.total || 0) * 100) / 100,
+    }))
+    .sort((a: any, b: any) => b.totalRevenue - a.totalRevenue);
+
+  res.json({ success: true, data });
 });
