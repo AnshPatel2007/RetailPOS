@@ -156,7 +156,7 @@ export const StoreCredits: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="p-8 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

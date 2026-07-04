@@ -82,7 +82,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
         ? initialPaymentMethod
         : (paymentMethods[0]?.value || 'CASH');
       setPaymentMethod(defaultMethod);
-      setAmountInput(Math.round(total * 100 / 100).toFixed(2));
+      setAmountInput((Math.round(total * 100) / 100).toFixed(2));
       setPayments([]);
       setReferenceInput('');
       setPointsToRedeem('');
@@ -523,7 +523,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                   >
                     <div>
                       <span className="text-sm font-medium">
-                        {payment.paymentMethod.replace('_', ' ')}
+                        {payment.paymentMethod.replace(/_/g, ' ')}
                       </span>
                       {payment.reference && (
                         <span className="text-xs text-muted-foreground ml-1">({payment.reference})</span>

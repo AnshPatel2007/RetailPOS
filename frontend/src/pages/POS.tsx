@@ -151,7 +151,7 @@ export const POS: React.FC = () => {
     if (e.key === 'F5') { e.preventDefault(); handleHoldSale(); return; }
     if (e.key === 'F6') { e.preventDefault(); setShowHeldSalesModal(true); return; }
     if (e.key === 'F7') { e.preventDefault(); setMiscPrice(''); setMiscName(''); setShowMiscModal(true); return; }
-    if (e.key === 'F8') { e.preventDefault(); setShowRefundModal(true); return; }
+    if (e.key === 'F8') { e.preventDefault(); if (user?.role !== 'CASHIER') setShowRefundModal(true); return; }
     if (e.key === '?' && !inInput) { e.preventDefault(); setShowShortcutsHelp(prev => !prev); return; }
     if ((e.key === '/' || e.key === 'F3') && !inInput) {
       e.preventDefault();
@@ -349,11 +349,11 @@ export const POS: React.FC = () => {
           name: item.product.name,
           quantity: item.quantity,
           price: item.product.price,
-          total: item.product.price * item.quantity,
+          total: item.product.price * item.quantity - item.discount,
         })),
         subtotal: getSubtotal(),
         tax: getTax(),
-        discount: 0,
+        discount: useCartStore.getState().discount,
         total: getTotal(),
         paymentMethod: payments.length > 1
           ? payments.map(p => `${p.paymentMethod}: ${formatCurrency(p.amount)}`).join(' / ')
@@ -603,7 +603,7 @@ export const POS: React.FC = () => {
                 ['F5', 'Hold sale'],
                 ['F6', 'Recall held sale'],
                 ['F7', 'Add misc item'],
-                ['F8', 'Refund'],
+                ...(user?.role !== 'CASHIER' ? [['F8', 'Refund']] : []),
                 ['Esc', 'Close / Back'],
                 ['?', 'Toggle this help'],
               ].map(([key, desc]) => (
@@ -625,7 +625,7 @@ export const POS: React.FC = () => {
         <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F5</kbd> Hold</span>
         <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F6</kbd> Recall</span>
         <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F7</kbd> Misc</span>
-        <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F8</kbd> Refund</span>
+        {user?.role !== 'CASHIER' && <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">F8</kbd> Refund</span>}
         <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">Esc</kbd> Back</span>
         <span><kbd className="px-1 bg-muted rounded font-mono text-[10px]">?</kbd> Help</span>
       </div>

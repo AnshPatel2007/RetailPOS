@@ -27,11 +27,28 @@ export const Settings: React.FC = () => {
   );
   const [scannerTestResult, setScannerTestResult] = useState<string>('');
 
+  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
+
   // Local form state initialized from the Zustand store
   const [storeSettings, setStoreSettings] = useState(settingsStore.storeInfo);
   const [receiptSettings, setReceiptSettings] = useState(settingsStore.receiptSettings);
   const [paymentMethods, setPaymentMethods] = useState(settingsStore.paymentMethods);
   const [notificationSettings, setNotificationSettings] = useState(settingsStore.notificationSettings);
+
+  // Fetch settings from backend on mount (syncs across users)
+  useEffect(() => {
+    if (isAdmin) {
+      settingsStore.fetchSettings();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync local form state when store settings update from backend
+  useEffect(() => {
+    setStoreSettings(settingsStore.storeInfo);
+    setReceiptSettings(settingsStore.receiptSettings);
+    setPaymentMethods(settingsStore.paymentMethods);
+    setNotificationSettings(settingsStore.notificationSettings);
+  }, [settingsStore.storeInfo, settingsStore.receiptSettings, settingsStore.paymentMethods, settingsStore.notificationSettings]);
 
   // User profile state
   const [profileSettings, setProfileSettings] = useState({
@@ -55,52 +72,80 @@ export const Settings: React.FC = () => {
     }
   }, [user]);
 
-  // Save handlers — write to Zustand store (auto-persisted to localStorage)
-  const saveStoreSettings = () => {
-    settingsStore.setStoreInfo(storeSettings);
-    // Also sync store name/address/phone to hardware receipt printer settings
-    const updatedHw = {
-      ...hardwareSettings,
-      receiptPrinter: {
-        ...hardwareSettings.receiptPrinter,
-        storeName: storeSettings.storeName,
-        storeAddress: storeSettings.address
-          ? `${storeSettings.address}${storeSettings.city ? ', ' + storeSettings.city : ''}${storeSettings.state ? ', ' + storeSettings.state : ''}`
-          : '',
-        storePhone: storeSettings.phone,
-      },
-    };
-    setHardwareSettings(updatedHw);
-    hardware.saveSettings(updatedHw);
-    toast.success('Store settings saved');
+  // Save handlers — persist to backend (shared across all users in the store)
+  const saveStoreSettings = async () => {
+    try {
+      await settingsStore.saveStoreInfo(storeSettings);
+      // Also sync store name/address/phone to hardware receipt printer settings
+      const updatedHw = {
+        ...hardwareSettings,
+        receiptPrinter: {
+          ...hardwareSettings.receiptPrinter,
+          storeName: storeSettings.storeName,
+          storeAddress: storeSettings.address
+            ? `${storeSettings.address}${storeSettings.city ? ', ' + storeSettings.city : ''}${storeSettings.state ? ', ' + storeSettings.state : ''}`
+            : '',
+          storePhone: storeSettings.phone,
+        },
+      };
+      setHardwareSettings(updatedHw);
+      hardware.saveSettings(updatedHw);
+      toast.success('Store settings saved');
+    } catch {
+      toast.error('Failed to save store settings');
+    }
   };
 
-  const saveReceiptSettings = () => {
-    settingsStore.setReceiptSettings(receiptSettings);
-    // Sync footer text to hardware settings
-    const updatedHw = {
-      ...hardwareSettings,
-      receiptPrinter: {
-        ...hardwareSettings.receiptPrinter,
-        footerText: receiptSettings.footer,
-      },
-    };
-    setHardwareSettings(updatedHw);
-    hardware.saveSettings(updatedHw);
-    toast.success('Receipt settings saved');
+  const saveReceiptSettings = async () => {
+    try {
+      await settingsStore.saveReceiptSettings(receiptSettings);
+      // Sync footer text to hardware settings
+      const updatedHw = {
+        ...hardwareSettings,
+        receiptPrinter: {
+          ...hardwareSettings.receiptPrinter,
+          footerText: receiptSettings.footer,
+        },
+      };
+      setHardwareSettings(updatedHw);
+      hardware.saveSettings(updatedHw);
+      toast.success('Receipt settings saved');
+    } catch {
+      toast.error('Failed to save receipt settings');
+    }
   };
 
-  const savePaymentMethods = () => {
-    settingsStore.setPaymentMethods(paymentMethods);
-    toast.success('Payment methods saved');
+  const savePaymentMethods = async () => {
+    try {
+      await settingsStore.savePaymentMethods(paymentMethods);
+      toast.success('Payment methods saved');
+    } catch {
+      toast.error('Failed to save payment methods');
+    }
   };
 
-  const saveNotificationSettings = () => {
-    settingsStore.setNotificationSettings(notificationSettings);
-    toast.success('Notification settings saved');
+  const saveNotificationSettings = async () => {
+    try {
+      await settingsStore.saveNotificationSettings(notificationSettings);
+      toast.success('Notification settings saved');
+    } catch {
+      toast.error('Failed to save notification settings');
+    }
   };
 
   const saveUserProfile = async () => {
+    // Validate password fields before making any API calls
+    if (profileSettings.newPassword) {
+      if (!profileSettings.currentPassword) {
+        toast.error('Current password is required to change password');
+        return;
+      }
+      if (profileSettings.newPassword !== profileSettings.confirmPassword) {
+        toast.error('New passwords do not match');
+        return;
+      }
+    }
+
     try {
       // Update profile (name and email)
       const response = await userService.updateProfile({
@@ -114,16 +159,6 @@ export const Settings: React.FC = () => {
 
       // If password change is requested, handle separately
       if (profileSettings.newPassword) {
-        if (!profileSettings.currentPassword) {
-          toast.error('Current password is required to change password');
-          return;
-        }
-
-        if (profileSettings.newPassword !== profileSettings.confirmPassword) {
-          toast.error('New passwords do not match');
-          return;
-        }
-
         await userService.changePassword({
           currentPassword: profileSettings.currentPassword,
           newPassword: profileSettings.newPassword,
@@ -202,8 +237,6 @@ export const Settings: React.FC = () => {
       toast.error('Failed to open cash drawer');
     }
   };
-
-  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
 
   return (
     <div className="p-8">

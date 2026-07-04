@@ -356,7 +356,7 @@ export const UserManagement: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <Badge variant={getRoleBadgeVariant(user.role)}>
-                      {user.role.replace('_', ' ')}
+                      {user.role.replace(/_/g, ' ')}
                     </Badge>
                   </TableCell>
                   <TableCell>

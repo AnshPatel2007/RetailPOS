@@ -51,7 +51,7 @@ const TrendBadge = ({ trend, label }: { trend?: number | null; label?: string })
 };
 
 const elapsedTime = (iso: string) => {
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
   if (mins < 60) return `${mins}m`;
   const hrs = Math.floor(mins / 60);
   return `${hrs}h ${mins % 60}m`;
@@ -285,7 +285,7 @@ export const Dashboard: React.FC = () => {
           </CardHeader>
           <CardContent>
             {hourlyData.length === 0 ? (
-              <div className="h-64 flex flex-col items-center justify-center text-muted-foreground">
+              <div className="h-[264px] flex flex-col items-center justify-center text-muted-foreground">
                 <BarChart3 className="h-10 w-10 mb-2 opacity-30" />
                 <p className="text-sm">No sales data in the last 12 hours</p>
               </div>
@@ -316,7 +316,7 @@ export const Dashboard: React.FC = () => {
           </CardHeader>
           <CardContent>
             {topProducts.length === 0 ? (
-              <div className="h-64 flex flex-col items-center justify-center text-muted-foreground">
+              <div className="h-[264px] flex flex-col items-center justify-center text-muted-foreground">
                 <Package className="h-10 w-10 mb-2 opacity-30" />
                 <p className="text-sm">No sales yet today</p>
               </div>
@@ -353,47 +353,53 @@ export const Dashboard: React.FC = () => {
 
       {/* Middle row: secondary stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-cyan-500/10">
-                <Users className="h-5 w-5 text-cyan-500" />
+        <button onClick={() => navigate('/customers')} className="text-left">
+          <Card className="hover:border-primary transition-colors h-full">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-cyan-500/10">
+                  <Users className="h-5 w-5 text-cyan-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Customers</p>
+                  <p className="text-lg font-bold">{metrics?.totalCustomers || 0}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Customers</p>
-                <p className="text-lg font-bold">{metrics?.totalCustomers || 0}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </button>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-teal-500/10">
-                <UserCheck className="h-5 w-5 text-teal-500" />
+        <button onClick={() => navigate('/shifts')} className="text-left">
+          <Card className="hover:border-primary transition-colors h-full">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-teal-500/10">
+                  <UserCheck className="h-5 w-5 text-teal-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">On Shift</p>
+                  <p className="text-lg font-bold">{metrics?.activeEmployees || 0}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Active Staff</p>
-                <p className="text-lg font-bold">{metrics?.activeEmployees || 0}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </button>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-violet-500/10">
-                <Package className="h-5 w-5 text-violet-500" />
+        <button onClick={() => navigate('/inventory')} className="text-left">
+          <Card className="hover:border-primary transition-colors h-full">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-violet-500/10">
+                  <Package className="h-5 w-5 text-violet-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Products</p>
+                  <p className="text-lg font-bold">{metrics?.totalProducts || 0}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Products</p>
-                <p className="text-lg font-bold">{metrics?.totalProducts || 0}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </button>
 
         <button onClick={() => navigate('/inventory')} className="text-left">
           <Card className="hover:border-primary transition-colors h-full">
@@ -411,26 +417,28 @@ export const Dashboard: React.FC = () => {
           </Card>
         </button>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-red-500/10">
-                <Undo2 className="h-5 w-5 text-red-500" />
+        <button onClick={() => navigate('/reports')} className="text-left">
+          <Card className="hover:border-primary transition-colors h-full">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-red-500/10">
+                  <Undo2 className="h-5 w-5 text-red-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Refunds Today</p>
+                  <p className="text-lg font-bold">
+                    {metrics?.todayRefundCount || 0}
+                    {(metrics?.todayRefunds || 0) > 0 && (
+                      <span className="text-xs font-normal text-muted-foreground ml-1">
+                        ({formatCurrency(metrics?.todayRefunds || 0)})
+                      </span>
+                    )}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Refunds</p>
-                <p className="text-lg font-bold">
-                  {metrics?.todayRefundCount || 0}
-                  {(metrics?.todayRefunds || 0) > 0 && (
-                    <span className="text-xs font-normal text-muted-foreground ml-1">
-                      ({formatCurrency(metrics?.todayRefunds || 0)})
-                    </span>
-                  )}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </button>
       </div>
 
       {/* Bottom row: Recent sales + Low stock + Payment breakdown */}
@@ -455,7 +463,7 @@ export const Dashboard: React.FC = () => {
                         {sale.customerName || sale.saleNumber}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {sale.paymentMethod.replace('_', ' ')} · {timeAgo(sale.createdAt)}
+                        {sale.paymentMethod.replace(/_/g, ' ')} · {timeAgo(sale.createdAt)}
                       </p>
                     </div>
                     <span className="text-sm font-bold ml-3 shrink-0">{formatCurrency(sale.total)}</span>
@@ -521,14 +529,15 @@ export const Dashboard: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-3">
-                {metrics.paymentBreakdown.map((pb) => {
+                {(() => {
                   const totalPayments = metrics.paymentBreakdown.reduce((s, p) => s + p.total, 0);
+                  return metrics.paymentBreakdown.map((pb) => {
                   const pct = totalPayments > 0 ? (pb.total / totalPayments) * 100 : 0;
                   return (
                     <div key={pb.method}>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-sm font-medium capitalize">
-                          {pb.method.replace('_', ' ').toLowerCase()}
+                          {pb.method.replace(/_/g, ' ').toLowerCase()}
                         </span>
                         <span className="text-sm font-bold">{formatCurrency(pb.total)}</span>
                       </div>
@@ -545,7 +554,8 @@ export const Dashboard: React.FC = () => {
                       </div>
                     </div>
                   );
-                })}
+                });
+                })()}
               </div>
             )}
           </CardContent>

@@ -163,7 +163,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {new Date(sale.createdAt).toLocaleString()} · {sale.paymentMethod}
+                  {new Date(sale.createdAt).toLocaleString()} · {sale.paymentMethod.replace(/_/g, ' ')}
                   {sale.customer && ` · ${sale.customer.firstName} ${sale.customer.lastName}`}
                 </p>
 

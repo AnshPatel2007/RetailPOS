@@ -47,7 +47,7 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
               0
             );
             const itemCount = held.items.reduce((c, i) => c + i.quantity, 0);
-            const elapsedMins = Math.round((Date.now() - new Date(held.heldAt).getTime()) / 60000);
+            const elapsedMins = Math.max(0, Math.round((Date.now() - new Date(held.heldAt).getTime()) / 60000));
             const elapsed = elapsedMins >= 60
               ? `${Math.floor(elapsedMins / 60)}h ${elapsedMins % 60}m`
               : `${elapsedMins}m`;

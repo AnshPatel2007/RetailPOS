@@ -417,7 +417,7 @@ export const Shifts: React.FC = () => {
               <div className="divide-y">
                 {Object.entries(shiftSummary.paymentBreakdown).map(([method, data]: [string, any]) => (
                   <div key={method} className="flex justify-between items-center px-3 py-2 text-sm">
-                    <span>{method.replace('_', ' ')}</span>
+                    <span>{method.replace(/_/g, ' ')}</span>
                     <div className="text-right">
                       <span className="font-medium">{formatCurrency(data.total)}</span>
                       <span className="text-muted-foreground ml-2">({data.count} txn{data.count !== 1 ? 's' : ''})</span>

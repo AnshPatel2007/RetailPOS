@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Gift, Plus, Search, RefreshCw, CreditCard, Ban, DollarSign } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -37,6 +37,17 @@ export const GiftCards: React.FC = () => {
   const [selectedCard, setSelectedCard] = useState<GiftCard | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Debounce search
+  useEffect(() => {
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(debounceRef.current);
+  }, [search]);
 
   // Issue form
   const [issueAmount, setIssueAmount] = useState('');
@@ -49,7 +60,7 @@ export const GiftCards: React.FC = () => {
   const fetchGiftCards = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await giftCardService.getAll({ page, limit: 20, search });
+      const { data } = await giftCardService.getAll({ page, limit: 20, search: debouncedSearch });
       setGiftCards(data.data);
       setTotal(data.total);
     } catch {
@@ -57,7 +68,7 @@ export const GiftCards: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, [page, debouncedSearch]);
 
   useEffect(() => {
     fetchGiftCards();
@@ -129,7 +140,7 @@ export const GiftCards: React.FC = () => {
         <Input
           placeholder="Search by code..."
           value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          onChange={(e) => setSearch(e.target.value)}
           className="pl-10"
         />
       </div>

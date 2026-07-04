@@ -30,7 +30,7 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
-    if (selected && selected.type === 'text/csv') {
+    if (selected && (selected.type === 'text/csv' || selected.name.endsWith('.csv'))) {
       setFile(selected);
       setResult(null);
     } else {

@@ -43,7 +43,7 @@ export const RecentTransactions: React.FC<RecentTransactionsProps> = ({
   }, [isExpanded, refreshTrigger]);
 
   const getRelativeTime = (dateStr: string) => {
-    const mins = Math.round((Date.now() - new Date(dateStr).getTime()) / 60000);
+    const mins = Math.max(0, Math.round((Date.now() - new Date(dateStr).getTime()) / 60000));
     if (mins < 1) return 'just now';
     if (mins < 60) return `${mins}m ago`;
     const hrs = Math.floor(mins / 60);

@@ -129,7 +129,7 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
             </div>
             <div className="border-t border-gray-800 my-1" />
             <div className="flex justify-between">
-              <span>Paid ({receipt.paymentMethod})</span>
+              <span>Paid ({receipt.paymentMethod.replace(/_/g, ' ')})</span>
               <span>${receipt.amountPaid.toFixed(2)}</span>
             </div>
             {receipt.change > 0 && (

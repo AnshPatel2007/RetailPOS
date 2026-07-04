@@ -18,8 +18,11 @@ import {
 } from '@/components/ui/Table';
 import { Plus, Search, Edit, Trash2, Users as UsersIcon, Star, BarChart3, PieChart, Eye } from 'lucide-react';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { useAuthStore } from '@/store/authStore';
 
 export const Customers: React.FC = () => {
+  const { user } = useAuthStore();
+  const canDelete = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const [activeTab, setActiveTab] = useState<'directory' | 'insights' | 'segments'>('directory');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -348,6 +351,7 @@ export const Customers: React.FC = () => {
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
+                      {canDelete && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -357,6 +361,7 @@ export const Customers: React.FC = () => {
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

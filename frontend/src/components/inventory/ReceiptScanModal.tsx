@@ -73,6 +73,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
       return;
     }
 
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
     setError('');
@@ -205,6 +206,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
   };
 
   const resetAndClose = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
     setStep('upload');
     setSelectedFile(null);
     setPreviewUrl(null);

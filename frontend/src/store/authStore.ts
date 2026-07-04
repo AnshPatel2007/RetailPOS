@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { User } from '../types';
 import { authService } from '../services/api';
+import { useStoreSettingsStore } from './storeSettingsStore';
 
 interface AuthState {
   user: User | null;
@@ -22,7 +23,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   token: localStorage.getItem('token'),
   isAuthenticated: false,
-  isLoading: false,
+  isLoading: !!localStorage.getItem('token'),
   error: null,
 
   login: async (email: string, password: string) => {
@@ -34,6 +35,13 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     try {
       const response = await authService.login(email, password);
+
+      // Handle 2FA requirement
+      if (response.data.requiresTwoFactor) {
+        set({ isLoading: false, error: 'Two-factor authentication is not yet supported in this client.' });
+        throw new Error('2FA required');
+      }
+
       const { token, user } = response.data.data;
 
       localStorage.setItem('token', token);
@@ -55,7 +63,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         user: null,
         token: null,
         isAuthenticated: false,
-        error: error.response?.data?.error || 'Login failed',
+        error: error.response?.data?.error || error.message || 'Login failed',
         isLoading: false,
       });
       throw error;
@@ -73,6 +81,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       // Always clear local state
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      useStoreSettingsStore.getState().reset();
       set({
         user: null,
         token: null,
@@ -85,7 +94,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   loadUser: async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      set({ isAuthenticated: false });
+      set({ isAuthenticated: false, isLoading: false });
       return;
     }
 

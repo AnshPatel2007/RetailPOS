@@ -50,8 +50,8 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   } = useCartStore();
 
   const { user } = useAuthStore();
-  const canOverridePrice = user?.role === 'ADMIN' || user?.role === 'MANAGER';
-  const isManagerOrAdmin = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const canOverridePrice = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const isManagerOrAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const [showNotes, setShowNotes] = useState(false);
 
   return (

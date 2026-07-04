@@ -41,6 +41,7 @@ export const Inventory: React.FC = () => {
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStatus, setFilterStatus] = useState<'' | 'true' | 'false'>('');
   const [lowStockCount, setLowStockCount] = useState(0);
+  const [outOfStockCount, setOutOfStockCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
@@ -83,7 +84,9 @@ export const Inventory: React.FC = () => {
   const loadLowStockCount = async () => {
     try {
       const response = await productService.getLowStock();
-      setLowStockCount(response.data.data?.length || 0);
+      const items = response.data.data || [];
+      setLowStockCount(items.length);
+      setOutOfStockCount(items.filter((p: any) => p.stockQuantity === 0).length);
     } catch (error) {
       console.error('Failed to load low stock count:', error);
     }
@@ -306,7 +309,7 @@ export const Inventory: React.FC = () => {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Out of Stock</p>
-              <p className="text-xl font-bold">{products.filter(p => p.stockQuantity === 0).length}</p>
+              <p className="text-xl font-bold">{outOfStockCount}</p>
             </div>
           </div>
         </Card>
@@ -399,7 +402,7 @@ export const Inventory: React.FC = () => {
             <TableBody>
               {products.map((product) => {
                 const isLowStock = product.stockQuantity <= product.lowStockAlert;
-                const margin = ((product.price - product.cost) / product.price) * 100;
+                const margin = product.price > 0 ? ((product.price - product.cost) / product.price) * 100 : 0;
 
                 return (
                   <TableRow key={product.id}>
@@ -419,7 +422,7 @@ export const Inventory: React.FC = () => {
                     <TableCell>
                       <div>
                         <p className="font-medium">{formatCurrency(product.price)}</p>
-                        <p className="text-xs text-success">
+                        <p className={`text-xs ${margin >= 0 ? 'text-success' : 'text-destructive'}`}>
                           {margin.toFixed(1)}% margin
                         </p>
                       </div>

@@ -660,11 +660,11 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
           </div>
 
           {/* Date Selector Card */}
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-500/20 rounded-xl p-6 shadow-sm">
+          <div className="bg-primary/5 border-2 border-primary/20 rounded-xl p-6 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               {/* Left side - Date Info */}
               <div className="flex items-center gap-4">
-                <div className="bg-card rounded-lg p-3 shadow-sm border border-blue-100">
+                <div className="bg-card rounded-lg p-3 shadow-sm border border-primary/20">
                   <Calendar className="h-8 w-8 text-blue-500" />
                 </div>
                 <div>

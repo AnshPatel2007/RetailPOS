@@ -292,7 +292,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           <div className="flex items-center justify-between">
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{user?.firstName} {user?.lastName}</p>
-              <p className="text-xs text-muted-foreground">{user?.role}</p>
+              <p className="text-xs text-muted-foreground">{user?.role?.replace(/_/g, ' ')}</p>
             </div>
             <div className="flex gap-1 shrink-0">
               <button onClick={toggleTheme} className="p-2 rounded-md hover:bg-accent transition-colors" title="Toggle theme">
