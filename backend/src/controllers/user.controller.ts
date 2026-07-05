@@ -78,9 +78,21 @@ export const createUser = asyncHandler(async (req: AuthRequest, res: Response) =
     throw new AppError('Missing required fields: firstName, lastName, email, password', 400);
   }
 
-  // Check password length
-  if (password.length < 6) {
-    throw new AppError('Password must be at least 6 characters', 400);
+  // Password strength validation
+  if (password.length < 8) {
+    throw new AppError('Password must be at least 8 characters long', 400);
+  }
+  if (!/[A-Z]/.test(password)) {
+    throw new AppError('Password must contain at least one uppercase letter', 400);
+  }
+  if (!/[a-z]/.test(password)) {
+    throw new AppError('Password must contain at least one lowercase letter', 400);
+  }
+  if (!/[0-9]/.test(password)) {
+    throw new AppError('Password must contain at least one number', 400);
+  }
+  if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+    throw new AppError('Password must contain at least one special character', 400);
   }
 
   // Check if email already exists
@@ -275,8 +287,11 @@ export const resetUserPassword = asyncHandler(async (req: AuthRequest, res: Resp
   const { id } = req.params;
   const { newPassword } = req.body;
 
-  if (!newPassword || newPassword.length < 6) {
-    throw new AppError('Password must be at least 6 characters', 400);
+  if (!newPassword || newPassword.length < 8) {
+    throw new AppError('Password must be at least 8 characters long', 400);
+  }
+  if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword) || !/[!@#$%^&*(),.?":{}|<>]/.test(newPassword)) {
+    throw new AppError('Password must contain uppercase, lowercase, number, and special character', 400);
   }
 
   // Check if user exists

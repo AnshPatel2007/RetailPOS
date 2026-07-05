@@ -309,6 +309,7 @@ export const POS: React.FC = () => {
 
     try {
       const saleData: any = {
+        idempotencyKey: crypto.randomUUID(),
         items: items.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,

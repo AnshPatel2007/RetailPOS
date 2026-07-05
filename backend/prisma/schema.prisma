@@ -279,8 +279,9 @@ model Sale {
   notes         String?
   receiptNumber String?
   receiptEmail  String?
-  shiftId       String?
-  createdAt     DateTime      @default(now())
+  shiftId        String?
+  idempotencyKey String?       @unique
+  createdAt      DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   completedAt   DateTime?
   refundedAt    DateTime?
@@ -353,7 +354,7 @@ model Refund {
 model Customer {
   id                 String              @id @default(uuid())
   email              String?             @unique
-  phone              String              @unique
+  phone              String?             @unique
   firstName          String
   lastName           String
   address            String?

@@ -31,6 +31,7 @@ export const createSaleSchema = z.object({
     pointsRedeemed: z.number().int().min(0).optional(), // Loyalty points to redeem
     notes: z.string().optional(),
     receiptEmail: z.string().email().optional(),
+    idempotencyKey: z.string().uuid().optional(),
   }),
 });
 

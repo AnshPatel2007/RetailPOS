@@ -37,10 +37,22 @@ const generateSaleNumber = async (): Promise<string> => {
  * POST /api/sales
  */
 export const createSale = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { customerId, items, paymentMethod, amountPaid, notes, receiptEmail, payments, pointsRedeemed } = req.body;
+  const { customerId, items, paymentMethod, amountPaid, notes, receiptEmail, payments, pointsRedeemed, idempotencyKey } = req.body;
 
   if (!req.user) {
     throw new AppError('User not authenticated', 401);
+  }
+
+  // Idempotency check — return existing sale if key already used
+  if (idempotencyKey) {
+    const existing = await prisma.sale.findUnique({
+      where: { idempotencyKey },
+      include: { items: { include: { product: true } }, payments: true, customer: true, user: { select: { id: true, firstName: true, lastName: true } } },
+    });
+    if (existing) {
+      res.status(200).json({ success: true, data: existing });
+      return;
+    }
   }
 
   // Get current shift
@@ -209,6 +221,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
         userId: req.user!.id,
         locationId: req.user!.locationId,
         shiftId: currentShift?.id,
+        idempotencyKey: idempotencyKey || null,
         subtotal,
         tax: totalTax,
         discount: totalDiscount,

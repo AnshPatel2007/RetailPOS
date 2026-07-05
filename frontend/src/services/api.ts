@@ -32,24 +32,59 @@ api.interceptors.request.use(
 );
 
 /**
- * Response interceptor to handle errors
+ * Response interceptor — attempt token refresh on 401 before logging out
  */
+let isRefreshing = false;
+let failedQueue: { resolve: (v: any) => void; reject: (e: any) => void }[] = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((p) => {
+    if (error) p.reject(error);
+    else p.resolve(token);
+  });
+  failedQueue = [];
+};
+
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      // Don't interfere with login requests
-      const isLoginRequest = error.config?.url?.includes('/auth/login');
+  async (error: AxiosError) => {
+    const originalRequest = error.config as any;
+    const isLoginRequest = originalRequest?.url?.includes('/auth/login');
+    const isRefreshRequest = originalRequest?.url?.includes('/auth/refresh');
 
-      if (!isLoginRequest) {
-        // Unauthorized - clear token and redirect to login
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+    if (error.response?.status === 401 && !isLoginRequest && !isRefreshRequest && !originalRequest._retry) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then((token) => {
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return api(originalRequest);
+        });
+      }
 
-        // Avoid redundant redirects
-        if (!window.location.pathname.includes('/login')) {
-          window.location.href = '/login';
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const { data } = await api.post('/auth/refresh', {}, { withCredentials: true });
+        const newToken = data.data?.token || data.token;
+        if (newToken) {
+          localStorage.setItem('token', newToken);
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          processQueue(null, newToken);
+          return api(originalRequest);
         }
+      } catch {
+        processQueue(error, null);
+      } finally {
+        isRefreshing = false;
+      }
+
+      // Refresh failed — log out
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
       }
     }
     return Promise.reject(error);
