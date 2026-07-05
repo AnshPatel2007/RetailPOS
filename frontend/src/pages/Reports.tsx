@@ -514,12 +514,12 @@ export const Reports: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex space-x-2 mb-6">
+      <div className="flex space-x-1 mb-6">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
               activeTab === tab.id
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground hover:bg-accent'
