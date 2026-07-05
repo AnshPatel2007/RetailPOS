@@ -92,6 +92,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuthStore();
+  const isManager = user?.role && ['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(user.role);
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [hourlyData, setHourlyData] = useState<HourlyEntry[]>([]);
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
@@ -369,6 +370,7 @@ export const Dashboard: React.FC = () => {
           </Card>
         </button>
 
+        {isManager && (
         <button onClick={() => navigate('/shifts')} className="text-left">
           <Card className="hover:border-primary transition-colors h-full">
             <CardContent className="p-4">
@@ -384,6 +386,7 @@ export const Dashboard: React.FC = () => {
             </CardContent>
           </Card>
         </button>
+        )}
 
         <button onClick={() => navigate('/inventory')} className="text-left">
           <Card className="hover:border-primary transition-colors h-full">
@@ -562,8 +565,8 @@ export const Dashboard: React.FC = () => {
         </Card>
       </div>
 
-      {/* Active shifts */}
-      {activeShifts.length > 0 && (
+      {/* Active shifts - visible to managers+ only */}
+      {isManager && activeShifts.length > 0 && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
