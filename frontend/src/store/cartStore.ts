@@ -119,7 +119,7 @@ export const useCartStore = create<CartState>()(
         set({
           items: get().items.map((item) =>
             item.product.id === productId
-              ? { ...item, product: { ...item.product, price } }
+              ? { ...item, product: { ...item.product, price }, priceOverride: true }
               : item
           ),
         });

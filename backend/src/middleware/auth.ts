@@ -14,7 +14,7 @@ interface CachedUser {
 // In-memory cache: userId → { locationId, isActive, cachedAt }
 // Avoids a DB lookup on every single API request.
 const userCache = new Map<string, CachedUser>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 
 /**
  * Invalidate a user's cached auth data.

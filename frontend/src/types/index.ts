@@ -123,6 +123,7 @@ export interface CartItem {
   quantity: number;
   discount: number;
   notes: string;
+  priceOverride?: boolean;
 }
 
 export interface Shift {

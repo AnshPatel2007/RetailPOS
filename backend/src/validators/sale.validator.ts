@@ -4,10 +4,16 @@ const saleItemSchema = z.object({
   productId: z.string().min(1, 'Product ID is required'),
   quantity: z.number().int().min(1, 'Quantity must be at least 1'),
   price: z.number().min(0, 'Price must be 0 or greater'),
-  discount: z.number().min(0).optional(),
+  discount: z.number().min(0, 'Discount cannot be negative').optional(),
+  priceOverride: z.boolean().optional(),
   notes: z.string().optional(),
-  name: z.string().optional(),
-});
+  name: z.string().max(200).optional(),
+}).refine(data => {
+  if (data.discount && data.discount > data.price * data.quantity) {
+    return false;
+  }
+  return true;
+}, { message: 'Discount cannot exceed item total' });
 
 const paymentEntrySchema = z.object({
   paymentMethod: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'OTHER']),
@@ -30,7 +36,7 @@ export const createSaleSchema = z.object({
 
 export const refundSaleSchema = z.object({
   body: z.object({
-    amount: z.number().min(0, 'Refund amount must be greater than 0'),
+    amount: z.number().min(0.01, 'Refund amount must be greater than 0'),
     reason: z.string().min(1, 'Refund reason is required'),
     notes: z.string().optional(),
   }),

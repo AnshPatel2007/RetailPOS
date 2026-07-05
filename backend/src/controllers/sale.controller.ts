@@ -59,11 +59,6 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     where: { isDefault: true, isActive: true },
   });
 
-  // Calculate totals
-  let subtotal = 0;
-  let totalTax = 0;
-  let totalDiscount = 0;
-
   // Separate misc items (no real productId) from regular items
   const regularItems = items.filter((item: any) => item.productId && !item.productId.startsWith('misc-'));
   const miscItems = items.filter((item: any) => !item.productId || item.productId.startsWith('misc-'));
@@ -99,61 +94,11 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     }
   }
 
-  // Validate and calculate
-  const itemsWithDetails = items.map((item: any) => {
-    const isMisc = !item.productId || item.productId.startsWith('misc-');
-    const product = isMisc ? miscProduct : productMap.get(item.productId);
-
-    if (!product) {
+  // Pre-validate items exist (early fail before transaction)
+  for (const item of regularItems) {
+    if (!productMap.has(item.productId)) {
       throw new AppError(`Product not found: ${item.productId}. It may have been deleted.`, 404);
     }
-
-    if (!isMisc && product.trackInventory && product.stockQuantity < item.quantity) {
-      throw new AppError(
-        `Insufficient stock for "${product.name}": requested ${item.quantity}, only ${product.stockQuantity} available`,
-        400
-      );
-    }
-
-    const itemSubtotal = item.price * item.quantity;
-    const itemDiscount = item.discount || 0;
-    const itemTotal = itemSubtotal - itemDiscount;
-
-    let itemTax = 0;
-    if (product.isTaxable && defaultTaxRate) {
-      itemTax = Math.round((itemTotal * defaultTaxRate.rate) / 100 * 100) / 100;
-    }
-
-    subtotal += itemSubtotal;
-    totalDiscount += itemDiscount;
-    totalTax += itemTax;
-
-    return {
-      productId: product.id,
-      sku: isMisc ? 'MISC' : product.sku,
-      productName: isMisc ? (item.name || 'Misc Item') : product.name,
-      quantity: item.quantity,
-      price: item.price,
-      discount: itemDiscount,
-      tax: itemTax,
-      total: itemTotal + itemTax,
-      notes: item.notes,
-    };
-  });
-
-  // Round all monetary values to 2 decimal places
-  subtotal = Math.round(subtotal * 100) / 100;
-  totalDiscount = Math.round(totalDiscount * 100) / 100;
-  totalTax = Math.round(totalTax * 100) / 100;
-  const total = Math.round((subtotal - totalDiscount + totalTax) * 100) / 100;
-  const changeDue = Math.round((amountPaid - total) * 100) / 100;
-
-  // Allow 1 cent tolerance for floating point rounding differences
-  if (amountPaid < total - 0.01) {
-    throw new AppError(
-      `Insufficient payment: received $${amountPaid.toFixed(2)} but total is $${total.toFixed(2)}. Short by $${(total - amountPaid).toFixed(2)}`,
-      400
-    );
   }
 
   // Generate sale number
@@ -162,8 +107,91 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
   // Track products that drop below low-stock threshold
   const lowStockProducts: { name: string; sku: string; stock: number; threshold: number }[] = [];
 
-  // Create sale with transaction
+  // Create sale with transaction — re-fetch products inside to prevent race conditions
   const sale = await prisma.$transaction(async (tx) => {
+    // Re-fetch all products INSIDE transaction for accurate stock
+    const freshProducts = regularItems.length > 0
+      ? await tx.product.findMany({ where: { id: { in: productIds } } })
+      : [];
+    const freshProductMap = new Map(freshProducts.map(p => [p.id, p]));
+
+    // Validate and calculate totals using fresh data
+    let subtotal = 0;
+    let totalTax = 0;
+    let totalDiscount = 0;
+
+    const itemsWithDetails = items.map((item: any) => {
+      const isMisc = !item.productId || item.productId.startsWith('misc-');
+      const product = isMisc ? miscProduct : freshProductMap.get(item.productId);
+
+      if (!product) {
+        throw new AppError(`Product not found: ${item.productId}. It may have been deleted.`, 404);
+      }
+
+      if (!isMisc && product.trackInventory && product.stockQuantity < item.quantity) {
+        throw new AppError(
+          `Insufficient stock for "${product.name}": requested ${item.quantity}, only ${product.stockQuantity} available`,
+          400
+        );
+      }
+
+      // Use the ACTUAL product price from DB, not the frontend-supplied price
+      const verifiedPrice = isMisc ? item.price : product.price;
+      // Allow override only if frontend price matches or item has explicit override flag
+      const itemPrice = item.priceOverride ? item.price : verifiedPrice;
+
+      const itemSubtotal = itemPrice * item.quantity;
+      const itemDiscount = Math.min(item.discount || 0, itemSubtotal); // Discount can't exceed item total
+      const itemTotal = itemSubtotal - itemDiscount;
+
+      let itemTax = 0;
+      if (product.isTaxable && defaultTaxRate) {
+        itemTax = Math.round((itemTotal * defaultTaxRate.rate) / 100 * 100) / 100;
+      }
+
+      subtotal += itemSubtotal;
+      totalDiscount += itemDiscount;
+      totalTax += itemTax;
+
+      return {
+        productId: product.id,
+        sku: isMisc ? 'MISC' : product.sku,
+        productName: isMisc ? (item.name || 'Misc Item') : product.name,
+        quantity: item.quantity,
+        price: itemPrice,
+        discount: itemDiscount,
+        tax: itemTax,
+        total: itemTotal + itemTax,
+        notes: item.notes,
+      };
+    });
+
+    // Round all monetary values to 2 decimal places
+    subtotal = Math.round(subtotal * 100) / 100;
+    totalDiscount = Math.round(totalDiscount * 100) / 100;
+    totalTax = Math.round(totalTax * 100) / 100;
+    const total = Math.round((subtotal - totalDiscount + totalTax) * 100) / 100;
+    const changeDue = Math.round((amountPaid - total) * 100) / 100;
+
+    // Allow 1 cent tolerance for floating point rounding differences
+    if (amountPaid < total - 0.01) {
+      throw new AppError(
+        `Insufficient payment: received $${amountPaid.toFixed(2)} but total is $${total.toFixed(2)}. Short by $${(total - amountPaid).toFixed(2)}`,
+        400
+      );
+    }
+
+    // Validate loyalty points if redeemed
+    if (pointsRedeemed && pointsRedeemed > 0 && customerId) {
+      const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { loyaltyPoints: true } });
+      if (!customer || customer.loyaltyPoints < pointsRedeemed) {
+        throw new AppError(
+          `Insufficient loyalty points: requested ${pointsRedeemed}, available ${customer?.loyaltyPoints || 0}`,
+          400
+        );
+      }
+    }
+
     // Build split payment records if provided
     const paymentRecords = payments && payments.length > 0
       ? payments.map((p: { paymentMethod: string; amount: number; reference?: string }) => ({
@@ -217,11 +245,9 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       },
     });
 
-    // Update inventory (skip misc items)
+    // Update inventory (skip misc items) — uses fresh product data
     for (const item of regularItems) {
-      const product = await tx.product.findUnique({
-        where: { id: item.productId },
-      });
+      const product = freshProductMap.get(item.productId);
 
       if (product?.trackInventory) {
         const newQty = product.stockQuantity - item.quantity;
@@ -605,7 +631,7 @@ export const voidSale = asyncHandler(async (req: AuthRequest, res: Response) => 
 
   const sale = await prisma.sale.findUnique({
     where: { id },
-    include: { items: true },
+    include: { items: true, refunds: true },
   });
 
   if (!sale) {
@@ -621,6 +647,9 @@ export const voidSale = asyncHandler(async (req: AuthRequest, res: Response) => 
     throw new AppError('Sale already voided', 400);
   }
 
+  // Check if sale was already fully refunded — inventory already restored
+  const isFullyRefunded = sale.status === SaleStatus.REFUNDED;
+
   // Void sale and restore inventory
   const voidedSale = await prisma.$transaction(async (tx) => {
     const updated = await tx.sale.update({
@@ -628,31 +657,33 @@ export const voidSale = asyncHandler(async (req: AuthRequest, res: Response) => 
       data: { status: SaleStatus.VOIDED },
     });
 
-    // Restore inventory
-    for (const item of sale.items) {
-      const product = await tx.product.findUnique({
-        where: { id: item.productId },
-      });
-
-      if (product?.trackInventory) {
-        await tx.product.update({
+    // Only restore inventory if NOT already fully refunded (refund already restored it)
+    if (!isFullyRefunded) {
+      for (const item of sale.items) {
+        const product = await tx.product.findUnique({
           where: { id: item.productId },
-          data: {
-            stockQuantity: { increment: item.quantity },
-          },
         });
 
-        await tx.inventoryLog.create({
-          data: {
-            productId: item.productId,
-            type: 'RETURN',
-            quantity: item.quantity,
-            previousQty: product.stockQuantity,
-            newQty: product.stockQuantity + item.quantity,
-            notes: `Voided sale ${sale.saleNumber}`,
-            userId: req.user!.id,
-          },
-        });
+        if (product?.trackInventory) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: {
+              stockQuantity: { increment: item.quantity },
+            },
+          });
+
+          await tx.inventoryLog.create({
+            data: {
+              productId: item.productId,
+              type: 'RETURN',
+              quantity: item.quantity,
+              previousQty: product.stockQuantity,
+              newQty: product.stockQuantity + item.quantity,
+              notes: `Voided sale ${sale.saleNumber}`,
+              userId: req.user!.id,
+            },
+          });
+        }
       }
     }
 
@@ -692,6 +723,10 @@ export const bulkVoidSales = asyncHandler(async (req: AuthRequest, res: Response
 
   if (!Array.isArray(saleIds) || saleIds.length === 0) {
     throw new AppError('Sale IDs array is required', 400);
+  }
+
+  if (saleIds.length > 50) {
+    throw new AppError('Cannot void more than 50 sales at once', 400);
   }
 
   // Build where clause with location filter
@@ -792,6 +827,10 @@ export const bulkRefundSales = asyncHandler(async (req: AuthRequest, res: Respon
 
   if (!Array.isArray(saleIds) || saleIds.length === 0) {
     throw new AppError('Sale IDs array is required', 400);
+  }
+
+  if (saleIds.length > 50) {
+    throw new AppError('Cannot refund more than 50 sales at once', 400);
   }
 
   // Build where clause with location filter
@@ -931,9 +970,12 @@ export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response)
   }
 
   const storeName = config.app.name || 'POS System';
+
+  // HTML-escape helper to prevent XSS in email content
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const itemsHtml = sale.items.map(item =>
     `<tr>
-      <td style="padding:4px 0;">${item.productName}</td>
+      <td style="padding:4px 0;">${esc(item.productName)}</td>
       <td style="padding:4px 0;text-align:center;">${item.quantity}</td>
       <td style="padding:4px 0;text-align:right;">$${item.price.toFixed(2)}</td>
       <td style="padding:4px 0;text-align:right;">$${item.total.toFixed(2)}</td>
@@ -961,7 +1003,7 @@ export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response)
         <h1>${storeName}</h1>
         <p>Receipt #${sale.saleNumber}</p>
         <p>${new Date(sale.createdAt).toLocaleString()}</p>
-        ${sale.user ? `<p>Cashier: ${sale.user.firstName} ${sale.user.lastName}</p>` : ''}
+        ${sale.user ? `<p>Cashier: ${esc(sale.user.firstName)} ${esc(sale.user.lastName)}</p>` : ''}
       </div>
       <table>
         <thead><tr><th>Item</th><th style="text-align:center;">Qty</th><th style="text-align:right;">Price</th><th style="text-align:right;">Total</th></tr></thead>
@@ -976,7 +1018,7 @@ export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response)
         <tr><td>Paid (${paymentInfo})</td><td style="text-align:right;">$${sale.amountPaid.toFixed(2)}</td></tr>
         ${sale.changeDue > 0 ? `<tr><td>Change</td><td style="text-align:right;">$${sale.changeDue.toFixed(2)}</td></tr>` : ''}
       </table>
-      ${sale.customer ? `<p>Customer: ${sale.customer.firstName} ${sale.customer.lastName}</p>` : ''}
+      ${sale.customer ? `<p>Customer: ${esc(sale.customer.firstName)} ${esc(sale.customer.lastName)}</p>` : ''}
       <div class="footer"><p>Thank you for your business!</p></div>
     </div>
     </body></html>

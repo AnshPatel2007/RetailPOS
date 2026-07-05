@@ -315,6 +315,7 @@ export const POS: React.FC = () => {
           price: item.product.price,
           discount: item.discount,
           notes: item.notes,
+          ...(item.priceOverride ? { priceOverride: true } : {}),
           ...(item.product.id.startsWith('misc-') ? { name: item.product.name } : {}),
         })),
         paymentMethod: primaryPayment.paymentMethod,

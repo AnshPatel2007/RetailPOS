@@ -163,24 +163,29 @@ export const debitCredit = asyncHandler(async (req: AuthRequest, res: Response) 
 
   if (!amount || amount <= 0) throw new AppError('Amount must be positive', 400);
 
-  const account = await prisma.storeCreditAccount.findUnique({ where: { customerId } });
-  if (!account) throw new AppError('No store credit account found', 404);
-  if (account.balance < amount) throw new AppError(`Insufficient store credit. Available: $${account.balance.toFixed(2)}`, 400);
+  // Use transaction with atomic balance check to prevent race conditions
+  const updated = await prisma.$transaction(async (tx) => {
+    const account = await tx.storeCreditAccount.findUnique({ where: { customerId } });
+    if (!account) throw new AppError('No store credit account found', 404);
+    if (account.balance < amount) throw new AppError(`Insufficient store credit. Available: $${account.balance.toFixed(2)}`, 400);
 
-  const updated = await prisma.storeCreditAccount.update({
-    where: { id: account.id },
-    data: {
-      balance: { decrement: amount },
-      transactions: {
-        create: {
-          type: 'DEBIT',
-          amount: -amount,
-          balanceBefore: account.balance,
-          balanceAfter: account.balance - amount,
-          saleId,
+    const result = await tx.storeCreditAccount.update({
+      where: { id: account.id },
+      data: {
+        balance: { decrement: amount },
+        transactions: {
+          create: {
+            type: 'DEBIT',
+            amount: -amount,
+            balanceBefore: account.balance,
+            balanceAfter: account.balance - amount,
+            saleId,
+          },
         },
       },
-    },
+    });
+
+    return result;
   });
 
   logger.info(`Store credit debited: $${amount} from customer ${customerId}`);

@@ -16,43 +16,45 @@ export const clockIn = asyncHandler(async (req: AuthRequest, res: Response) => {
     throw new AppError('User not authenticated', 401);
   }
 
-  // Check if user has an open shift
-  const openShift = await prisma.shift.findFirst({
-    where: {
-      userId: req.user.id,
-      isClosed: false,
-    },
-  });
+  // Use transaction to prevent race condition on concurrent clock-in
+  const shift = await prisma.$transaction(async (tx) => {
+    const openShift = await tx.shift.findFirst({
+      where: {
+        userId: req.user!.id,
+        isClosed: false,
+      },
+    });
 
-  if (openShift) {
-    throw new AppError('You already have an open shift', 400);
-  }
+    if (openShift) {
+      throw new AppError('You already have an open shift', 400);
+    }
 
-  const shift = await prisma.shift.create({
-    data: {
-      userId: req.user.id,
-      locationId: req.user.locationId,
-      clockInAt: new Date(),
-      startingCash,
-    },
-    include: {
-      user: {
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
+    return tx.shift.create({
+      data: {
+        userId: req.user!.id,
+        locationId: req.user!.locationId,
+        clockInAt: new Date(),
+        startingCash,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+        location: {
+          select: {
+            id: true,
+            name: true,
+          },
         },
       },
-      location: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-    },
+    });
   });
 
-  logger.info(`User ${req.user.email} clocked in`);
+  logger.info(`User ${req.user!.email} clocked in`);
 
   res.status(201).json({
     success: true,

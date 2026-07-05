@@ -138,32 +138,37 @@ export const redeemGiftCard = asyncHandler(async (req: AuthRequest, res: Respons
 
   if (!amount || amount <= 0) throw new AppError('Amount must be positive', 400);
 
-  const card = await prisma.giftCard.findFirst({
-    where: { OR: [{ id: idOrCode }, { code: idOrCode }] },
-  });
+  // Use transaction with atomic balance check to prevent race conditions
+  const updated = await prisma.$transaction(async (tx) => {
+    const card = await tx.giftCard.findFirst({
+      where: { OR: [{ id: idOrCode }, { code: idOrCode }] },
+    });
 
-  if (!card) throw new AppError('Gift card not found', 404);
-  if (!card.isActive) throw new AppError('Gift card is deactivated', 400);
-  if (card.expiresAt && card.expiresAt < new Date()) throw new AppError('Gift card has expired', 400);
-  if (card.currentBalance < amount) throw new AppError(`Insufficient balance. Available: $${card.currentBalance.toFixed(2)}`, 400);
+    if (!card) throw new AppError('Gift card not found', 404);
+    if (!card.isActive) throw new AppError('Gift card is deactivated', 400);
+    if (card.expiresAt && card.expiresAt < new Date()) throw new AppError('Gift card has expired', 400);
+    if (card.currentBalance < amount) throw new AppError(`Insufficient balance. Available: $${card.currentBalance.toFixed(2)}`, 400);
 
-  const updated = await prisma.giftCard.update({
-    where: { id: card.id },
-    data: {
-      currentBalance: { decrement: amount },
-      transactions: {
-        create: {
-          type: 'REDEEM',
-          amount: -amount,
-          balanceBefore: card.currentBalance,
-          balanceAfter: card.currentBalance - amount,
-          saleId,
+    const result = await tx.giftCard.update({
+      where: { id: card.id },
+      data: {
+        currentBalance: { decrement: amount },
+        transactions: {
+          create: {
+            type: 'REDEEM',
+            amount: -amount,
+            balanceBefore: card.currentBalance,
+            balanceAfter: card.currentBalance - amount,
+            saleId,
+          },
         },
       },
-    },
+    });
+
+    return result;
   });
 
-  logger.info(`Gift card redeemed: ${card.code} -$${amount}`);
+  logger.info(`Gift card redeemed: ${updated.code} -$${amount}`);
   res.json({ success: true, data: updated, message: 'Gift card redeemed' });
 });
 

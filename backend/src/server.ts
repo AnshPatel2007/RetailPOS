@@ -67,9 +67,24 @@ const passwordResetLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * Rate limiting - Financial operations (refunds, voids, gift cards)
+ */
+const financialLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // 30 financial operations per 15 minutes per IP
+  message: { success: false, error: 'Too many financial operations, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 app.use('/api/', generalLimiter);
 app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth/forgot-password', passwordResetLimiter);
+app.use('/api/sales/bulk-void', financialLimiter);
+app.use('/api/sales/bulk-refund', financialLimiter);
+app.use('/api/gift-cards/*/redeem', financialLimiter);
+app.use('/api/store-credit/*/debit', financialLimiter);
 
 /**
  * Request parsing middleware
