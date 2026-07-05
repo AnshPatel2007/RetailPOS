@@ -140,7 +140,7 @@ export const EmployeeSales: React.FC = () => {
     }
   };
 
-  const totalRevenue = employees.reduce((sum, e) => sum + e.totalRevenue, 0);
+  const totalRevenue = Math.round(employees.reduce((sum, e) => sum + e.totalRevenue, 0) * 100) / 100;
   const totalTransactions = employees.reduce((sum, e) => sum + e.transactionCount, 0);
 
   return (

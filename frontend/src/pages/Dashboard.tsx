@@ -530,9 +530,9 @@ export const Dashboard: React.FC = () => {
             ) : (
               <div className="space-y-3">
                 {(() => {
-                  const totalPayments = metrics.paymentBreakdown.reduce((s, p) => s + p.total, 0);
+                  const totalPayments = Math.round(metrics.paymentBreakdown.reduce((s, p) => s + p.total, 0) * 100) / 100;
                   return metrics.paymentBreakdown.map((pb) => {
-                  const pct = totalPayments > 0 ? (pb.total / totalPayments) * 100 : 0;
+                  const pct = totalPayments > 0 ? Math.round((pb.total / totalPayments) * 100 * 100) / 100 : 0;
                   return (
                     <div key={pb.method}>
                       <div className="flex items-center justify-between mb-1">

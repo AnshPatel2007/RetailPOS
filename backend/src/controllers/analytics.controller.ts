@@ -3,6 +3,9 @@ import { asyncHandler } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 
+/** Round a number to 2 decimal places (currency precision) */
+const rc = (n: number) => Math.round(n * 100) / 100;
+
 /**
  * Get comparison analytics (YoY, MoM, WoW)
  * GET /api/analytics/comparison
@@ -157,19 +160,19 @@ export const getABCAnalysis = asyncHandler(async (req: AuthRequest, res: Respons
     const product = products.find(p => p.id === ps.productId);
     const revenue = ps._sum.total || 0;
     const quantity = ps._sum.quantity || 0;
-    const inventoryValue = (product?.stockQuantity || 0) * (product?.cost || 0);
+    const inventoryValue = rc((product?.stockQuantity || 0) * (product?.cost || 0));
 
     return {
       id: ps.productId,
       name: product?.name || 'Unknown',
       sku: product?.sku || '',
       category: product?.category?.name || 'Uncategorized',
-      revenue,
+      revenue: rc(revenue),
       quantity,
       transactions: ps._count.id || 0,
       stockQuantity: product?.stockQuantity || 0,
       inventoryValue,
-      turnoverRate: inventoryValue > 0 ? revenue / inventoryValue : 0,
+      turnoverRate: inventoryValue > 0 ? rc(revenue / inventoryValue) : 0,
     };
   }).sort((a, b) => b.revenue - a.revenue);
 
@@ -192,7 +195,7 @@ export const getABCAnalysis = asyncHandler(async (req: AuthRequest, res: Respons
 
     return {
       ...product,
-      revenuePercentage: totalRevenue > 0 ? (product.revenue / totalRevenue) * 100 : 0,
+      revenuePercentage: totalRevenue > 0 ? rc((product.revenue / totalRevenue) * 100) : 0,
       cumulativePercentage,
       classification,
     };
@@ -212,21 +215,21 @@ export const getABCAnalysis = asyncHandler(async (req: AuthRequest, res: Respons
         totalRevenue,
         classA: {
           count: classA.length,
-          percentage: analyzedProducts.length > 0 ? (classA.length / analyzedProducts.length) * 100 : 0,
-          revenue: classA.reduce((sum, p) => sum + p.revenue, 0),
-          revenuePercentage: totalRevenue > 0 ? (classA.reduce((sum, p) => sum + p.revenue, 0) / totalRevenue) * 100 : 0,
+          percentage: analyzedProducts.length > 0 ? rc((classA.length / analyzedProducts.length) * 100) : 0,
+          revenue: rc(classA.reduce((sum, p) => sum + p.revenue, 0)),
+          revenuePercentage: totalRevenue > 0 ? rc((classA.reduce((sum, p) => sum + p.revenue, 0) / totalRevenue) * 100) : 0,
         },
         classB: {
           count: classB.length,
-          percentage: analyzedProducts.length > 0 ? (classB.length / analyzedProducts.length) * 100 : 0,
-          revenue: classB.reduce((sum, p) => sum + p.revenue, 0),
-          revenuePercentage: totalRevenue > 0 ? (classB.reduce((sum, p) => sum + p.revenue, 0) / totalRevenue) * 100 : 0,
+          percentage: analyzedProducts.length > 0 ? rc((classB.length / analyzedProducts.length) * 100) : 0,
+          revenue: rc(classB.reduce((sum, p) => sum + p.revenue, 0)),
+          revenuePercentage: totalRevenue > 0 ? rc((classB.reduce((sum, p) => sum + p.revenue, 0) / totalRevenue) * 100) : 0,
         },
         classC: {
           count: classC.length,
-          percentage: analyzedProducts.length > 0 ? (classC.length / analyzedProducts.length) * 100 : 0,
-          revenue: classC.reduce((sum, p) => sum + p.revenue, 0),
-          revenuePercentage: totalRevenue > 0 ? (classC.reduce((sum, p) => sum + p.revenue, 0) / totalRevenue) * 100 : 0,
+          percentage: analyzedProducts.length > 0 ? rc((classC.length / analyzedProducts.length) * 100) : 0,
+          revenue: rc(classC.reduce((sum, p) => sum + p.revenue, 0)),
+          revenuePercentage: totalRevenue > 0 ? rc((classC.reduce((sum, p) => sum + p.revenue, 0) / totalRevenue) * 100) : 0,
         },
       },
       period: {
@@ -276,16 +279,16 @@ export const getProductPerformanceMatrix = asyncHandler(async (req: AuthRequest,
     const revenue = sale._sum.total || 0;
     const quantity = sale._sum.quantity || 0;
     // Calculate profit from cost difference
-    const profit = product ? quantity * (product.price - product.cost) : 0;
-    const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
-    const velocity = quantity / daysNum;
+    const profit = product ? rc(quantity * (product.price - product.cost)) : 0;
+    const margin = revenue > 0 ? rc((profit / revenue) * 100) : 0;
+    const velocity = rc(quantity / daysNum);
 
     return {
       id: sale.productId,
       name: product?.name || 'Unknown',
       sku: product?.sku || '',
       category: product?.category?.name || 'Uncategorized',
-      revenue,
+      revenue: rc(revenue),
       profit,
       quantity,
       margin,
@@ -489,9 +492,9 @@ export const getSalesForecast = asyncHandler(async (req: AuthRequest, res: Respo
   }
 
   // Summary statistics
-  const totalForecastRevenue = forecast.reduce((sum, f) => sum + f.revenue, 0);
-  const avgDailyForecast = forecastDaysNum > 0 ? totalForecastRevenue / forecastDaysNum : 0;
-  const expectedGrowth = avgRevenue > 0 ? ((avgDailyForecast - avgRevenue) / avgRevenue) * 100 : 0;
+  const totalForecastRevenue = rc(forecast.reduce((sum, f) => sum + f.revenue, 0));
+  const avgDailyForecast = forecastDaysNum > 0 ? rc(totalForecastRevenue / forecastDaysNum) : 0;
+  const expectedGrowth = avgRevenue > 0 ? rc(((avgDailyForecast - avgRevenue) / avgRevenue) * 100) : 0;
 
   res.json({
     success: true,
@@ -625,7 +628,7 @@ export const getCustomerInsights = asyncHandler(async (_req: AuthRequest, res: R
     email: c.email,
     totalSpent: c.totalSpent,
     visitCount: c.visitCount,
-    avgOrderValue: c.visitCount > 0 ? c.totalSpent / c.visitCount : 0,
+    avgOrderValue: c.visitCount > 0 ? rc(c.totalSpent / c.visitCount) : 0,
     lastVisit: c.lastVisitAt,
   }));
 
@@ -649,18 +652,18 @@ export const getCustomerInsights = asyncHandler(async (_req: AuthRequest, res: R
             count: vipCustomers.length,
             label: 'VIP (Top 10%)',
             threshold: vipThreshold,
-            totalSpent: vipCustomers.reduce((sum, c) => sum + c.totalSpent, 0),
+            totalSpent: rc(vipCustomers.reduce((sum, c) => sum + c.totalSpent, 0)),
           },
           regular: {
             count: regularCustomers.length,
             label: 'Regular (Top 40%)',
             threshold: regularThreshold,
-            totalSpent: regularCustomers.reduce((sum, c) => sum + c.totalSpent, 0),
+            totalSpent: rc(regularCustomers.reduce((sum, c) => sum + c.totalSpent, 0)),
           },
           occasional: {
             count: occasionalCustomers.length,
             label: 'Occasional',
-            totalSpent: occasionalCustomers.reduce((sum, c) => sum + c.totalSpent, 0),
+            totalSpent: rc(occasionalCustomers.reduce((sum, c) => sum + c.totalSpent, 0)),
           },
         },
       },
@@ -773,7 +776,7 @@ export const getInventoryPredictions = asyncHandler(async (_req: AuthRequest, re
       supplier: supplierLink?.supplier.name || 'No supplier',
       leadTime,
       cost: product.cost,
-      totalValue: product.stockQuantity * product.cost,
+      totalValue: rc(product.stockQuantity * product.cost),
     };
   });
 
@@ -811,7 +814,7 @@ export const getInventoryPredictions = asyncHandler(async (_req: AuthRequest, re
         needsReorder: reorder.length,
         overstock: overstock.length,
         deadStock: deadStock.length,
-        totalInventoryValue: predictions.reduce((sum, p) => sum + p.totalValue, 0),
+        totalInventoryValue: rc(predictions.reduce((sum, p) => sum + p.totalValue, 0)),
         potentialStockouts: critical.length + reorder.length,
       },
       deadStock: deadStock.slice(0, 20).map(p => ({
@@ -1246,7 +1249,7 @@ export const getEmployeePerformance = asyncHandler(async (req: AuthRequest, res:
 
   // Team statistics
   const teamStats = {
-    totalRevenue: employeeMetrics.reduce((sum, e) => sum + e.metrics.totalRevenue, 0),
+    totalRevenue: rc(employeeMetrics.reduce((sum, e) => sum + e.metrics.totalRevenue, 0)),
     totalTransactions: employeeMetrics.reduce((sum, e) => sum + e.metrics.totalSales, 0),
     avgScore: scoredEmployees.length > 0
       ? Math.round(scoredEmployees.reduce((sum, e) => sum + e.score, 0) / scoredEmployees.length)
@@ -1349,13 +1352,13 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
     select: { stockQuantity: true, cost: true, price: true },
   });
 
-  const inventoryAtCost = productsWithCost.reduce((sum, p) => sum + (p.stockQuantity * p.cost), 0);
-  const inventoryAtRetail = productsWithCost.reduce((sum, p) => sum + (p.stockQuantity * p.price), 0);
+  const inventoryAtCost = rc(productsWithCost.reduce((sum, p) => sum + rc(p.stockQuantity * p.cost), 0));
+  const inventoryAtRetail = rc(productsWithCost.reduce((sum, p) => sum + rc(p.stockQuantity * p.price), 0));
 
   // Calculate estimated COGS (assuming 40% margin on average)
-  const estimatedCOGS = (monthSales._sum.total || 0) * 0.6;
-  const grossProfit = (monthSales._sum.total || 0) - estimatedCOGS;
-  const netProfit = grossProfit - (expenses._sum.amount || 0);
+  const estimatedCOGS = rc((monthSales._sum.total || 0) * 0.6);
+  const grossProfit = rc((monthSales._sum.total || 0) - estimatedCOGS);
+  const netProfit = rc(grossProfit - (expenses._sum.amount || 0));
 
   // KPIs
   const monthlyRevenue = monthSales._sum.total || 0;
@@ -1364,14 +1367,14 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
     ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100
     : 0;
 
-  const avgDailyRevenue = monthlyRevenue / now.getDate();
-  const projectedMonthlyRevenue = avgDailyRevenue * new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const avgDailyRevenue = rc(monthlyRevenue / now.getDate());
+  const projectedMonthlyRevenue = rc(avgDailyRevenue * new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate());
 
   // Break-even analysis (simplified)
   const fixedCosts = 5000; // Placeholder - would come from settings
   const avgMargin = 0.4;
-  const breakEvenRevenue = fixedCosts / avgMargin;
-  const breakEvenProgress = (monthlyRevenue / breakEvenRevenue) * 100;
+  const breakEvenRevenue = rc(fixedCosts / avgMargin);
+  const breakEvenProgress = rc((monthlyRevenue / breakEvenRevenue) * 100);
 
   // Health scores
   const scores = {
@@ -1397,17 +1400,17 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
         grossRevenue: monthlyRevenue,
         estimatedCOGS,
         grossProfit,
-        grossMargin: monthlyRevenue > 0 ? (grossProfit / monthlyRevenue) * 100 : 0,
+        grossMargin: monthlyRevenue > 0 ? rc((grossProfit / monthlyRevenue) * 100) : 0,
         expenses: expenses._sum.amount || 0,
         netProfit,
-        netMargin: monthlyRevenue > 0 ? (netProfit / monthlyRevenue) * 100 : 0,
+        netMargin: monthlyRevenue > 0 ? rc((netProfit / monthlyRevenue) * 100) : 0,
       },
       inventory: {
         totalUnits: inventory._sum.stockQuantity || 0,
         valueAtCost: inventoryAtCost,
         valueAtRetail: inventoryAtRetail,
-        potentialProfit: inventoryAtRetail - inventoryAtCost,
-        turnoverRatio: inventoryAtCost > 0 ? estimatedCOGS / inventoryAtCost : 0,
+        potentialProfit: rc(inventoryAtRetail - inventoryAtCost),
+        turnoverRatio: inventoryAtCost > 0 ? rc(estimatedCOGS / inventoryAtCost) : 0,
       },
       kpis: {
         revenueGrowth: Math.round(revenueGrowth * 10) / 10,
@@ -1429,8 +1432,8 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
       },
       cashFlow: {
         inflows: monthlyRevenue,
-        outflows: (expenses._sum.amount || 0) + estimatedCOGS,
-        netCashFlow: monthlyRevenue - (expenses._sum.amount || 0) - estimatedCOGS,
+        outflows: rc((expenses._sum.amount || 0) + estimatedCOGS),
+        netCashFlow: rc(monthlyRevenue - (expenses._sum.amount || 0) - estimatedCOGS),
       },
     },
   });
@@ -1455,12 +1458,12 @@ export const getWhatIfAnalysis = asyncHandler(async (req: AuthRequest, res: Resp
 
   const currentRevenue = currentSales._sum.total || 0;
   const currentTransactions = currentSales._count.id || 0;
-  const avgTransaction = currentTransactions > 0 ? currentRevenue / currentTransactions : 0;
+  const avgTransaction = currentTransactions > 0 ? rc(currentRevenue / currentTransactions) : 0;
 
   // Assume 40% margin
   const currentMargin = 0.4;
-  const currentCOGS = currentRevenue * (1 - currentMargin);
-  const currentProfit = currentRevenue - currentCOGS;
+  const currentCOGS = rc(currentRevenue * (1 - currentMargin));
+  const currentProfit = rc(currentRevenue - currentCOGS);
 
   // Calculate scenarios
   const scenarios = {
@@ -1498,11 +1501,11 @@ export const getWhatIfAnalysis = asyncHandler(async (req: AuthRequest, res: Resp
   const elasticityEffect = priceChange ? Math.pow(0.95, priceChange / 10) : 1;
 
   const projectedTransactions = Math.round(currentTransactions * volumeMultiplier * elasticityEffect);
-  const projectedAvgTransaction = avgTransaction * priceMultiplier;
-  const projectedRevenue = projectedTransactions * projectedAvgTransaction;
-  const projectedCOGS = (currentCOGS / currentTransactions) * projectedTransactions * costMultiplier;
-  const projectedProfit = projectedRevenue - projectedCOGS;
-  const projectedMargin = projectedRevenue > 0 ? (projectedProfit / projectedRevenue) * 100 : 0;
+  const projectedAvgTransaction = rc(avgTransaction * priceMultiplier);
+  const projectedRevenue = rc(projectedTransactions * projectedAvgTransaction);
+  const projectedCOGS = currentTransactions > 0 ? rc((currentCOGS / currentTransactions) * projectedTransactions * costMultiplier) : 0;
+  const projectedProfit = rc(projectedRevenue - projectedCOGS);
+  const projectedMargin = projectedRevenue > 0 ? rc((projectedProfit / projectedRevenue) * 100) : 0;
 
   scenarios.projected = {
     revenue: Math.round(projectedRevenue * 100) / 100,
@@ -1627,7 +1630,7 @@ export const getRealtimeMetrics = asyncHandler(async (_req: AuthRequest, res: Re
         revenue: todayTotal,
         profit: 0,
         transactions: todayCount,
-        avgOrderValue: todayCount > 0 ? todayTotal / todayCount : 0,
+        avgOrderValue: todayCount > 0 ? rc(todayTotal / todayCount) : 0,
       },
       lastHour: {
         revenue: lastHourSales._sum?.total || 0,

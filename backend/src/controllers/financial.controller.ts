@@ -3,6 +3,9 @@ import { asyncHandler } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 
+/** Round a number to 2 decimal places (currency precision) */
+const rc = (n: number) => Math.round(n * 100) / 100;
+
 // ==================== BUDGETS ====================
 
 /**
@@ -176,14 +179,14 @@ export const getBudgetSummary = asyncHandler(async (_req: AuthRequest, res: Resp
       category: budget.category,
       budgeted: budget.amount,
       spent,
-      remaining: budget.amount - spent,
+      remaining: rc(budget.amount - spent),
       percentUsed: Math.round(percentUsed * 10) / 10,
       status: spent > budget.amount ? 'over' : percentUsed >= 80 ? 'warning' : 'ok',
     };
   });
 
-  const totalBudgeted = summary.reduce((sum, s) => sum + s.budgeted, 0);
-  const totalSpent = summary.reduce((sum, s) => sum + s.spent, 0);
+  const totalBudgeted = rc(summary.reduce((sum, s) => sum + s.budgeted, 0));
+  const totalSpent = rc(summary.reduce((sum, s) => sum + s.spent, 0));
 
   res.json({
     success: true,
@@ -192,7 +195,7 @@ export const getBudgetSummary = asyncHandler(async (_req: AuthRequest, res: Resp
       totals: {
         budgeted: totalBudgeted,
         spent: totalSpent,
-        remaining: totalBudgeted - totalSpent,
+        remaining: rc(totalBudgeted - totalSpent),
         percentUsed: totalBudgeted > 0 ? Math.round((totalSpent / totalBudgeted) * 1000) / 10 : 0,
       },
     },
@@ -469,8 +472,8 @@ export const exportSales = asyncHandler(async (req: AuthRequest, res: Response) 
     data: {
       period: { start, end },
       recordCount: sales.length,
-      totalRevenue: sales.reduce((sum, s) => sum + s.total, 0),
-      totalTax: sales.reduce((sum, s) => sum + s.tax, 0),
+      totalRevenue: rc(sales.reduce((sum, s) => sum + s.total, 0)),
+      totalTax: rc(sales.reduce((sum, s) => sum + s.tax, 0)),
       entries: journalEntries,
     },
   });
@@ -526,7 +529,7 @@ export const exportExpenses = asyncHandler(async (req: AuthRequest, res: Respons
     data: {
       period: { start, end },
       recordCount: expenses.length,
-      totalExpenses: expenses.reduce((sum, e) => sum + e.amount, 0),
+      totalExpenses: rc(expenses.reduce((sum, e) => sum + e.amount, 0)),
       byCategory: Object.fromEntries(
         Object.entries(
           expenses.reduce((acc: any, e) => {
@@ -581,13 +584,13 @@ export const getProfitAndLoss = asyncHandler(async (req: AuthRequest, res: Respo
   // Calculate COGS (estimate based on 60% of sales)
   const grossSales = salesData._sum.total || 0;
   const refunds = refundsData._sum.amount || 0;
-  const netSales = grossSales - refunds;
-  const cogs = netSales * 0.6; // Estimated COGS
-  const grossProfit = netSales - cogs;
+  const netSales = rc(grossSales - refunds);
+  const cogs = rc(netSales * 0.6); // Estimated COGS
+  const grossProfit = rc(netSales - cogs);
 
   // Operating expenses
-  const operatingExpenses = expensesByCategory.reduce((sum, e) => sum + (e._sum.amount || 0), 0);
-  const netIncome = grossProfit - operatingExpenses;
+  const operatingExpenses = rc(expensesByCategory.reduce((sum, e) => sum + (e._sum.amount || 0), 0));
+  const netIncome = rc(grossProfit - operatingExpenses);
 
   res.json({
     success: true,

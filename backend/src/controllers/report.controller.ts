@@ -5,6 +5,9 @@ import { SaleStatus, ExpenseStatus } from '@prisma/client';
 import { AuthRequest } from '../types';
 import { createDateFilter } from '../utils/dateFilter.util';
 
+/** Round a number to 2 decimal places (currency precision) */
+const rc = (n: number) => Math.round(n * 100) / 100;
+
 /**
  * Get overall business report - comprehensive metrics for small-mid size businesses
  * GET /api/reports/overall
@@ -131,12 +134,13 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   let totalCOGS = 0;
   salesWithItems.forEach((sale) => {
     sale.items.forEach((item) => {
-      totalCOGS += (item.product?.cost || 0) * item.quantity;
+      totalCOGS += rc((item.product?.cost || 0) * item.quantity);
     });
   });
+  totalCOGS = rc(totalCOGS);
 
-  const grossProfit = (monthSales._sum.total || 0) - totalCOGS;
-  const grossMargin = monthSales._sum.total ? (grossProfit / (monthSales._sum.total || 1)) * 100 : 0;
+  const grossProfit = rc((monthSales._sum.total || 0) - totalCOGS);
+  const grossMargin = monthSales._sum.total ? rc((grossProfit / (monthSales._sum.total || 1)) * 100) : 0;
 
   // Get expenses for net profit (include all statuses except REJECTED)
   const monthExpenses = await prisma.expense.aggregate({
@@ -148,8 +152,8 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     _count: true,
   });
 
-  const netProfit = grossProfit - (monthExpenses._sum.amount || 0);
-  const netMargin = monthSales._sum.total ? (netProfit / (monthSales._sum.total || 1)) * 100 : 0;
+  const netProfit = rc(grossProfit - (monthExpenses._sum.amount || 0));
+  const netMargin = monthSales._sum.total ? rc((netProfit / (monthSales._sum.total || 1)) * 100) : 0;
 
   // ==================== CUSTOMER INSIGHTS ====================
 
@@ -217,8 +221,8 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   });
 
   const totalProducts = allProducts.length;
-  const totalInventoryValue = allProducts.reduce((sum, p) => sum + (p.cost * p.stockQuantity), 0);
-  const totalRetailValue = allProducts.reduce((sum, p) => sum + (p.price * p.stockQuantity), 0);
+  const totalInventoryValue = rc(allProducts.reduce((sum, p) => sum + rc(p.cost * p.stockQuantity), 0));
+  const totalRetailValue = rc(allProducts.reduce((sum, p) => sum + rc(p.price * p.stockQuantity), 0));
 
   // Low stock items
   const lowStockItems = allProducts.filter(
@@ -300,7 +304,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     if (!acc[catName]) {
       acc[catName] = { name: catName, revenue: 0, quantity: 0 };
     }
-    acc[catName].revenue += item.total;
+    acc[catName].revenue = rc(acc[catName].revenue + item.total);
     acc[catName].quantity += item.quantity;
     return acc;
   }, {});
@@ -325,7 +329,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     total: pm._sum.total || 0,
     count: pm._count,
     percentage: monthSales._sum.total
-      ? ((pm._sum.total || 0) / (monthSales._sum.total || 1)) * 100
+      ? rc(((pm._sum.total || 0) / (monthSales._sum.total || 1)) * 100)
       : 0,
   }));
 
@@ -354,7 +358,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
       name: employee ? `${employee.firstName} ${employee.lastName}` : 'Unknown',
       totalSales: stat._sum.total || 0,
       transactions: stat._count,
-      avgOrderValue: stat._count > 0 ? (stat._sum.total || 0) / stat._count : 0,
+      avgOrderValue: stat._count > 0 ? rc((stat._sum.total || 0) / stat._count) : 0,
     };
   }).sort((a, b) => b.totalSales - a.totalSales);
 
@@ -375,7 +379,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     total: exp._sum.amount || 0,
     count: exp._count,
     percentage: monthExpenses._sum.amount
-      ? ((exp._sum.amount || 0) / (monthExpenses._sum.amount || 1)) * 100
+      ? rc(((exp._sum.amount || 0) / (monthExpenses._sum.amount || 1)) * 100)
       : 0,
   })).sort((a, b) => b.total - a.total);
 
@@ -403,7 +407,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   dailySales.forEach((sale) => {
     const dateKey = sale.createdAt.toISOString().split('T')[0];
     if (salesByDay[dateKey]) {
-      salesByDay[dateKey].sales += sale.total;
+      salesByDay[dateKey].sales = rc(salesByDay[dateKey].sales + sale.total);
       salesByDay[dateKey].transactions += 1;
     }
   });
@@ -430,7 +434,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
 
   todaySalesDetail.forEach((sale) => {
     const hour = sale.createdAt.getHours();
-    hourlyPattern[hour].sales += sale.total;
+    hourlyPattern[hour].sales = rc(hourlyPattern[hour].sales + sale.total);
     hourlyPattern[hour].transactions += 1;
   });
 
@@ -956,14 +960,13 @@ export const getSalesReport = asyncHandler(async (_req: Request, res: Response) 
   });
 
   // Calculate summary
+  const totalSalesSum = rc(sales.reduce((sum, sale) => sum + sale.total, 0));
   const summary = {
-    totalSales: sales.reduce((sum, sale) => sum + sale.total, 0),
+    totalSales: totalSalesSum,
     totalTransactions: sales.length,
-    averageOrderValue: sales.length > 0
-      ? sales.reduce((sum, sale) => sum + sale.total, 0) / sales.length
-      : 0,
-    totalTax: sales.reduce((sum, sale) => sum + sale.tax, 0),
-    totalDiscount: sales.reduce((sum, sale) => sum + sale.discount, 0),
+    averageOrderValue: sales.length > 0 ? rc(totalSalesSum / sales.length) : 0,
+    totalTax: rc(sales.reduce((sum, sale) => sum + sale.tax, 0)),
+    totalDiscount: rc(sales.reduce((sum, sale) => sum + sale.discount, 0)),
   };
 
   // Payment method breakdown
@@ -973,7 +976,7 @@ export const getSalesReport = asyncHandler(async (_req: Request, res: Response) 
       acc[method] = { count: 0, total: 0 };
     }
     acc[method].count++;
-    acc[method].total += sale.total;
+    acc[method].total = rc(acc[method].total + sale.total);
     return acc;
   }, {});
 
@@ -986,7 +989,7 @@ export const getSalesReport = asyncHandler(async (_req: Request, res: Response) 
         acc[employeeId] = { name: employeeName, count: 0, total: 0 };
       }
       acc[employeeId].count++;
-      acc[employeeId].total += sale.total;
+      acc[employeeId].total = rc(acc[employeeId].total + sale.total);
     }
     return acc;
   }, {});
@@ -1050,15 +1053,15 @@ export const getInventoryReport = asyncHandler(async (req: Request, res: Respons
   }
 
   // Calculate totals
-  const totalInventoryValue = filteredProducts.reduce(
-    (sum, p) => sum + (p.cost * p.stockQuantity),
+  const totalInventoryValue = rc(filteredProducts.reduce(
+    (sum, p) => sum + rc(p.cost * p.stockQuantity),
     0
-  );
+  ));
 
-  const totalRetailValue = filteredProducts.reduce(
-    (sum, p) => sum + (p.price * p.stockQuantity),
+  const totalRetailValue = rc(filteredProducts.reduce(
+    (sum, p) => sum + rc(p.price * p.stockQuantity),
     0
-  );
+  ));
 
   const lowStockCount = filteredProducts.filter(
     (p) => p.stockQuantity <= p.lowStockAlert
@@ -1197,8 +1200,8 @@ export const getProductSalesReport = asyncHandler(async (req: Request, res: Resp
     }
 
     acc[productId].quantitySold += item.quantity;
-    acc[productId].revenue += item.total;
-    acc[productId].profit += (item.product.price - item.product.cost) * item.quantity;
+    acc[productId].revenue = rc(acc[productId].revenue + item.total);
+    acc[productId].profit = rc(acc[productId].profit + rc((item.product.price - item.product.cost) * item.quantity));
 
     return acc;
   }, {});
@@ -1261,13 +1264,13 @@ export const getExpenseReport = asyncHandler(async (req: AuthRequest, res: Respo
   });
 
   // Calculate summary
-  const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-  const pendingExpenses = expenses
+  const totalExpenses = rc(expenses.reduce((sum, exp) => sum + exp.amount, 0));
+  const pendingExpenses = rc(expenses
     .filter((exp) => exp.status === 'PENDING')
-    .reduce((sum, exp) => sum + exp.amount, 0);
-  const paidExpenses = expenses
+    .reduce((sum, exp) => sum + exp.amount, 0));
+  const paidExpenses = rc(expenses
     .filter((exp) => exp.status === 'PAID')
-    .reduce((sum, exp) => sum + exp.amount, 0);
+    .reduce((sum, exp) => sum + exp.amount, 0));
 
   // Group by category
   const byCategory = expenses.reduce((acc: any, exp) => {
@@ -1279,13 +1282,13 @@ export const getExpenseReport = asyncHandler(async (req: AuthRequest, res: Respo
       };
     }
     acc[exp.category].count++;
-    acc[exp.category].total += exp.amount;
+    acc[exp.category].total = rc(acc[exp.category].total + exp.amount);
     return acc;
   }, {});
 
   const categorySummary = Object.values(byCategory).map((cat: any) => ({
     ...cat,
-    percentage: totalExpenses > 0 ? (cat.total / totalExpenses) * 100 : 0,
+    percentage: totalExpenses > 0 ? rc((cat.total / totalExpenses) * 100) : 0,
   }));
 
   // Find top category
@@ -1303,7 +1306,7 @@ export const getExpenseReport = asyncHandler(async (req: AuthRequest, res: Respo
         )
       )
     : 30;
-  const avgDailyExpense = totalExpenses / daysInPeriod;
+  const avgDailyExpense = rc(totalExpenses / daysInPeriod);
 
   res.json({
     success: true,
@@ -1517,18 +1520,18 @@ export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) =
   });
 
   // Calculate summary
-  const totalSales = sales.reduce((sum, sale) => sum + sale.total, 0);
-  const totalTax = sales.reduce((sum, sale) => sum + sale.tax, 0);
-  const totalDiscount = sales.reduce((sum, sale) => sum + sale.discount, 0);
-  const avgOrderValue = sales.length > 0 ? totalSales / sales.length : 0;
-  const netRevenue = totalSales - totalTax - totalDiscount;
+  const totalSales = rc(sales.reduce((sum, sale) => sum + sale.total, 0));
+  const totalTax = rc(sales.reduce((sum, sale) => sum + sale.tax, 0));
+  const totalDiscount = rc(sales.reduce((sum, sale) => sum + sale.discount, 0));
+  const avgOrderValue = sales.length > 0 ? rc(totalSales / sales.length) : 0;
+  const netRevenue = rc(totalSales - totalTax - totalDiscount);
 
   // Payment method breakdown
   const paymentBreakdown = sales.reduce((acc: any, sale) => {
     const method = sale.paymentMethod;
     if (!acc[method]) acc[method] = { count: 0, total: 0 };
     acc[method].count++;
-    acc[method].total += sale.total;
+    acc[method].total = rc(acc[method].total + sale.total);
     return acc;
   }, {});
 
@@ -1537,7 +1540,7 @@ export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) =
     const day = sale.createdAt.toISOString().split('T')[0];
     if (!acc[day]) acc[day] = { count: 0, total: 0 };
     acc[day].count++;
-    acc[day].total += sale.total;
+    acc[day].total = rc(acc[day].total + sale.total);
     return acc;
   }, {});
 
@@ -1721,20 +1724,20 @@ export const exportInventoryPDF = asyncHandler(async (req: Request, res: Respons
   }
 
   // Calculate summary
-  const totalInventoryValue = filteredProducts.reduce((sum, p) => sum + (p.cost * p.stockQuantity), 0);
-  const totalRetailValue = filteredProducts.reduce((sum, p) => sum + (p.price * p.stockQuantity), 0);
-  const potentialProfit = totalRetailValue - totalInventoryValue;
+  const totalInventoryValue = rc(filteredProducts.reduce((sum, p) => sum + rc(p.cost * p.stockQuantity), 0));
+  const totalRetailValue = rc(filteredProducts.reduce((sum, p) => sum + rc(p.price * p.stockQuantity), 0));
+  const potentialProfit = rc(totalRetailValue - totalInventoryValue);
   const lowStockCount = filteredProducts.filter((p) => p.trackInventory && p.stockQuantity <= p.lowStockAlert).length;
   const outOfStockCount = filteredProducts.filter((p) => p.trackInventory && p.stockQuantity === 0).length;
-  const margin = totalRetailValue > 0 ? ((potentialProfit / totalRetailValue) * 100) : 0;
+  const margin = totalRetailValue > 0 ? rc((potentialProfit / totalRetailValue) * 100) : 0;
 
   // Category breakdown
   const categoryBreakdown = filteredProducts.reduce((acc: any, product) => {
     const catName = product.category?.name || 'Uncategorized';
     if (!acc[catName]) acc[catName] = { count: 0, costValue: 0, retailValue: 0, stock: 0 };
     acc[catName].count++;
-    acc[catName].costValue += product.cost * product.stockQuantity;
-    acc[catName].retailValue += product.price * product.stockQuantity;
+    acc[catName].costValue = rc(acc[catName].costValue + rc(product.cost * product.stockQuantity));
+    acc[catName].retailValue = rc(acc[catName].retailValue + rc(product.price * product.stockQuantity));
     acc[catName].stock += product.stockQuantity;
     return acc;
   }, {});

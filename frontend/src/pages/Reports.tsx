@@ -79,7 +79,7 @@ const EmployeeSalesTab: React.FC = () => {
     fetchData();
   }, [startDate, endDate]);
 
-  const totalRevenue = data.reduce((sum: number, e: any) => sum + e.totalRevenue, 0);
+  const totalRevenue = Math.round(data.reduce((sum: number, e: any) => sum + e.totalRevenue, 0) * 100) / 100;
   const totalTx = data.reduce((sum: number, e: any) => sum + e.transactionCount, 0);
 
   return (
