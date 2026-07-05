@@ -12,7 +12,22 @@ const router = Router();
 router.use(authenticate);
 
 /**
- * Sale routes
+ * Static routes MUST come before /:id to avoid being caught by the param route
+ */
+router.post(
+  '/bulk-void',
+  authorize('ADMIN', 'MANAGER'),
+  saleController.bulkVoidSales
+);
+
+router.post(
+  '/bulk-refund',
+  authorize('ADMIN', 'MANAGER'),
+  saleController.bulkRefundSales
+);
+
+/**
+ * Parameterized routes
  */
 router.get('/', saleController.getSales);
 router.get('/:id', saleController.getSale);
@@ -33,17 +48,5 @@ router.post(
 );
 
 router.post('/:id/email-receipt', saleController.emailReceipt);
-
-router.post(
-  '/bulk-void',
-  authorize('ADMIN', 'MANAGER'),
-  saleController.bulkVoidSales
-);
-
-router.post(
-  '/bulk-refund',
-  authorize('ADMIN', 'MANAGER'),
-  saleController.bulkRefundSales
-);
 
 export default router;

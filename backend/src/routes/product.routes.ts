@@ -13,39 +13,10 @@ const router = Router();
 router.use(authenticate);
 
 /**
- * Product CRUD routes
+ * Static routes MUST come before /:id to avoid being caught by the param route
  */
-router.get('/', productController.getProducts);
 router.get('/low-stock', productController.getLowStockProducts);
-router.get('/:id', productController.getProduct);
 
-router.post(
-  '/',
-  authorize('ADMIN', 'MANAGER'),
-  validate(createProductSchema),
-  productController.createProduct
-);
-
-router.put(
-  '/:id',
-  authorize('ADMIN', 'MANAGER'),
-  validate(updateProductSchema),
-  productController.updateProduct
-);
-
-router.delete(
-  '/:id',
-  authorize('ADMIN', 'MANAGER'),
-  productController.deleteProduct
-);
-
-router.post(
-  '/:id/adjust-inventory',
-  authorize('ADMIN', 'MANAGER'),
-  productController.adjustInventory
-);
-
-// Receipt scanning routes (must be before /:id routes)
 router.post(
   '/scan-receipt',
   authorize('ADMIN', 'MANAGER'),
@@ -81,6 +52,38 @@ router.post(
   '/bulk-toggle-active',
   authorize('ADMIN', 'MANAGER'),
   productController.bulkToggleActive
+);
+
+/**
+ * Parameterized routes (must be after all static routes)
+ */
+router.get('/', productController.getProducts);
+router.get('/:id', productController.getProduct);
+
+router.post(
+  '/',
+  authorize('ADMIN', 'MANAGER'),
+  validate(createProductSchema),
+  productController.createProduct
+);
+
+router.put(
+  '/:id',
+  authorize('ADMIN', 'MANAGER'),
+  validate(updateProductSchema),
+  productController.updateProduct
+);
+
+router.delete(
+  '/:id',
+  authorize('ADMIN', 'MANAGER'),
+  productController.deleteProduct
+);
+
+router.post(
+  '/:id/adjust-inventory',
+  authorize('ADMIN', 'MANAGER'),
+  productController.adjustInventory
 );
 
 export default router;

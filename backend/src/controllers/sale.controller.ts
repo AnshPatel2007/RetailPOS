@@ -55,7 +55,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     }
   }
 
-  // Get current shift
+  // Get current shift — required for sale creation
   const currentShift = await prisma.shift.findFirst({
     where: {
       userId: req.user.id,
@@ -65,6 +65,10 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       clockInAt: 'desc',
     },
   });
+
+  if (!currentShift) {
+    throw new AppError('You must clock in before creating a sale', 400);
+  }
 
   // Fetch default tax rate once for the whole transaction (not per item)
   const defaultTaxRate = await prisma.taxRate.findFirst({
@@ -182,7 +186,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     subtotal = Math.round(subtotal * 100) / 100;
     totalDiscount = Math.round(totalDiscount * 100) / 100;
     totalTax = Math.round(totalTax * 100) / 100;
-    const total = Math.round((subtotal - totalDiscount + totalTax) * 100) / 100;
+    const total = Math.round(Math.max(0, subtotal - totalDiscount + totalTax) * 100) / 100;
     const changeDue = Math.round((amountPaid - total) * 100) / 100;
 
     // Allow 1 cent tolerance for floating point rounding differences
@@ -374,6 +378,7 @@ export const getSales = asyncHandler(async (req: AuthRequest, res: Response) => 
     userId,
     status,
     paymentMethod,
+    saleNumber,
   } = req.query;
 
   const pageNum = parseInt(page as string);
@@ -392,6 +397,7 @@ export const getSales = asyncHandler(async (req: AuthRequest, res: Response) => 
     where.createdAt = dateFilter;
   }
 
+  if (saleNumber) where.saleNumber = saleNumber;
   if (customerId) where.customerId = customerId;
   if (userId) where.userId = userId;
   if (status) where.status = status;
@@ -533,7 +539,7 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
     throw new AppError('Sale has already been fully refunded', 400);
   }
 
-  if (amount > refundableAmount) {
+  if (amount > refundableAmount + 0.01) {
     throw new AppError(
       `Refund amount exceeds refundable balance. Max refundable: $${refundableAmount.toFixed(2)}`,
       400

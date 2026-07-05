@@ -58,13 +58,12 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
     setIsSearching(true);
     setSale(null);
     try {
-      const response = await saleService.getAll({ search: saleNumber.trim() });
+      const response = await saleService.getAll({ saleNumber: saleNumber.trim() });
       const sales = response.data.data || [];
       if (sales.length === 0) {
         toast.error('Sale not found');
         return;
       }
-      // Fetch full details
       const detailResponse = await saleService.getById(sales[0].id);
       const saleData = detailResponse.data.data;
       setSale(saleData);

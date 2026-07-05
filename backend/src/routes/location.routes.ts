@@ -21,14 +21,14 @@ router.use(authenticate);
 router.get('/my-settings', getMyStoreSettings);
 router.put('/my-settings', authorize('ADMIN', 'MANAGER'), updateMyStoreSettings);
 
+// Cross-location stats — must be before /:id to avoid being caught by param route
+router.get('/stats/overview', authorize('SUPER_ADMIN'), getCrossLocationStats);
+
 // Any authenticated user can read a location (needed for POS tax rate)
 router.get('/:id', getLocationById);
 
 // Below routes require SUPER_ADMIN
 router.use(authorize('SUPER_ADMIN'));
-
-// Cross-location stats (dashboard)
-router.get('/stats/overview', getCrossLocationStats);
 
 // CRUD operations
 router.get('/', getAllLocations);
