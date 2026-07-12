@@ -17,7 +17,9 @@
     "db:seed": "ts-node prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "test:unit": "jest --testPathIgnorePatterns=integration",
+    "test:integration": "jest src/__tests__/integration"
   },
   "keywords": [
     "pos",
@@ -44,7 +46,6 @@
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "crypto-random-string": "^5.0.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",

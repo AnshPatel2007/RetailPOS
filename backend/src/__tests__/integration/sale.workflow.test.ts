@@ -1,646 +1,502 @@
 /**
  * Sale Workflow Integration Tests
  *
- * Tests complex sale workflows:
- * - Complete sale process
- * - Inventory deduction
- * - Transaction handling
- * - Payment processing
- * - Receipt generation
- * - Multi-item sales
+ * End-to-end sale flows against a real (test) database:
+ * - Shift requirement, cash/split/gift-card payments
+ * - Inventory deduction and restore
+ * - Loyalty earn + redemption
+ * - Item-level refunds with restock and tender credit-back
+ * - Voids and idempotency
  */
 
+import { randomUUID } from 'crypto';
 import { prisma, seedTestData, TestData } from './setup';
-import { api, assertResponse, assertDatabase, loginUser } from './helpers';
+import { api, assertResponse, loginUser } from './helpers';
 
 describe('Sale Workflow Integration Tests', () => {
   let testData: TestData;
   let cashierToken: string;
+  let adminToken: string;
+
+  const clockIn = async (token: string) => {
+    await api
+      .post('/api/shifts/clock-in')
+      .withAuth(token)
+      .withBody({ startingCash: 100 })
+      .expectStatus(201)
+      .execute();
+  };
+
+  /** Cash sale of `quantity` seeded products; returns the created sale */
+  const makeCashSale = async (
+    token: string,
+    quantity = 2,
+    extra: Record<string, any> = {}
+  ) => {
+    const res = await api
+      .post('/api/sales')
+      .withAuth(token)
+      .withBody({
+        idempotencyKey: randomUUID(),
+        items: [{ productId: testData.product.id, quantity, price: 19.99 }],
+        paymentMethod: 'CASH',
+        amountPaid: 100,
+        ...extra,
+      })
+      .expectStatus(201)
+      .execute();
+    return res.body.data;
+  };
 
   beforeEach(async () => {
     testData = await seedTestData();
     cashierToken = await loginUser('cashier@test.com', 'Admin123!');
+    adminToken = await loginUser('admin@test.com', 'Admin123!');
   });
 
-  describe('Complete Sale Process', () => {
-    it('should process complete sale with inventory deduction', async () => {
-      const initialQuantity = testData.product.quantity;
-
-      const saleData = {
-        customerId: testData.customer.id,
-        items: [
-          {
-            productId: testData.product.id,
-            quantity: 2,
-            price: testData.product.price,
-          },
-        ],
-        paymentMethod: 'CASH',
-        amountPaid: 40.00,
-        subtotal: 39.98,
-        tax: 0.00,
-        total: 39.98,
-        change: 0.02,
-      };
-
+  describe('Shift requirement', () => {
+    it('should reject a sale when the cashier is not clocked in', async () => {
       const res = await api
         .post('/api/sales')
         .withAuth(cashierToken)
-        .withBody(saleData)
-        .expectStatus(201)
+        .withBody({
+          items: [{ productId: testData.product.id, quantity: 1, price: 19.99 }],
+          paymentMethod: 'CASH',
+          amountPaid: 50,
+        })
+        .expectStatus(400)
         .execute();
 
-      assertResponse.success(res, (data) => {
-        expect(data.id).toBeDefined();
-        expect(data.total).toBe(saleData.total);
-        expect(data.customerId).toBe(testData.customer.id);
-        expect(data.locationId).toBe(testData.location.id);
-        expect(data.items).toBeDefined();
-        expect(data.items.length).toBe(1);
-        expect(data.items[0].quantity).toBe(2);
-      });
+      assertResponse.error(res, 'clock in');
+    });
+  });
 
-      // Verify sale in database
-      const sale = await assertDatabase.exists(prisma.sale, {
-        id: res.body.data.id,
-        locationId: testData.location.id,
-      });
-
-      // Verify inventory deduction
-      const updatedProduct = await prisma.product.findUnique({
-        where: { id: testData.product.id },
-      });
-      expect(updatedProduct?.quantity).toBe(initialQuantity - 2);
-
-      // Verify sale items created
-      const saleItems = await prisma.saleItem.findMany({
-        where: { saleId: sale.id },
-      });
-      expect(saleItems.length).toBe(1);
-      expect(saleItems[0].quantity).toBe(2);
+  describe('Cash sale', () => {
+    beforeEach(async () => {
+      await clockIn(cashierToken);
     });
 
-    it('should process multi-item sale', async () => {
-      // Create additional product
-      const product2 = await prisma.product.create({
-        data: {
-          name: 'Product 2',
-          sku: 'SKU-002',
-          price: 15.99,
-          cost: 8.00,
-          quantity: 50,
-          categoryId: testData.category.id,
-          locationId: testData.location.id,
-          isActive: true,
-        },
+    it('should complete a sale with correct totals, change, and stock deduction', async () => {
+      const sale = await makeCashSale(cashierToken, 2, { amountPaid: 50 });
+
+      // $19.99 × 2 = $39.98 subtotal, 10% tax = $4.00, total $43.98
+      expect(sale.subtotal).toBe(39.98);
+      expect(sale.tax).toBe(4.0);
+      expect(sale.total).toBe(43.98);
+      expect(sale.changeDue).toBe(6.02);
+      expect(sale.status).toBe('COMPLETED');
+      expect(sale.payments).toHaveLength(1);
+      expect(sale.payments[0].paymentMethod).toBe('CASH');
+
+      // Stock decremented and logged
+      const product = await prisma.product.findUnique({ where: { id: testData.product.id } });
+      expect(product!.stockQuantity).toBe(98);
+
+      const log = await prisma.inventoryLog.findFirst({
+        where: { productId: testData.product.id, type: 'SALE' },
       });
+      expect(log).not.toBeNull();
+      expect(log!.quantity).toBe(-2);
+    });
 
-      const saleData = {
-        customerId: testData.customer.id,
-        items: [
-          {
-            productId: testData.product.id,
-            quantity: 1,
-            price: testData.product.price,
-          },
-          {
-            productId: product2.id,
-            quantity: 3,
-            price: product2.price,
-          },
-        ],
-        paymentMethod: 'CREDIT_CARD',
-        subtotal: 67.96, // (19.99 * 1) + (15.99 * 3)
-        tax: 0.00,
-        total: 67.96,
-      };
-
+    it('should reject a sale exceeding available stock', async () => {
       const res = await api
         .post('/api/sales')
         .withAuth(cashierToken)
-        .withBody(saleData)
-        .expectStatus(201)
-        .execute();
-
-      assertResponse.success(res, (data) => {
-        expect(data.items.length).toBe(2);
-        expect(data.total).toBe(saleData.total);
-      });
-
-      // Verify both products' inventory updated
-      const updatedProduct1 = await prisma.product.findUnique({
-        where: { id: testData.product.id },
-      });
-      const updatedProduct2 = await prisma.product.findUnique({
-        where: { id: product2.id },
-      });
-
-      expect(updatedProduct1?.quantity).toBe(testData.product.quantity - 1);
-      expect(updatedProduct2?.quantity).toBe(50 - 3);
-    });
-
-    it('should fail sale with insufficient stock', async () => {
-      const saleData = {
-        customerId: testData.customer.id,
-        items: [
-          {
-            productId: testData.product.id,
-            quantity: testData.product.quantity + 10, // More than available
-            price: testData.product.price,
-          },
-        ],
-        paymentMethod: 'CASH',
-        total: 100.00,
-      };
-
-      const res = await api
-        .post('/api/sales')
-        .withAuth(cashierToken)
-        .withBody(saleData)
+        .withBody({
+          items: [{ productId: testData.product.id, quantity: 101, price: 19.99 }],
+          paymentMethod: 'CASH',
+          amountPaid: 5000,
+        })
         .expectStatus(400)
         .execute();
 
       assertResponse.error(res, 'Insufficient stock');
 
-      // Verify inventory not changed
-      const unchangedProduct = await prisma.product.findUnique({
-        where: { id: testData.product.id },
-      });
-      expect(unchangedProduct?.quantity).toBe(testData.product.quantity);
+      // No stock touched
+      const product = await prisma.product.findUnique({ where: { id: testData.product.id } });
+      expect(product!.stockQuantity).toBe(100);
     });
 
-    it('should fail sale with invalid product from different location', async () => {
-      // Create product in different location
-      const location2 = await prisma.location.create({
-        data: {
-          id: 'test-location-2',
-          name: 'Test Store 2',
-          address: '789 Test Ave',
-          city: 'Test City 2',
-          state: 'TS',
-          zipCode: '54321',
-          phone: '555-0004',
-          email: 'test2@store.com',
-          timezone: 'America/New_York',
-          isActive: true,
-        },
-      });
-
-      const category2 = await prisma.category.create({
-        data: {
-          name: 'Category 2',
-          locationId: location2.id,
-        },
-      });
-
-      const product2 = await prisma.product.create({
-        data: {
-          name: 'Location 2 Product',
-          sku: 'L2-SKU-001',
-          price: 39.99,
-          cost: 20.00,
-          quantity: 15,
-          categoryId: category2.id,
-          locationId: location2.id,
-          isActive: true,
-        },
-      });
-
-      const saleData = {
-        customerId: testData.customer.id,
-        items: [
-          {
-            productId: product2.id, // From different location
-            quantity: 1,
-            price: 39.99,
-          },
-        ],
-        paymentMethod: 'CASH',
-        total: 39.99,
-      };
-
+    it('should reject insufficient payment', async () => {
       const res = await api
-        .post('/api/sales')
-        .withAuth(cashierToken)
-        .expectStatus(404)
-        .execute();
-
-      assertResponse.notFound(res);
-    });
-
-    it('should create activity log for sale', async () => {
-      const saleData = {
-        customerId: testData.customer.id,
-        items: [
-          {
-            productId: testData.product.id,
-            quantity: 1,
-            price: testData.product.price,
-          },
-        ],
-        paymentMethod: 'CASH',
-        total: testData.product.price,
-      };
-
-      const res = await api
-        .post('/api/sales')
-        .withAuth(cashierToken)
-        .withBody(saleData)
-        .expectStatus(201)
-        .execute();
-
-      // Verify activity log created
-      const activityLog = await prisma.activityLog.findFirst({
-        where: {
-          entityType: 'SALE',
-          entityId: res.body.data.id,
-          action: 'CREATE',
-          locationId: testData.location.id,
-        },
-      });
-
-      expect(activityLog).toBeDefined();
-      expect(activityLog?.userId).toBe(testData.cashierUser.id);
-    });
-  });
-
-  describe('Sale Retrieval', () => {
-    it('should list sales for current location only', async () => {
-      // Create sale in location 1
-      const sale1 = await prisma.sale.create({
-        data: {
-          customerId: testData.customer.id,
-          userId: testData.cashierUser.id,
-          locationId: testData.location.id,
-          paymentMethod: 'CASH',
-          subtotal: 19.99,
-          tax: 0.00,
-          total: 19.99,
-          items: {
-            create: [
-              {
-                productId: testData.product.id,
-                quantity: 1,
-                price: 19.99,
-              },
-            ],
-          },
-        },
-      });
-
-      // Create location 2 with sale
-      const location2 = await prisma.location.create({
-        data: {
-          id: 'test-location-2',
-          name: 'Test Store 2',
-          address: '789 Test Ave',
-          city: 'Test City 2',
-          state: 'TS',
-          zipCode: '54321',
-          phone: '555-0004',
-          email: 'test2@store.com',
-          timezone: 'America/New_York',
-          isActive: true,
-        },
-      });
-
-      const user2 = await prisma.user.create({
-        data: {
-          email: 'cashier2@test.com',
-          password: testData.cashierUser.password,
-          firstName: 'Cashier',
-          lastName: 'User 2',
-          role: 'CASHIER',
-          locationId: location2.id,
-          isActive: true,
-        },
-      });
-
-      const customer2 = await prisma.customer.create({
-        data: {
-          email: 'customer2@test.com',
-          firstName: 'Customer',
-          lastName: 'Two',
-          locationId: location2.id,
-        },
-      });
-
-      const category2 = await prisma.category.create({
-        data: {
-          name: 'Category 2',
-          locationId: location2.id,
-        },
-      });
-
-      const product2 = await prisma.product.create({
-        data: {
-          name: 'Product 2',
-          sku: 'L2-SKU-001',
-          price: 29.99,
-          cost: 15.00,
-          quantity: 20,
-          categoryId: category2.id,
-          locationId: location2.id,
-          isActive: true,
-        },
-      });
-
-      await prisma.sale.create({
-        data: {
-          customerId: customer2.id,
-          userId: user2.id,
-          locationId: location2.id,
-          paymentMethod: 'CREDIT_CARD',
-          subtotal: 29.99,
-          tax: 0.00,
-          total: 29.99,
-          items: {
-            create: [
-              {
-                productId: product2.id,
-                quantity: 1,
-                price: 29.99,
-              },
-            ],
-          },
-        },
-      });
-
-      const res = await api
-        .get('/api/sales')
-        .withAuth(cashierToken)
-        .expectStatus(200)
-        .execute();
-
-      assertResponse.paginated(res, { hasData: true });
-
-      // Should only see location 1 sale
-      expect(res.body.data.length).toBe(1);
-      expect(res.body.data[0].locationId).toBe(testData.location.id);
-    });
-
-    it('should get sale by id from same location', async () => {
-      const sale = await prisma.sale.create({
-        data: {
-          customerId: testData.customer.id,
-          userId: testData.cashierUser.id,
-          locationId: testData.location.id,
-          paymentMethod: 'CASH',
-          subtotal: 19.99,
-          tax: 0.00,
-          total: 19.99,
-          items: {
-            create: [
-              {
-                productId: testData.product.id,
-                quantity: 1,
-                price: 19.99,
-              },
-            ],
-          },
-        },
-      });
-
-      const res = await api
-        .get(`/api/sales/${sale.id}`)
-        .withAuth(cashierToken)
-        .expectStatus(200)
-        .execute();
-
-      assertResponse.success(res, (data) => {
-        expect(data.id).toBe(sale.id);
-        expect(data.locationId).toBe(testData.location.id);
-        expect(data.items).toBeDefined();
-        expect(data.customer).toBeDefined();
-      });
-    });
-
-    it('should not get sale from different location', async () => {
-      // Create sale in different location
-      const location2 = await prisma.location.create({
-        data: {
-          id: 'test-location-2',
-          name: 'Test Store 2',
-          address: '789 Test Ave',
-          city: 'Test City 2',
-          state: 'TS',
-          zipCode: '54321',
-          phone: '555-0004',
-          email: 'test2@store.com',
-          timezone: 'America/New_York',
-          isActive: true,
-        },
-      });
-
-      const user2 = await prisma.user.create({
-        data: {
-          email: 'user2@test.com',
-          password: testData.cashierUser.password,
-          firstName: 'User',
-          lastName: 'Two',
-          role: 'CASHIER',
-          locationId: location2.id,
-          isActive: true,
-        },
-      });
-
-      const customer2 = await prisma.customer.create({
-        data: {
-          email: 'customer2@test.com',
-          firstName: 'Customer',
-          lastName: 'Two',
-          locationId: location2.id,
-        },
-      });
-
-      const category2 = await prisma.category.create({
-        data: {
-          name: 'Category 2',
-          locationId: location2.id,
-        },
-      });
-
-      const product2 = await prisma.product.create({
-        data: {
-          name: 'Product 2',
-          sku: 'L2-SKU-001',
-          price: 29.99,
-          cost: 15.00,
-          quantity: 20,
-          categoryId: category2.id,
-          locationId: location2.id,
-          isActive: true,
-        },
-      });
-
-      const sale2 = await prisma.sale.create({
-        data: {
-          customerId: customer2.id,
-          userId: user2.id,
-          locationId: location2.id,
-          paymentMethod: 'CASH',
-          subtotal: 29.99,
-          tax: 0.00,
-          total: 29.99,
-          items: {
-            create: [
-              {
-                productId: product2.id,
-                quantity: 1,
-                price: 29.99,
-              },
-            ],
-          },
-        },
-      });
-
-      const res = await api
-        .get(`/api/sales/${sale2.id}`)
-        .withAuth(cashierToken)
-        .expectStatus(404)
-        .execute();
-
-      assertResponse.notFound(res);
-    });
-  });
-
-  describe('Transaction Handling', () => {
-    it('should rollback sale if inventory update fails', async () => {
-      // This test verifies that database transactions work properly
-      // If sale creation fails, inventory should not be deducted
-
-      const saleData = {
-        customerId: testData.customer.id,
-        items: [
-          {
-            productId: 'invalid-product-id',
-            quantity: 1,
-            price: 19.99,
-          },
-        ],
-        paymentMethod: 'CASH',
-        total: 19.99,
-      };
-
-      const initialQuantity = testData.product.quantity;
-
-      const res = await api
-        .post('/api/sales')
-        .withAuth(cashierToken)
-        .withBody(saleData)
-        .expectStatus(404)
-        .execute();
-
-      assertResponse.notFound(res);
-
-      // Verify inventory unchanged
-      const unchangedProduct = await prisma.product.findUnique({
-        where: { id: testData.product.id },
-      });
-      expect(unchangedProduct?.quantity).toBe(initialQuantity);
-    });
-
-    it('should maintain data consistency on concurrent sales', async () => {
-      const initialQuantity = testData.product.quantity;
-
-      // Simulate two simultaneous sales
-      const sale1Promise = api
         .post('/api/sales')
         .withAuth(cashierToken)
         .withBody({
-          customerId: testData.customer.id,
-          items: [
-            {
-              productId: testData.product.id,
-              quantity: 5,
-              price: testData.product.price,
-            },
-          ],
+          items: [{ productId: testData.product.id, quantity: 2, price: 19.99 }],
           paymentMethod: 'CASH',
-          total: testData.product.price * 5,
+          amountPaid: 10,
         })
+        .expectStatus(400)
         .execute();
 
-      const sale2Promise = api
-        .post('/api/sales')
-        .withAuth(cashierToken)
-        .withBody({
-          customerId: testData.customer.id,
-          items: [
-            {
-              productId: testData.product.id,
-              quantity: 3,
-              price: testData.product.price,
-            },
-          ],
-          paymentMethod: 'CASH',
-          total: testData.product.price * 3,
-        })
-        .execute();
-
-      const [res1, res2] = await Promise.all([sale1Promise, sale2Promise]);
-
-      // Both should succeed
-      expect(res1.status).toBe(201);
-      expect(res2.status).toBe(201);
-
-      // Verify correct inventory deduction
-      const updatedProduct = await prisma.product.findUnique({
-        where: { id: testData.product.id },
-      });
-
-      expect(updatedProduct?.quantity).toBe(initialQuantity - 8); // 5 + 3
-    });
-  });
-
-  describe('Payment Validation', () => {
-    it('should fail with invalid payment method', async () => {
-      const res = await api
-        .post('/api/sales')
-        .withAuth(cashierToken)
-        .withBody({
-          customerId: testData.customer.id,
-          items: [
-            {
-              productId: testData.product.id,
-              quantity: 1,
-              price: testData.product.price,
-            },
-          ],
-          paymentMethod: 'INVALID_METHOD',
-          total: testData.product.price,
-        })
-        .expectStatus(422)
-        .execute();
-
-      assertResponse.validationError(res);
+      assertResponse.error(res, 'Insufficient payment');
     });
 
-    it('should calculate correct change for cash payment', async () => {
-      const res = await api
+    it('should return the existing sale for a duplicate idempotency key', async () => {
+      const idempotencyKey = randomUUID();
+
+      const first = await api
         .post('/api/sales')
         .withAuth(cashierToken)
         .withBody({
-          customerId: testData.customer.id,
-          items: [
-            {
-              productId: testData.product.id,
-              quantity: 1,
-              price: testData.product.price,
-            },
-          ],
+          idempotencyKey,
+          items: [{ productId: testData.product.id, quantity: 1, price: 19.99 }],
           paymentMethod: 'CASH',
-          amountPaid: 50.00,
-          total: testData.product.price,
-          change: 50.00 - testData.product.price,
+          amountPaid: 50,
         })
         .expectStatus(201)
         .execute();
 
-      assertResponse.success(res, (data) => {
-        expect(data.amountPaid).toBe(50.00);
-        expect(data.change).toBeCloseTo(50.00 - testData.product.price, 2);
+      const second = await api
+        .post('/api/sales')
+        .withAuth(cashierToken)
+        .withBody({
+          idempotencyKey,
+          items: [{ productId: testData.product.id, quantity: 1, price: 19.99 }],
+          paymentMethod: 'CASH',
+          amountPaid: 50,
+        })
+        .expectStatus(200)
+        .execute();
+
+      expect(second.body.data.id).toBe(first.body.data.id);
+
+      // Only one sale exists, stock deducted once
+      expect(await prisma.sale.count()).toBe(1);
+      const product = await prisma.product.findUnique({ where: { id: testData.product.id } });
+      expect(product!.stockQuantity).toBe(99);
+    });
+
+    it('should reject split payments that do not sum to the amount paid', async () => {
+      const res = await api
+        .post('/api/sales')
+        .withAuth(cashierToken)
+        .withBody({
+          items: [{ productId: testData.product.id, quantity: 1, price: 19.99 }],
+          paymentMethod: 'CASH',
+          amountPaid: 21.99,
+          payments: [
+            { paymentMethod: 'CASH', amount: 10 },
+            { paymentMethod: 'CARD', amount: 5 },
+          ],
+        })
+        .expectStatus(400)
+        .execute();
+
+      assertResponse.error(res, 'Split payments');
+    });
+  });
+
+  describe('Loyalty', () => {
+    beforeEach(async () => {
+      await clockIn(cashierToken);
+    });
+
+    it('should award points and update customer stats on sale', async () => {
+      await makeCashSale(cashierToken, 2, { customerId: testData.customer.id });
+
+      const customer = await prisma.customer.findUnique({
+        where: { id: testData.customer.id },
       });
+      expect(customer!.loyaltyPoints).toBe(43); // floor(43.98)
+      expect(customer!.totalSpent).toBe(43.98);
+      expect(customer!.visitCount).toBe(1);
+    });
+
+    it('should apply point redemption as a discount on the amount due', async () => {
+      await prisma.customer.update({
+        where: { id: testData.customer.id },
+        data: { loyaltyPoints: 1000 },
+      });
+
+      // 500 points = $5 off the $43.98 total → $38.98 due
+      const sale = await makeCashSale(cashierToken, 2, {
+        customerId: testData.customer.id,
+        pointsRedeemed: 500,
+        amountPaid: 38.98,
+      });
+
+      expect(sale.total).toBe(38.98);
+      expect(sale.discount).toBe(5);
+
+      const customer = await prisma.customer.findUnique({
+        where: { id: testData.customer.id },
+      });
+      // 1000 - 500 redeemed + 38 earned
+      expect(customer!.loyaltyPoints).toBe(538);
+    });
+
+    it('should reject redeeming more points than the customer has', async () => {
+      const res = await api
+        .post('/api/sales')
+        .withAuth(cashierToken)
+        .withBody({
+          items: [{ productId: testData.product.id, quantity: 1, price: 19.99 }],
+          paymentMethod: 'CASH',
+          amountPaid: 50,
+          customerId: testData.customer.id,
+          pointsRedeemed: 999,
+        })
+        .expectStatus(400)
+        .execute();
+
+      assertResponse.error(res, 'Insufficient loyalty points');
+    });
+  });
+
+  describe('Gift card payments', () => {
+    let cardCode: string;
+
+    beforeEach(async () => {
+      await clockIn(cashierToken);
+      const cardRes = await api
+        .post('/api/gift-cards')
+        .withAuth(adminToken)
+        .withBody({ amount: 50 })
+        .expectStatus(201)
+        .execute();
+      cardCode = cardRes.body.data.code;
+    });
+
+    it('should debit the gift card when used as tender', async () => {
+      // 1 unit: $19.99 + $2.00 tax = $21.99
+      await makeCashSale(cashierToken, 1, {
+        paymentMethod: 'GIFT_CARD',
+        amountPaid: 21.99,
+        payments: [{ paymentMethod: 'GIFT_CARD', amount: 21.99, reference: cardCode }],
+      });
+
+      const card = await prisma.giftCard.findUnique({ where: { code: cardCode } });
+      expect(card!.currentBalance).toBe(28.01); // 50 - 21.99
+
+      const txn = await prisma.giftCardTransaction.findFirst({
+        where: { giftCardId: card!.id, type: 'REDEEM' },
+      });
+      expect(txn).not.toBeNull();
+      expect(txn!.amount).toBe(-21.99);
+    });
+
+    it('should reject payment from a nonexistent gift card and roll back the sale', async () => {
+      const res = await api
+        .post('/api/sales')
+        .withAuth(cashierToken)
+        .withBody({
+          items: [{ productId: testData.product.id, quantity: 1, price: 19.99 }],
+          paymentMethod: 'GIFT_CARD',
+          amountPaid: 21.99,
+          payments: [{ paymentMethod: 'GIFT_CARD', amount: 21.99, reference: 'FAKE-CARD' }],
+        })
+        .expectStatus(400)
+        .execute();
+
+      assertResponse.error(res, 'Gift card not found');
+
+      // Whole transaction rolled back: no sale, stock untouched
+      expect(await prisma.sale.count()).toBe(0);
+      const product = await prisma.product.findUnique({ where: { id: testData.product.id } });
+      expect(product!.stockQuantity).toBe(100);
+    });
+
+    it('should reject payment exceeding the gift card balance', async () => {
+      // Drain the card to $1
+      const card = await prisma.giftCard.findUnique({ where: { code: cardCode } });
+      await prisma.giftCard.update({
+        where: { id: card!.id },
+        data: { currentBalance: 1 },
+      });
+
+      const res = await api
+        .post('/api/sales')
+        .withAuth(cashierToken)
+        .withBody({
+          items: [{ productId: testData.product.id, quantity: 1, price: 19.99 }],
+          paymentMethod: 'GIFT_CARD',
+          amountPaid: 21.99,
+          payments: [{ paymentMethod: 'GIFT_CARD', amount: 21.99, reference: cardCode }],
+        })
+        .expectStatus(400)
+        .execute();
+
+      assertResponse.error(res, 'Insufficient gift card balance');
+    });
+  });
+
+  describe('Refunds', () => {
+    beforeEach(async () => {
+      await clockIn(cashierToken);
+    });
+
+    it('should refund selected items, restock them, and track refundable balance', async () => {
+      const sale = await makeCashSale(cashierToken, 2); // total 43.98, stock 98
+      const saleItemId = sale.items[0].id;
+
+      // Return 1 of 2 units — refunds its prorated share ($21.99)
+      const res = await api
+        .post(`/api/sales/${sale.id}/refund`)
+        .withAuth(adminToken)
+        .withBody({
+          reason: 'Customer returned one unit',
+          items: [{ saleItemId, quantity: 1 }],
+          refundMethod: 'CASH',
+        })
+        .expectStatus(200)
+        .execute();
+
+      expect(res.body.data.status).toBe('COMPLETED'); // partial refund
+      expect(res.body.data.refunds).toHaveLength(1);
+      expect(res.body.data.refunds[0].amount).toBe(21.99);
+      expect(res.body.data.refunds[0].items).toHaveLength(1);
+
+      // Returned unit restocked
+      const product = await prisma.product.findUnique({ where: { id: testData.product.id } });
+      expect(product!.stockQuantity).toBe(99);
+
+      // Refunding the second unit completes the refund
+      const res2 = await api
+        .post(`/api/sales/${sale.id}/refund`)
+        .withAuth(adminToken)
+        .withBody({
+          reason: 'Returned the rest',
+          items: [{ saleItemId, quantity: 1 }],
+          refundMethod: 'CASH',
+        })
+        .expectStatus(200)
+        .execute();
+
+      expect(res2.body.data.status).toBe('REFUNDED');
+      const productAfter = await prisma.product.findUnique({ where: { id: testData.product.id } });
+      expect(productAfter!.stockQuantity).toBe(100);
+    });
+
+    it('should reject refunding more units than were sold', async () => {
+      const sale = await makeCashSale(cashierToken, 2);
+      const saleItemId = sale.items[0].id;
+
+      const res = await api
+        .post(`/api/sales/${sale.id}/refund`)
+        .withAuth(adminToken)
+        .withBody({
+          reason: 'Too many',
+          items: [{ saleItemId, quantity: 3 }],
+        })
+        .expectStatus(400)
+        .execute();
+
+      assertResponse.error(res, 'Cannot refund');
+    });
+
+    it('should credit a gift card when refunding to the original tender', async () => {
+      // Issue card and pay with it
+      const cardRes = await api
+        .post('/api/gift-cards')
+        .withAuth(adminToken)
+        .withBody({ amount: 50 })
+        .expectStatus(201)
+        .execute();
+      const cardCode = cardRes.body.data.code;
+
+      const sale = await makeCashSale(cashierToken, 1, {
+        paymentMethod: 'GIFT_CARD',
+        amountPaid: 21.99,
+        payments: [{ paymentMethod: 'GIFT_CARD', amount: 21.99, reference: cardCode }],
+      });
+
+      // Refund the item back to the gift card
+      await api
+        .post(`/api/sales/${sale.id}/refund`)
+        .withAuth(adminToken)
+        .withBody({
+          reason: 'Return to card',
+          items: [{ saleItemId: sale.items[0].id, quantity: 1 }],
+          refundMethod: 'GIFT_CARD',
+        })
+        .expectStatus(200)
+        .execute();
+
+      const card = await prisma.giftCard.findUnique({ where: { code: cardCode } });
+      expect(card!.currentBalance).toBe(50); // fully restored
+
+      const refundTxn = await prisma.giftCardTransaction.findFirst({
+        where: { giftCardId: card!.id, type: 'REFUND' },
+      });
+      expect(refundTxn).not.toBeNull();
+      expect(refundTxn!.amount).toBe(21.99);
+    });
+
+    it('should restore inventory on a money-only full refund', async () => {
+      const sale = await makeCashSale(cashierToken, 2);
+
+      await api
+        .post(`/api/sales/${sale.id}/refund`)
+        .withAuth(adminToken)
+        .withBody({ amount: 43.98, reason: 'Full refund' })
+        .expectStatus(200)
+        .execute();
+
+      const product = await prisma.product.findUnique({ where: { id: testData.product.id } });
+      expect(product!.stockQuantity).toBe(100);
+
+      const saleAfter = await prisma.sale.findUnique({ where: { id: sale.id } });
+      expect(saleAfter!.status).toBe('REFUNDED');
+    });
+
+    it('should reject refunds beyond the refundable balance', async () => {
+      const sale = await makeCashSale(cashierToken, 2);
+
+      const res = await api
+        .post(`/api/sales/${sale.id}/refund`)
+        .withAuth(adminToken)
+        .withBody({ amount: 99, reason: 'Too much' })
+        .expectStatus(400)
+        .execute();
+
+      assertResponse.error(res, 'exceeds refundable balance');
+    });
+  });
+
+  describe('Voids', () => {
+    beforeEach(async () => {
+      await clockIn(cashierToken);
+    });
+
+    it('should void a sale, restore stock, and reverse customer stats', async () => {
+      const sale = await makeCashSale(cashierToken, 2, { customerId: testData.customer.id });
+
+      await api
+        .post(`/api/sales/${sale.id}/void`)
+        .withAuth(adminToken)
+        .expectStatus(200)
+        .execute();
+
+      const saleAfter = await prisma.sale.findUnique({ where: { id: sale.id } });
+      expect(saleAfter!.status).toBe('VOIDED');
+
+      const product = await prisma.product.findUnique({ where: { id: testData.product.id } });
+      expect(product!.stockQuantity).toBe(100);
+
+      const customer = await prisma.customer.findUnique({ where: { id: testData.customer.id } });
+      expect(customer!.totalSpent).toBe(0);
+      expect(customer!.loyaltyPoints).toBe(0);
+      expect(customer!.visitCount).toBe(0);
+    });
+
+    it('should reject voiding an already-voided sale', async () => {
+      const sale = await makeCashSale(cashierToken, 1);
+
+      await api
+        .post(`/api/sales/${sale.id}/void`)
+        .withAuth(adminToken)
+        .expectStatus(200)
+        .execute();
+
+      const res = await api
+        .post(`/api/sales/${sale.id}/void`)
+        .withAuth(adminToken)
+        .expectStatus(400)
+        .execute();
+
+      assertResponse.error(res, 'already voided');
     });
   });
 });

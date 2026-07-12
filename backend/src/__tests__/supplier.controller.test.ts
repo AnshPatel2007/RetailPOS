@@ -2,23 +2,14 @@ import { Response } from 'express';
 import * as supplierController from '../controllers/supplier.controller';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
-import {
-  createMockResponse,
-  createMockNext,
-} from './utils/testHelpers';
-import {
-  createRequestWithLocation,
-  createSupplierForLocation,
-  createProductForLocation,
-  expectActivityLogHasLocation,
-} from './utils/locationTestUtils';
+import { createMockResponse, createMockNext, createMockAuthRequest } from './utils/testHelpers';
 
 // Mock Prisma
 jest.mock('../config/database', () => ({
   __esModule: true,
   default: {
     supplier: {
-      findFirst: jest.fn(),
+      findUnique: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -26,17 +17,34 @@ jest.mock('../config/database', () => ({
       count: jest.fn(),
     },
     product: {
-      findFirst: jest.fn(),
-      update: jest.fn(),
+      findUnique: jest.fn(),
     },
-    activityLog: {
+    productSupplier: {
+      findUnique: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      count: jest.fn(),
     },
-    $transaction: jest.fn((callback) => callback(prisma)),
+    purchaseOrder: {
+      findMany: jest.fn(),
+    },
   },
 }));
 
-describe('Supplier Controller - Location Isolation Tests', () => {
+const mockSupplier = {
+  id: 'supplier-123',
+  name: 'Test Supplier',
+  contactName: 'Jane Smith',
+  email: 'supplier@example.com',
+  phone: '555-0456',
+  address: '123 Supplier St',
+  isActive: true,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+describe('Supplier Controller', () => {
   let mockResponse: Partial<Response>;
   let mockNext: jest.Mock;
 
@@ -46,135 +54,11 @@ describe('Supplier Controller - Location Isolation Tests', () => {
     jest.clearAllMocks();
   });
 
-  describe('getSupplier - Location Isolation', () => {
-    it('should allow user to access supplier from their location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'supplier-123' },
-        query: {},
-      });
+  describe('getSuppliers', () => {
+    it('should return paginated suppliers with counts', async () => {
+      const mockRequest = createMockAuthRequest({ query: { page: '1', limit: '20' } });
 
-      const mockSupplier = createSupplierForLocation('location-A', 'supplier-123');
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(mockSupplier);
-
-      await supplierController.getSupplier(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      // Verify findFirst was called with location filter
-      expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'supplier-123',
-          locationId: 'location-A',
-        },
-        include: {
-          products: expect.any(Object),
-          purchaseOrders: expect.any(Object),
-        },
-      });
-
-      expect(mockResponse.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: true,
-          data: mockSupplier,
-        })
-      );
-    });
-
-    it('should block access to supplier from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'supplier-from-B' },
-        query: {},
-      });
-
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(null);
-
-      await expect(
-        supplierController.getSupplier(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Supplier not found');
-
-      expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'supplier-from-B',
-          locationId: 'location-A',
-        },
-        include: expect.any(Object),
-      });
-    });
-
-    it('should allow admin to access supplier with explicit locationId', async () => {
-      const mockRequest = createRequestWithLocation(null, 'ADMIN', {
-        params: { id: 'supplier-123' },
-        query: { locationId: 'location-B' },
-      });
-
-      const mockSupplier = createSupplierForLocation('location-B', 'supplier-123');
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(mockSupplier);
-
-      await supplierController.getSupplier(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'supplier-123',
-          locationId: 'location-B',
-        },
-        include: expect.any(Object),
-      });
-    });
-  });
-
-  describe('getSuppliers - Filtering and Pagination', () => {
-    it('should return only suppliers from user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'CASHIER', {
-        query: { page: '1', limit: '10' },
-      });
-
-      const mockSuppliers = [
-        createSupplierForLocation('location-A', 'supplier-1'),
-        createSupplierForLocation('location-A', 'supplier-2'),
-      ];
-
-      (prisma.supplier.findMany as jest.Mock).mockResolvedValue(mockSuppliers);
-      (prisma.supplier.count as jest.Mock).mockResolvedValue(2);
-
-      await supplierController.getSuppliers(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      expect(prisma.supplier.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            locationId: 'location-A',
-          }),
-        })
-      );
-
-      expect(mockResponse.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: true,
-          data: mockSuppliers,
-        })
-      );
-    });
-
-    it('should filter by active status within user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        query: { isActive: 'true', page: '1', limit: '10' },
-      });
-
-      const activeSuppliers = [createSupplierForLocation('location-A', 'supplier-1')];
-      (prisma.supplier.findMany as jest.Mock).mockResolvedValue(activeSuppliers);
+      (prisma.supplier.findMany as jest.Mock).mockResolvedValue([mockSupplier]);
       (prisma.supplier.count as jest.Mock).mockResolvedValue(1);
 
       await supplierController.getSuppliers(
@@ -185,91 +69,117 @@ describe('Supplier Controller - Location Isolation Tests', () => {
 
       expect(prisma.supplier.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({
-            locationId: 'location-A',
-            isActive: true,
-          }),
+          include: expect.objectContaining({ _count: expect.any(Object) }),
+          skip: 0,
+          take: 20,
+        })
+      );
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          data: [mockSupplier],
+          pagination: expect.objectContaining({ total: 1 }),
+        })
+      );
+    });
+
+    it('should filter by active status', async () => {
+      const mockRequest = createMockAuthRequest({ query: { isActive: 'true' } });
+
+      (prisma.supplier.findMany as jest.Mock).mockResolvedValue([mockSupplier]);
+      (prisma.supplier.count as jest.Mock).mockResolvedValue(1);
+
+      await supplierController.getSuppliers(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(prisma.supplier.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ isActive: true }),
         })
       );
     });
   });
 
-  describe('createSupplier - Location Assignment', () => {
-    it('should create supplier with user locationId', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        body: {
-          name: 'New Supplier',
-          contactName: 'John Smith',
-          email: 'supplier@example.com',
-          phone: '555-0123',
-        },
+  describe('getSupplier', () => {
+    it('should return supplier with products and recent purchase orders', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'supplier-123' } });
+
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue({
+        ...mockSupplier,
+        products: [],
+        purchaseOrders: [],
       });
 
-      const createdSupplier = createSupplierForLocation('location-A', 'new-supplier-123');
-      (prisma.supplier.create as jest.Mock).mockResolvedValue(createdSupplier);
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
-
-      await supplierController.createSupplier(
+      await supplierController.getSupplier(
         mockRequest as AuthRequest,
         mockResponse as Response,
         mockNext
       );
 
-      expect(prisma.supplier.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          name: 'New Supplier',
-          locationId: 'location-A',
-        }),
-      });
-
-      expectActivityLogHasLocation(prisma.activityLog.create as jest.Mock, 'location-A');
-      expect(mockResponse.status).toHaveBeenCalledWith(201);
+      expect(prisma.supplier.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'supplier-123' } })
+      );
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true })
+      );
     });
 
-    it('should allow admin to create supplier with explicit locationId', async () => {
-      const mockRequest = createRequestWithLocation(null, 'ADMIN', {
-        body: {
-          name: 'Admin Supplier',
-          contactName: 'Jane Doe',
-          email: 'admin.supplier@example.com',
-          locationId: 'location-B',
-        },
-      });
+    it('should error when supplier not found', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'nonexistent' } });
 
-      const createdSupplier = createSupplierForLocation('location-B', 'new-supplier-456');
-      (prisma.supplier.create as jest.Mock).mockResolvedValue(createdSupplier);
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await supplierController.createSupplier(
+      await supplierController.getSupplier(
         mockRequest as AuthRequest,
         mockResponse as Response,
         mockNext
       );
 
-      expect(prisma.supplier.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          locationId: 'location-B',
-        }),
-      });
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Supplier not found', statusCode: 404 })
+      );
     });
   });
 
-  describe('updateSupplier - Location Validation', () => {
-    it('should allow update of supplier in user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'supplier-123' },
-        body: {
-          name: 'Updated Supplier',
-          phone: '555-9999',
-        },
+  describe('createSupplier', () => {
+    it('should create a supplier', async () => {
+      const mockRequest = createMockAuthRequest({
+        body: { name: 'New Supplier', email: 'new@supplier.com' },
       });
 
-      const existingSupplier = createSupplierForLocation('location-A', 'supplier-123');
-      const updatedSupplier = { ...existingSupplier, name: 'Updated Supplier', phone: '555-9999' };
+      (prisma.supplier.create as jest.Mock).mockResolvedValue(mockSupplier);
 
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(existingSupplier);
-      (prisma.supplier.update as jest.Mock).mockResolvedValue(updatedSupplier);
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
+      await supplierController.createSupplier(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(prisma.supplier.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ name: 'New Supplier', email: 'new@supplier.com' }),
+      });
+      expect(mockResponse.status).toHaveBeenCalledWith(201);
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, message: 'Supplier created successfully' })
+      );
+    });
+  });
+
+  describe('updateSupplier', () => {
+    it('should update an existing supplier', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'supplier-123' },
+        body: { name: 'Renamed Supplier' },
+      });
+
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(mockSupplier);
+      (prisma.supplier.update as jest.Mock).mockResolvedValue({
+        ...mockSupplier,
+        name: 'Renamed Supplier',
+      });
 
       await supplierController.updateSupplier(
         mockRequest as AuthRequest,
@@ -277,47 +187,44 @@ describe('Supplier Controller - Location Isolation Tests', () => {
         mockNext
       );
 
-      expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'supplier-123',
-          locationId: 'location-A',
-        },
-      });
-
-      expect(prisma.supplier.update).toHaveBeenCalled();
-      expectActivityLogHasLocation(prisma.activityLog.create as jest.Mock, 'location-A');
+      expect(prisma.supplier.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'supplier-123' } })
+      );
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, message: 'Supplier updated successfully' })
+      );
     });
 
-    it('should block update of supplier from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'supplier-from-B' },
-        body: { name: 'Hacked' },
+    it('should error when updating a missing supplier', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'nonexistent' },
+        body: { name: 'Ghost' },
       });
 
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        supplierController.updateSupplier(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Supplier not found');
+      await supplierController.updateSupplier(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
 
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Supplier not found' })
+      );
       expect(prisma.supplier.update).not.toHaveBeenCalled();
     });
   });
 
-  describe('deleteSupplier - Location Validation', () => {
-    it('should allow delete of supplier in user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'ADMIN', {
-        params: { id: 'supplier-123' },
-      });
+  describe('deleteSupplier', () => {
+    it('should delete a supplier with no purchase orders', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'supplier-123' } });
 
-      const existingSupplier = createSupplierForLocation('location-A', 'supplier-123');
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(existingSupplier);
-      (prisma.supplier.delete as jest.Mock).mockResolvedValue(existingSupplier);
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue({
+        ...mockSupplier,
+        _count: { purchaseOrders: 0 },
+      });
+      (prisma.supplier.delete as jest.Mock).mockResolvedValue(mockSupplier);
 
       await supplierController.deleteSupplier(
         mockRequest as AuthRequest,
@@ -325,53 +232,68 @@ describe('Supplier Controller - Location Isolation Tests', () => {
         mockNext
       );
 
-      expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'supplier-123',
-          locationId: 'location-A',
-        },
-      });
-
-      expect(prisma.supplier.delete).toHaveBeenCalledWith({
-        where: { id: 'supplier-123' },
-      });
+      expect(prisma.supplier.delete).toHaveBeenCalledWith({ where: { id: 'supplier-123' } });
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, message: 'Supplier deleted successfully' })
+      );
     });
 
-    it('should block delete of supplier from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'ADMIN', {
-        params: { id: 'supplier-from-B' },
+    it('should block deleting a supplier with purchase orders', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'supplier-123' } });
+
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue({
+        ...mockSupplier,
+        _count: { purchaseOrders: 3 },
       });
 
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(null);
+      await supplierController.deleteSupplier(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
 
-      await expect(
-        supplierController.deleteSupplier(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Supplier not found');
-
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('Cannot delete supplier with existing purchase orders'),
+        })
+      );
       expect(prisma.supplier.delete).not.toHaveBeenCalled();
+    });
+
+    it('should error when deleting a missing supplier', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'nonexistent' } });
+
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await supplierController.deleteSupplier(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Supplier not found' })
+      );
     });
   });
 
-  describe('linkProduct - Cross-Entity Location Validation', () => {
-    it('should allow linking product and supplier from same location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'supplier-123', productId: 'product-456' },
+  describe('linkProduct', () => {
+    const linkBody = { productId: 'product-123', cost: 5.0 };
+
+    it('should link a product to a supplier', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'supplier-123' },
+        body: linkBody,
       });
 
-      const mockSupplier = createSupplierForLocation('location-A', 'supplier-123');
-      const mockProduct = createProductForLocation('location-A', 'product-456');
-
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(mockSupplier);
-      (prisma.product.findFirst as jest.Mock).mockResolvedValue(mockProduct);
-      (prisma.product.update as jest.Mock).mockResolvedValue({
-        ...mockProduct,
-        suppliers: [mockSupplier],
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(mockSupplier);
+      (prisma.product.findUnique as jest.Mock).mockResolvedValue({ id: 'product-123' });
+      (prisma.productSupplier.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.productSupplier.create as jest.Mock).mockResolvedValue({
+        id: 'link-1',
+        productId: 'product-123',
+        supplierId: 'supplier-123',
       });
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
 
       await supplierController.linkProduct(
         mockRequest as AuthRequest,
@@ -379,83 +301,87 @@ describe('Supplier Controller - Location Isolation Tests', () => {
         mockNext
       );
 
-      // Verify both supplier and product were validated for location
-      expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'supplier-123',
-          locationId: 'location-A',
-        },
-      });
-
-      expect(prisma.product.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'product-456',
-          locationId: 'location-A',
-        },
-      });
-
-      expect(mockResponse.json).toHaveBeenCalledWith(
+      expect(prisma.productSupplier.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          success: true,
-          message: 'Product linked to supplier successfully',
+          data: expect.objectContaining({
+            productId: 'product-123',
+            supplierId: 'supplier-123',
+          }),
         })
+      );
+      expect(mockResponse.status).toHaveBeenCalledWith(201);
+    });
+
+    it('should error when supplier is missing', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'nonexistent' },
+        body: linkBody,
+      });
+
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await supplierController.linkProduct(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Supplier not found' })
       );
     });
 
-    it('should block linking if supplier is from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'supplier-from-B', productId: 'product-456' },
+    it('should error when product is missing', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'supplier-123' },
+        body: linkBody,
       });
 
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(mockSupplier);
+      (prisma.product.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        supplierController.linkProduct(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Supplier not found');
+      await supplierController.linkProduct(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
 
-      // Verify product lookup was never attempted
-      expect(prisma.product.findFirst).not.toHaveBeenCalled();
-      expect(prisma.product.update).not.toHaveBeenCalled();
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Product not found' })
+      );
     });
 
-    it('should block linking if product is from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'supplier-123', productId: 'product-from-B' },
+    it('should reject duplicate links', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'supplier-123' },
+        body: linkBody,
       });
 
-      const mockSupplier = createSupplierForLocation('location-A', 'supplier-123');
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(mockSupplier);
-      (prisma.product.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(mockSupplier);
+      (prisma.product.findUnique as jest.Mock).mockResolvedValue({ id: 'product-123' });
+      (prisma.productSupplier.findUnique as jest.Mock).mockResolvedValue({ id: 'existing-link' });
 
-      await expect(
-        supplierController.linkProduct(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Product not found');
+      await supplierController.linkProduct(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
 
-      expect(prisma.product.update).not.toHaveBeenCalled();
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Product is already linked to this supplier' })
+      );
+      expect(prisma.productSupplier.create).not.toHaveBeenCalled();
     });
   });
 
-  describe('unlinkProduct - Cross-Entity Location Validation', () => {
-    it('should allow unlinking product and supplier from same location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'supplier-123', productId: 'product-456' },
+  describe('unlinkProduct', () => {
+    it('should unlink a product from a supplier', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'supplier-123', productId: 'product-123' },
       });
 
-      const mockSupplier = createSupplierForLocation('location-A', 'supplier-123');
-      const mockProduct = createProductForLocation('location-A', 'product-456');
-
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(mockSupplier);
-      (prisma.product.findFirst as jest.Mock).mockResolvedValue(mockProduct);
-      (prisma.product.update as jest.Mock).mockResolvedValue(mockProduct);
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
+      (prisma.productSupplier.findUnique as jest.Mock).mockResolvedValue({ id: 'link-1' });
+      (prisma.productSupplier.delete as jest.Mock).mockResolvedValue({});
 
       await supplierController.unlinkProduct(
         mockRequest as AuthRequest,
@@ -463,35 +389,36 @@ describe('Supplier Controller - Location Isolation Tests', () => {
         mockNext
       );
 
-      expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
+      expect(prisma.productSupplier.delete).toHaveBeenCalledWith({
         where: {
-          id: 'supplier-123',
-          locationId: 'location-A',
+          productId_supplierId: {
+            productId: 'product-123',
+            supplierId: 'supplier-123',
+          },
         },
       });
-
-      expect(prisma.product.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'product-456',
-          locationId: 'location-A',
-        },
-      });
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true })
+      );
     });
 
-    it('should block unlinking if entities are from different locations', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'supplier-from-B', productId: 'product-456' },
+    it('should error when the link does not exist', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'supplier-123', productId: 'product-999' },
       });
 
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.productSupplier.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        supplierController.unlinkProduct(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Supplier not found');
+      await supplierController.unlinkProduct(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Product-supplier link not found' })
+      );
+      expect(prisma.productSupplier.delete).not.toHaveBeenCalled();
     });
   });
 });

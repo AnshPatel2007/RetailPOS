@@ -55,6 +55,8 @@ export const errorHandler = (
 
 export const asyncHandler = (fn: Function) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
+    // Return the promise so callers (and tests) can await handler completion;
+    // Express ignores the return value.
+    return Promise.resolve(fn(req, res, next)).catch(next);
   };
 };

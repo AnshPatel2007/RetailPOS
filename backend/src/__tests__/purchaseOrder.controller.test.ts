@@ -2,23 +2,14 @@ import { Response } from 'express';
 import * as purchaseOrderController from '../controllers/purchaseOrder.controller';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
-import {
-  createMockResponse,
-  createMockNext,
-} from './utils/testHelpers';
-import {
-  createRequestWithLocation,
-  createPurchaseOrderForLocation,
-  createSupplierForLocation,
-  createProductForLocation,
-  expectActivityLogHasLocation,
-} from './utils/locationTestUtils';
+import { createMockResponse, createMockNext, createMockAuthRequest } from './utils/testHelpers';
 
 // Mock Prisma
 jest.mock('../config/database', () => ({
   __esModule: true,
   default: {
     purchaseOrder: {
+      findUnique: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
@@ -26,24 +17,40 @@ jest.mock('../config/database', () => ({
       delete: jest.fn(),
       count: jest.fn(),
     },
-    supplier: {
-      findFirst: jest.fn(),
+    purchaseOrderItem: {
+      deleteMany: jest.fn(),
+      createMany: jest.fn(),
     },
     product: {
-      findFirst: jest.fn(),
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
       update: jest.fn(),
+    },
+    supplier: {
+      findUnique: jest.fn(),
     },
     inventoryLog: {
       create: jest.fn(),
     },
-    activityLog: {
-      create: jest.fn(),
-    },
-    $transaction: jest.fn((callback) => callback(prisma)),
+    $transaction: jest.fn().mockResolvedValue([]),
   },
 }));
 
-describe('Purchase Order Controller - Location Isolation Tests', () => {
+const mockOrder = {
+  id: 'po-123',
+  orderNumber: 'PO2026070001',
+  supplierId: 'supplier-123',
+  status: 'PENDING',
+  totalAmount: 100.0,
+  notes: null,
+  orderedAt: null,
+  expectedAt: null,
+  receivedAt: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+describe('Purchase Order Controller', () => {
   let mockResponse: Partial<Response>;
   let mockNext: jest.Mock;
 
@@ -51,99 +58,15 @@ describe('Purchase Order Controller - Location Isolation Tests', () => {
     mockResponse = createMockResponse();
     mockNext = createMockNext();
     jest.clearAllMocks();
+    (prisma.$transaction as jest.Mock).mockResolvedValue([]);
   });
 
-  describe('getPurchaseOrder - Location Isolation', () => {
-    it('should allow user to access purchase order from their location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'po-123' },
-        query: {},
-      });
+  describe('getPurchaseOrders', () => {
+    it('should return paginated purchase orders', async () => {
+      const mockRequest = createMockAuthRequest({ query: { page: '1', limit: '20' } });
 
-      const mockPO = createPurchaseOrderForLocation('location-A', 'supplier-123', 'po-123');
-      (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(mockPO);
-
-      await purchaseOrderController.getPurchaseOrder(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'po-123',
-          locationId: 'location-A',
-        },
-        include: {
-          supplier: true,
-          items: expect.any(Object),
-          createdBy: expect.any(Object),
-        },
-      });
-
-      expect(mockResponse.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: true,
-          data: mockPO,
-        })
-      );
-    });
-
-    it('should block access to purchase order from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'po-from-B' },
-        query: {},
-      });
-
-      (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(null);
-
-      await expect(
-        purchaseOrderController.getPurchaseOrder(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Purchase order not found');
-    });
-
-    it('should allow admin to access PO with explicit locationId', async () => {
-      const mockRequest = createRequestWithLocation(null, 'ADMIN', {
-        params: { id: 'po-123' },
-        query: { locationId: 'location-B' },
-      });
-
-      const mockPO = createPurchaseOrderForLocation('location-B', 'supplier-456', 'po-123');
-      (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(mockPO);
-
-      await purchaseOrderController.getPurchaseOrder(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'po-123',
-          locationId: 'location-B',
-        },
-        include: expect.any(Object),
-      });
-    });
-  });
-
-  describe('getPurchaseOrders - Filtering and Pagination', () => {
-    it('should return only purchase orders from user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'CASHIER', {
-        query: { page: '1', limit: '10' },
-      });
-
-      const mockPOs = [
-        createPurchaseOrderForLocation('location-A', 'supplier-1', 'po-1'),
-        createPurchaseOrderForLocation('location-A', 'supplier-1', 'po-2'),
-      ];
-
-      (prisma.purchaseOrder.findMany as jest.Mock).mockResolvedValue(mockPOs);
-      (prisma.purchaseOrder.count as jest.Mock).mockResolvedValue(2);
+      (prisma.purchaseOrder.findMany as jest.Mock).mockResolvedValue([mockOrder]);
+      (prisma.purchaseOrder.count as jest.Mock).mockResolvedValue(1);
 
       await purchaseOrderController.getPurchaseOrders(
         mockRequest as AuthRequest,
@@ -151,29 +74,21 @@ describe('Purchase Order Controller - Location Isolation Tests', () => {
         mockNext
       );
 
-      expect(prisma.purchaseOrder.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            locationId: 'location-A',
-          }),
-        })
-      );
-
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: true,
-          data: mockPOs,
+          data: [mockOrder],
+          pagination: expect.objectContaining({ total: 1 }),
         })
       );
     });
 
-    it('should filter by status within user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        query: { status: 'PENDING', page: '1', limit: '10' },
+    it('should filter by status and supplier', async () => {
+      const mockRequest = createMockAuthRequest({
+        query: { status: 'PENDING', supplierId: 'supplier-123' },
       });
 
-      const pendingPOs = [createPurchaseOrderForLocation('location-A', 'supplier-1', 'po-1')];
-      (prisma.purchaseOrder.findMany as jest.Mock).mockResolvedValue(pendingPOs);
+      (prisma.purchaseOrder.findMany as jest.Mock).mockResolvedValue([mockOrder]);
       (prisma.purchaseOrder.count as jest.Mock).mockResolvedValue(1);
 
       await purchaseOrderController.getPurchaseOrders(
@@ -185,34 +100,7 @@ describe('Purchase Order Controller - Location Isolation Tests', () => {
       expect(prisma.purchaseOrder.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            locationId: 'location-A',
             status: 'PENDING',
-          }),
-        })
-      );
-    });
-
-    it('should filter by supplier within user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        query: { supplierId: 'supplier-123', page: '1', limit: '10' },
-      });
-
-      const supplierPOs = [
-        createPurchaseOrderForLocation('location-A', 'supplier-123', 'po-1'),
-      ];
-      (prisma.purchaseOrder.findMany as jest.Mock).mockResolvedValue(supplierPOs);
-      (prisma.purchaseOrder.count as jest.Mock).mockResolvedValue(1);
-
-      await purchaseOrderController.getPurchaseOrders(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      expect(prisma.purchaseOrder.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            locationId: 'location-A',
             supplierId: 'supplier-123',
           }),
         })
@@ -220,31 +108,65 @@ describe('Purchase Order Controller - Location Isolation Tests', () => {
     });
   });
 
-  describe('createPurchaseOrder - Location Validation', () => {
-    it('should create purchase order with user locationId', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        body: {
-          supplierId: 'supplier-123',
-          expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-          items: [
-            { productId: 'product-1', quantity: 10, unitCost: 5.00 },
-            { productId: 'product-2', quantity: 5, unitCost: 10.00 },
-          ],
-          notes: 'Test order',
-        },
+  describe('getPurchaseOrder', () => {
+    it('should return a purchase order with supplier and items', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'po-123' } });
+
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...mockOrder,
+        supplier: { id: 'supplier-123' },
+        items: [],
       });
 
-      const mockSupplier = createSupplierForLocation('location-A', 'supplier-123');
-      const mockProduct1 = createProductForLocation('location-A', 'product-1');
-      const mockProduct2 = createProductForLocation('location-A', 'product-2');
-      const createdPO = createPurchaseOrderForLocation('location-A', 'supplier-123', 'new-po-123');
+      await purchaseOrderController.getPurchaseOrder(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
 
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(mockSupplier);
-      (prisma.product.findFirst as jest.Mock)
-        .mockResolvedValueOnce(mockProduct1)
-        .mockResolvedValueOnce(mockProduct2);
-      (prisma.purchaseOrder.create as jest.Mock).mockResolvedValue(createdPO);
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true })
+      );
+    });
+
+    it('should error when order not found', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'nonexistent' } });
+
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await purchaseOrderController.getPurchaseOrder(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Purchase order not found', statusCode: 404 })
+      );
+    });
+  });
+
+  describe('createPurchaseOrder', () => {
+    const orderBody = {
+      supplierId: 'supplier-123',
+      items: [{ productId: 'product-1', quantity: 10, cost: 5.0 }],
+      notes: 'Restock',
+    };
+
+    it('should create a purchase order with computed totals', async () => {
+      const mockRequest = createMockAuthRequest({ body: orderBody });
+
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue({ id: 'supplier-123' });
+      (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(null); // order number gen
+      (prisma.product.findMany as jest.Mock).mockResolvedValue([
+        { id: 'product-1', sku: 'SKU001', name: 'Product 1' },
+      ]);
+      (prisma.purchaseOrder.create as jest.Mock).mockResolvedValue({
+        ...mockOrder,
+        totalAmount: 50.0,
+        items: [],
+        supplier: { id: 'supplier-123', name: 'Test' },
+      });
 
       await purchaseOrderController.createPurchaseOrder(
         mockRequest as AuthRequest,
@@ -252,183 +174,141 @@ describe('Purchase Order Controller - Location Isolation Tests', () => {
         mockNext
       );
 
-      // Verify supplier was validated for location
-      expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'supplier-123',
-          locationId: 'location-A',
-        },
-      });
-
-      // Verify all products were validated for location
-      expect(prisma.product.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'product-1',
-          locationId: 'location-A',
-        },
-      });
-
-      expect(prisma.product.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'product-2',
-          locationId: 'location-A',
-        },
-      });
-
-      // Verify PO was created with correct locationId
-      expect(prisma.purchaseOrder.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          locationId: 'location-A',
-          supplierId: 'supplier-123',
-        }),
-      });
-
-      expectActivityLogHasLocation(prisma.activityLog.create as jest.Mock, 'location-A');
+      expect(prisma.purchaseOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            supplierId: 'supplier-123',
+            totalAmount: 50.0, // 10 × $5
+            items: {
+              create: [
+                expect.objectContaining({
+                  productId: 'product-1',
+                  quantity: 10,
+                  cost: 5.0,
+                  total: 50.0,
+                }),
+              ],
+            },
+          }),
+        })
+      );
       expect(mockResponse.status).toHaveBeenCalledWith(201);
     });
 
-    it('should block creation if supplier is from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        body: {
-          supplierId: 'supplier-from-B',
-          expectedDate: new Date().toISOString(),
-          items: [{ productId: 'product-1', quantity: 10, unitCost: 5.00 }],
-        },
-      });
+    it('should error when supplier does not exist', async () => {
+      const mockRequest = createMockAuthRequest({ body: orderBody });
 
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        purchaseOrderController.createPurchaseOrder(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Supplier not found');
-
-      expect(prisma.purchaseOrder.create).not.toHaveBeenCalled();
-    });
-
-    it('should block creation if any product is from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        body: {
-          supplierId: 'supplier-123',
-          expectedDate: new Date().toISOString(),
-          items: [
-            { productId: 'product-1', quantity: 10, unitCost: 5.00 },
-            { productId: 'product-from-B', quantity: 5, unitCost: 10.00 },
-          ],
-        },
-      });
-
-      const mockSupplier = createSupplierForLocation('location-A', 'supplier-123');
-      const mockProduct1 = createProductForLocation('location-A', 'product-1');
-
-      (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(mockSupplier);
-      (prisma.product.findFirst as jest.Mock)
-        .mockResolvedValueOnce(mockProduct1)
-        .mockResolvedValueOnce(null); // Second product not found
-
-      await expect(
-        purchaseOrderController.createPurchaseOrder(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Product product-from-B not found');
-
-      expect(prisma.purchaseOrder.create).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('updatePurchaseOrder - Location Validation', () => {
-    it('should allow update of purchase order in user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'po-123' },
-        body: {
-          status: 'ORDERED',
-          notes: 'Updated notes',
-        },
-      });
-
-      const existingPO = createPurchaseOrderForLocation('location-A', 'supplier-123', 'po-123');
-      const updatedPO = { ...existingPO, status: 'ORDERED', notes: 'Updated notes' };
-
-      (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(existingPO);
-      (prisma.purchaseOrder.update as jest.Mock).mockResolvedValue(updatedPO);
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
-
-      await purchaseOrderController.updatePurchaseOrder(
+      await purchaseOrderController.createPurchaseOrder(
         mockRequest as AuthRequest,
         mockResponse as Response,
         mockNext
       );
 
-      expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'po-123',
-          locationId: 'location-A',
-        },
-      });
-
-      expect(prisma.purchaseOrder.update).toHaveBeenCalled();
-      expectActivityLogHasLocation(prisma.activityLog.create as jest.Mock, 'location-A');
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Supplier not found' })
+      );
+      expect(prisma.purchaseOrder.create).not.toHaveBeenCalled();
     });
 
-    it('should block update of purchase order from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'po-from-B' },
-        body: { status: 'ORDERED' },
-      });
+    it('should error when a product does not exist', async () => {
+      const mockRequest = createMockAuthRequest({ body: orderBody });
 
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue({ id: 'supplier-123' });
       (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.product.findMany as jest.Mock).mockResolvedValue([]); // none found
 
-      await expect(
-        purchaseOrderController.updatePurchaseOrder(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Purchase order not found');
+      await purchaseOrderController.createPurchaseOrder(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
 
-      expect(prisma.purchaseOrder.update).not.toHaveBeenCalled();
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('Product not found') })
+      );
+      expect(prisma.purchaseOrder.create).not.toHaveBeenCalled();
     });
   });
 
-  describe('receivePurchaseOrder - Location Validation & Inventory Tracking', () => {
-    it('should receive purchase order and update inventory with locationId', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
+  describe('updateStatus', () => {
+    it('should update status and stamp orderedAt', async () => {
+      const mockRequest = createMockAuthRequest({
         params: { id: 'po-123' },
-        body: {
-          items: [
-            { productId: 'product-1', receivedQuantity: 10 },
-            { productId: 'product-2', receivedQuantity: 5 },
-          ],
-        },
+        body: { status: 'ORDERED' },
       });
 
-      const existingPO = {
-        ...createPurchaseOrderForLocation('location-A', 'supplier-123', 'po-123'),
-        items: [
-          { id: 'item-1', productId: 'product-1', quantity: 10, unitCost: 5.00 },
-          { id: 'item-2', productId: 'product-2', quantity: 5, unitCost: 10.00 },
-        ],
-      };
-
-      const mockProduct1 = { ...createProductForLocation('location-A', 'product-1'), stockQuantity: 100 };
-      const mockProduct2 = { ...createProductForLocation('location-A', 'product-2'), stockQuantity: 50 };
-
-      (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(existingPO);
-      (prisma.product.findFirst as jest.Mock)
-        .mockResolvedValueOnce(mockProduct1)
-        .mockResolvedValueOnce(mockProduct2);
-      (prisma.product.update as jest.Mock).mockResolvedValue({});
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(mockOrder);
       (prisma.purchaseOrder.update as jest.Mock).mockResolvedValue({
-        ...existingPO,
-        status: 'RECEIVED',
+        ...mockOrder,
+        status: 'ORDERED',
+        supplier: {},
       });
-      (prisma.inventoryLog.create as jest.Mock).mockResolvedValue({});
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
+
+      await purchaseOrderController.updateStatus(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(prisma.purchaseOrder.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'po-123' },
+          data: expect.objectContaining({
+            status: 'ORDERED',
+            orderedAt: expect.any(Date),
+          }),
+        })
+      );
+    });
+
+    it('should reject an invalid status', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'po-123' },
+        body: { status: 'BOGUS' },
+      });
+
+      await purchaseOrderController.updateStatus(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Invalid status' })
+      );
+    });
+  });
+
+  describe('receivePurchaseOrder', () => {
+    const orderWithItems = {
+      ...mockOrder,
+      status: 'ORDERED',
+      items: [
+        {
+          id: 'poi-1',
+          productId: 'product-1',
+          sku: 'SKU001',
+          productName: 'Product 1',
+          quantity: 10,
+          cost: 5.0,
+          total: 50.0,
+        },
+      ],
+    };
+
+    it('should update inventory and mark order received', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'po-123' },
+        body: {},
+      });
+
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(orderWithItems);
+      (prisma.product.findUnique as jest.Mock).mockResolvedValue({
+        id: 'product-1',
+        stockQuantity: 5,
+      });
 
       await purchaseOrderController.receivePurchaseOrder(
         mockRequest as AuthRequest,
@@ -436,71 +316,152 @@ describe('Purchase Order Controller - Location Isolation Tests', () => {
         mockNext
       );
 
-      // Verify PO was validated for location
-      expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'po-123',
-          locationId: 'location-A',
-        },
-        include: expect.any(Object),
-      });
-
-      // Verify inventory logs include locationId
-      expect(prisma.inventoryLog.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          productId: 'product-1',
-          type: 'PURCHASE',
-          quantity: 10,
-          userId: mockRequest.user?.id,
-          locationId: 'location-A',
-        }),
-      });
-
-      expect(prisma.inventoryLog.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          productId: 'product-2',
-          type: 'PURCHASE',
-          quantity: 5,
-          userId: mockRequest.user?.id,
-          locationId: 'location-A',
-        }),
-      });
-
-      expectActivityLogHasLocation(prisma.activityLog.create as jest.Mock, 'location-A');
+      // Stock incremented by received quantity (5 + 10)
+      expect(prisma.product.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'product-1' },
+          data: { stockQuantity: 15 },
+        })
+      );
+      expect(prisma.inventoryLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            productId: 'product-1',
+            type: 'PURCHASE',
+            quantity: 10,
+          }),
+        })
+      );
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          message: 'Purchase order received and inventory updated',
+        })
+      );
     });
 
-    it('should block receiving PO from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'po-from-B' },
-        body: {
-          items: [{ productId: 'product-1', receivedQuantity: 10 }],
-        },
+    it('should report variances when received quantity differs', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'po-123' },
+        body: { receivedItems: [{ productId: 'product-1', quantity: 8 }] },
       });
 
-      (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(orderWithItems);
+      (prisma.product.findUnique as jest.Mock).mockResolvedValue({
+        id: 'product-1',
+        stockQuantity: 5,
+      });
 
-      await expect(
-        purchaseOrderController.receivePurchaseOrder(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Purchase order not found');
+      await purchaseOrderController.receivePurchaseOrder(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
 
-      expect(prisma.inventoryLog.create).not.toHaveBeenCalled();
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            variances: [
+              expect.objectContaining({ ordered: 10, received: 8, variance: -2 }),
+            ],
+          }),
+        })
+      );
+    });
+
+    it('should reject receiving an already-received order', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'po-123' }, body: {} });
+
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...orderWithItems,
+        status: 'RECEIVED',
+      });
+
+      await purchaseOrderController.receivePurchaseOrder(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Order has already been received' })
+      );
+    });
+
+    it('should reject receiving a cancelled order', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'po-123' }, body: {} });
+
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...orderWithItems,
+        status: 'CANCELLED',
+      });
+
+      await purchaseOrderController.receivePurchaseOrder(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Cannot receive a cancelled order' })
+      );
     });
   });
 
-  describe('deletePurchaseOrder - Location Validation', () => {
-    it('should allow delete of purchase order in user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'ADMIN', {
+  describe('cancelPurchaseOrder', () => {
+    it('should cancel a pending order', async () => {
+      const mockRequest = createMockAuthRequest({
         params: { id: 'po-123' },
+        body: { reason: 'No longer needed' },
       });
 
-      const existingPO = createPurchaseOrderForLocation('location-A', 'supplier-123', 'po-123');
-      (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(existingPO);
-      (prisma.purchaseOrder.delete as jest.Mock).mockResolvedValue(existingPO);
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(mockOrder);
+      (prisma.purchaseOrder.update as jest.Mock).mockResolvedValue({
+        ...mockOrder,
+        status: 'CANCELLED',
+      });
+
+      await purchaseOrderController.cancelPurchaseOrder(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(prisma.purchaseOrder.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'po-123' },
+          data: expect.objectContaining({ status: 'CANCELLED' }),
+        })
+      );
+    });
+
+    it('should reject cancelling a received order', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'po-123' }, body: {} });
+
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...mockOrder,
+        status: 'RECEIVED',
+      });
+
+      await purchaseOrderController.cancelPurchaseOrder(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Cannot cancel a received order' })
+      );
+    });
+  });
+
+  describe('deletePurchaseOrder', () => {
+    it('should delete a pending order', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'po-123' } });
+
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(mockOrder);
+      (prisma.purchaseOrder.delete as jest.Mock).mockResolvedValue(mockOrder);
 
       await purchaseOrderController.deletePurchaseOrder(
         mockRequest as AuthRequest,
@@ -508,34 +469,46 @@ describe('Purchase Order Controller - Location Isolation Tests', () => {
         mockNext
       );
 
-      expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'po-123',
-          locationId: 'location-A',
-        },
-      });
-
-      expect(prisma.purchaseOrder.delete).toHaveBeenCalledWith({
-        where: { id: 'po-123' },
-      });
+      expect(prisma.purchaseOrder.delete).toHaveBeenCalledWith({ where: { id: 'po-123' } });
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true })
+      );
     });
 
-    it('should block delete of purchase order from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'ADMIN', {
-        params: { id: 'po-from-B' },
+    it('should reject deleting a received order', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'po-123' } });
+
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...mockOrder,
+        status: 'RECEIVED',
       });
 
-      (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(null);
+      await purchaseOrderController.deletePurchaseOrder(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
 
-      await expect(
-        purchaseOrderController.deletePurchaseOrder(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Purchase order not found');
-
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Cannot delete a received order' })
+      );
       expect(prisma.purchaseOrder.delete).not.toHaveBeenCalled();
+    });
+
+    it('should error when order not found', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'nonexistent' } });
+
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await purchaseOrderController.deletePurchaseOrder(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Purchase order not found' })
+      );
     });
   });
 });

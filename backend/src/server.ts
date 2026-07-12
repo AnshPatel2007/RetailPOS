@@ -42,6 +42,7 @@ const generalLimiter = rateLimit({
   message: { success: false, error: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => config.nodeEnv === 'test', // no rate limiting in tests
 });
 
 /**
@@ -54,6 +55,7 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful logins
+  skip: () => config.nodeEnv === 'test', // no rate limiting in tests
 });
 
 /**
@@ -65,6 +67,7 @@ const passwordResetLimiter = rateLimit({
   message: { success: false, error: 'Too many password reset attempts, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => config.nodeEnv === 'test', // no rate limiting in tests
 });
 
 /**
@@ -76,6 +79,7 @@ const financialLimiter = rateLimit({
   message: { success: false, error: 'Too many financial operations, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => config.nodeEnv === 'test', // no rate limiting in tests
 });
 
 app.use('/api/', generalLimiter);
@@ -149,10 +153,13 @@ app.use(errorHandler);
  */
 const PORT = config.port;
 
-app.listen(Number(PORT), '0.0.0.0', () => {
-  logger.info(`Server running on port ${PORT} in ${config.nodeEnv} mode`);
-  logger.info(`API available at http://localhost:${PORT}/api`);
-});
+// Don't bind a port when imported by tests (supertest drives the app directly)
+if (config.nodeEnv !== 'test') {
+  app.listen(Number(PORT), '0.0.0.0', () => {
+    logger.info(`Server running on port ${PORT} in ${config.nodeEnv} mode`);
+    logger.info(`API available at http://localhost:${PORT}/api`);
+  });
+}
 
 /**
  * Handle unhandled promise rejections

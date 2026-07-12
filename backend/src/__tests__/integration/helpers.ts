@@ -15,14 +15,14 @@ import { config } from '../../config';
 /**
  * Create JWT token for testing
  */
-export function createTestToken(userId: string, role: string, locationId: string): string {
+export function createTestToken(userId: string, role: string, _locationId?: string): string {
   return jwt.sign(
     {
       userId,
+      email: `${userId}@test.com`,
       role,
-      locationId,
     },
-    config.jwtSecret,
+    config.jwt.secret,
     { expiresIn: '1h' }
   );
 }
@@ -150,10 +150,10 @@ export const assertResponse = {
   },
 
   /**
-   * Assert validation error
+   * Assert validation error (Zod validate middleware returns 400 with an errors array)
    */
   validationError: (res: request.Response) => {
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
     expect(res.body.error).toBeDefined();
     expect(res.body.errors).toBeDefined();

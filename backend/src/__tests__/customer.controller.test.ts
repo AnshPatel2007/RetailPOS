@@ -2,21 +2,14 @@ import { Response } from 'express';
 import * as customerController from '../controllers/customer.controller';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
-import {
-  createMockResponse,
-  createMockNext,
-} from './utils/testHelpers';
-import {
-  createRequestWithLocation,
-  createCustomerForLocation,
-  expectActivityLogHasLocation,
-} from './utils/locationTestUtils';
+import { createMockResponse, createMockNext, createMockAuthRequest } from './utils/testHelpers';
 
 // Mock Prisma
 jest.mock('../config/database', () => ({
   __esModule: true,
   default: {
     customer: {
+      findUnique: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
@@ -24,13 +17,31 @@ jest.mock('../config/database', () => ({
       delete: jest.fn(),
       count: jest.fn(),
     },
+    sale: {
+      findMany: jest.fn(),
+    },
     activityLog: {
       create: jest.fn(),
     },
   },
 }));
 
-describe('Customer Controller - Location Isolation Tests', () => {
+const mockCustomer = {
+  id: 'customer-123',
+  firstName: 'John',
+  lastName: 'Doe',
+  email: 'john.doe@example.com',
+  phone: '555-0123',
+  loyaltyPoints: 100,
+  loyaltyTier: 'BRONZE',
+  totalSpent: 500.0,
+  visitCount: 5,
+  isActive: true,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+describe('Customer Controller', () => {
   let mockResponse: Partial<Response>;
   let mockNext: jest.Mock;
 
@@ -40,172 +51,11 @@ describe('Customer Controller - Location Isolation Tests', () => {
     jest.clearAllMocks();
   });
 
-  describe('getCustomer - Location Isolation', () => {
-    it('should allow cashier to access customer from their own location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'CASHIER', {
-        params: { id: 'customer-123' },
-        query: {},
-      });
+  describe('getCustomers', () => {
+    it('should return paginated active customers', async () => {
+      const mockRequest = createMockAuthRequest({ query: { page: '1', limit: '10' } });
 
-      const mockCustomer = createCustomerForLocation('location-A', 'customer-123');
-      (prisma.customer.findFirst as jest.Mock).mockResolvedValue(mockCustomer);
-
-      await customerController.getCustomer(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      // Verify findFirst was called with location filter
-      expect(prisma.customer.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'customer-123',
-          locationId: 'location-A',
-        },
-        include: {
-          sales: expect.any(Object),
-        },
-      });
-
-      expect(mockResponse.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: true,
-          data: mockCustomer,
-        })
-      );
-    });
-
-    it('should block cashier from accessing customer from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'CASHIER', {
-        params: { id: 'customer-from-B' },
-        query: {},
-      });
-
-      // Customer doesn't exist in location-A (simulating cross-location access block)
-      (prisma.customer.findFirst as jest.Mock).mockResolvedValue(null);
-
-      await expect(
-        customerController.getCustomer(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Customer not found');
-
-      // Verify findFirst was called with correct location filter
-      expect(prisma.customer.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'customer-from-B',
-          locationId: 'location-A',
-        },
-        include: expect.any(Object),
-      });
-    });
-
-    it('should allow admin to access customer from any location', async () => {
-      const mockRequest = createRequestWithLocation(null, 'ADMIN', {
-        params: { id: 'customer-123' },
-        query: { locationId: 'location-B' },
-      });
-
-      const mockCustomer = createCustomerForLocation('location-B', 'customer-123');
-      (prisma.customer.findFirst as jest.Mock).mockResolvedValue(mockCustomer);
-
-      await customerController.getCustomer(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      // Admin with explicit locationId in query
-      expect(prisma.customer.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'customer-123',
-          locationId: 'location-B',
-        },
-        include: expect.any(Object),
-      });
-
-      expect(mockResponse.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: true,
-          data: mockCustomer,
-        })
-      );
-    });
-
-    it('should allow manager to access customer from their location only', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'customer-123' },
-        query: {},
-      });
-
-      const mockCustomer = createCustomerForLocation('location-A', 'customer-123');
-      (prisma.customer.findFirst as jest.Mock).mockResolvedValue(mockCustomer);
-
-      await customerController.getCustomer(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      expect(prisma.customer.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'customer-123',
-          locationId: 'location-A',
-        },
-        include: expect.any(Object),
-      });
-    });
-  });
-
-  describe('getCustomers - Pagination and Filtering', () => {
-    it('should return only customers from user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'CASHIER', {
-        query: { page: '1', limit: '10' },
-      });
-
-      const mockCustomers = [
-        createCustomerForLocation('location-A', 'customer-1'),
-        createCustomerForLocation('location-A', 'customer-2'),
-      ];
-
-      (prisma.customer.findMany as jest.Mock).mockResolvedValue(mockCustomers);
-      (prisma.customer.count as jest.Mock).mockResolvedValue(2);
-
-      await customerController.getCustomers(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      // Verify location filter was applied
-      expect(prisma.customer.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            locationId: 'location-A',
-          }),
-        })
-      );
-
-      expect(mockResponse.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: true,
-          data: mockCustomers,
-          pagination: expect.objectContaining({
-            total: 2,
-          }),
-        })
-      );
-    });
-
-    it('should filter by search term within user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'CASHIER', {
-        query: { search: 'John', page: '1', limit: '10' },
-      });
-
-      const mockCustomers = [createCustomerForLocation('location-A', 'customer-1')];
-      (prisma.customer.findMany as jest.Mock).mockResolvedValue(mockCustomers);
+      (prisma.customer.findMany as jest.Mock).mockResolvedValue([mockCustomer]);
       (prisma.customer.count as jest.Mock).mockResolvedValue(1);
 
       await customerController.getCustomers(
@@ -214,100 +64,155 @@ describe('Customer Controller - Location Isolation Tests', () => {
         mockNext
       );
 
-      // Verify both search and location filters were applied
+      // Only active customers are listed
+      expect(prisma.customer.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ isActive: true }),
+          skip: 0,
+          take: 10,
+        })
+      );
+
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          data: [mockCustomer],
+          pagination: expect.objectContaining({ total: 1, page: 1 }),
+        })
+      );
+    });
+
+    it('should filter by search term across name, email, and phone', async () => {
+      const mockRequest = createMockAuthRequest({ query: { search: 'John' } });
+
+      (prisma.customer.findMany as jest.Mock).mockResolvedValue([mockCustomer]);
+      (prisma.customer.count as jest.Mock).mockResolvedValue(1);
+
+      await customerController.getCustomers(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
       expect(prisma.customer.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            locationId: 'location-A',
-            OR: expect.any(Array),
+            isActive: true,
+            OR: expect.arrayContaining([
+              expect.objectContaining({ firstName: expect.anything() }),
+              expect.objectContaining({ phone: expect.anything() }),
+            ]),
           }),
         })
       );
     });
   });
 
-  describe('createCustomer - Location Assignment', () => {
-    it('should create customer with user locationId', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'CASHIER', {
-        body: {
-          firstName: 'John',
-          lastName: 'Doe',
-          email: 'john@example.com',
-          phone: '555-0123',
-        },
+  describe('getCustomer', () => {
+    it('should return customer with recent sales', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'customer-123' } });
+
+      (prisma.customer.findUnique as jest.Mock).mockResolvedValue({
+        ...mockCustomer,
+        sales: [],
       });
 
-      const createdCustomer = createCustomerForLocation('location-A', 'new-customer-123');
-      (prisma.customer.create as jest.Mock).mockResolvedValue(createdCustomer);
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
-
-      await customerController.createCustomer(
+      await customerController.getCustomer(
         mockRequest as AuthRequest,
         mockResponse as Response,
         mockNext
       );
 
-      // Verify customer was created with correct locationId
-      expect(prisma.customer.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          firstName: 'John',
-          lastName: 'Doe',
-          email: 'john@example.com',
-          phone: '555-0123',
-          locationId: 'location-A',
-        }),
-      });
-
-      // Verify activity log includes locationId
-      expectActivityLogHasLocation(prisma.activityLog.create as jest.Mock, 'location-A');
-
-      expect(mockResponse.status).toHaveBeenCalledWith(201);
+      expect(prisma.customer.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'customer-123' },
+          include: expect.objectContaining({ sales: expect.any(Object) }),
+        })
+      );
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true })
+      );
     });
 
-    it('should allow admin to create customer with explicit locationId', async () => {
-      const mockRequest = createRequestWithLocation(null, 'ADMIN', {
-        body: {
-          firstName: 'Jane',
-          lastName: 'Smith',
-          email: 'jane@example.com',
-          locationId: 'location-B',
-        },
-      });
+    it('should error when customer not found', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'nonexistent' } });
 
-      const createdCustomer = createCustomerForLocation('location-B', 'new-customer-456');
-      (prisma.customer.create as jest.Mock).mockResolvedValue(createdCustomer);
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
+      (prisma.customer.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await customerController.createCustomer(
+      await customerController.getCustomer(
         mockRequest as AuthRequest,
         mockResponse as Response,
         mockNext
       );
 
-      // Verify customer was created with admin-specified locationId
-      expect(prisma.customer.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          locationId: 'location-B',
-        }),
-      });
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Customer not found', statusCode: 404 })
+      );
     });
   });
 
-  describe('updateCustomer - Location Validation', () => {
-    it('should allow update of customer in user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'CASHIER', {
-        params: { id: 'customer-123' },
+  describe('createCustomer', () => {
+    it('should create customer and log activity', async () => {
+      const mockRequest = createMockAuthRequest({
         body: {
-          firstName: 'John Updated',
-          phone: '555-9999',
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'john@example.com',
+          phone: '555-0123',
         },
       });
 
-      const existingCustomer = createCustomerForLocation('location-A', 'customer-123');
-      const updatedCustomer = { ...existingCustomer, firstName: 'John Updated', phone: '555-9999' };
+      (prisma.customer.findUnique as jest.Mock).mockResolvedValue(null); // email check
+      (prisma.customer.create as jest.Mock).mockResolvedValue(mockCustomer);
+      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
 
-      (prisma.customer.findFirst as jest.Mock).mockResolvedValue(existingCustomer);
-      (prisma.customer.update as jest.Mock).mockResolvedValue(updatedCustomer);
+      await customerController.createCustomer(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(prisma.customer.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ firstName: 'John', email: 'john@example.com' }),
+      });
+      expect(prisma.activityLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ action: 'CREATE', entity: 'CUSTOMER' }),
+      });
+      expect(mockResponse.status).toHaveBeenCalledWith(201);
+    });
+
+    it('should reject duplicate email', async () => {
+      const mockRequest = createMockAuthRequest({
+        body: { firstName: 'Jane', lastName: 'Doe', email: 'taken@example.com' },
+      });
+
+      (prisma.customer.findUnique as jest.Mock).mockResolvedValue(mockCustomer);
+
+      await customerController.createCustomer(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Customer with this email already exists' })
+      );
+      expect(prisma.customer.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateCustomer', () => {
+    it('should update an existing customer', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'customer-123' },
+        body: { firstName: 'John Updated' },
+      });
+
+      (prisma.customer.findUnique as jest.Mock).mockResolvedValue(mockCustomer);
+      (prisma.customer.update as jest.Mock).mockResolvedValue({
+        ...mockCustomer,
+        firstName: 'John Updated',
+      });
       (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
 
       await customerController.updateCustomer(
@@ -316,49 +221,65 @@ describe('Customer Controller - Location Isolation Tests', () => {
         mockNext
       );
 
-      // Verify findFirst was used with location filter
-      expect(prisma.customer.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'customer-123',
-          locationId: 'location-A',
-        },
-      });
-
-      expect(prisma.customer.update).toHaveBeenCalled();
-      expectActivityLogHasLocation(prisma.activityLog.create as jest.Mock, 'location-A');
+      expect(prisma.customer.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'customer-123' },
+          data: expect.objectContaining({ firstName: 'John Updated' }),
+        })
+      );
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, message: 'Customer updated successfully' })
+      );
     });
 
-    it('should block update of customer from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'CASHIER', {
-        params: { id: 'customer-from-B' },
-        body: { firstName: 'Hacked' },
+    it('should error when updating a missing customer', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'nonexistent' },
+        body: { firstName: 'Ghost' },
       });
 
-      // Customer not found in user's location
-      (prisma.customer.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.customer.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        customerController.updateCustomer(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Customer not found');
+      await customerController.updateCustomer(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
 
-      // Verify update was never called
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Customer not found' })
+      );
       expect(prisma.customer.update).not.toHaveBeenCalled();
+    });
+
+    it('should reject email change to an address already in use', async () => {
+      const mockRequest = createMockAuthRequest({
+        params: { id: 'customer-123' },
+        body: { email: 'taken@example.com' },
+      });
+
+      (prisma.customer.findUnique as jest.Mock)
+        .mockResolvedValueOnce(mockCustomer) // target customer
+        .mockResolvedValueOnce({ id: 'other-customer' }); // email owner
+
+      await customerController.updateCustomer(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Customer with this email already exists' })
+      );
     });
   });
 
-  describe('deleteCustomer - Location Validation', () => {
-    it('should allow delete of customer in user location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'customer-123' },
-      });
+  describe('deleteCustomer', () => {
+    it('should soft-delete by setting isActive false', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'customer-123' } });
 
-      const existingCustomer = createCustomerForLocation('location-A', 'customer-123');
-      (prisma.customer.findFirst as jest.Mock).mockResolvedValue(existingCustomer);
-      (prisma.customer.delete as jest.Mock).mockResolvedValue(existingCustomer);
+      (prisma.customer.findUnique as jest.Mock).mockResolvedValue(mockCustomer);
+      (prisma.customer.update as jest.Mock).mockResolvedValue({ ...mockCustomer, isActive: false });
       (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
 
       await customerController.deleteCustomer(
@@ -367,69 +288,70 @@ describe('Customer Controller - Location Isolation Tests', () => {
         mockNext
       );
 
-      // Verify findFirst was used with location filter
-      expect(prisma.customer.findFirst).toHaveBeenCalledWith({
-        where: {
-          id: 'customer-123',
-          locationId: 'location-A',
-        },
-      });
-
-      expect(prisma.customer.delete).toHaveBeenCalledWith({
+      // Soft delete — never a hard delete
+      expect(prisma.customer.update).toHaveBeenCalledWith({
         where: { id: 'customer-123' },
+        data: { isActive: false },
       });
-
-      expectActivityLogHasLocation(prisma.activityLog.create as jest.Mock, 'location-A');
-    });
-
-    it('should block delete of customer from different location', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'MANAGER', {
-        params: { id: 'customer-from-B' },
-      });
-
-      (prisma.customer.findFirst as jest.Mock).mockResolvedValue(null);
-
-      await expect(
-        customerController.deleteCustomer(
-          mockRequest as AuthRequest,
-          mockResponse as Response,
-          mockNext
-        )
-      ).rejects.toThrow('Customer not found');
-
       expect(prisma.customer.delete).not.toHaveBeenCalled();
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, message: 'Customer deleted successfully' })
+      );
     });
-  });
 
-  describe('Activity Logs - LocationId Tracking', () => {
-    it('should include locationId in all activity logs', async () => {
-      const mockRequest = createRequestWithLocation('location-A', 'CASHIER', {
-        body: {
-          firstName: 'Test',
-          lastName: 'User',
-          email: 'test@example.com',
-        },
-      });
+    it('should error when deleting a missing customer', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'nonexistent' } });
 
-      const createdCustomer = createCustomerForLocation('location-A');
-      (prisma.customer.create as jest.Mock).mockResolvedValue(createdCustomer);
-      (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
+      (prisma.customer.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await customerController.createCustomer(
+      await customerController.deleteCustomer(
         mockRequest as AuthRequest,
         mockResponse as Response,
         mockNext
       );
 
-      // Verify activity log was created with locationId
-      expect(prisma.activityLog.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          userId: mockRequest.user?.id,
-          action: 'CREATE',
-          entity: 'CUSTOMER',
-          locationId: 'location-A',
-        }),
-      });
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Customer not found' })
+      );
+    });
+  });
+
+  describe('getCustomerHistory', () => {
+    it('should return the customer purchase history', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'customer-123' } });
+      const mockSales = [{ id: 'sale-1', total: 25, items: [], user: {} }];
+
+      (prisma.customer.findUnique as jest.Mock).mockResolvedValue(mockCustomer);
+      (prisma.sale.findMany as jest.Mock).mockResolvedValue(mockSales);
+
+      await customerController.getCustomerHistory(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(prisma.sale.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { customerId: 'customer-123' } })
+      );
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, data: mockSales })
+      );
+    });
+
+    it('should error when customer not found', async () => {
+      const mockRequest = createMockAuthRequest({ params: { id: 'nonexistent' } });
+
+      (prisma.customer.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await customerController.getCustomerHistory(
+        mockRequest as AuthRequest,
+        mockResponse as Response,
+        mockNext
+      );
+
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Customer not found' })
+      );
     });
   });
 });

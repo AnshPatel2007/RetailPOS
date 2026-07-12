@@ -17,7 +17,11 @@ jest.mock('../config/database', () => ({
     inventoryLog: {
       create: jest.fn(),
     },
+    activityLog: {
+      create: jest.fn(),
+    },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
   },
 }));
 
@@ -175,13 +179,14 @@ describe('Product Controller', () => {
 
       (prisma.product.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        productController.getProduct(
+      await productController.getProduct(
           mockRequest as AuthRequest,
           mockResponse as Response,
           mockNext
-        )
-      ).rejects.toThrow('Product not found');
+        );
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Product not found' })
+      );
     });
   });
 
@@ -294,7 +299,8 @@ describe('Product Controller', () => {
         },
       ];
 
-      (prisma.product.findMany as jest.Mock).mockResolvedValue(lowStockProducts);
+      // getLowStockProducts uses raw SQL (field-to-field comparison)
+      (prisma.$queryRaw as jest.Mock).mockResolvedValue(lowStockProducts);
 
       await productController.getLowStockProducts(
         mockRequest as AuthRequest,

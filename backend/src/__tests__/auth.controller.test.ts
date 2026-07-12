@@ -133,13 +133,14 @@ describe('Auth Controller', () => {
 
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        authController.login(
+      await authController.login(
           mockRequest as Request,
           mockResponse as Response,
           mockNext
-        )
-      ).rejects.toThrow('Invalid credentials');
+        );
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Invalid credentials' })
+      );
     });
 
     it('should return error for invalid password', async () => {
@@ -151,13 +152,14 @@ describe('Auth Controller', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
-      await expect(
-        authController.login(
+      await authController.login(
           mockRequest as Request,
           mockResponse as Response,
           mockNext
-        )
-      ).rejects.toThrow('Invalid credentials');
+        );
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Invalid credentials' })
+      );
     });
 
     it('should return error for inactive user', async () => {
@@ -171,13 +173,14 @@ describe('Auth Controller', () => {
         isActive: false,
       });
 
-      await expect(
-        authController.login(
+      await authController.login(
           mockRequest as Request,
           mockResponse as Response,
           mockNext
-        )
-      ).rejects.toThrow('Invalid credentials');
+        );
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Invalid credentials' })
+      );
     });
 
     it('should return error for locked account', async () => {
@@ -193,13 +196,14 @@ describe('Auth Controller', () => {
 
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(lockedUser);
 
-      await expect(
-        authController.login(
+      await authController.login(
           mockRequest as Request,
           mockResponse as Response,
           mockNext
-        )
-      ).rejects.toThrow(/Account is temporarily locked/);
+        );
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringMatching(/Account is temporarily locked/) })
+      );
     });
 
     it('should require 2FA code when 2FA is enabled', async () => {
@@ -275,13 +279,14 @@ describe('Auth Controller', () => {
         user: undefined,
       } as AuthRequest;
 
-      await expect(
-        authController.getCurrentUser(
+      await authController.getCurrentUser(
           authRequest,
           mockResponse as Response,
           mockNext
-        )
-      ).rejects.toThrow('User not authenticated');
+        );
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'User not authenticated' })
+      );
     });
   });
 
@@ -331,13 +336,14 @@ describe('Auth Controller', () => {
 
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: '123' });
 
-      await expect(
-        authController.register(
+      await authController.register(
           mockRequest as Request,
           mockResponse as Response,
           mockNext
-        )
-      ).rejects.toThrow('User with this email already exists');
+        );
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'User with this email already exists' })
+      );
     });
 
     it('should validate password strength', async () => {
@@ -350,13 +356,14 @@ describe('Auth Controller', () => {
 
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        authController.register(
+      await authController.register(
           mockRequest as Request,
           mockResponse as Response,
           mockNext
-        )
-      ).rejects.toThrow('Password must be at least 8 characters long');
+        );
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Password must be at least 8 characters long' })
+      );
     });
   });
 
@@ -515,13 +522,14 @@ describe('Auth Controller', () => {
       });
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
-      await expect(
-        authController.changePassword(
+      await authController.changePassword(
           authRequest,
           mockResponse as Response,
           mockNext
-        )
-      ).rejects.toThrow('Current password is incorrect');
+        );
+      expect(mockNext).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Current password is incorrect' })
+      );
     });
   });
 });

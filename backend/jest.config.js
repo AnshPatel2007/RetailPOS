@@ -3,8 +3,9 @@ module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   roots: ['<rootDir>/src'],
+  // Only *.test.ts / *.spec.ts are suites; helper and setup files in
+  // __tests__ must not be collected as test suites
   testMatch: [
-    '**/__tests__/**/*.ts',
     '**/*.test.ts',
     '**/*.spec.ts'
   ],
@@ -30,6 +31,8 @@ module.exports = {
   },
   setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
   testTimeout: 30000,
+  // Integration suites truncate the shared test database — must run serially
+  maxWorkers: 1,
   verbose: true,
   forceExit: true,
   clearMocks: true,

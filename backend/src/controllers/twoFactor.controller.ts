@@ -1,13 +1,23 @@
 import { Response } from 'express';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
-import cryptoRandomString from 'crypto-random-string';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+
+/**
+ * Cryptographically random 8-char alphanumeric backup code
+ * (replaces the ESM-only crypto-random-string dependency)
+ */
+const generateBackupCode = (): string => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const bytes = crypto.randomBytes(8);
+  return Array.from(bytes, (b) => chars[b % chars.length]).join('');
+};
 import { send2FAEnabledEmail } from '../utils/email';
 
 /**
@@ -118,9 +128,7 @@ export const verify2FA = asyncHandler(async (req: AuthRequest, res: Response) =>
   }
 
   // Generate backup codes
-  const backupCodes = Array.from({ length: 10 }, () =>
-    cryptoRandomString({ length: 8, type: 'alphanumeric' }).toUpperCase()
-  );
+  const backupCodes = Array.from({ length: 10 }, () => generateBackupCode());
 
   // Hash backup codes for storage
   const hashedBackupCodes = await Promise.all(
@@ -301,9 +309,7 @@ export const regenerateBackupCodes = asyncHandler(async (req: AuthRequest, res: 
   }
 
   // Generate new backup codes
-  const backupCodes = Array.from({ length: 10 }, () =>
-    cryptoRandomString({ length: 8, type: 'alphanumeric' }).toUpperCase()
-  );
+  const backupCodes = Array.from({ length: 10 }, () => generateBackupCode());
 
   // Hash backup codes for storage
   const hashedBackupCodes = await Promise.all(

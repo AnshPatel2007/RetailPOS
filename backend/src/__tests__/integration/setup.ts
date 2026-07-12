@@ -2,61 +2,40 @@
  * Integration Test Setup
  *
  * Sets up the test environment for integration tests with:
- * - Real database connection
+ * - Real database connection (MUST be a dedicated test database)
  * - Database cleanup between tests
  * - Test data seeding
- * - Authentication helpers
  */
 
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { resolveDatabaseUrl } from '../../config/database';
 
+// Same resolution as the app under test: DATABASE_URL_TEST, or the dev URL
+// with a "_test" suffix on the database name (jest sets NODE_ENV=test)
 export const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.DATABASE_URL_TEST || process.env.DATABASE_URL,
+      url: resolveDatabaseUrl(),
     },
   },
 });
 
 /**
- * Clean database - removes all data from tables
- * Order matters due to foreign key constraints
+ * Clean database — truncates every table in the public schema except the
+ * Prisma migrations table. Discovering tables dynamically keeps this in
+ * sync with the schema automatically.
  */
 export async function cleanDatabase(): Promise<void> {
-  const tablenames = [
-    'ActivityLog',
-    'SaleItem',
-    'Sale',
-    'LayawayPayment',
-    'Layaway',
-    'PurchaseOrderItem',
-    'PurchaseOrder',
-    'Product',
-    'Category',
-    'Supplier',
-    'Customer',
-    'Shift',
-    'User',
-    'Location',
-    'TaxRate',
-    'DiscountRule',
-  ];
+  const tables = await prisma.$queryRaw<{ tablename: string }[]>`
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public' AND tablename != '_prisma_migrations'
+  `;
 
-  try {
-    // Delete in order to avoid foreign key constraint violations
-    for (const tablename of tablenames) {
-      try {
-        await prisma.$executeRawUnsafe(`TRUNCATE TABLE "${tablename}" CASCADE;`);
-      } catch (error) {
-        // Table might not exist or already be empty
-        console.warn(`Could not truncate ${tablename}:`, error);
-      }
-    }
-  } catch (error) {
-    console.error('Error cleaning database:', error);
-    throw error;
-  }
+  if (tables.length === 0) return;
+
+  const tableList = tables.map((t) => `"${t.tablename}"`).join(', ');
+  await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE;`);
 }
 
 /**
@@ -70,6 +49,7 @@ export interface TestData {
   supplier: any;
   customer: any;
   product: any;
+  taxRate: any;
 }
 
 export async function seedTestData(): Promise<TestData> {
@@ -84,7 +64,6 @@ export async function seedTestData(): Promise<TestData> {
       zipCode: '12345',
       phone: '555-0001',
       email: 'test@store.com',
-      timezone: 'America/New_York',
       isActive: true,
     },
   });
@@ -124,7 +103,6 @@ export async function seedTestData(): Promise<TestData> {
       id: 'test-category-1',
       name: 'Test Category',
       description: 'Category for testing',
-      locationId: location.id,
     },
   });
 
@@ -136,22 +114,16 @@ export async function seedTestData(): Promise<TestData> {
       email: 'supplier@test.com',
       phone: '555-0002',
       address: '456 Supplier St',
-      city: 'Supplier City',
-      state: 'SS',
-      zipCode: '54321',
-      locationId: location.id,
     },
   });
 
-  // Create customer
+  // Create customer (auto-generated UUID — the sale API validates customerId as uuid)
   const customer = await prisma.customer.create({
     data: {
-      id: 'test-customer-1',
       email: 'customer@test.com',
       firstName: 'Test',
       lastName: 'Customer',
       phone: '555-0003',
-      locationId: location.id,
     },
   });
 
@@ -163,11 +135,20 @@ export async function seedTestData(): Promise<TestData> {
       sku: 'TEST-SKU-001',
       barcode: '1234567890',
       price: 19.99,
-      cost: 10.00,
-      quantity: 100,
+      cost: 10.0,
+      stockQuantity: 100,
       categoryId: category.id,
-      supplierId: supplier.id,
       locationId: location.id,
+      isActive: true,
+    },
+  });
+
+  // Default tax rate (sales tax math depends on it)
+  const taxRate = await prisma.taxRate.create({
+    data: {
+      name: 'Test Tax',
+      rate: 10,
+      isDefault: true,
       isActive: true,
     },
   });
@@ -180,6 +161,7 @@ export async function seedTestData(): Promise<TestData> {
     supplier,
     customer,
     product,
+    taxRate,
   };
 }
 
@@ -194,8 +176,9 @@ export async function disconnectDatabase(): Promise<void> {
  * Global test setup
  */
 beforeAll(async () => {
-  // Ensure we're using test database
-  if (!process.env.DATABASE_URL_TEST && !process.env.DATABASE_URL?.includes('test')) {
+  // Ensure we're using test database — these tests TRUNCATE every table
+  const url = resolveDatabaseUrl() || '';
+  if (!url.includes('test')) {
     throw new Error(
       'Integration tests must use a test database! Set DATABASE_URL_TEST environment variable.'
     );

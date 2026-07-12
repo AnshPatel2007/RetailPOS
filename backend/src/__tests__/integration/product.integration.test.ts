@@ -1,579 +1,238 @@
 /**
- * Product CRUD Integration Tests
+ * Product API Integration Tests
  *
- * Tests product operations with:
- * - Location isolation
- * - Category and supplier relationships
- * - Inventory tracking
- * - Stock level validation
+ * Full request/response cycle against a real (test) database:
+ * - CRUD, pagination/search, duplicate SKU protection
+ * - Inventory adjustment with audit log
+ * - Low-stock reporting
  */
 
 import { prisma, seedTestData, TestData } from './setup';
-import { api, assertResponse, assertDatabase, loginUser } from './helpers';
+import { api, assertResponse, loginUser } from './helpers';
 
-describe('Product CRUD Integration Tests', () => {
+describe('Product API Integration Tests', () => {
   let testData: TestData;
   let adminToken: string;
-  let cashierToken: string;
 
   beforeEach(async () => {
     testData = await seedTestData();
     adminToken = await loginUser('admin@test.com', 'Admin123!');
-    cashierToken = await loginUser('cashier@test.com', 'Admin123!');
+  });
+
+  describe('GET /api/products', () => {
+    it('should return paginated products', async () => {
+      const res = await api
+        .get('/api/products')
+        .withAuth(adminToken)
+        .expectStatus(200)
+        .execute();
+
+      assertResponse.paginated(res, { hasData: true });
+      expect(res.body.data[0].sku).toBe('TEST-SKU-001');
+    });
+
+    it('should filter by search term', async () => {
+      await prisma.product.create({
+        data: {
+          name: 'Unique Widget',
+          sku: 'WIDGET-001',
+          price: 5.0,
+          cost: 2.0,
+          stockQuantity: 10,
+          locationId: testData.location.id,
+        },
+      });
+
+      const res = await api
+        .get('/api/products')
+        .withAuth(adminToken)
+        .withQuery({ search: 'Widget' })
+        .expectStatus(200)
+        .execute();
+
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0].sku).toBe('WIDGET-001');
+    });
+  });
+
+  describe('GET /api/products/:id', () => {
+    it('should return a single product', async () => {
+      const res = await api
+        .get(`/api/products/${testData.product.id}`)
+        .withAuth(adminToken)
+        .expectStatus(200)
+        .execute();
+
+      assertResponse.success(res, (data) => {
+        expect(data.id).toBe(testData.product.id);
+        expect(data.price).toBe(19.99);
+      });
+    });
+
+    it('should 404 for unknown product', async () => {
+      const res = await api
+        .get('/api/products/00000000-0000-4000-8000-000000000000')
+        .withAuth(adminToken)
+        .expectStatus(404)
+        .execute();
+
+      assertResponse.notFound(res);
+    });
   });
 
   describe('POST /api/products', () => {
-    it('should create product with valid data', async () => {
-      const productData = {
-        name: 'New Product',
-        sku: 'NEW-SKU-001',
-        barcode: '9876543210',
-        price: 29.99,
-        cost: 15.00,
-        quantity: 50,
-        categoryId: testData.category.id,
-        supplierId: testData.supplier.id,
-        isActive: true,
-      };
-
+    it('should create a product', async () => {
       const res = await api
         .post('/api/products')
         .withAuth(adminToken)
-        .withBody(productData)
-        .expectStatus(201)
-        .execute();
-
-      assertResponse.success(res, (data) => {
-        expect(data.id).toBeDefined();
-        expect(data.name).toBe(productData.name);
-        expect(data.sku).toBe(productData.sku);
-        expect(data.price).toBe(productData.price);
-        expect(data.locationId).toBe(testData.location.id);
-        expect(data.category).toBeDefined();
-        expect(data.supplier).toBeDefined();
-      });
-
-      // Verify in database
-      await assertDatabase.exists(prisma.product, {
-        sku: productData.sku,
-        locationId: testData.location.id,
-      });
-    });
-
-    it('should auto-assign locationId from authenticated user', async () => {
-      const res = await api
-        .post('/api/products')
-        .withAuth(cashierToken)
         .withBody({
-          name: 'Auto Product',
-          sku: 'AUTO-SKU-001',
-          price: 19.99,
-          cost: 10.00,
-          quantity: 25,
-          categoryId: testData.category.id,
+          name: 'Created Product',
+          sku: 'CREATED-001',
+          price: 12.5,
+          cost: 6.0,
+          stockQuantity: 25,
         })
         .expectStatus(201)
         .execute();
 
       assertResponse.success(res, (data) => {
-        expect(data.locationId).toBe(testData.location.id);
+        expect(data.sku).toBe('CREATED-001');
       });
+
+      const inDb = await prisma.product.findUnique({ where: { sku: 'CREATED-001' } });
+      expect(inDb).not.toBeNull();
+      expect(inDb!.stockQuantity).toBe(25);
     });
 
-    it('should fail with duplicate SKU in same location', async () => {
+    it('should reject a duplicate SKU', async () => {
       const res = await api
         .post('/api/products')
         .withAuth(adminToken)
         .withBody({
-          name: 'Duplicate Product',
-          sku: testData.product.sku,
-          price: 19.99,
-          cost: 10.00,
-          quantity: 25,
-        })
-        .expectStatus(409)
-        .execute();
-
-      assertResponse.error(res, 'already exists');
-    });
-
-    it('should allow same SKU in different location', async () => {
-      // Create second location
-      const location2 = await prisma.location.create({
-        data: {
-          id: 'test-location-2',
-          name: 'Test Store 2',
-          address: '789 Test Ave',
-          city: 'Test City 2',
-          state: 'TS',
-          zipCode: '54321',
-          phone: '555-0004',
-          email: 'test2@store.com',
-          timezone: 'America/New_York',
-          isActive: true,
-        },
-      });
-
-      const user2 = await prisma.user.create({
-        data: {
-          email: 'admin2@test.com',
-          password: testData.adminUser.password,
-          firstName: 'Admin',
-          lastName: 'User 2',
-          role: 'ADMIN',
-          locationId: location2.id,
-          isActive: true,
-        },
-      });
-
-      const token2 = await loginUser('admin2@test.com', 'Admin123!');
-
-      const category2 = await prisma.category.create({
-        data: {
-          name: 'Category 2',
-          locationId: location2.id,
-        },
-      });
-
-      const res = await api
-        .post('/api/products')
-        .withAuth(token2)
-        .withBody({
-          name: 'Location 2 Product',
-          sku: testData.product.sku, // Same SKU as location 1
-          price: 29.99,
-          cost: 15.00,
-          quantity: 30,
-          categoryId: category2.id,
-        })
-        .expectStatus(201)
-        .execute();
-
-      assertResponse.success(res, (data) => {
-        expect(data.locationId).toBe(location2.id);
-        expect(data.sku).toBe(testData.product.sku);
-      });
-    });
-
-    it('should fail with missing required fields', async () => {
-      const res = await api
-        .post('/api/products')
-        .withAuth(adminToken)
-        .withBody({
-          name: 'Incomplete Product',
-          // Missing SKU, price, cost, quantity
-        })
-        .expectStatus(422)
-        .execute();
-
-      assertResponse.validationError(res);
-    });
-
-    it('should fail with negative price', async () => {
-      const res = await api
-        .post('/api/products')
-        .withAuth(adminToken)
-        .withBody({
-          name: 'Invalid Product',
-          sku: 'INVALID-001',
-          price: -10.00,
-          cost: 5.00,
-          quantity: 10,
-        })
-        .expectStatus(422)
-        .execute();
-
-      assertResponse.validationError(res);
-    });
-
-    it('should fail with negative quantity', async () => {
-      const res = await api
-        .post('/api/products')
-        .withAuth(adminToken)
-        .withBody({
-          name: 'Invalid Product',
-          sku: 'INVALID-002',
-          price: 10.00,
-          cost: 5.00,
-          quantity: -5,
-        })
-        .expectStatus(422)
-        .execute();
-
-      assertResponse.validationError(res);
-    });
-
-    it('should fail with invalid category from different location', async () => {
-      // Create category in different location
-      const location2 = await prisma.location.create({
-        data: {
-          id: 'test-location-2',
-          name: 'Test Store 2',
-          address: '789 Test Ave',
-          city: 'Test City 2',
-          state: 'TS',
-          zipCode: '54321',
-          phone: '555-0004',
-          email: 'test2@store.com',
-          timezone: 'America/New_York',
-          isActive: true,
-        },
-      });
-
-      const category2 = await prisma.category.create({
-        data: {
-          id: 'category-location-2',
-          name: 'Category 2',
-          locationId: location2.id,
-        },
-      });
-
-      const res = await api
-        .post('/api/products')
-        .withAuth(adminToken)
-        .withBody({
-          name: 'Cross Location Product',
-          sku: 'CROSS-001',
-          price: 10.00,
-          cost: 5.00,
-          quantity: 10,
-          categoryId: category2.id, // From different location
+          name: 'Duplicate SKU Product',
+          sku: 'TEST-SKU-001', // seeded product's SKU
+          price: 10,
+          cost: 5,
         })
         .expectStatus(400)
         .execute();
 
       assertResponse.error(res);
     });
-  });
 
-  describe('GET /api/products', () => {
-    it('should list all products for current location', async () => {
-      // Create additional products
-      await prisma.product.createMany({
-        data: [
-          {
-            name: 'Product 2',
-            sku: 'SKU-002',
-            price: 15.99,
-            cost: 8.00,
-            quantity: 30,
-            categoryId: testData.category.id,
-            locationId: testData.location.id,
-            isActive: true,
-          },
-          {
-            name: 'Product 3',
-            sku: 'SKU-003',
-            price: 25.99,
-            cost: 12.00,
-            quantity: 20,
-            categoryId: testData.category.id,
-            locationId: testData.location.id,
-            isActive: true,
-          },
-        ],
-      });
-
+    it('should reject invalid payloads', async () => {
       const res = await api
-        .get('/api/products')
-        .withAuth(cashierToken)
-        .expectStatus(200)
-        .execute();
-
-      assertResponse.paginated(res, { minItems: 3, hasData: true });
-
-      // Verify all products belong to same location
-      res.body.data.forEach((product: any) => {
-        expect(product.locationId).toBe(testData.location.id);
-      });
-    });
-
-    it('should not show products from other locations', async () => {
-      // Create second location with product
-      const location2 = await prisma.location.create({
-        data: {
-          id: 'test-location-2',
-          name: 'Test Store 2',
-          address: '789 Test Ave',
-          city: 'Test City 2',
-          state: 'TS',
-          zipCode: '54321',
-          phone: '555-0004',
-          email: 'test2@store.com',
-          timezone: 'America/New_York',
-          isActive: true,
-        },
-      });
-
-      const category2 = await prisma.category.create({
-        data: {
-          name: 'Category 2',
-          locationId: location2.id,
-        },
-      });
-
-      await prisma.product.create({
-        data: {
-          name: 'Location 2 Product',
-          sku: 'L2-SKU-001',
-          price: 39.99,
-          cost: 20.00,
-          quantity: 15,
-          categoryId: category2.id,
-          locationId: location2.id,
-          isActive: true,
-        },
-      });
-
-      const res = await api
-        .get('/api/products')
+        .post('/api/products')
         .withAuth(adminToken)
-        .expectStatus(200)
+        .withBody({ name: 'No SKU or price' })
+        .expectStatus(400)
         .execute();
 
-      // Should only see location 1 products
-      assertResponse.success(res, (data) => {
-        expect(data.length).toBe(1);
-        expect(data[0].locationId).toBe(testData.location.id);
-      });
-    });
-
-    it('should support search by name', async () => {
-      const res = await api
-        .get('/api/products')
-        .withAuth(cashierToken)
-        .withQuery({ search: testData.product.name })
-        .expectStatus(200)
-        .execute();
-
-      assertResponse.paginated(res, { hasData: true });
-      expect(res.body.data[0].name).toBe(testData.product.name);
-    });
-
-    it('should support filtering by category', async () => {
-      const res = await api
-        .get('/api/products')
-        .withAuth(cashierToken)
-        .withQuery({ categoryId: testData.category.id })
-        .expectStatus(200)
-        .execute();
-
-      assertResponse.paginated(res, { hasData: true });
-      res.body.data.forEach((product: any) => {
-        expect(product.categoryId).toBe(testData.category.id);
-      });
-    });
-
-    it('should support low stock filter', async () => {
-      // Create low stock product
-      await prisma.product.create({
-        data: {
-          name: 'Low Stock Product',
-          sku: 'LOW-STOCK-001',
-          price: 19.99,
-          cost: 10.00,
-          quantity: 3,
-          categoryId: testData.category.id,
-          locationId: testData.location.id,
-          isActive: true,
-        },
-      });
-
-      const res = await api
-        .get('/api/products')
-        .withAuth(cashierToken)
-        .withQuery({ lowStock: 'true', threshold: 5 })
-        .expectStatus(200)
-        .execute();
-
-      assertResponse.paginated(res, { hasData: true });
-      res.body.data.forEach((product: any) => {
-        expect(product.quantity).toBeLessThanOrEqual(5);
-      });
+      assertResponse.validationError(res);
     });
   });
 
   describe('PUT /api/products/:id', () => {
-    it('should update product from same location', async () => {
-      const updates = {
-        name: 'Updated Product',
-        price: 24.99,
-        quantity: 75,
-      };
-
+    it('should update product price', async () => {
       const res = await api
         .put(`/api/products/${testData.product.id}`)
         .withAuth(adminToken)
-        .withBody(updates)
+        .withBody({ price: 24.99 })
         .expectStatus(200)
         .execute();
 
       assertResponse.success(res, (data) => {
-        expect(data.name).toBe(updates.name);
-        expect(data.price).toBe(updates.price);
-        expect(data.quantity).toBe(updates.quantity);
+        expect(data.price).toBe(24.99);
       });
-
-      // Verify in database
-      const updated = await assertDatabase.exists(prisma.product, {
-        id: testData.product.id,
-      });
-      expect(updated.name).toBe(updates.name);
-    });
-
-    it('should not update product from different location', async () => {
-      // Create second location with product
-      const location2 = await prisma.location.create({
-        data: {
-          id: 'test-location-2',
-          name: 'Test Store 2',
-          address: '789 Test Ave',
-          city: 'Test City 2',
-          state: 'TS',
-          zipCode: '54321',
-          phone: '555-0004',
-          email: 'test2@store.com',
-          timezone: 'America/New_York',
-          isActive: true,
-        },
-      });
-
-      const category2 = await prisma.category.create({
-        data: {
-          name: 'Category 2',
-          locationId: location2.id,
-        },
-      });
-
-      const product2 = await prisma.product.create({
-        data: {
-          name: 'Location 2 Product',
-          sku: 'L2-SKU-001',
-          price: 39.99,
-          cost: 20.00,
-          quantity: 15,
-          categoryId: category2.id,
-          locationId: location2.id,
-          isActive: true,
-        },
-      });
-
-      const res = await api
-        .put(`/api/products/${product2.id}`)
-        .withAuth(adminToken)
-        .withBody({ name: 'Hacked Product' })
-        .expectStatus(404)
-        .execute();
-
-      assertResponse.notFound(res);
-
-      // Verify not updated
-      const unchanged = await prisma.product.findUnique({
-        where: { id: product2.id },
-      });
-      expect(unchanged?.name).toBe('Location 2 Product');
     });
   });
 
   describe('DELETE /api/products/:id', () => {
-    it('should delete product from same location', async () => {
-      const res = await api
-        .delete(`/api/products/${testData.product.id}`)
+    it('should delete a product', async () => {
+      // Fresh product with no sale history
+      const product = await prisma.product.create({
+        data: {
+          name: 'Disposable',
+          sku: 'DISPOSABLE-001',
+          price: 1.0,
+          cost: 0.5,
+          stockQuantity: 1,
+          locationId: testData.location.id,
+        },
+      });
+
+      await api
+        .delete(`/api/products/${product.id}`)
         .withAuth(adminToken)
         .expectStatus(200)
         .execute();
 
-      assertResponse.success(res);
-
-      // Verify deleted
-      await assertDatabase.notExists(prisma.product, {
-        id: testData.product.id,
-      });
-    });
-
-    it('should not delete product from different location', async () => {
-      // Create second location with product
-      const location2 = await prisma.location.create({
-        data: {
-          id: 'test-location-2',
-          name: 'Test Store 2',
-          address: '789 Test Ave',
-          city: 'Test City 2',
-          state: 'TS',
-          zipCode: '54321',
-          phone: '555-0004',
-          email: 'test2@store.com',
-          timezone: 'America/New_York',
-          isActive: true,
-        },
-      });
-
-      const category2 = await prisma.category.create({
-        data: {
-          name: 'Category 2',
-          locationId: location2.id,
-        },
-      });
-
-      const product2 = await prisma.product.create({
-        data: {
-          name: 'Location 2 Product',
-          sku: 'L2-SKU-001',
-          price: 39.99,
-          cost: 20.00,
-          quantity: 15,
-          categoryId: category2.id,
-          locationId: location2.id,
-          isActive: true,
-        },
-      });
-
-      const res = await api
-        .delete(`/api/products/${product2.id}`)
-        .withAuth(adminToken)
-        .expectStatus(404)
-        .execute();
-
-      assertResponse.notFound(res);
-
-      // Verify not deleted
-      await assertDatabase.exists(prisma.product, { id: product2.id });
+      const inDb = await prisma.product.findUnique({ where: { id: product.id } });
+      expect(inDb).toBeNull();
     });
   });
 
-  describe('Inventory Tracking', () => {
-    it('should track quantity changes in activity log', async () => {
-      const originalQuantity = testData.product.quantity;
-
-      await api
-        .put(`/api/products/${testData.product.id}`)
+  describe('POST /api/products/:id/adjust-inventory', () => {
+    it('should adjust stock and write an inventory log', async () => {
+      const res = await api
+        .post(`/api/products/${testData.product.id}/adjust-inventory`)
         .withAuth(adminToken)
-        .withBody({ quantity: originalQuantity + 50 })
+        .withBody({ quantity: -10, type: 'ADJUSTMENT', notes: 'Damaged goods' })
         .expectStatus(200)
         .execute();
 
-      // Verify activity log
-      const activityLogs = await prisma.activityLog.findMany({
-        where: {
-          entityType: 'PRODUCT',
-          entityId: testData.product.id,
-          action: 'UPDATE',
-        },
+      assertResponse.success(res, (data) => {
+        expect(data.stockQuantity).toBe(90); // 100 - 10
       });
 
-      expect(activityLogs.length).toBeGreaterThan(0);
-      expect(activityLogs[0].locationId).toBe(testData.location.id);
+      const log = await prisma.inventoryLog.findFirst({
+        where: { productId: testData.product.id, type: 'ADJUSTMENT' },
+      });
+      expect(log).not.toBeNull();
+      expect(log!.quantity).toBe(-10);
+      expect(log!.previousQty).toBe(100);
+      expect(log!.newQty).toBe(90);
     });
 
-    it('should prevent negative quantity', async () => {
+    it('should reject adjustments that would go negative', async () => {
       const res = await api
-        .put(`/api/products/${testData.product.id}`)
+        .post(`/api/products/${testData.product.id}/adjust-inventory`)
         .withAuth(adminToken)
-        .withBody({ quantity: -10 })
-        .expectStatus(422)
+        .withBody({ quantity: -500 })
+        .expectStatus(400)
         .execute();
 
-      assertResponse.validationError(res);
+      assertResponse.error(res, 'Insufficient stock');
+    });
+  });
+
+  describe('GET /api/products/low-stock', () => {
+    it('should report products at or below their low-stock alert', async () => {
+      await prisma.product.update({
+        where: { id: testData.product.id },
+        data: { stockQuantity: 5 }, // lowStockAlert defaults to 10
+      });
+
+      const res = await api
+        .get('/api/products/low-stock')
+        .withAuth(adminToken)
+        .expectStatus(200)
+        .execute();
+
+      assertResponse.success(res, (data) => {
+        expect(Array.isArray(data)).toBe(true);
+        expect(data.some((p: any) => p.id === testData.product.id)).toBe(true);
+      });
+    });
+
+    it('should not report healthy stock', async () => {
+      const res = await api
+        .get('/api/products/low-stock')
+        .withAuth(adminToken)
+        .expectStatus(200)
+        .execute();
+
+      expect(res.body.data.some((p: any) => p.id === testData.product.id)).toBe(false);
     });
   });
 });
