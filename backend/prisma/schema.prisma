@@ -318,6 +318,7 @@ model SaleItem {
   updatedAt   DateTime @updatedAt
   product     Product  @relation(fields: [productId], references: [id])
   sale        Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  refundItems RefundItem[]
 
   @@index([saleId])
   @@index([productId])
@@ -338,17 +339,36 @@ model SalePayment {
 }
 
 model Refund {
-  id         String   @id @default(uuid())
+  id         String       @id @default(uuid())
   saleId     String
   amount     Float
   reason     String
   notes      String?
   refundedBy String
-  createdAt  DateTime @default(now())
-  sale       Sale     @relation(fields: [saleId], references: [id])
+  method     String?      // CASH, CARD, GIFT_CARD, STORE_CREDIT — where the money went back to
+  reference  String?      // gift card code when method = GIFT_CARD
+  createdAt  DateTime     @default(now())
+  sale       Sale         @relation(fields: [saleId], references: [id])
+  items      RefundItem[]
 
   @@index([saleId])
   @@map("refunds")
+}
+
+model RefundItem {
+  id         String   @id @default(uuid())
+  refundId   String
+  saleItemId String
+  quantity   Int
+  amount     Float // portion of the refund attributable to this line
+  restocked  Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  refund     Refund   @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  saleItem   SaleItem @relation(fields: [saleItemId], references: [id])
+
+  @@index([refundId])
+  @@index([saleItemId])
+  @@map("refund_items")
 }
 
 model Customer {

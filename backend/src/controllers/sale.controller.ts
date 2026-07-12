@@ -117,14 +117,39 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     }
   }
 
-  // Generate sale number
-  const saleNumber = await generateSaleNumber();
-
   // Track products that drop below low-stock threshold
   const lowStockProducts: { name: string; sku: string; stock: number; threshold: number }[] = [];
 
+  // Price overrides are only honored for manager+ roles (UI hides the control for
+  // cashiers, but the API must enforce it too)
+  const canOverridePrice = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(req.user.role);
+
+  // Split payments must add up to the amount paid
+  if (payments && payments.length > 0) {
+    const paymentsSum = Math.round(payments.reduce((sum: number, p: { amount: number }) => sum + p.amount, 0) * 100) / 100;
+    if (Math.abs(paymentsSum - amountPaid) > 0.01) {
+      throw new AppError(
+        `Split payments sum to $${paymentsSum.toFixed(2)} but amount paid is $${amountPaid.toFixed(2)}`,
+        400
+      );
+    }
+  }
+
+  const saleInclude = {
+    items: { include: { product: true } },
+    payments: true,
+    customer: true,
+    user: { select: { id: true, firstName: true, lastName: true } },
+  } as const;
+
+  // Sale numbers are count-based, so two registers checking out at the same moment
+  // can generate the same number — retry with a fresh number on unique collision.
+  let sale: any;
+  for (let attempt = 1; ; attempt++) {
+    const saleNumber = await generateSaleNumber();
+    try {
   // Create sale with transaction — re-fetch products inside to prevent race conditions
-  const sale = await prisma.$transaction(async (tx) => {
+  sale = await prisma.$transaction(async (tx) => {
     // Re-fetch all products INSIDE transaction for accurate stock
     const freshProducts = regularItems.length > 0
       ? await tx.product.findMany({ where: { id: { in: productIds } } })
@@ -153,8 +178,8 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
       // Use the ACTUAL product price from DB, not the frontend-supplied price
       const verifiedPrice = isMisc ? item.price : product.price;
-      // Allow override only if frontend price matches or item has explicit override flag
-      const itemPrice = item.priceOverride ? item.price : verifiedPrice;
+      // Honor the override flag only for manager+ users
+      const itemPrice = item.priceOverride && canOverridePrice ? item.price : verifiedPrice;
 
       const itemSubtotal = itemPrice * item.quantity;
       const itemDiscount = Math.min(item.discount || 0, itemSubtotal); // Discount can't exceed item total
@@ -186,7 +211,28 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     subtotal = Math.round(subtotal * 100) / 100;
     totalDiscount = Math.round(totalDiscount * 100) / 100;
     totalTax = Math.round(totalTax * 100) / 100;
-    const total = Math.round(Math.max(0, subtotal - totalDiscount + totalTax) * 100) / 100;
+    let total = Math.round(Math.max(0, subtotal - totalDiscount + totalTax) * 100) / 100;
+
+    // Apply loyalty point redemption as a post-tax discount so the amount due,
+    // change, and payment check all reflect what the customer actually owes
+    if (pointsRedeemed && pointsRedeemed > 0) {
+      if (!customerId) {
+        throw new AppError('A customer must be linked to redeem loyalty points', 400);
+      }
+      const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { loyaltyPoints: true } });
+      if (!customer || customer.loyaltyPoints < pointsRedeemed) {
+        throw new AppError(
+          `Insufficient loyalty points: requested ${pointsRedeemed}, available ${customer?.loyaltyPoints || 0}`,
+          400
+        );
+      }
+      const redemptionValue = Math.round(
+        Math.min(pointsRedeemed / businessConfig.customer.pointsToDollarRatio, total) * 100
+      ) / 100;
+      totalDiscount = Math.round((totalDiscount + redemptionValue) * 100) / 100;
+      total = Math.round((total - redemptionValue) * 100) / 100;
+    }
+
     const changeDue = Math.round((amountPaid - total) * 100) / 100;
 
     // Allow 1 cent tolerance for floating point rounding differences
@@ -197,25 +243,23 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       );
     }
 
-    // Validate loyalty points if redeemed
-    if (pointsRedeemed && pointsRedeemed > 0 && customerId) {
-      const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { loyaltyPoints: true } });
-      if (!customer || customer.loyaltyPoints < pointsRedeemed) {
-        throw new AppError(
-          `Insufficient loyalty points: requested ${pointsRedeemed}, available ${customer?.loyaltyPoints || 0}`,
-          400
-        );
-      }
-    }
-
-    // Build split payment records if provided
-    const paymentRecords = payments && payments.length > 0
-      ? payments.map((p: { paymentMethod: string; amount: number; reference?: string }) => ({
-          paymentMethod: p.paymentMethod as PaymentMethod,
-          amount: Math.round(p.amount * 100) / 100,
-          reference: p.reference || null,
-        }))
-      : [{ paymentMethod: paymentMethod as PaymentMethod, amount: Math.round(amountPaid * 100) / 100, reference: null }];
+    // Build split payment records if provided. For the single-payment fallback,
+    // non-cash tenders are charged the sale total — change is never drawn from a
+    // gift card or store credit balance.
+    const paymentRecords: { paymentMethod: PaymentMethod; amount: number; reference: string | null }[] =
+      payments && payments.length > 0
+        ? payments.map((p: { paymentMethod: string; amount: number; reference?: string }) => ({
+            paymentMethod: p.paymentMethod as PaymentMethod,
+            amount: Math.round(p.amount * 100) / 100,
+            reference: p.reference || null,
+          }))
+        : [{
+            paymentMethod: paymentMethod as PaymentMethod,
+            amount: paymentMethod === 'CASH'
+              ? Math.round(amountPaid * 100) / 100
+              : Math.min(Math.round(amountPaid * 100) / 100, total),
+            reference: null,
+          }];
 
     // Create sale
     const newSale = await tx.sale.create({
@@ -262,6 +306,74 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       },
     });
 
+    // Debit gift card / store credit balances for those payment methods.
+    // This validates the tender actually exists and has funds.
+    for (const payment of paymentRecords) {
+      if (payment.amount <= 0) continue;
+
+      if (payment.paymentMethod === 'GIFT_CARD') {
+        if (!payment.reference) {
+          throw new AppError('Gift card number is required for gift card payments', 400);
+        }
+        const card = await tx.giftCard.findFirst({
+          where: { OR: [{ code: payment.reference }, { id: payment.reference }] },
+        });
+        if (!card) throw new AppError(`Gift card not found: ${payment.reference}`, 400);
+        if (!card.isActive) throw new AppError('Gift card is deactivated', 400);
+        if (card.expiresAt && card.expiresAt < new Date()) throw new AppError('Gift card has expired', 400);
+        if (card.currentBalance < payment.amount - 0.001) {
+          throw new AppError(
+            `Insufficient gift card balance: $${card.currentBalance.toFixed(2)} available, $${payment.amount.toFixed(2)} required`,
+            400
+          );
+        }
+        await tx.giftCard.update({
+          where: { id: card.id },
+          data: {
+            currentBalance: { decrement: payment.amount },
+            transactions: {
+              create: {
+                type: 'REDEEM',
+                amount: -payment.amount,
+                balanceBefore: card.currentBalance,
+                balanceAfter: Math.round((card.currentBalance - payment.amount) * 100) / 100,
+                saleId: newSale.id,
+              },
+            },
+          },
+        });
+      }
+
+      if (payment.paymentMethod === 'STORE_CREDIT') {
+        if (!customerId) {
+          throw new AppError('A customer must be linked to pay with store credit', 400);
+        }
+        const account = await tx.storeCreditAccount.findUnique({ where: { customerId } });
+        if (!account) throw new AppError('No store credit account found for this customer', 400);
+        if (account.balance < payment.amount - 0.001) {
+          throw new AppError(
+            `Insufficient store credit: $${account.balance.toFixed(2)} available, $${payment.amount.toFixed(2)} required`,
+            400
+          );
+        }
+        await tx.storeCreditAccount.update({
+          where: { id: account.id },
+          data: {
+            balance: { decrement: payment.amount },
+            transactions: {
+              create: {
+                type: 'DEBIT',
+                amount: -payment.amount,
+                balanceBefore: account.balance,
+                balanceAfter: Math.round((account.balance - payment.amount) * 100) / 100,
+                saleId: newSale.id,
+              },
+            },
+          },
+        });
+      }
+    }
+
     // Update inventory (skip misc items) — uses fresh product data
     for (const item of regularItems) {
       const product = freshProductMap.get(item.productId);
@@ -269,14 +381,22 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       if (product?.trackInventory) {
         const newQty = product.stockQuantity - item.quantity;
 
-        await tx.product.update({
-          where: { id: item.productId },
+        // Conditional decrement guards against overselling when two registers
+        // sell the same last units concurrently
+        const decremented = await tx.product.updateMany({
+          where: { id: item.productId, stockQuantity: { gte: item.quantity } },
           data: {
             stockQuantity: {
               decrement: item.quantity,
             },
           },
         });
+        if (decremented.count === 0) {
+          throw new AppError(
+            `Insufficient stock for "${product.name}" — it may have just been sold on another register`,
+            400
+          );
+        }
 
         // Log inventory change
         await tx.inventoryLog.create({
@@ -336,6 +456,21 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
     return newSale;
   });
+      break;
+    } catch (err: any) {
+      const uniqueTarget = err?.code === 'P2002' ? String(err?.meta?.target ?? '') : '';
+      // Concurrent duplicate submit with the same idempotency key — return the existing sale
+      if (uniqueTarget.includes('idempotencyKey') && idempotencyKey) {
+        const existing = await prisma.sale.findUnique({ where: { idempotencyKey }, include: saleInclude });
+        if (existing) {
+          res.status(200).json({ success: true, data: existing });
+          return;
+        }
+      }
+      if (uniqueTarget.includes('saleNumber') && attempt < 4) continue;
+      throw err;
+    }
+  }
 
   // Log activity
   await prisma.activityLog.create({
@@ -482,7 +617,7 @@ export const getSale = asyncHandler(async (req: AuthRequest, res: Response) => {
       },
       payments: true,
       location: true,
-      refunds: true,
+      refunds: { include: { items: true } },
     },
   });
 
@@ -507,7 +642,7 @@ export const getSale = asyncHandler(async (req: AuthRequest, res: Response) => {
  */
 export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const { amount, reason, notes } = req.body;
+  const { amount, reason, notes, items, restock = true, refundMethod, reference } = req.body;
 
   if (!req.user) {
     throw new AppError('User not authenticated', 401);
@@ -515,7 +650,7 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
   const sale = await prisma.sale.findUnique({
     where: { id },
-    include: { items: true, refunds: true },
+    include: { items: true, refunds: { include: { items: true } }, payments: true },
   });
 
   if (!sale) {
@@ -539,28 +674,142 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
     throw new AppError('Sale has already been fully refunded', 400);
   }
 
-  if (amount > refundableAmount + 0.01) {
+  // Per-sale-item quantities already refunded / restocked by earlier item-level refunds
+  const refundedQtyByItem = new Map<string, number>();
+  const restockedQtyByItem = new Map<string, number>();
+  for (const r of sale.refunds) {
+    for (const ri of r.items) {
+      refundedQtyByItem.set(ri.saleItemId, (refundedQtyByItem.get(ri.saleItemId) || 0) + ri.quantity);
+      if (ri.restocked) {
+        restockedQtyByItem.set(ri.saleItemId, (restockedQtyByItem.get(ri.saleItemId) || 0) + ri.quantity);
+      }
+    }
+  }
+
+  // Item-level refunds: compute the amount server-side from the returned lines
+  // (each unit refunds its prorated share of the line total, tax included)
+  let refundAmount: number;
+  const refundLines: { saleItemId: string; productId: string; productName: string; quantity: number; amount: number }[] = [];
+
+  if (items && items.length > 0) {
+    const saleItemMap = new Map(sale.items.map((i) => [i.id, i]));
+    let computed = 0;
+    for (const line of items as { saleItemId: string; quantity: number }[]) {
+      const saleItem = saleItemMap.get(line.saleItemId);
+      if (!saleItem) {
+        throw new AppError(`Sale item not found on this sale: ${line.saleItemId}`, 400);
+      }
+      const refundableQty = saleItem.quantity - (refundedQtyByItem.get(saleItem.id) || 0);
+      if (line.quantity > refundableQty) {
+        throw new AppError(
+          `Cannot refund ${line.quantity} × "${saleItem.productName}": only ${refundableQty} left to refund`,
+          400
+        );
+      }
+      const unitTotal = saleItem.total / saleItem.quantity;
+      const lineAmount = Math.round(unitTotal * line.quantity * 100) / 100;
+      computed += lineAmount;
+      refundLines.push({
+        saleItemId: saleItem.id,
+        productId: saleItem.productId,
+        productName: saleItem.productName,
+        quantity: line.quantity,
+        amount: lineAmount,
+      });
+    }
+    refundAmount = Math.round(computed * 100) / 100;
+  } else {
+    refundAmount = amount;
+  }
+
+  if (refundAmount > refundableAmount + 0.01) {
     throw new AppError(
       `Refund amount exceeds refundable balance. Max refundable: $${refundableAmount.toFixed(2)}`,
       400
     );
   }
 
-  // Update sale and restore inventory
+  // Update sale, credit the refund tender, and restore inventory
   const refundedSale = await prisma.$transaction(async (tx) => {
-    // Create refund record
+    // Create refund record (with item lines when this is an item-level refund)
     await tx.refund.create({
       data: {
         saleId: id,
-        amount,
+        amount: refundAmount,
         reason,
         notes,
         refundedBy: req.user!.id,
+        method: refundMethod || null,
+        reference: reference || null,
+        items: refundLines.length > 0
+          ? {
+              create: refundLines.map((line) => ({
+                saleItemId: line.saleItemId,
+                quantity: line.quantity,
+                amount: line.amount,
+                restocked: restock !== false,
+              })),
+            }
+          : undefined,
       },
     });
 
+    // Credit the money back to the original tender when requested
+    if (refundMethod === 'GIFT_CARD') {
+      const cardRef = reference
+        || sale.payments.find((p) => p.paymentMethod === 'GIFT_CARD' && p.reference)?.reference;
+      if (!cardRef) {
+        throw new AppError('No gift card on this sale — provide the card number to refund to', 400);
+      }
+      const card = await tx.giftCard.findFirst({
+        where: { OR: [{ code: cardRef }, { id: cardRef }] },
+      });
+      if (!card) throw new AppError(`Gift card not found: ${cardRef}`, 400);
+      if (!card.isActive) throw new AppError('Gift card is deactivated', 400);
+      await tx.giftCard.update({
+        where: { id: card.id },
+        data: {
+          currentBalance: { increment: refundAmount },
+          transactions: {
+            create: {
+              type: 'REFUND',
+              amount: refundAmount,
+              balanceBefore: card.currentBalance,
+              balanceAfter: Math.round((card.currentBalance + refundAmount) * 100) / 100,
+              saleId: id,
+            },
+          },
+        },
+      });
+    }
+
+    if (refundMethod === 'STORE_CREDIT') {
+      if (!sale.customerId) {
+        throw new AppError('Sale has no linked customer — store credit refunds need a customer', 400);
+      }
+      let account = await tx.storeCreditAccount.findUnique({ where: { customerId: sale.customerId } });
+      if (!account) {
+        account = await tx.storeCreditAccount.create({ data: { customerId: sale.customerId, balance: 0 } });
+      }
+      await tx.storeCreditAccount.update({
+        where: { id: account.id },
+        data: {
+          balance: { increment: refundAmount },
+          transactions: {
+            create: {
+              type: 'REFUND',
+              amount: refundAmount,
+              balanceBefore: account.balance,
+              balanceAfter: Math.round((account.balance + refundAmount) * 100) / 100,
+              saleId: id,
+            },
+          },
+        },
+      });
+    }
+
     // Mark fully refunded if total refunds now equal sale total
-    const totalRefundedNow = previouslyRefunded + amount;
+    const totalRefundedNow = previouslyRefunded + refundAmount;
     const isFullyRefunded = totalRefundedNow >= sale.total - 0.01;
 
     const updated = await tx.sale.update({
@@ -571,47 +820,74 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
       },
       include: {
         items: true,
-        refunds: true,
+        refunds: { include: { items: true } },
       },
     });
 
-    // Restore inventory only on full refund
-    if (isFullyRefunded) for (const item of sale.items) {
-      const product = await tx.product.findUnique({
-        where: { id: item.productId },
-      });
-
-      if (product?.trackInventory) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stockQuantity: { increment: item.quantity },
-          },
-        });
-
-        await tx.inventoryLog.create({
-          data: {
-            productId: item.productId,
-            type: 'RETURN',
-            quantity: item.quantity,
-            previousQty: product.stockQuantity,
-            newQty: product.stockQuantity + item.quantity,
-            notes: `Refund for sale ${sale.saleNumber}`,
-            userId: req.user!.id,
-          },
-        });
+    if (refundLines.length > 0 && restock !== false) {
+      // Item-level refund: restock exactly the returned units
+      for (const line of refundLines) {
+        const product = await tx.product.findUnique({ where: { id: line.productId } });
+        if (product?.trackInventory) {
+          await tx.product.update({
+            where: { id: line.productId },
+            data: { stockQuantity: { increment: line.quantity } },
+          });
+          await tx.inventoryLog.create({
+            data: {
+              productId: line.productId,
+              type: 'RETURN',
+              quantity: line.quantity,
+              previousQty: product.stockQuantity,
+              newQty: product.stockQuantity + line.quantity,
+              notes: `Refund for sale ${sale.saleNumber}`,
+              userId: req.user!.id,
+            },
+          });
+        }
+      }
+    } else if (refundLines.length === 0 && isFullyRefunded) {
+      // Money-only refund that completes the full amount: restore whatever
+      // earlier item-level refunds haven't already put back
+      for (const item of sale.items) {
+        const toRestore = item.quantity - (restockedQtyByItem.get(item.id) || 0);
+        if (toRestore <= 0) continue;
+        const product = await tx.product.findUnique({ where: { id: item.productId } });
+        if (product?.trackInventory) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stockQuantity: { increment: toRestore } },
+          });
+          await tx.inventoryLog.create({
+            data: {
+              productId: item.productId,
+              type: 'RETURN',
+              quantity: toRestore,
+              previousQty: product.stockQuantity,
+              newQty: product.stockQuantity + toRestore,
+              notes: `Refund for sale ${sale.saleNumber}`,
+              userId: req.user!.id,
+            },
+          });
+        }
       }
     }
 
-    // Update customer stats
+    // Update customer stats (floored at 0 so refunds can't drive them negative)
     if (sale.customerId) {
-      await tx.customer.update({
+      const customer = await tx.customer.findUnique({
         where: { id: sale.customerId },
-        data: {
-          totalSpent: { decrement: amount },
-          loyaltyPoints: { decrement: Math.floor(amount) },
-        },
+        select: { totalSpent: true, loyaltyPoints: true },
       });
+      if (customer) {
+        await tx.customer.update({
+          where: { id: sale.customerId },
+          data: {
+            totalSpent: Math.max(0, Math.round((customer.totalSpent - refundAmount) * 100) / 100),
+            loyaltyPoints: Math.max(0, customer.loyaltyPoints - Math.floor(refundAmount)),
+          },
+        });
+      }
     }
 
     return updated;
@@ -624,11 +900,11 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
       action: 'REFUND',
       entity: 'SALE',
       entityId: id,
-      details: { saleNumber: sale.saleNumber, refundAmount: amount },
+      details: { saleNumber: sale.saleNumber, refundAmount, refundMethod: refundMethod || 'CASH' },
     },
   });
 
-  logger.info(`Sale refunded: ${sale.saleNumber} - Amount: $${amount}`);
+  logger.info(`Sale refunded: ${sale.saleNumber} - Amount: $${refundAmount}`);
 
   res.json({
     success: true,
@@ -675,6 +951,47 @@ export const voidSale = asyncHandler(async (req: AuthRequest, res: Response) => 
       where: { id },
       data: { status: SaleStatus.VOIDED },
     });
+
+    // Reverse customer stats and shift totals recorded at sale time.
+    // Refunds already reversed part of the customer stats, so only the
+    // remaining (unrefunded) amount is backed out here.
+    if (!isFullyRefunded) {
+      const alreadyRefunded = sale.refunds.reduce((sum, r) => sum + r.amount, 0);
+      const remaining = Math.max(0, Math.round((sale.total - alreadyRefunded) * 100) / 100);
+
+      if (sale.customerId && remaining > 0) {
+        const customer = await tx.customer.findUnique({
+          where: { id: sale.customerId },
+          select: { totalSpent: true, loyaltyPoints: true, visitCount: true },
+        });
+        if (customer) {
+          await tx.customer.update({
+            where: { id: sale.customerId },
+            data: {
+              totalSpent: Math.max(0, Math.round((customer.totalSpent - remaining) * 100) / 100),
+              loyaltyPoints: Math.max(0, customer.loyaltyPoints - Math.floor(remaining)),
+              visitCount: Math.max(0, customer.visitCount - 1),
+            },
+          });
+        }
+      }
+
+      if (sale.shiftId) {
+        const shift = await tx.shift.findUnique({
+          where: { id: sale.shiftId },
+          select: { totalSales: true, totalTransactions: true },
+        });
+        if (shift) {
+          await tx.shift.update({
+            where: { id: sale.shiftId },
+            data: {
+              totalSales: Math.max(0, Math.round((shift.totalSales - sale.total) * 100) / 100),
+              totalTransactions: Math.max(0, shift.totalTransactions - 1),
+            },
+          });
+        }
+      }
+    }
 
     // Only restore inventory if NOT already fully refunded (refund already restored it)
     if (!isFullyRefunded) {
@@ -866,6 +1183,7 @@ export const bulkRefundSales = asyncHandler(async (req: AuthRequest, res: Respon
     include: {
       items: true,
       customer: true,
+      refunds: true,
     },
   });
 
@@ -889,10 +1207,26 @@ export const bulkRefundSales = asyncHandler(async (req: AuthRequest, res: Respon
     const results = [];
 
     for (const sale of sales) {
+      // Refund only what hasn't been refunded yet (partial refunds may exist)
+      const previouslyRefunded = sale.refunds.reduce((sum, r) => sum + r.amount, 0);
+      const refundAmount = Math.max(0, Math.round((sale.total - previouslyRefunded) * 100) / 100);
+
+      // Record the refund so refund history and refundable-balance math stay consistent
+      if (refundAmount > 0) {
+        await tx.refund.create({
+          data: {
+            saleId: sale.id,
+            amount: refundAmount,
+            reason: 'Bulk refund',
+            refundedBy: req.user!.id,
+          },
+        });
+      }
+
       // Update sale status
       const updated = await tx.sale.update({
         where: { id: sale.id },
-        data: { status: SaleStatus.REFUNDED },
+        data: { status: SaleStatus.REFUNDED, refundedAt: new Date() },
       });
 
       // Restore inventory for each item
@@ -931,13 +1265,13 @@ export const bulkRefundSales = asyncHandler(async (req: AuthRequest, res: Respon
 
         if (customer) {
           // Deduct points earned from this sale (assuming 1 point per dollar)
-          const pointsToDeduct = Math.floor(sale.total);
+          const pointsToDeduct = Math.floor(refundAmount);
 
           await tx.customer.update({
             where: { id: sale.customerId },
             data: {
               loyaltyPoints: Math.max(0, customer.loyaltyPoints - pointsToDeduct),
-              totalSpent: Math.max(0, customer.totalSpent - sale.total),
+              totalSpent: Math.max(0, Math.round((customer.totalSpent - refundAmount) * 100) / 100),
               visitCount: Math.max(0, customer.visitCount - 1),
             },
           });
@@ -985,6 +1319,11 @@ export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response)
   });
 
   if (!sale) {
+    throw new AppError('Sale not found', 404);
+  }
+
+  // Verify user has access to this sale's location
+  if (req.user?.locationId && sale.locationId !== req.user.locationId) {
     throw new AppError('Sale not found', 404);
   }
 

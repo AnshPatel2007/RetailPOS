@@ -316,20 +316,40 @@ export const searchByPhone = asyncHandler(async (req: Request, res: Response) =>
     throw new AppError('Phone number is required', 400);
   }
 
-  const customer = await prisma.customer.findUnique({
+  const customerSelect = {
+    id: true,
+    firstName: true,
+    lastName: true,
+    email: true,
+    phone: true,
+    loyaltyPoints: true,
+    loyaltyTier: true,
+    totalSpent: true,
+    visitCount: true,
+  } as const;
+
+  // Exact match first — fast path using the unique index
+  let customer = await prisma.customer.findUnique({
     where: { phone },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      phone: true,
-      loyaltyPoints: true,
-      loyaltyTier: true,
-      totalSpent: true,
-      visitCount: true,
-    },
+    select: customerSelect,
   });
+
+  // Fallback: formatting-insensitive partial match (digits only, e.g. last 4),
+  // linked only when the match is unambiguous
+  const digits = phone.replace(/\D/g, '');
+  if (!customer && digits.length >= 4) {
+    const matches = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM customers
+      WHERE regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${'%' + digits + '%'}
+      LIMIT 2
+    `;
+    if (matches.length === 1) {
+      customer = await prisma.customer.findUnique({
+        where: { id: matches[0].id },
+        select: customerSelect,
+      });
+    }
+  }
 
   res.json({
     success: true,

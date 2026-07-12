@@ -35,10 +35,24 @@ export const createSaleSchema = z.object({
   }),
 });
 
+const refundItemSchema = z.object({
+  saleItemId: z.string().min(1, 'Sale item ID is required'),
+  quantity: z.number().int().min(1, 'Refund quantity must be at least 1'),
+});
+
 export const refundSaleSchema = z.object({
   body: z.object({
-    amount: z.number().min(0.01, 'Refund amount must be greater than 0'),
+    // Amount is required for money-only refunds; when items are provided the
+    // server computes the amount from the item lines instead
+    amount: z.number().min(0.01, 'Refund amount must be greater than 0').optional(),
     reason: z.string().min(1, 'Refund reason is required'),
     notes: z.string().optional(),
-  }),
+    items: z.array(refundItemSchema).optional(),
+    restock: z.boolean().optional(), // restock returned items (default true, item refunds only)
+    refundMethod: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT']).optional(),
+    reference: z.string().optional(), // gift card code when refundMethod = GIFT_CARD
+  }).refine(
+    (data) => data.amount !== undefined || (data.items && data.items.length > 0),
+    { message: 'Either a refund amount or refund items must be provided' }
+  ),
 });
