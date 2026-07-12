@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { saleService } from '@/services/api';
 import { formatCurrency } from '@/lib/utils';
-import { Search, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Search, AlertTriangle, RotateCcw, Minus, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface SaleItem {
@@ -13,7 +13,14 @@ interface SaleItem {
   quantity: number;
   price: number;
   discount: number;
+  tax: number;
+  total: number;
   product: { name: string; sku: string };
+}
+
+interface RefundItemRecord {
+  saleItemId: string;
+  quantity: number;
 }
 
 interface RefundRecord {
@@ -21,6 +28,13 @@ interface RefundRecord {
   amount: number;
   reason: string;
   createdAt: string;
+  method?: string | null;
+  items?: RefundItemRecord[];
+}
+
+interface SalePaymentRecord {
+  paymentMethod: string;
+  reference?: string | null;
 }
 
 interface SaleDetails {
@@ -33,7 +47,11 @@ interface SaleDetails {
   items: SaleItem[];
   customer?: { firstName: string; lastName: string } | null;
   refunds?: RefundRecord[];
+  payments?: SalePaymentRecord[];
 }
+
+type RefundMode = 'items' | 'amount';
+type RefundMethod = 'CASH' | 'GIFT_CARD' | 'STORE_CREDIT';
 
 interface QuickRefundModalProps {
   isOpen: boolean;
@@ -52,11 +70,19 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
   const [refundReason, setRefundReason] = useState('');
   const [refundAmount, setRefundAmount] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [mode, setMode] = useState<RefundMode>('items');
+  const [refundQtys, setRefundQtys] = useState<Record<string, number>>({});
+  const [restock, setRestock] = useState(true);
+  const [refundMethod, setRefundMethod] = useState<RefundMethod>('CASH');
 
   const handleSearch = async () => {
     if (!saleNumber.trim()) return;
     setIsSearching(true);
     setSale(null);
+    setRefundQtys({});
+    setMode('items');
+    setRestock(true);
+    setRefundMethod('CASH');
     try {
       const response = await saleService.getAll({ saleNumber: saleNumber.trim() });
       const sales = response.data.data || [];
@@ -84,28 +110,85 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
     return Math.round((sale.total - previouslyRefunded) * 100) / 100;
   };
 
+  // Quantity of a sale item already refunded via item-level refunds
+  const getRefundedQty = (saleItemId: string) => {
+    if (!sale?.refunds) return 0;
+    return sale.refunds.reduce(
+      (sum, r) => sum + (r.items || [])
+        .filter((ri) => ri.saleItemId === saleItemId)
+        .reduce((s, ri) => s + ri.quantity, 0),
+      0
+    );
+  };
+
+  const getRefundableQty = (item: SaleItem) => item.quantity - getRefundedQty(item.id);
+
+  const unitTotal = (item: SaleItem) => item.total / item.quantity;
+
+  // Amount computed from the selected return quantities (matches the backend math)
+  const getItemsAmount = () => {
+    if (!sale) return 0;
+    const total = sale.items.reduce((sum, item) => {
+      const qty = refundQtys[item.id] || 0;
+      return sum + Math.round(unitTotal(item) * qty * 100) / 100;
+    }, 0);
+    return Math.round(total * 100) / 100;
+  };
+
+  const setItemQty = (item: SaleItem, qty: number) => {
+    const clamped = Math.max(0, Math.min(qty, getRefundableQty(item)));
+    setRefundQtys((prev) => ({ ...prev, [item.id]: clamped }));
+  };
+
+  const selectAllItems = () => {
+    if (!sale) return;
+    const all: Record<string, number> = {};
+    sale.items.forEach((item) => { all[item.id] = getRefundableQty(item); });
+    setRefundQtys(all);
+  };
+
+  // Refund destinations available for this sale
+  const giftCardPayment = sale?.payments?.find((p) => p.paymentMethod === 'GIFT_CARD' && p.reference);
+  const methodOptions: { value: RefundMethod; label: string; available: boolean }[] = [
+    { value: 'CASH', label: 'Cash', available: true },
+    { value: 'GIFT_CARD', label: 'Gift card', available: !!giftCardPayment },
+    { value: 'STORE_CREDIT', label: 'Store credit', available: !!sale?.customer },
+  ];
+
+  const effectiveAmount = mode === 'items' ? getItemsAmount() : (parseFloat(refundAmount) || 0);
+  const hasSelectedItems = Object.values(refundQtys).some((q) => q > 0);
+
   const handleRefund = async () => {
     if (!sale) return;
-    const amount = parseFloat(refundAmount);
     const maxRefundable = getRefundableAmount();
-    if (!amount || amount <= 0 || amount > maxRefundable) {
-      toast.error(amount > maxRefundable
+    if (!effectiveAmount || effectiveAmount <= 0 || effectiveAmount > maxRefundable + 0.01) {
+      toast.error(effectiveAmount > maxRefundable
         ? `Max refundable: ${formatCurrency(maxRefundable)}`
-        : 'Invalid refund amount');
+        : 'Select items or enter a valid amount');
       return;
     }
 
-    if (!window.confirm(`Process refund of ${formatCurrency(amount)} for sale #${sale.saleNumber}?`)) {
+    const methodLabel = methodOptions.find((m) => m.value === refundMethod)?.label || 'Cash';
+    if (!window.confirm(`Refund ${formatCurrency(effectiveAmount)} to ${methodLabel.toLowerCase()} for sale #${sale.saleNumber}?`)) {
       return;
     }
 
     setIsProcessing(true);
     try {
-      await saleService.refund(sale.id, {
-        amount,
+      const payload: any = {
         reason: refundReason || 'Refund from POS',
-      });
-      toast.success(`Refund of ${formatCurrency(amount)} processed`);
+        refundMethod,
+      };
+      if (mode === 'items') {
+        payload.items = Object.entries(refundQtys)
+          .filter(([, qty]) => qty > 0)
+          .map(([saleItemId, quantity]) => ({ saleItemId, quantity }));
+        payload.restock = restock;
+      } else {
+        payload.amount = effectiveAmount;
+      }
+      await saleService.refund(sale.id, payload);
+      toast.success(`Refund of ${formatCurrency(effectiveAmount)} processed`);
       onRefundComplete?.();
       handleReset();
       onClose();
@@ -121,6 +204,10 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
     setSale(null);
     setRefundReason('');
     setRefundAmount('');
+    setRefundQtys({});
+    setMode('items');
+    setRestock(true);
+    setRefundMethod('CASH');
   };
 
   return (
@@ -154,8 +241,8 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
                 <div className="flex justify-between items-center">
                   <span className="font-medium">#{sale.saleNumber}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    sale.status === 'COMPLETED' ? 'bg-green-500/10 text-green-500' :
-                    sale.status === 'REFUNDED' ? 'bg-red-500/10 text-red-500' :
+                    sale.status === 'COMPLETED' ? 'bg-success/10 text-success' :
+                    sale.status === 'REFUNDED' ? 'bg-destructive/10 text-destructive' :
                     'bg-muted text-muted-foreground'
                   }`}>
                     {sale.status}
@@ -165,16 +252,6 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
                   {new Date(sale.createdAt).toLocaleString()} · {sale.paymentMethod.replace(/_/g, ' ')}
                   {sale.customer && ` · ${sale.customer.firstName} ${sale.customer.lastName}`}
                 </p>
-
-                <div className="border-t pt-2 space-y-1">
-                  {sale.items.map((item) => (
-                    <div key={item.id} className="flex justify-between text-sm">
-                      <span>{item.quantity}x {item.product.name}</span>
-                      <span>{formatCurrency(item.price * item.quantity - item.discount)}</span>
-                    </div>
-                  ))}
-                </div>
-
                 <div className="border-t pt-2 flex justify-between font-bold">
                   <span>Total</span>
                   <span>{formatCurrency(sale.total)}</span>
@@ -184,15 +261,15 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
 
             {/* Show previous refunds */}
             {sale.refunds && sale.refunds.length > 0 && (
-              <div className="space-y-1 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                <p className="text-xs font-medium text-amber-600">Previous Refunds:</p>
+              <div className="space-y-1 p-3 rounded-lg bg-warning/10 border border-warning/20">
+                <p className="text-xs font-medium text-warning">Previous Refunds:</p>
                 {sale.refunds.map((r) => (
-                  <div key={r.id} className="flex justify-between text-xs text-amber-700">
+                  <div key={r.id} className="flex justify-between text-xs text-warning">
                     <span>{r.reason}</span>
                     <span>{formatCurrency(r.amount)}</span>
                   </div>
                 ))}
-                <div className="flex justify-between text-xs font-bold text-amber-700 pt-1 border-t border-amber-500/20">
+                <div className="flex justify-between text-xs font-bold text-warning pt-1 border-t border-warning/20">
                   <span>Remaining refundable</span>
                   <span>{formatCurrency(getRefundableAmount())}</span>
                 </div>
@@ -206,14 +283,129 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
-                <Input
-                  type="number"
-                  label={`Refund Amount (max: ${formatCurrency(getRefundableAmount())})`}
-                  value={refundAmount}
-                  onChange={(e) => setRefundAmount(e.target.value)}
-                  step="0.01"
-                  max={getRefundableAmount()}
-                />
+                {/* Mode tabs */}
+                <div className="flex border-b border-border">
+                  <button
+                    onClick={() => setMode('items')}
+                    className={`flex-1 py-2 px-4 font-medium text-sm transition-colors ${
+                      mode === 'items'
+                        ? 'border-b-2 border-primary text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Return items
+                  </button>
+                  <button
+                    onClick={() => setMode('amount')}
+                    className={`flex-1 py-2 px-4 font-medium text-sm transition-colors ${
+                      mode === 'amount'
+                        ? 'border-b-2 border-primary text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Amount only
+                  </button>
+                </div>
+
+                {mode === 'items' ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">
+                        Select returned quantities — stock is restored per item.
+                      </p>
+                      <button onClick={selectAllItems} className="text-xs text-primary hover:underline shrink-0 ml-2">
+                        Select all
+                      </button>
+                    </div>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {sale.items.map((item) => {
+                        const refundable = getRefundableQty(item);
+                        const qty = refundQtys[item.id] || 0;
+                        return (
+                          <div
+                            key={item.id}
+                            className={`flex items-center justify-between gap-2 p-2 rounded-lg border ${
+                              qty > 0 ? 'border-primary bg-primary/5' : 'border-border'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium truncate">{item.product.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatCurrency(unitTotal(item))} each · {refundable} of {item.quantity} refundable
+                              </p>
+                            </div>
+                            {refundable > 0 ? (
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  onClick={() => setItemQty(item, qty - 1)}
+                                  className="h-8 w-8 flex items-center justify-center border rounded-md hover:bg-accent disabled:opacity-40"
+                                  disabled={qty <= 0}
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </button>
+                                <span className="w-8 text-center font-semibold tabular-nums text-sm">{qty}</span>
+                                <button
+                                  onClick={() => setItemQty(item, qty + 1)}
+                                  className="h-8 w-8 flex items-center justify-center border rounded-md hover:bg-accent disabled:opacity-40"
+                                  disabled={qty >= refundable}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground shrink-0">Refunded</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={restock}
+                        onChange={(e) => setRestock(e.target.checked)}
+                        className="h-4 w-4 rounded border-border accent-primary"
+                      />
+                      Return items to inventory
+                    </label>
+                  </>
+                ) : (
+                  <Input
+                    type="number"
+                    label={`Refund Amount (max: ${formatCurrency(getRefundableAmount())})`}
+                    value={refundAmount}
+                    onChange={(e) => setRefundAmount(e.target.value)}
+                    step="0.01"
+                    max={getRefundableAmount()}
+                  />
+                )}
+
+                {/* Refund destination */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">Refund to</label>
+                  <div className="flex gap-2">
+                    {methodOptions.filter((m) => m.available).map((m) => (
+                      <button
+                        key={m.value}
+                        onClick={() => setRefundMethod(m.value)}
+                        className={`flex-1 px-3 py-2 border rounded-lg text-sm font-medium transition-colors truncate ${
+                          refundMethod === m.value
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border hover:border-primary/50'
+                        }`}
+                        title={m.label}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  {refundMethod === 'GIFT_CARD' && giftCardPayment && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Credits back to card {giftCardPayment.reference}
+                    </p>
+                  )}
+                </div>
+
                 <Input
                   type="text"
                   label="Reason (optional)"
@@ -223,12 +415,12 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
                 />
                 <Button
                   variant="primary"
-                  className="w-full"
+                  className="w-full h-11"
                   onClick={handleRefund}
-                  disabled={isProcessing || !refundAmount}
+                  disabled={isProcessing || (mode === 'items' ? !hasSelectedItems : !refundAmount)}
                 >
                   <RotateCcw className="h-4 w-4 mr-2" />
-                  {isProcessing ? 'Processing...' : `Refund ${formatCurrency(parseFloat(refundAmount) || 0)}`}
+                  {isProcessing ? 'Processing...' : `Refund ${formatCurrency(effectiveAmount)}`}
                 </Button>
               </div>
             )}

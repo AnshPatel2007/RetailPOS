@@ -151,11 +151,12 @@ class SyncService {
       quantity: number;
       price: number;
       discount: number;
+      isTaxable?: boolean;
     }>;
     paymentMethod: string;
     amountPaid: number;
     notes?: string;
-    taxRate?: number;
+    taxRate?: number; // fraction, e.g. 0.0825
   }): Promise<PendingSale> {
     const taxRate = saleData.taxRate ?? 0.0825; // Default 8.25% tax
 
@@ -168,7 +169,8 @@ class SyncService {
       const itemSubtotal = item.price * item.quantity;
       const itemDiscount = item.discount || 0;
       const taxableAmount = itemSubtotal - itemDiscount;
-      const itemTax = taxableAmount * taxRate;
+      // Non-taxable items (isTaxable === false) carry no tax
+      const itemTax = item.isTaxable === false ? 0 : taxableAmount * taxRate;
       const itemTotal = taxableAmount + itemTax;
 
       subtotal += itemSubtotal;
@@ -184,6 +186,7 @@ class SyncService {
         discount: itemDiscount,
         tax: itemTax,
         total: itemTotal,
+        isTaxable: item.isTaxable,
       };
     });
 
@@ -227,8 +230,10 @@ class SyncService {
     if (!sale.id) return false;
 
     try {
-      // Transform to API format
+      // Transform to API format. The localId doubles as the idempotency key so
+      // a retry after an ambiguous failure can't create a duplicate sale.
       const apiSale = {
+        idempotencyKey: sale.localId,
         customerId: sale.customerId,
         items: sale.items.map(item => ({
           productId: item.productId,

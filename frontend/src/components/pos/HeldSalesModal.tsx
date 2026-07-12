@@ -11,7 +11,6 @@ interface HeldSale {
   id: string;
   items: CartItem[];
   customer: Customer | null;
-  discount: number;
   notes: string;
   heldAt: string;
 }

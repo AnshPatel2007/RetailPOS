@@ -4,6 +4,8 @@ import { useAuthStore } from '@/store/authStore';
 import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { CartItemCard } from '@/components/pos/CartItemCard';
+import { CustomerLinkSection, LinkedCustomer } from '@/components/pos/CustomerLinkSection';
+import { RecentTransactions } from '@/components/pos/RecentTransactions';
 import { Receipt } from '@/services/hardware';
 import { hardware } from '@/services/hardware';
 import {
@@ -13,6 +15,7 @@ import {
   RotateCcw,
   PauseCircle,
   StickyNote,
+  ShoppingCart,
 } from 'lucide-react';
 
 interface CartPanelProps {
@@ -22,6 +25,10 @@ interface CartPanelProps {
   onShowRefund: () => void;
   onCheckout: () => void;
   onHoldSale: () => void;
+  linkedCustomer: LinkedCustomer | null;
+  onCustomerChange: (customer: LinkedCustomer | null) => void;
+  onViewRecentReceipt?: (saleId: string) => void;
+  refreshTrigger?: number;
 }
 
 export const CartPanel: React.FC<CartPanelProps> = ({
@@ -31,6 +38,10 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   onShowRefund,
   onCheckout,
   onHoldSale,
+  linkedCustomer,
+  onCustomerChange,
+  onViewRecentReceipt,
+  refreshTrigger,
 }) => {
   const {
     items,
@@ -64,12 +75,12 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             {/* Held sales button */}
             <button
               onClick={onShowHeldSales}
-              className="relative p-1.5 rounded hover:bg-accent transition-colors"
+              className="relative h-9 w-9 flex items-center justify-center rounded hover:bg-accent transition-colors"
               title="Held sales (F6)"
             >
               <List className="h-4 w-4 text-muted-foreground" />
               {heldSales.length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                <span className="absolute -top-0.5 -right-0.5 bg-warning text-warning-foreground text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
                   {heldSales.length}
                 </span>
               )}
@@ -78,7 +89,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             {isManagerOrAdmin && (
               <button
                 onClick={onShowRefund}
-                className="p-1.5 rounded hover:bg-accent transition-colors"
+                className="h-9 w-9 flex items-center justify-center rounded hover:bg-accent transition-colors"
                 title="Quick refund"
               >
                 <RotateCcw className="h-4 w-4 text-muted-foreground" />
@@ -118,11 +129,22 @@ export const CartPanel: React.FC<CartPanelProps> = ({
         </p>
       </div>
 
+      {/* Customer link */}
+      <div className="px-4 py-3 border-b border-border">
+        <CustomerLinkSection
+          linkedCustomer={linkedCustomer}
+          onCustomerChange={onCustomerChange}
+        />
+      </div>
+
       {/* Cart items */}
       <div className="flex-1 overflow-auto p-4 space-y-3">
         {items.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground">Cart is empty</p>
+          <div className="text-center py-10">
+            <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
+              <ShoppingCart className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <p className="font-medium">Cart is empty</p>
             <p className="text-sm text-muted-foreground mt-1">
               Click a product or scan a barcode
             </p>
@@ -151,6 +173,12 @@ export const CartPanel: React.FC<CartPanelProps> = ({
         )}
       </div>
 
+      {/* Recent transactions (collapsed by default) */}
+      <RecentTransactions
+        refreshTrigger={refreshTrigger}
+        onViewReceipt={onViewRecentReceipt}
+      />
+
       {/* Cart footer */}
       <div className="border-t border-border p-4 space-y-3">
         {/* Notes toggle */}
@@ -177,47 +205,60 @@ export const CartPanel: React.FC<CartPanelProps> = ({
           </div>
         )}
 
-        {/* Totals */}
-        <div className="space-y-1.5 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Subtotal</span>
-            <span className="font-medium">{formatCurrency(getSubtotal())}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Tax</span>
-            <span className="font-medium">{formatCurrency(getTax())}</span>
-          </div>
-          <div className="flex justify-between text-lg font-bold pt-2 border-t">
-            <span>Total</span>
-            <span>{formatCurrency(getTotal())}</span>
-          </div>
-        </div>
+        {/* Totals — getSubtotal() is already net of item discounts, so show the
+            gross amount and the discount as separate display-only lines */}
+        {(() => {
+          const itemDiscounts = Math.round(items.reduce((s, i) => s + i.discount, 0) * 100) / 100;
+          const grossSubtotal = Math.round(items.reduce((s, i) => s + i.product.price * i.quantity, 0) * 100) / 100;
+          return (
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span className="font-medium tabular-nums">
+                  {formatCurrency(itemDiscounts > 0 ? grossSubtotal : getSubtotal())}
+                </span>
+              </div>
+              {itemDiscounts > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Item discounts</span>
+                  <span className="font-medium text-success tabular-nums">-{formatCurrency(itemDiscounts)}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Tax</span>
+                <span className="font-medium tabular-nums">{formatCurrency(getTax())}</span>
+              </div>
+              <div className="flex justify-between text-lg font-bold pt-2 border-t">
+                <span>Total</span>
+                <span className="tabular-nums">{formatCurrency(getTotal())}</span>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Action buttons */}
         <div className="flex gap-2">
           <Button
             variant="outline"
-            size="sm"
             onClick={onHoldSale}
             disabled={items.length === 0}
-            className="flex-none"
+            className="h-12 px-4 flex-none"
             title="Hold sale (F5)"
           >
-            <PauseCircle className="h-4 w-4 mr-1" />
+            <PauseCircle className="h-4 w-4 mr-1.5" />
             Hold
           </Button>
           <Button
             variant="primary"
-            size="lg"
-            className="flex-1"
+            className="flex-1 h-12 text-base font-semibold"
             onClick={onCheckout}
             disabled={items.length === 0}
             title="Checkout (F4)"
           >
-            Checkout
+            {items.length > 0 ? <>Charge {formatCurrency(getTotal())}</> : 'Charge'}
           </Button>
         </div>
-        <p className="text-xs text-center text-muted-foreground">
+        <p className="text-[11px] text-center text-muted-foreground">
           F1 Cash · F2 Card · F4 Checkout · F5 Hold · F7 Misc
         </p>
       </div>

@@ -20,6 +20,7 @@ import { QuickRefundModal } from '@/components/pos/QuickRefundModal';
 import { HeldSalesModal } from '@/components/pos/HeldSalesModal';
 import { ProductGrid } from '@/components/pos/ProductGrid';
 import { CartPanel } from '@/components/pos/CartPanel';
+import { POSTopBar } from '@/components/pos/POSTopBar';
 import { LinkedCustomer } from '@/components/pos/CustomerLinkSection';
 import { hardware, Receipt } from '@/services/hardware';
 import toast from 'react-hot-toast';
@@ -40,6 +41,7 @@ export const POS: React.FC = () => {
   const [numpadProduct, setNumpadProduct] = useState<Product | null>(null);
   const [lastReceipt, setLastReceipt] = useState<Receipt | null>(null);
   const [lastSaleId, setLastSaleId] = useState<string | null>(null);
+  const [salesRefreshTrigger, setSalesRefreshTrigger] = useState(0);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
@@ -54,8 +56,8 @@ export const POS: React.FC = () => {
   const { locationId } = useEffectiveLocation();
   const { favoriteIds, toggleFavorite, isFavorite } = useFavoritesStore();
   const {
-    items, addItem, clearCart, notes,
-    getSubtotal, getTax, getTotal, setTaxRate,
+    items, addItem, updateQuantity, clearCart, notes,
+    getSubtotal, getTax, getTotal, setTaxRate, setCustomer,
     heldSales, holdSale, restoreHeldSale, discardHeldSale,
     cleanupExpiredHeldSales,
   } = useCartStore();
@@ -67,6 +69,12 @@ export const POS: React.FC = () => {
       toast(`Removed ${expired} expired held sale${expired > 1 ? 's' : ''} (older than 24h)`, { icon: '🧹' });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the cart store's customer in sync with the linked customer so held
+  // sales retain (and restore) their customer
+  useEffect(() => {
+    setCustomer(linkedCustomer as any);
+  }, [linkedCustomer, setCustomer]);
 
   // Load location tax rate
   useEffect(() => {
@@ -218,27 +226,6 @@ export const POS: React.FC = () => {
     return product.trackInventory && product.stockQuantity <= 0;
   };
 
-  const handleAddToCart = (product: Product, qty = 1) => {
-    if (isOutOfStock(product)) {
-      toast.error(`${product.name} is out of stock`);
-      return;
-    }
-    if (product.trackInventory) {
-      const currentInCart = getCartQty(product.id);
-      if (currentInCart + qty > product.stockQuantity) {
-        const canAdd = product.stockQuantity - currentInCart;
-        if (canAdd <= 0) {
-          toast.error(`Only ${product.stockQuantity} in stock — already all in cart`);
-          return;
-        }
-        toast(`Only ${canAdd} more available (${product.stockQuantity} total in stock)`, { icon: '⚠️' });
-        addItem(product, canAdd);
-        return;
-      }
-    }
-    addItem(product, qty);
-  };
-
   const handleProductClick = (product: Product) => {
     if (isOutOfStock(product)) {
       toast.error(`${product.name} is out of stock`);
@@ -287,14 +274,68 @@ export const POS: React.FC = () => {
   const handleRestoreHeld = (id: string) => {
     restoreHeldSale(id);
     setShowHeldSalesModal(false);
-    setLinkedCustomer(null);
+    // Restore the customer that was linked when the sale was held
+    const restoredCustomer = useCartStore.getState().customer;
+    setLinkedCustomer(restoredCustomer as any);
     toast.success('Sale restored');
+  };
+
+  // Numpad confirms the TOTAL quantity for the item (it opens pre-filled with
+  // the current cart quantity), so set rather than add
+  const handleSetQuantity = (product: Product, qty: number) => {
+    if (product.trackInventory && qty > product.stockQuantity) {
+      toast.error(`Only ${product.stockQuantity} in stock`);
+      qty = product.stockQuantity;
+    }
+    if (qty <= 0) return;
+    const current = getCartQty(product.id);
+    if (current === 0) {
+      addItem(product, qty);
+    } else if (qty !== current) {
+      updateQuantity(product.id, qty);
+    }
   };
 
   const handlePrintReceipt = () => {
     if (!lastReceipt) return;
     hardware.printer.print(lastReceipt);
     toast.success('Receipt sent to printer');
+  };
+
+  // Re-open a receipt from the recent-transactions list
+  const handleViewRecentReceipt = async (saleId: string) => {
+    try {
+      const response = await saleService.getById(saleId);
+      const sale = response.data.data;
+      const receipt: Receipt = {
+        saleNumber: sale.saleNumber,
+        date: new Date(sale.createdAt).toLocaleString(),
+        items: (sale.items || []).map((item: any) => ({
+          name: item.productName || item.product?.name || 'Item',
+          quantity: item.quantity,
+          price: item.price,
+          total: item.total,
+        })),
+        subtotal: sale.subtotal,
+        tax: sale.tax,
+        discount: sale.discount,
+        total: sale.total,
+        paymentMethod: sale.payments?.length > 1
+          ? sale.payments.map((p: any) => `${p.paymentMethod}: ${formatCurrency(p.amount)}`).join(' / ')
+          : sale.paymentMethod,
+        amountPaid: sale.amountPaid,
+        change: Math.max(0, sale.changeDue ?? 0),
+        employeeName: sale.user ? `${sale.user.firstName} ${sale.user.lastName}` : '',
+        customerName: sale.customer
+          ? `${sale.customer.firstName} ${sale.customer.lastName}`
+          : undefined,
+      };
+      setLastReceipt(receipt);
+      setLastSaleId(saleId);
+      setShowReceiptPreview(true);
+    } catch {
+      toast.error('Could not load receipt');
+    }
   };
 
   const handlePaymentComplete = async (
@@ -304,7 +345,13 @@ export const POS: React.FC = () => {
   ) => {
     if (items.length === 0) return;
     const total = getTotal();
+    // Loyalty redemption reduces the amount due (100 pts = $1)
+    const pointsValue = pointsRedeemed && pointsRedeemed > 0
+      ? Math.round(Math.min(pointsRedeemed / 100, total) * 100) / 100
+      : 0;
+    const amountDue = Math.round((total - pointsValue) * 100) / 100;
     const primaryPayment = payments.reduce((a, b) => (a.amount >= b.amount ? a : b));
+    const hasCashPayment = payments.some((p) => p.paymentMethod === 'CASH');
     setIsProcessing(true);
 
     try {
@@ -355,13 +402,13 @@ export const POS: React.FC = () => {
         })),
         subtotal: getSubtotal(),
         tax: getTax(),
-        discount: useCartStore.getState().discount,
-        total: getTotal(),
+        discount: pointsValue,
+        total: amountDue,
         paymentMethod: payments.length > 1
           ? payments.map(p => `${p.paymentMethod}: ${formatCurrency(p.amount)}`).join(' / ')
           : primaryPayment.paymentMethod,
         amountPaid: totalPaid,
-        change: totalPaid - getTotal(),
+        change: Math.max(0, Math.round((totalPaid - amountDue) * 100) / 100),
         employeeName: user ? `${user.firstName} ${user.lastName}` : 'Unknown',
         customerName: linkedCustomer
           ? `${linkedCustomer.firstName} ${linkedCustomer.lastName}`
@@ -371,11 +418,12 @@ export const POS: React.FC = () => {
 
       setLastReceipt(receipt);
 
-      if (hardware.drawer.shouldOpen(primaryPayment.paymentMethod)) {
+      // Open the drawer if ANY payment was cash (split sales may have cash as the smaller part)
+      if (hardware.drawer.shouldOpen(hasCashPayment ? 'CASH' : primaryPayment.paymentMethod)) {
         hardware.drawer.open();
       }
 
-      const change = totalPaid - total;
+      const change = Math.max(0, totalPaid - amountDue);
       const message = linkedCustomer
         ? `Sale completed for ${linkedCustomer.firstName} ${linkedCustomer.lastName}!${change > 0 ? `\nChange: ${formatCurrency(change)}` : ''}`
         : `Sale completed!${change > 0 ? ` Change: ${formatCurrency(change)}` : ''}`;
@@ -385,6 +433,7 @@ export const POS: React.FC = () => {
       setLinkedCustomer(null);
       setShowPaymentModal(false);
       setShowReceiptPreview(true);
+      setSalesRefreshTrigger((n) => n + 1);
 
     } catch (error: any) {
       // If network error, queue offline
@@ -400,10 +449,13 @@ export const POS: React.FC = () => {
               quantity: item.quantity,
               price: item.product.price,
               discount: item.discount,
+              isTaxable: item.product.isTaxable,
             })),
             paymentMethod: primaryPayment.paymentMethod,
             amountPaid: totalPaid,
             notes: notes.trim() || undefined,
+            // Cart tax rate is a percent; offline sale math expects a fraction
+            taxRate: useCartStore.getState().taxRate / 100,
           });
 
           const change = totalPaid - total;
@@ -434,44 +486,54 @@ export const POS: React.FC = () => {
   ];
 
   return (
-    <div className="h-screen flex flex-col md:flex-row">
+    <div className="h-screen flex flex-col">
+      {/* Status bar: navigation, store, shift, connectivity, clock, cashier, theme */}
+      <POSTopBar />
+
       {/* Quantity Numpad overlay */}
       {numpadProduct && (
         <QuantityNumpad
           initialQty={getCartQty(numpadProduct.id) || 1}
           maxQty={numpadProduct.trackInventory ? numpadProduct.stockQuantity : undefined}
           productName={numpadProduct.name}
-          onConfirm={(qty) => { handleAddToCart(numpadProduct, qty); setNumpadProduct(null); }}
+          onConfirm={(qty) => { handleSetQuantity(numpadProduct, qty); setNumpadProduct(null); }}
           onCancel={() => setNumpadProduct(null)}
         />
       )}
 
-      {/* Left side - Products */}
-      <ProductGrid
-        products={products}
-        categories={allCategories}
-        selectedCategoryId={selectedCategoryId}
-        onSelectCategory={setSelectedCategoryId}
-        search={search}
-        onSearchChange={setSearch}
-        isLoading={isLoading}
-        onProductClick={handleProductClick}
-        getCartQty={getCartQty}
-        isFavorite={isFavorite}
-        toggleFavorite={toggleFavorite}
-        searchInputRef={searchInputRef}
-      />
-
-      {/* Right side - Cart (desktop) */}
-      <div className="hidden md:flex">
-        <CartPanel
-          lastReceipt={lastReceipt}
-          onPrintReceipt={handlePrintReceipt}
-          onShowHeldSales={() => setShowHeldSalesModal(true)}
-          onShowRefund={() => setShowRefundModal(true)}
-          onCheckout={() => { if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); } }}
-          onHoldSale={handleHoldSale}
+      {/* Main content: products left, cart right */}
+      <div className="flex-1 flex flex-col md:flex-row min-h-0">
+        {/* Left side - Products */}
+        <ProductGrid
+          products={products}
+          categories={allCategories}
+          selectedCategoryId={selectedCategoryId}
+          onSelectCategory={setSelectedCategoryId}
+          search={search}
+          onSearchChange={setSearch}
+          isLoading={isLoading}
+          onProductClick={handleProductClick}
+          getCartQty={getCartQty}
+          isFavorite={isFavorite}
+          toggleFavorite={toggleFavorite}
+          searchInputRef={searchInputRef}
         />
+
+        {/* Right side - Cart (desktop) */}
+        <div className="hidden md:flex">
+          <CartPanel
+            lastReceipt={lastReceipt}
+            onPrintReceipt={handlePrintReceipt}
+            onShowHeldSales={() => setShowHeldSalesModal(true)}
+            onShowRefund={() => setShowRefundModal(true)}
+            onCheckout={() => { if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); } }}
+            onHoldSale={handleHoldSale}
+            linkedCustomer={linkedCustomer}
+            onCustomerChange={setLinkedCustomer}
+            onViewRecentReceipt={handleViewRecentReceipt}
+            refreshTrigger={salesRefreshTrigger}
+          />
+        </div>
       </div>
 
       {/* Mobile cart overlay */}
@@ -493,21 +555,28 @@ export const POS: React.FC = () => {
                 onShowRefund={() => setShowRefundModal(true)}
                 onCheckout={() => { if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); setMobileCartOpen(false); } }}
                 onHoldSale={() => { handleHoldSale(); setMobileCartOpen(false); }}
+                linkedCustomer={linkedCustomer}
+                onCustomerChange={setLinkedCustomer}
+                onViewRecentReceipt={(saleId) => { setMobileCartOpen(false); handleViewRecentReceipt(saleId); }}
+                refreshTrigger={salesRefreshTrigger}
               />
             </div>
           </div>
         </div>
       )}
 
-      {/* Mobile floating cart button */}
+      {/* Mobile floating cart button — shows the running total when the cart has items */}
       {!mobileCartOpen && (
         <button
           onClick={() => setMobileCartOpen(true)}
-          className="md:hidden fixed bottom-4 right-4 z-40 bg-primary text-primary-foreground rounded-full p-4 shadow-lg hover:bg-primary/90 transition-colors"
+          className="md:hidden fixed bottom-4 right-4 z-40 h-14 flex items-center gap-2 px-5 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-colors"
         >
-          <ShoppingCart className="h-6 w-6" />
+          <ShoppingCart className="h-5 w-5" />
           {items.length > 0 && (
-            <span className="absolute -top-1 -right-1 bg-destructive text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
+            <span className="font-bold tabular-nums">{formatCurrency(getTotal())}</span>
+          )}
+          {items.length > 0 && (
+            <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
               {items.reduce((c, i) => c + i.quantity, 0)}
             </span>
           )}

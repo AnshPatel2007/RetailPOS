@@ -42,7 +42,18 @@ interface EnhancedPaymentModalProps {
   onCustomerChange: (customer: LinkedCustomer | null) => void;
 }
 
-const QUICK_AMOUNTS = [5, 10, 20, 50, 100];
+/**
+ * Cash tender suggestions for a given amount due: the exact amount plus the
+ * next round-ups ($1/$5/$10/$20) and common bills, deduped and capped at 5.
+ */
+const getCashSuggestions = (due: number): number[] => {
+  const rounded = Math.round(due * 100) / 100;
+  if (rounded <= 0) return [];
+  const suggestions = new Set<number>([rounded]);
+  [1, 5, 10, 20].forEach((step) => suggestions.add(Math.ceil(rounded / step) * step));
+  [20, 50, 100].forEach((bill) => { if (bill >= rounded) suggestions.add(bill); });
+  return [...suggestions].filter((v) => v >= rounded).sort((a, b) => a - b).slice(0, 5);
+};
 
 export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   isOpen,
@@ -73,7 +84,8 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     email: '',
   });
 
-  // Reset on open
+  // Reset ONLY when the modal opens. Keying this on linkedCustomer/total made the
+  // modal wipe typed input and jump steps whenever the phone lookup linked a customer.
   useEffect(() => {
     if (isOpen) {
       setStep(linkedCustomer ? 'payment' : 'customer');
@@ -92,7 +104,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
       setShowCreateForm(false);
       setNewCustomerData({ firstName: '', lastName: '', email: '' });
     }
-  }, [isOpen, total, initialPaymentMethod, linkedCustomer]);
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phone lookup with debounce
   useEffect(() => {
@@ -147,9 +159,9 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   };
 
   const getLoyaltyTier = (points: number) => {
-    if (points >= 2000) return { name: 'Gold', css: 'bg-yellow-500/10 text-yellow-500' };
-    if (points >= 500) return { name: 'Silver', css: 'bg-muted text-foreground' };
-    return { name: 'Bronze', css: 'bg-amber-500/10 text-amber-500' };
+    if (points >= 2000) return { name: 'Gold', css: 'bg-warning/15 text-warning' };
+    if (points >= 500) return { name: 'Silver', css: 'bg-secondary text-secondary-foreground' };
+    return { name: 'Bronze', css: 'bg-muted text-muted-foreground' };
   };
 
   const POINTS_PER_DOLLAR = 100; // 100 points = $1
@@ -182,6 +194,18 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     }
   };
 
+  // Gift cards need the card number so the backend can debit the right card;
+  // store credit is tied to the linked customer's account
+  const getTenderError = (method: PaymentMethod, reference?: string): string | null => {
+    if (method === 'GIFT_CARD' && !reference?.trim()) {
+      return 'Enter the gift card number in the reference field';
+    }
+    if (method === 'STORE_CREDIT' && !linkedCustomer) {
+      return 'Link a customer to pay with store credit';
+    }
+    return null;
+  };
+
   const handleAddPayment = () => {
     const amount = parseFloat(amountInput);
     if (!amount || amount <= 0) return;
@@ -189,7 +213,12 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     if (activeTab === 'split') {
       const remaining = getRemainingBalance();
       if (amount > remaining) return;
-      setPayments([...payments, { paymentMethod, amount, reference: referenceInput || undefined }]);
+      const tenderError = getTenderError(paymentMethod, referenceInput);
+      if (tenderError) {
+        toast.error(tenderError);
+        return;
+      }
+      setPayments([...payments, { paymentMethod, amount, reference: referenceInput.trim() || undefined }]);
       setAmountInput('');
       setReferenceInput('');
     }
@@ -204,7 +233,19 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     if (activeTab === 'single') {
       const paid = parseFloat(amountInput);
       if (paid < effectiveTotal) return;
-      await onComplete([{ paymentMethod, amount: paid, reference: referenceInput || undefined }], paid, redeemed > 0 ? redeemed : undefined);
+      const tenderError = getTenderError(paymentMethod, referenceInput);
+      if (tenderError) {
+        toast.error(tenderError);
+        return;
+      }
+      // Only cash can be tendered over the total (change given); other methods
+      // are charged exactly the amount due
+      const charge = paymentMethod === 'CASH' ? paid : Math.min(paid, effectiveTotal);
+      await onComplete(
+        [{ paymentMethod, amount: charge, reference: referenceInput.trim() || undefined }],
+        charge,
+        redeemed > 0 ? redeemed : undefined
+      );
     } else {
       if (getTotalPaid() < effectiveTotal) return;
       await onComplete(payments, getTotalPaid(), redeemed > 0 ? redeemed : undefined);
@@ -232,11 +273,11 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   const paymentMethods = allPaymentMethods.filter((m) => m.enabled);
 
   const canSubmit = activeTab === 'single'
-    ? parseFloat(amountInput) >= effectiveTotal
+    ? parseFloat(amountInput) >= effectiveTotal && !getTenderError(paymentMethod, referenceInput)
     : getTotalPaid() >= effectiveTotal;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={step === 'customer' ? 'Link Customer' : 'Payment'} size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={step === 'customer' ? 'Link Customer · Step 1 of 2' : 'Payment'} size="lg">
       <div className="space-y-4">
         {step === 'customer' ? (
           /* ─── Customer Step ─── */
@@ -271,7 +312,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                       <p className="text-sm text-muted-foreground">{linkedCustomer.phone}</p>
                       <div className="flex items-center gap-3 mt-1">
                         <span className="text-xs flex items-center gap-1">
-                          <Star className="h-3 w-3 text-yellow-500" />
+                          <Star className="h-3 w-3 text-warning" />
                           {linkedCustomer.loyaltyPoints} pts
                         </span>
                         <span className="text-xs text-muted-foreground">
@@ -298,7 +339,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                   <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     type="tel"
-                    placeholder="Enter customer phone number..."
+                    placeholder="Phone number (or last 4 digits)..."
                     value={customerPhone}
                     onChange={(e) => setCustomerPhone(e.target.value)}
                     className="pl-10"
@@ -397,7 +438,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                     {linkedCustomer.firstName} {linkedCustomer.lastName}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    <Star className="h-3 w-3 inline text-yellow-500" /> {linkedCustomer.loyaltyPoints} pts
+                    <Star className="h-3 w-3 inline text-warning" /> {linkedCustomer.loyaltyPoints} pts
                   </span>
                 </div>
                 <button
@@ -411,10 +452,10 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
 
             {/* Loyalty Points Redemption */}
             {linkedCustomer && linkedCustomer.loyaltyPoints >= POINTS_PER_DOLLAR && (
-              <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+              <div className="p-3 rounded-lg bg-warning/10 border border-warning/20">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium flex items-center gap-1">
-                    <Star className="h-3.5 w-3.5 text-yellow-500" />
+                    <Star className="h-3.5 w-3.5 text-warning" />
                     Redeem Loyalty Points
                   </span>
                   <span className="text-xs text-muted-foreground">
@@ -455,7 +496,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                   )}
                 </div>
                 {getPointsDiscount() > 0 && (
-                  <p className="text-xs text-yellow-600 mt-1.5 font-medium">
+                  <p className="text-xs text-warning mt-1.5 font-medium">
                     -{formatCurrency(getPointsDiscount())} discount applied ({parseInt(pointsToRedeem)} pts)
                   </p>
                 )}
@@ -493,7 +534,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                 {getPointsDiscount() > 0 ? (
                   <>
                     <p className="text-xs text-muted-foreground line-through">{formatCurrency(total)}</p>
-                    <p className="text-lg font-bold text-yellow-600">{formatCurrency(effectiveTotal)}</p>
+                    <p className="text-lg font-bold text-warning">{formatCurrency(effectiveTotal)}</p>
                   </>
                 ) : (
                   <p className="text-lg font-bold">{formatCurrency(total)}</p>
@@ -561,7 +602,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                       <button
                         key={value}
                         onClick={() => setPaymentMethod(value)}
-                        className={`p-3 border-2 rounded-lg transition-all ${
+                        className={`p-3 min-h-[64px] border-2 rounded-lg transition-all ${
                           paymentMethod === value
                             ? 'border-primary bg-primary/10'
                             : 'border-border hover:border-primary/50'
@@ -602,7 +643,9 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                 {/* Reference input for non-cash methods */}
                 {getReferencePlaceholder(paymentMethod) && (
                   <div>
-                    <label className="block text-sm font-medium mb-2">Reference</label>
+                    <label className="block text-sm font-medium mb-2">
+                      Reference{paymentMethod === 'GIFT_CARD' ? ' (required — card number)' : ''}
+                    </label>
                     <Input
                       type="text"
                       value={referenceInput}
@@ -612,39 +655,39 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                   </div>
                 )}
 
-                {/* Quick Amount Buttons */}
+                {/* Quick Amount Buttons — smart cash suggestions from the amount due */}
                 <div className="flex gap-2 flex-wrap">
-                  {QUICK_AMOUNTS.map((amount) => (
-                    <Button
-                      key={amount}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleQuickAmount(amount)}
-                      className="flex-1 min-w-[60px]"
-                    >
-                      ${amount}
-                    </Button>
-                  ))}
-                  {activeTab === 'single' && (
+                  {activeTab === 'single' && paymentMethod === 'CASH' ? (
+                    getCashSuggestions(effectiveTotal).map((amount, i) => (
+                      <Button
+                        key={amount}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleQuickAmount(amount)}
+                        className="flex-1 min-w-[64px] h-10 tabular-nums"
+                      >
+                        {i === 0 ? 'Exact' : formatCurrency(amount)}
+                      </Button>
+                    ))
+                  ) : activeTab === 'single' ? (
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setAmountInput(effectiveTotal.toFixed(2))}
-                      className="flex-1 min-w-[80px]"
+                      className="flex-1 min-w-[80px] h-10"
                     >
-                      Exact
+                      Exact ({formatCurrency(effectiveTotal)})
                     </Button>
-                  )}
-                  {activeTab === 'split' && getRemainingBalance() > 0 && (
+                  ) : getRemainingBalance() > 0 ? (
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setAmountInput(getRemainingBalance().toFixed(2))}
-                      className="flex-1 min-w-[80px]"
+                      className="flex-1 min-w-[80px] h-10"
                     >
                       Exact ({formatCurrency(getRemainingBalance())})
                     </Button>
-                  )}
+                  ) : null}
                 </div>
               </>
             )}
@@ -653,7 +696,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
             <div className="flex gap-3 pt-4 border-t">
               <Button
                 variant="outline"
-                className="flex-1"
+                className="flex-1 h-12"
                 onClick={onClose}
                 disabled={isProcessing}
               >
@@ -661,7 +704,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
               </Button>
               <Button
                 variant="primary"
-                className="flex-1"
+                className="flex-1 h-12 text-base font-semibold"
                 onClick={handleSubmit}
                 disabled={!canSubmit || isProcessing}
               >
@@ -670,7 +713,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                 ) : (
                   <>
                     <Check className="h-4 w-4 mr-2" />
-                    Complete Sale
+                    Charge {formatCurrency(effectiveTotal)}
                   </>
                 )}
               </Button>

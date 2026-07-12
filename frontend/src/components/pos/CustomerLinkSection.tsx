@@ -92,21 +92,21 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
   };
 
   const getLoyaltyTier = (points: number) => {
-    if (points >= 2000) return { name: 'Gold', css: 'bg-yellow-500/10 text-yellow-500' };
-    if (points >= 500) return { name: 'Silver', css: 'bg-muted text-foreground' };
-    return { name: 'Bronze', css: 'bg-amber-500/10 text-amber-500' };
+    if (points >= 2000) return { name: 'Gold', css: 'bg-warning/15 text-warning' };
+    if (points >= 500) return { name: 'Silver', css: 'bg-secondary text-secondary-foreground' };
+    return { name: 'Bronze', css: 'bg-muted text-muted-foreground' };
   };
 
   return (
     <>
       <div className="space-y-2">
-        <label className="text-sm font-medium flex items-center gap-2">
-          <Phone className="h-4 w-4" />
-          Customer Phone
+        <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+          <Phone className="h-3.5 w-3.5" />
+          Customer
         </label>
 
         {linkedCustomer ? (
-          <Card className="p-3 bg-primary/5 border-primary">
+          <Card className="p-2.5 bg-primary/5 border-primary">
             <div className="flex items-start justify-between">
               <div className="flex-1">
                 <div className="flex items-center gap-2">
@@ -127,15 +127,15 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
                 <p className="text-xs text-muted-foreground mt-1">{linkedCustomer.phone}</p>
                 <div className="flex items-center gap-3 mt-2">
                   <div className="flex items-center gap-1">
-                    <Star className="h-3 w-3 text-yellow-500" />
+                    <Star className="h-3 w-3 text-warning" />
                     <p className="text-xs font-medium">{linkedCustomer.loyaltyPoints} pts</p>
                   </div>
                   <div className="flex items-center gap-1">
-                    <DollarSign className="h-3 w-3 text-green-500" />
+                    <DollarSign className="h-3 w-3 text-success" />
                     <p className="text-xs text-muted-foreground">{formatCurrency(linkedCustomer.totalSpent)}</p>
                   </div>
                   <div className="flex items-center gap-1">
-                    <ShoppingBag className="h-3 w-3 text-blue-500" />
+                    <ShoppingBag className="h-3 w-3 text-info" />
                     <p className="text-xs text-muted-foreground">{linkedCustomer.visitCount} visits</p>
                   </div>
                 </div>
@@ -154,7 +154,7 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
               <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 type="tel"
-                placeholder="Enter phone number..."
+                placeholder="Phone number (or last 4 digits)..."
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
                 className="pl-10"

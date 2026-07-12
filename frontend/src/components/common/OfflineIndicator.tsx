@@ -55,10 +55,10 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
         <div
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer
             ${isOffline
-              ? 'bg-red-500/10 text-red-500'
+              ? 'bg-destructive/10 text-destructive'
               : pendingSalesCount > 0
-                ? 'bg-yellow-500/10 text-yellow-500'
-                : 'bg-green-500/10 text-green-500'
+                ? 'bg-warning/10 text-warning'
+                : 'bg-success/10 text-success'
             }`}
           onClick={handleSync}
         >
@@ -91,7 +91,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Status:</span>
-                <span className={isOnline ? 'text-green-500' : 'text-red-500'}>
+                <span className={isOnline ? 'text-success' : 'text-destructive'}>
                   {isOnline ? 'Online' : 'Offline'}
                 </span>
               </div>
@@ -104,14 +104,14 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
                 <span>{formatLastSync(lastSyncTime)}</span>
               </div>
               {lastError && (
-                <div className="mt-2 p-2 bg-red-500/10 rounded text-red-500 text-xs">
+                <div className="mt-2 p-2 bg-destructive/10 rounded text-destructive text-xs">
                   {lastError}
                 </div>
               )}
               {isOnline && !isSyncing && (
                 <button
                   onClick={handleSync}
-                  className="w-full mt-2 px-3 py-1.5 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700"
+                  className="w-full mt-2 px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs hover:bg-primary/90"
                 >
                   Sync Now
                 </button>
@@ -131,8 +131,8 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
       <div
         className={`w-full px-4 py-2 flex items-center justify-between
           ${isOffline
-            ? 'bg-red-600 text-white'
-            : 'bg-yellow-500 text-yellow-900'
+            ? 'bg-destructive text-destructive-foreground'
+            : 'bg-warning text-warning-foreground'
           }`}
       >
         <div className="flex items-center gap-2">
@@ -178,10 +178,10 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
         <div
           className={`flex items-center gap-2 px-4 py-2 rounded-lg shadow-lg cursor-pointer
             ${isOffline
-              ? 'bg-red-600 text-white'
+              ? 'bg-destructive text-destructive-foreground'
               : pendingSalesCount > 0
-                ? 'bg-yellow-500 text-yellow-900'
-                : 'bg-green-500 text-white'
+                ? 'bg-warning text-warning-foreground'
+                : 'bg-success text-success-foreground'
             }`}
           onClick={handleSync}
         >

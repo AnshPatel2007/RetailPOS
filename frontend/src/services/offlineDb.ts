@@ -61,6 +61,7 @@ export interface PendingSaleItem {
   discount: number;
   tax: number;
   total: number;
+  isTaxable?: boolean;
 }
 
 export interface SyncLog {

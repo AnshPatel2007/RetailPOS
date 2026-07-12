@@ -6,7 +6,6 @@ interface HeldSale {
   id: string;
   items: CartItem[];
   customer: Customer | null;
-  discount: number;
   notes: string;
   heldAt: string;
 }
@@ -14,7 +13,6 @@ interface HeldSale {
 interface CartState {
   items: CartItem[];
   customer: Customer | null;
-  discount: number;
   notes: string;
   taxRate: number;
   heldSales: HeldSale[];
@@ -26,7 +24,6 @@ interface CartState {
   updateNotes: (productId: string, notes: string) => void;
   updatePrice: (productId: string, price: number) => void;
   setCustomer: (customer: Customer | null) => void;
-  setGlobalDiscount: (discount: number) => void;
   setNotes: (notes: string) => void;
   setTaxRate: (rate: number) => void;
   clearCart: () => void;
@@ -53,7 +50,6 @@ export const useCartStore = create<CartState>()(
     (set, get) => ({
       items: [],
       customer: null,
-      discount: 0,
       notes: '',
       taxRate: 0,
       heldSales: [],
@@ -94,7 +90,17 @@ export const useCartStore = create<CartState>()(
 
         set({
           items: get().items.map((item) =>
-            item.product.id === productId ? { ...item, quantity } : item
+            item.product.id === productId
+              ? {
+                  ...item,
+                  quantity,
+                  // Re-clamp fixed discounts so they never exceed the new line total
+                  discount: Math.min(
+                    item.discount,
+                    Math.round(item.product.price * quantity * 100) / 100
+                  ),
+                }
+              : item
           ),
         });
       },
@@ -119,7 +125,15 @@ export const useCartStore = create<CartState>()(
         set({
           items: get().items.map((item) =>
             item.product.id === productId
-              ? { ...item, product: { ...item.product, price }, priceOverride: true }
+              ? {
+                  ...item,
+                  product: { ...item.product, price },
+                  priceOverride: true,
+                  discount: Math.min(
+                    item.discount,
+                    Math.round(price * item.quantity * 100) / 100
+                  ),
+                }
               : item
           ),
         });
@@ -127,10 +141,6 @@ export const useCartStore = create<CartState>()(
 
       setCustomer: (customer: Customer | null) => {
         set({ customer });
-      },
-
-      setGlobalDiscount: (discount: number) => {
-        set({ discount });
       },
 
       setNotes: (notes: string) => {
@@ -145,13 +155,12 @@ export const useCartStore = create<CartState>()(
         set({
           items: [],
           customer: null,
-          discount: 0,
           notes: '',
         });
       },
 
       holdSale: () => {
-        const { items, customer, discount, notes, heldSales } = get();
+        const { items, customer, notes, heldSales } = get();
         if (items.length === 0) return;
 
         const MAX_HELD = 5;
@@ -161,7 +170,6 @@ export const useCartStore = create<CartState>()(
           id: `held-${Date.now()}`,
           items,
           customer,
-          discount,
           notes,
           heldAt: new Date().toISOString(),
         };
@@ -170,13 +178,12 @@ export const useCartStore = create<CartState>()(
           heldSales: [...heldSales, held],
           items: [],
           customer: null,
-          discount: 0,
           notes: '',
         });
       },
 
       restoreHeldSale: (id: string) => {
-        const { items, customer, discount, notes, heldSales } = get();
+        const { items, customer, notes, heldSales } = get();
         const target = heldSales.find((h) => h.id === id);
         if (!target) return;
 
@@ -188,7 +195,6 @@ export const useCartStore = create<CartState>()(
             id: `held-${Date.now()}`,
             items,
             customer,
-            discount,
             notes,
             heldAt: new Date().toISOString(),
           };
@@ -196,7 +202,6 @@ export const useCartStore = create<CartState>()(
             heldSales: [...remainingHeld, currentAsHeld],
             items: target.items,
             customer: target.customer,
-            discount: target.discount,
             notes: target.notes,
           });
         } else {
@@ -204,7 +209,6 @@ export const useCartStore = create<CartState>()(
             heldSales: remainingHeld,
             items: target.items,
             customer: target.customer,
-            discount: target.discount,
             notes: target.notes,
           });
         }
@@ -236,10 +240,8 @@ export const useCartStore = create<CartState>()(
 
       getTax: () => {
         const taxRate = get().taxRate;
-        const globalDiscount = get().discount;
-        const subtotal = get().getSubtotal();
 
-        // Calculate what proportion of the subtotal is taxable
+        // Tax applies to taxable items only, net of their item discounts
         const taxableAmount = get().items.reduce((total, item) => {
           if (item.product.isTaxable) {
             return total + (item.product.price * item.quantity - item.discount);
@@ -247,19 +249,13 @@ export const useCartStore = create<CartState>()(
           return total;
         }, 0);
 
-        // Apply global discount proportionally to taxable amount
-        const discountedTaxable = subtotal > 0
-          ? taxableAmount - (globalDiscount * (taxableAmount / subtotal))
-          : taxableAmount;
-
-        return Math.round((Math.max(0, discountedTaxable) * taxRate) / 100 * 100) / 100;
+        return Math.round((Math.max(0, taxableAmount) * taxRate) / 100 * 100) / 100;
       },
 
       getTotal: () => {
         const subtotal = get().getSubtotal();
         const tax = get().getTax();
-        const globalDiscount = get().discount;
-        return Math.round((subtotal - globalDiscount + tax) * 100) / 100;
+        return Math.round((subtotal + tax) * 100) / 100;
       },
 
       getItemCount: () => {
@@ -272,7 +268,6 @@ export const useCartStore = create<CartState>()(
       partialize: (state) => ({
         items: state.items,
         customer: state.customer,
-        discount: state.discount,
         notes: state.notes,
         taxRate: state.taxRate,
         heldSales: state.heldSales,

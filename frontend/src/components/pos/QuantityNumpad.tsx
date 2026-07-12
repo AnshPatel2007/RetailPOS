@@ -63,7 +63,7 @@ export const QuantityNumpad: React.FC<QuantityNumpadProps> = ({
       onClick={(e) => { if (e.target === overlayRef.current) onCancel(); }}
     >
       <div className="absolute inset-0 bg-black/60" onClick={onCancel} />
-      <div className="relative bg-background border-2 border-border rounded-xl shadow-2xl p-5 w-72 z-10">
+      <div className="relative bg-card border border-border rounded-xl shadow-2xl p-5 w-72 z-10">
         <p className="text-sm font-medium text-center mb-1 truncate text-foreground">{productName}</p>
         {maxQty !== undefined && (
           <p className="text-xs text-center text-muted-foreground mb-2">{maxQty} in stock</p>
@@ -80,7 +80,7 @@ export const QuantityNumpad: React.FC<QuantityNumpadProps> = ({
             <button
               key={d}
               onClick={() => handleDigit(d)}
-              className="h-12 rounded-lg bg-background border border-border text-lg font-semibold hover:bg-accent transition-colors active:scale-95"
+              className="h-14 rounded-lg bg-background border border-border text-lg font-semibold hover:bg-accent transition-colors active:scale-95"
             >
               {d}
             </button>
@@ -88,21 +88,21 @@ export const QuantityNumpad: React.FC<QuantityNumpadProps> = ({
           {/* Bottom row: backspace, 0, confirm */}
           <button
             onClick={handleBackspace}
-            className="h-12 rounded-lg bg-background border border-border flex items-center justify-center hover:bg-accent transition-colors active:scale-95"
+            className="h-14 rounded-lg bg-background border border-border flex items-center justify-center hover:bg-accent transition-colors active:scale-95"
           >
             <Delete className="h-5 w-5" />
           </button>
           <button
             onClick={() => handleDigit('0')}
-            className="h-12 rounded-lg bg-background border border-border text-lg font-semibold hover:bg-accent transition-colors active:scale-95"
+            className="h-14 rounded-lg bg-background border border-border text-lg font-semibold hover:bg-accent transition-colors active:scale-95"
           >
             0
           </button>
           <button
             onClick={handleConfirm}
-            className="h-12 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors active:scale-95"
+            className="h-14 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors active:scale-95"
           >
-            Add
+            OK
           </button>
         </div>
 

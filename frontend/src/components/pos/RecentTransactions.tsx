@@ -52,8 +52,8 @@ export const RecentTransactions: React.FC<RecentTransactionsProps> = ({
   };
 
   const PaymentIcon = ({ method }: { method: string }) => {
-    if (method === 'CASH') return <Banknote className="h-3.5 w-3.5 text-green-500" />;
-    return <CreditCard className="h-3.5 w-3.5 text-blue-500" />;
+    if (method === 'CASH') return <Banknote className="h-3.5 w-3.5 text-success" />;
+    return <CreditCard className="h-3.5 w-3.5 text-info" />;
   };
 
   return (
@@ -66,7 +66,7 @@ export const RecentTransactions: React.FC<RecentTransactionsProps> = ({
           <Clock className="h-3.5 w-3.5" />
           Recent Transactions
         </span>
-        {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+        {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
       </button>
 
       {isExpanded && (

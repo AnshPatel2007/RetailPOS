@@ -94,21 +94,22 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
         <div className="flex items-center gap-0.5 ml-2 shrink-0">
           <button
             onClick={() => setShowNotes(!showNotes)}
-            className={`p-1 rounded hover:bg-accent transition-colors ${item.notes ? 'text-primary' : 'text-muted-foreground/50'}`}
+            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-accent transition-colors ${item.notes ? 'text-primary' : 'text-muted-foreground/50'}`}
             title="Item notes"
           >
             <StickyNote className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => setShowDiscount(!showDiscount)}
-            className={`p-1 rounded hover:bg-accent transition-colors ${item.discount > 0 ? 'text-primary' : 'text-muted-foreground/50'}`}
+            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-accent transition-colors ${item.discount > 0 ? 'text-primary' : 'text-muted-foreground/50'}`}
             title="Item discount"
           >
             <Percent className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => onRemove(item.product.id)}
-            className="p-1 hover:bg-destructive/10 rounded"
+            className="h-7 w-7 flex items-center justify-center hover:bg-destructive/10 rounded"
+            title="Remove item"
           >
             <X className="h-4 w-4 text-destructive" />
           </button>
@@ -119,11 +120,12 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
         <div className="flex items-center space-x-2">
           <button
             onClick={() => onUpdateQuantity(item.product.id, item.quantity - 1)}
-            className="p-1 border rounded hover:bg-accent"
+            className="h-8 w-8 flex items-center justify-center border rounded-md hover:bg-accent active:scale-95 transition-transform"
+            title="Decrease quantity"
           >
             <Minus className="h-4 w-4" />
           </button>
-          <span className="w-12 text-center font-medium">{item.quantity}</span>
+          <span className="w-10 text-center font-semibold tabular-nums">{item.quantity}</span>
           <button
             onClick={() => {
               if (item.product.trackInventory && item.quantity + 1 > item.product.stockQuantity) {
@@ -132,7 +134,8 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
               }
               onUpdateQuantity(item.product.id, item.quantity + 1);
             }}
-            className="p-1 border rounded hover:bg-accent"
+            className="h-8 w-8 flex items-center justify-center border rounded-md hover:bg-accent active:scale-95 transition-transform"
+            title="Increase quantity"
           >
             <Plus className="h-4 w-4" />
           </button>

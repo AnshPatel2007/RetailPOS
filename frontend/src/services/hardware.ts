@@ -47,6 +47,7 @@ export const defaultHardwareSettings: HardwareSettings = {
     enabled: true,
     inputTimeout: 100,
     minLength: 6,
+    preventDuplicates: true,
   },
   receiptPrinter: {
     enabled: true,
@@ -342,11 +343,18 @@ class ReceiptPrinter {
   private generateReceiptHTML(receipt: Receipt): string {
     const widthMm = this.settings.paperWidth === 58 ? '58mm' : '80mm';
     const widthPx = this.settings.paperWidth === 58 ? '220px' : '302px';
+    // Escape all dynamic text — product/customer names must not inject HTML into the print window
+    const esc = (s: string) =>
+      String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 
     return `<!DOCTYPE html>
 <html>
 <head>
-  <title>Receipt - ${receipt.saleNumber}</title>
+  <title>Receipt - ${esc(receipt.saleNumber)}</title>
   <style>
     @media print {
       @page { margin: 0; size: ${widthMm} auto; }
@@ -383,19 +391,19 @@ class ReceiptPrinter {
 </head>
 <body>
   <div class="receipt">
-    ${this.settings.showLogo ? `<div class="center store-name">${this.settings.storeName}</div>` : ''}
-    ${this.settings.storeAddress ? `<div class="center store-info">${this.settings.storeAddress}</div>` : ''}
-    ${this.settings.storePhone ? `<div class="center store-info">Tel: ${this.settings.storePhone}</div>` : ''}
+    ${this.settings.showLogo ? `<div class="center store-name">${esc(this.settings.storeName)}</div>` : ''}
+    ${this.settings.storeAddress ? `<div class="center store-info">${esc(this.settings.storeAddress)}</div>` : ''}
+    ${this.settings.storePhone ? `<div class="center store-info">Tel: ${esc(this.settings.storePhone)}</div>` : ''}
     <div class="line"></div>
     <div class="center">
-      <div>Receipt #${receipt.saleNumber}</div>
+      <div>Receipt #${esc(receipt.saleNumber)}</div>
       <div>${new Date(receipt.date).toLocaleString()}</div>
-      ${receipt.employeeName ? `<div>Cashier: ${receipt.employeeName}</div>` : ''}
+      ${receipt.employeeName ? `<div>Cashier: ${esc(receipt.employeeName)}</div>` : ''}
     </div>
     <div class="line"></div>
     <table>
       ${receipt.items.map((item) => `
-      <tr><td class="item-name" colspan="2">${item.name}</td></tr>
+      <tr><td class="item-name" colspan="2">${esc(item.name)}</td></tr>
       <tr><td class="item-detail">${item.quantity} x $${item.price.toFixed(2)}</td><td class="right">$${item.total.toFixed(2)}</td></tr>
       `).join('')}
     </table>
@@ -409,17 +417,17 @@ class ReceiptPrinter {
       <tr class="grand-total"><td>TOTAL:</td><td class="right">$${receipt.total.toFixed(2)}</td></tr>
     </table>
     <table>
-      <tr><td>Paid (${receipt.paymentMethod}):</td><td class="right">$${receipt.amountPaid.toFixed(2)}</td></tr>
+      <tr><td>Paid (${esc(receipt.paymentMethod)}):</td><td class="right">$${receipt.amountPaid.toFixed(2)}</td></tr>
       ${receipt.change > 0 ? `<tr><td>Change:</td><td class="right">$${receipt.change.toFixed(2)}</td></tr>` : ''}
     </table>
     ${receipt.customerName ? `
     <div class="line"></div>
     <div class="center">
-      <div>Customer: ${receipt.customerName}</div>
+      <div>Customer: ${esc(receipt.customerName)}</div>
       ${receipt.loyaltyPoints ? `<div>Loyalty Points: ${receipt.loyaltyPoints}</div>` : ''}
     </div>` : ''}
     <div class="line"></div>
-    <div class="center footer">${this.settings.footerText}</div>
+    <div class="center footer">${esc(this.settings.footerText)}</div>
   </div>
 </body>
 </html>`;
