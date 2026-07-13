@@ -4,9 +4,26 @@ import prisma from '../config/database';
 import { SaleStatus, ExpenseStatus } from '@prisma/client';
 import { AuthRequest } from '../types';
 import { createDateFilter } from '../utils/dateFilter.util';
+import { parseListFilter } from '../utils/queryFilter.util';
 
 /** Round a number to 2 decimal places (currency precision) */
 const rc = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Refunded totals from the Refund table (includes partial refunds) for a
+ * createdAt date range. Sales keep status COMPLETED after a partial refund,
+ * so report revenue must subtract these amounts explicitly.
+ */
+const getRefundTotals = async (
+  dateFilter?: { gte?: Date; lt?: Date; lte?: Date }
+): Promise<{ amount: number; count: number }> => {
+  const result = await prisma.refund.aggregate({
+    where: dateFilter ? { createdAt: dateFilter } : {},
+    _sum: { amount: true },
+    _count: true,
+  });
+  return { amount: result._sum.amount || 0, count: result._count };
+};
 
 /**
  * Get overall business report - comprehensive metrics for small-mid size businesses
@@ -37,11 +54,16 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
 
   // ==================== REVENUE METRICS ====================
 
+  // Revenue counts sales when they happened (COMPLETED + later fully
+  // REFUNDED); refunds are subtracted in the period they were issued via the
+  // Refund table, which also covers partial refunds on COMPLETED sales.
+  const revenueStatuses = { in: [SaleStatus.COMPLETED, SaleStatus.REFUNDED] };
+
   // Today's sales
   const todaySales = await prisma.sale.aggregate({
     where: {
       createdAt: { gte: today, lte: endOfToday },
-      status: SaleStatus.COMPLETED,
+      status: revenueStatuses,
     },
     _sum: { total: true, tax: true, discount: true, subtotal: true },
     _count: true,
@@ -51,7 +73,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   const weekSales = await prisma.sale.aggregate({
     where: {
       createdAt: { gte: weekAgo },
-      status: SaleStatus.COMPLETED,
+      status: revenueStatuses,
     },
     _sum: { total: true, tax: true, discount: true },
     _count: true,
@@ -61,7 +83,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   const prevWeekSales = await prisma.sale.aggregate({
     where: {
       createdAt: { gte: previousWeek, lt: weekAgo },
-      status: SaleStatus.COMPLETED,
+      status: revenueStatuses,
     },
     _sum: { total: true },
     _count: true,
@@ -71,7 +93,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   const monthSales = await prisma.sale.aggregate({
     where: {
       createdAt: { gte: monthAgo },
-      status: SaleStatus.COMPLETED,
+      status: revenueStatuses,
     },
     _sum: { total: true, tax: true, discount: true },
     _count: true,
@@ -81,7 +103,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   const prevMonthSales = await prisma.sale.aggregate({
     where: {
       createdAt: { gte: previousMonth, lt: monthAgo },
-      status: SaleStatus.COMPLETED,
+      status: revenueStatuses,
     },
     _sum: { total: true },
     _count: true,
@@ -91,19 +113,37 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   const yearSales = await prisma.sale.aggregate({
     where: {
       createdAt: { gte: yearAgo },
-      status: SaleStatus.COMPLETED,
+      status: revenueStatuses,
     },
     _sum: { total: true, tax: true, discount: true },
     _count: true,
   });
 
-  // Calculate growth percentages
-  const weeklyGrowth = prevWeekSales._sum.total
-    ? (((weekSales._sum.total || 0) - (prevWeekSales._sum.total || 0)) / (prevWeekSales._sum.total || 1)) * 100
+  // Refunds issued per period (partial + full)
+  const [todayRefunds, weekRefunds, prevWeekRefunds, monthRefunds, prevMonthRefunds, yearRefunds] =
+    await Promise.all([
+      getRefundTotals({ gte: today, lte: endOfToday }),
+      getRefundTotals({ gte: weekAgo }),
+      getRefundTotals({ gte: previousWeek, lt: weekAgo }),
+      getRefundTotals({ gte: monthAgo }),
+      getRefundTotals({ gte: previousMonth, lt: monthAgo }),
+      getRefundTotals({ gte: yearAgo }),
+    ]);
+
+  const todayNet = rc((todaySales._sum.total || 0) - todayRefunds.amount);
+  const weekNet = rc((weekSales._sum.total || 0) - weekRefunds.amount);
+  const prevWeekNet = rc((prevWeekSales._sum.total || 0) - prevWeekRefunds.amount);
+  const monthNet = rc((monthSales._sum.total || 0) - monthRefunds.amount);
+  const prevMonthNet = rc((prevMonthSales._sum.total || 0) - prevMonthRefunds.amount);
+  const yearNet = rc((yearSales._sum.total || 0) - yearRefunds.amount);
+
+  // Calculate growth percentages (on refund-adjusted revenue)
+  const weeklyGrowth = prevWeekNet
+    ? ((weekNet - prevWeekNet) / prevWeekNet) * 100
     : 0;
 
-  const monthlyGrowth = prevMonthSales._sum.total
-    ? (((monthSales._sum.total || 0) - (prevMonthSales._sum.total || 0)) / (prevMonthSales._sum.total || 1)) * 100
+  const monthlyGrowth = prevMonthNet
+    ? ((monthNet - prevMonthNet) / prevMonthNet) * 100
     : 0;
 
   // ==================== PROFIT & COST ANALYSIS ====================
@@ -139,8 +179,8 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   });
   totalCOGS = rc(totalCOGS);
 
-  const grossProfit = rc((monthSales._sum.total || 0) - totalCOGS);
-  const grossMargin = monthSales._sum.total ? rc((grossProfit / (monthSales._sum.total || 1)) * 100) : 0;
+  const grossProfit = rc(monthNet - totalCOGS);
+  const grossMargin = monthNet ? rc((grossProfit / monthNet) * 100) : 0;
 
   // Get expenses for net profit (include all statuses except REJECTED)
   const monthExpenses = await prisma.expense.aggregate({
@@ -153,7 +193,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   });
 
   const netProfit = rc(grossProfit - (monthExpenses._sum.amount || 0));
-  const netMargin = monthSales._sum.total ? rc((netProfit / (monthSales._sum.total || 1)) * 100) : 0;
+  const netMargin = monthNet ? rc((netProfit / monthNet) * 100) : 0;
 
   // ==================== CUSTOMER INSIGHTS ====================
 
@@ -454,15 +494,6 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
 
   // ==================== REFUNDS & VOIDS ====================
 
-  const refundsThisMonth = await prisma.sale.aggregate({
-    where: {
-      createdAt: { gte: monthAgo },
-      status: SaleStatus.REFUNDED,
-    },
-    _sum: { total: true },
-    _count: true,
-  });
-
   const voidsThisMonth = await prisma.sale.aggregate({
     where: {
       createdAt: { gte: monthAgo },
@@ -477,26 +508,26 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   res.json({
     success: true,
     data: {
-      // Revenue Overview
+      // Revenue Overview (net of refunds issued in each period)
       revenue: {
         today: {
-          total: todaySales._sum.total || 0,
+          total: todayNet,
           transactions: todaySales._count,
           tax: todaySales._sum.tax || 0,
           discount: todaySales._sum.discount || 0,
         },
         week: {
-          total: weekSales._sum.total || 0,
+          total: weekNet,
           transactions: weekSales._count,
           growth: Math.round(weeklyGrowth * 100) / 100,
         },
         month: {
-          total: monthSales._sum.total || 0,
+          total: monthNet,
           transactions: monthSales._count,
           growth: Math.round(monthlyGrowth * 100) / 100,
         },
         year: {
-          total: yearSales._sum.total || 0,
+          total: yearNet,
           transactions: yearSales._count,
         },
       },
@@ -583,11 +614,11 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
         hourlySales: hourlySalesPattern,
       },
 
-      // Refunds & Voids
+      // Refunds & Voids (refunds from the Refund table, includes partials)
       refundsAndVoids: {
         refunds: {
-          total: refundsThisMonth._sum.total || 0,
-          count: refundsThisMonth._count,
+          total: rc(monthRefunds.amount),
+          count: monthRefunds.count,
         },
         voids: {
           total: voidsThisMonth._sum.total || 0,
@@ -892,7 +923,7 @@ export const getSalesReport = asyncHandler(async (_req: Request, res: Response) 
   } = _req.query;
 
   const where: any = {
-    status: status || SaleStatus.COMPLETED,
+    status: parseListFilter(status) ?? SaleStatus.COMPLETED,
   };
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
@@ -901,8 +932,10 @@ export const getSalesReport = asyncHandler(async (_req: Request, res: Response) 
   }
 
   if (locationId) where.locationId = locationId;
-  if (userId) where.userId = userId;
-  if (paymentMethod) where.paymentMethod = paymentMethod;
+  const userFilter = parseListFilter(userId);
+  if (userFilter) where.userId = userFilter;
+  const paymentMethodFilter = parseListFilter(paymentMethod);
+  if (paymentMethodFilter) where.paymentMethod = paymentMethodFilter;
   if (customerId) where.customerId = customerId;
 
   if (minAmount || maxAmount) {
@@ -1174,6 +1207,7 @@ export const getProductSalesReport = asyncHandler(async (req: Request, res: Resp
       productName: true,
       quantity: true,
       total: true,
+      tax: true,
       product: {
         select: {
           sku: true,
@@ -1201,7 +1235,10 @@ export const getProductSalesReport = asyncHandler(async (req: Request, res: Resp
 
     acc[productId].quantitySold += item.quantity;
     acc[productId].revenue = rc(acc[productId].revenue + item.total);
-    acc[productId].profit = rc(acc[productId].profit + rc((item.product.price - item.product.cost) * item.quantity));
+    // Profit from what was actually charged (discounted, pre-tax), not the current list price
+    acc[productId].profit = rc(
+      acc[productId].profit + rc((item.total - item.tax) - item.product.cost * item.quantity)
+    );
 
     return acc;
   }, {});
@@ -1227,11 +1264,14 @@ export const getExpenseReport = asyncHandler(async (req: AuthRequest, res: Respo
   const where: any = {};
 
   if (category) {
-    where.category = category;
+    where.category = parseListFilter(category);
   }
 
   if (status) {
-    where.status = status;
+    where.status = parseListFilter(status);
+  } else {
+    // Consistent with the overall report: rejected expenses aren't real spend
+    where.status = { not: ExpenseStatus.REJECTED };
   }
 
   if (locationId) {
@@ -1341,7 +1381,7 @@ export const exportSalesCSV = asyncHandler(async (req: Request, res: Response) =
   } = req.query;
 
   const where: any = {
-    status: status || SaleStatus.COMPLETED,
+    status: parseListFilter(status) ?? SaleStatus.COMPLETED,
   };
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
@@ -1350,8 +1390,10 @@ export const exportSalesCSV = asyncHandler(async (req: Request, res: Response) =
   }
 
   if (locationId) where.locationId = locationId;
-  if (userId) where.userId = userId;
-  if (paymentMethod) where.paymentMethod = paymentMethod;
+  const userFilter = parseListFilter(userId);
+  if (userFilter) where.userId = userFilter;
+  const paymentMethodFilter = parseListFilter(paymentMethod);
+  if (paymentMethodFilter) where.paymentMethod = paymentMethodFilter;
   if (customerId) where.customerId = customerId;
 
   const sales = await prisma.sale.findMany({
@@ -1496,7 +1538,7 @@ export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) =
   } = req.query;
 
   const where: any = {
-    status: status || SaleStatus.COMPLETED,
+    status: parseListFilter(status) ?? SaleStatus.COMPLETED,
   };
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
@@ -1505,8 +1547,10 @@ export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) =
   }
 
   if (locationId) where.locationId = locationId;
-  if (userId) where.userId = userId;
-  if (paymentMethod) where.paymentMethod = paymentMethod;
+  const userFilter = parseListFilter(userId);
+  if (userFilter) where.userId = userFilter;
+  const paymentMethodFilter = parseListFilter(paymentMethod);
+  if (paymentMethodFilter) where.paymentMethod = paymentMethodFilter;
   if (customerId) where.customerId = customerId;
 
   const sales = await prisma.sale.findMany({
@@ -1524,7 +1568,8 @@ export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) =
   const totalTax = rc(sales.reduce((sum, sale) => sum + sale.tax, 0));
   const totalDiscount = rc(sales.reduce((sum, sale) => sum + sale.discount, 0));
   const avgOrderValue = sales.length > 0 ? rc(totalSales / sales.length) : 0;
-  const netRevenue = rc(totalSales - totalTax - totalDiscount);
+  // Sale totals already have the discount applied — only back out tax here
+  const netRevenue = rc(totalSales - totalTax);
 
   // Payment method breakdown
   const paymentBreakdown = sales.reduce((acc: any, sale) => {

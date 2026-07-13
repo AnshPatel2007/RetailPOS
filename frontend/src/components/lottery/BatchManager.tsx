@@ -281,9 +281,9 @@ export const BatchManager: React.FC<BatchManagerProps> = ({
                     <span
                       className={
                         batch.remainingTickets === 0
-                          ? 'text-red-500 font-medium'
+                          ? 'text-destructive font-medium'
                           : batch.remainingTickets < batch.totalTickets * 0.2
-                          ? 'text-orange-500 font-medium'
+                          ? 'text-warning font-medium'
                           : ''
                       }
                     >
@@ -308,7 +308,7 @@ export const BatchManager: React.FC<BatchManagerProps> = ({
                             variant="ghost"
                             onClick={() => handleDelete(batch.id)}
                           >
-                            <Trash2 className="h-4 w-4 text-red-500" />
+                            <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </>
                       )}

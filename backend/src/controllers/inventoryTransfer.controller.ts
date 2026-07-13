@@ -14,8 +14,10 @@ export const getTransfers = asyncHandler(async (req: AuthRequest, res: Response)
 
   const where: any = {};
   if (status) where.status = status;
-  if (locationId) {
-    where.OR = [{ fromLocationId: locationId }, { toLocationId: locationId }];
+  // Location-bound users only see transfers touching their own location
+  const scopeLocationId = req.user?.locationId || locationId;
+  if (scopeLocationId) {
+    where.OR = [{ fromLocationId: scopeLocationId }, { toLocationId: scopeLocationId }];
   }
 
   const [transfers, total] = await Promise.all([
@@ -184,13 +186,47 @@ export const receiveTransfer = asyncHandler(async (req: AuthRequest, res: Respon
 export const cancelTransfer = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
 
-  const transfer = await prisma.inventoryTransfer.findUnique({ where: { id } });
+  const transfer = await prisma.inventoryTransfer.findUnique({
+    where: { id },
+    include: { items: true },
+  });
   if (!transfer) throw new AppError('Transfer not found', 404);
   if (transfer.status === 'RECEIVED') throw new AppError('Cannot cancel a received transfer', 400);
+  if (transfer.status === 'CANCELLED') throw new AppError('Transfer is already cancelled', 400);
 
-  await prisma.inventoryTransfer.update({
-    where: { id },
-    data: { status: 'CANCELLED' },
+  await prisma.$transaction(async (tx) => {
+    // Shipped stock was already deducted from the source — put it back
+    if (transfer.status === 'IN_TRANSIT') {
+      for (const item of transfer.items) {
+        const product = await tx.product.findFirst({
+          where: { id: item.productId, locationId: transfer.fromLocationId },
+          select: { stockQuantity: true },
+        });
+        if (!product) continue;
+
+        await tx.product.updateMany({
+          where: { id: item.productId, locationId: transfer.fromLocationId },
+          data: { stockQuantity: { increment: item.quantity } },
+        });
+
+        await tx.inventoryLog.create({
+          data: {
+            productId: item.productId,
+            type: 'ADJUSTMENT',
+            quantity: item.quantity,
+            previousQty: product.stockQuantity,
+            newQty: product.stockQuantity + item.quantity,
+            notes: `Transfer ${transfer.transferNumber} cancelled after shipping — stock restored`,
+            userId: req.user?.id,
+          },
+        });
+      }
+    }
+
+    await tx.inventoryTransfer.update({
+      where: { id },
+      data: { status: 'CANCELLED' },
+    });
   });
 
   logger.info(`Transfer cancelled: ${transfer.transferNumber}`);

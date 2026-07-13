@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { locationService } from '@/services/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, CHART_COLORS } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -69,7 +69,7 @@ interface StoreDetails {
   stats: any;
 }
 
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+const COLORS = CHART_COLORS;
 
 export const StoreManagement: React.FC = () => {
   const [locations, setLocations] = useState<Location[]>([]);
@@ -259,8 +259,8 @@ export const StoreManagement: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-500/10 rounded-lg">
-                <Store className="h-5 w-5 text-green-500" />
+              <div className="p-2 bg-success/10 rounded-lg">
+                <Store className="h-5 w-5 text-success" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Active Stores</p>
@@ -275,8 +275,8 @@ export const StoreManagement: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-500/10 rounded-lg">
-                <Users className="h-5 w-5 text-blue-500" />
+              <div className="p-2 bg-info/10 rounded-lg">
+                <Users className="h-5 w-5 text-info" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Users</p>
@@ -561,7 +561,7 @@ export const StoreManagement: React.FC = () => {
                   <Card>
                     <CardContent className="p-4">
                       <div className="flex items-center gap-3">
-                        <DollarSign className="h-8 w-8 text-green-500" />
+                        <DollarSign className="h-8 w-8 text-success" />
                         <div>
                           <p className="text-sm text-muted-foreground">Revenue</p>
                           <p className="text-2xl font-bold">
@@ -575,7 +575,7 @@ export const StoreManagement: React.FC = () => {
                   <Card>
                     <CardContent className="p-4">
                       <div className="flex items-center gap-3">
-                        <TrendingUp className="h-8 w-8 text-emerald-600" />
+                        <TrendingUp className="h-8 w-8 text-success" />
                         <div>
                           <p className="text-sm text-muted-foreground">Profit</p>
                           <p className="text-2xl font-bold">
@@ -589,7 +589,7 @@ export const StoreManagement: React.FC = () => {
                   <Card>
                     <CardContent className="p-4">
                       <div className="flex items-center gap-3">
-                        <ShoppingCart className="h-8 w-8 text-blue-500" />
+                        <ShoppingCart className="h-8 w-8 text-info" />
                         <div>
                           <p className="text-sm text-muted-foreground">Transactions</p>
                           <p className="text-2xl font-bold">
@@ -603,7 +603,7 @@ export const StoreManagement: React.FC = () => {
                   <Card>
                     <CardContent className="p-4">
                       <div className="flex items-center gap-3">
-                        <Package className="h-8 w-8 text-purple-500" />
+                        <Package className="h-8 w-8 text-primary" />
                         <div>
                           <p className="text-sm text-muted-foreground">Products</p>
                           <p className="text-2xl font-bold">
@@ -620,7 +620,7 @@ export const StoreManagement: React.FC = () => {
                   <Card>
                     <CardContent className="p-4">
                       <p className="text-sm text-muted-foreground">Expenses</p>
-                      <p className="text-xl font-bold text-red-500">
+                      <p className="text-xl font-bold text-destructive">
                         {formatCurrency(storeDetails.stats?.periodExpenses || 0)}
                       </p>
                     </CardContent>

@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { asyncHandler } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
+import { parseStartDate, parseEndDate } from '../utils/dateFilter.util';
 
 /**
  * Get audit logs with filtering, pagination, and search
@@ -35,8 +36,8 @@ export const getAuditLogs = asyncHandler(async (req: AuthRequest, res: Response)
   }
   if (startDate || endDate) {
     where.createdAt = {};
-    if (startDate) where.createdAt.gte = new Date(startDate);
-    if (endDate) where.createdAt.lte = new Date(endDate);
+    if (startDate) where.createdAt.gte = parseStartDate(startDate);
+    if (endDate) where.createdAt.lte = parseEndDate(endDate);
   }
   if (search) {
     where.OR = [

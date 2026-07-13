@@ -204,8 +204,8 @@ export const EmployeeSales: React.FC = () => {
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 bg-green-500/10 rounded-lg">
-              <DollarSign className="w-5 h-5 text-green-500" />
+            <div className="p-2 bg-success/10 rounded-lg">
+              <DollarSign className="w-5 h-5 text-success" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Revenue</p>
@@ -215,8 +215,8 @@ export const EmployeeSales: React.FC = () => {
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 bg-blue-500/10 rounded-lg">
-              <ShoppingCart className="w-5 h-5 text-blue-500" />
+            <div className="p-2 bg-info/10 rounded-lg">
+              <ShoppingCart className="w-5 h-5 text-info" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Transactions</p>
@@ -266,7 +266,7 @@ export const EmployeeSales: React.FC = () => {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">{emp.transactionCount}</TableCell>
-                    <TableCell className="text-right font-medium text-green-600">
+                    <TableCell className="text-right font-medium text-success">
                       {formatCurrency(emp.totalRevenue)}
                     </TableCell>
                     <TableCell className="text-right">
@@ -296,7 +296,7 @@ export const EmployeeSales: React.FC = () => {
           <div className="flex gap-4 p-3 bg-muted/50 rounded-lg text-sm">
             <div>
               <span className="text-muted-foreground">Total Revenue: </span>
-              <span className="font-bold text-green-600">{selectedEmployee && formatCurrency(selectedEmployee.totalRevenue)}</span>
+              <span className="font-bold text-success">{selectedEmployee && formatCurrency(selectedEmployee.totalRevenue)}</span>
             </div>
             <div>
               <span className="text-muted-foreground">Transactions: </span>

@@ -37,6 +37,7 @@ export const GiftCards: React.FC = () => {
   const [selectedCard, setSelectedCard] = useState<GiftCard | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState({ totalCards: 0, activeCards: 0, outstandingBalance: 0 });
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -74,11 +75,24 @@ export const GiftCards: React.FC = () => {
     fetchGiftCards();
   }, [fetchGiftCards]);
 
+  const fetchStats = useCallback(async () => {
+    try {
+      const { data } = await giftCardService.getStats();
+      setStats(data.data);
+    } catch {
+      // Stat cards fall back to zeros; the table error toast covers load failures
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
   const handleIssue = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const { data } = await giftCardService.issue({
-        initialBalance: parseFloat(issueAmount),
+        amount: parseFloat(issueAmount),
         customerId: issueCustomerId || undefined,
         expiresAt: issueExpiry || undefined,
       });
@@ -88,8 +102,9 @@ export const GiftCards: React.FC = () => {
       setIssueCustomerId('');
       setIssueExpiry('');
       fetchGiftCards();
+      fetchStats();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to issue gift card');
+      toast.error(err.response?.data?.error || 'Failed to issue gift card');
     }
   };
 
@@ -103,8 +118,9 @@ export const GiftCards: React.FC = () => {
       setReloadAmount('');
       setSelectedCard(null);
       fetchGiftCards();
+      fetchStats();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to reload');
+      toast.error(err.response?.data?.error || 'Failed to reload');
     }
   };
 
@@ -114,8 +130,9 @@ export const GiftCards: React.FC = () => {
       await giftCardService.deactivate(card.id);
       toast.success('Gift card deactivated');
       fetchGiftCards();
+      fetchStats();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to deactivate');
+      toast.error(err.response?.data?.error || 'Failed to deactivate');
     }
   };
 
@@ -154,31 +171,29 @@ export const GiftCards: React.FC = () => {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Cards</p>
-              <p className="text-xl font-bold">{total}</p>
+              <p className="text-xl font-bold">{stats.totalCards}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 bg-green-500/10 rounded-lg">
-              <CreditCard className="w-5 h-5 text-green-500" />
+            <div className="p-2 bg-success/10 rounded-lg">
+              <CreditCard className="w-5 h-5 text-success" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Active</p>
-              <p className="text-xl font-bold">{giftCards.filter(g => g.isActive).length}</p>
+              <p className="text-xl font-bold">{stats.activeCards}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 bg-blue-500/10 rounded-lg">
-              <DollarSign className="w-5 h-5 text-blue-500" />
+            <div className="p-2 bg-info/10 rounded-lg">
+              <DollarSign className="w-5 h-5 text-info" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Outstanding Balance</p>
-              <p className="text-xl font-bold">
-                {formatCurrency(giftCards.reduce((sum, g) => sum + (g.isActive ? g.currentBalance : 0), 0))}
-              </p>
+              <p className="text-xl font-bold">{formatCurrency(stats.outstandingBalance)}</p>
             </div>
           </CardContent>
         </Card>
@@ -219,7 +234,7 @@ export const GiftCards: React.FC = () => {
                     <TableCell>{formatCurrency(card.initialBalance)}</TableCell>
                     <TableCell className="font-medium">{formatCurrency(card.currentBalance)}</TableCell>
                     <TableCell>
-                      <Badge className={card.isActive ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}>
+                      <Badge className={card.isActive ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}>
                         {card.isActive ? 'Active' : 'Inactive'}
                       </Badge>
                     </TableCell>

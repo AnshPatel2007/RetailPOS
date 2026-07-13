@@ -353,9 +353,9 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
                           {item.isNew ? (
-                            <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">NEW</span>
+                            <span className="text-xs bg-info/10 text-info px-2 py-0.5 rounded-full font-medium">NEW</span>
                           ) : (
-                            <span className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded-full font-medium">MATCHED</span>
+                            <span className="text-xs bg-success/10 text-success px-2 py-0.5 rounded-full font-medium">MATCHED</span>
                           )}
                           {!item.isNew && item.matchedProductSku && (
                             <span className="text-xs text-muted-foreground font-mono">{item.matchedProductSku}</span>

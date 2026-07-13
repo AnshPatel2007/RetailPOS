@@ -10,7 +10,7 @@ interface AuthState {
   isLoading: boolean;
   error: string | null;
 
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, twoFactorCode?: string) => Promise<{ requiresTwoFactor: boolean }>;
   logout: () => Promise<void>;
   loadUser: () => Promise<void>;
   clearError: () => void;
@@ -26,7 +26,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: !!localStorage.getItem('token'),
   error: null,
 
-  login: async (email: string, password: string) => {
+  login: async (email: string, password: string, twoFactorCode?: string) => {
     set({ isLoading: true, error: null });
 
     // Clear any existing tokens before attempting login
@@ -34,12 +34,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem('user');
 
     try {
-      const response = await authService.login(email, password);
+      const response = await authService.login(email, password, twoFactorCode);
 
-      // Handle 2FA requirement
+      // Credentials are valid but a 2FA code is needed — let the caller
+      // show the code-entry step and call login again with the code
       if (response.data.requiresTwoFactor) {
-        set({ isLoading: false, error: 'Two-factor authentication is not yet supported in this client.' });
-        throw new Error('2FA required');
+        set({ isLoading: false, error: null });
+        return { requiresTwoFactor: true };
       }
 
       const { token, user } = response.data.data;
@@ -54,6 +55,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         isLoading: false,
         error: null, // Explicitly clear error
       });
+      return { requiresTwoFactor: false };
     } catch (error: any) {
       // Clear tokens on login failure
       localStorage.removeItem('token');

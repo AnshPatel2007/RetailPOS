@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { hardware, HardwareSettings } from '@/services/hardware';
 import { userService } from '@/services/api';
+import { TwoFactorCard } from '@/components/settings/TwoFactorCard';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import toast from 'react-hot-toast';
 
 export const Settings: React.FC = () => {
@@ -27,6 +29,7 @@ export const Settings: React.FC = () => {
   );
   const [scannerTestResult, setScannerTestResult] = useState<string>('');
 
+  const { isReadOnly } = useEffectiveLocation();
   const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
 
   // Local form state initialized from the Zustand store
@@ -287,7 +290,7 @@ export const Settings: React.FC = () => {
               value={storeSettings.phone}
               onChange={(e) => setStoreSettings({ ...storeSettings, phone: e.target.value })}
             />
-            <Button variant="primary" onClick={saveStoreSettings}>Save Changes</Button>
+            <Button variant="primary" onClick={saveStoreSettings} disabled={isReadOnly}>Save Changes</Button>
           </CardContent>
         </Card>
 
@@ -328,7 +331,7 @@ export const Settings: React.FC = () => {
               />
               <span className="text-sm">Show tax breakdown</span>
             </label>
-            <Button variant="primary" onClick={saveReceiptSettings}>Save Changes</Button>
+            <Button variant="primary" onClick={saveReceiptSettings} disabled={isReadOnly}>Save Changes</Button>
           </CardContent>
         </Card>
 
@@ -379,7 +382,7 @@ export const Settings: React.FC = () => {
                 <span className="text-sm">Store Credit</span>
               </label>
             </div>
-            <Button variant="primary" onClick={savePaymentMethods}>Save Changes</Button>
+            <Button variant="primary" onClick={savePaymentMethods} disabled={isReadOnly}>Save Changes</Button>
           </CardContent>
         </Card>
 
@@ -426,7 +429,7 @@ export const Settings: React.FC = () => {
               onChange={(e) => setNotificationSettings({ ...notificationSettings, notificationEmail: e.target.value })}
               disabled={!notificationSettings.emailNotifications}
             />
-            <Button variant="primary" onClick={saveNotificationSettings}>Save Changes</Button>
+            <Button variant="primary" onClick={saveNotificationSettings} disabled={isReadOnly}>Save Changes</Button>
           </CardContent>
         </Card>
 
@@ -707,6 +710,9 @@ export const Settings: React.FC = () => {
             <Button variant="primary" onClick={saveUserProfile}>Update Profile</Button>
           </CardContent>
         </Card>
+
+        {/* Two-Factor Authentication — visible to all roles */}
+        <TwoFactorCard />
       </div>
     </div>
   );

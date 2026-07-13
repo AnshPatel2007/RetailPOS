@@ -111,9 +111,9 @@ export const Analytics: React.FC = () => {
     }
   };
 
-  const fetchABC = async () => {
+  const fetchABC = async (days: string = abcDays) => {
     try {
-      const response = await analyticsService.getABCAnalysis({ days: abcDays });
+      const response = await analyticsService.getABCAnalysis({ days });
       setAbcData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch ABC analysis:', error);
@@ -129,9 +129,9 @@ export const Analytics: React.FC = () => {
     }
   };
 
-  const fetchForecast = async () => {
+  const fetchForecast = async (days: string = forecastDays) => {
     try {
-      const response = await analyticsService.getForecast({ forecastDays });
+      const response = await analyticsService.getForecast({ forecastDays: days });
       setForecastData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch forecast:', error);
@@ -174,9 +174,9 @@ export const Analytics: React.FC = () => {
     }
   };
 
-  const fetchEmployeePerformance = async () => {
+  const fetchEmployeePerformance = async (days: string = employeeDays) => {
     try {
-      const response = await analyticsService.getEmployeePerformance({ days: employeeDays });
+      const response = await analyticsService.getEmployeePerformance({ days });
       setEmployeeData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch employee performance:', error);
@@ -217,14 +217,14 @@ export const Analytics: React.FC = () => {
   const GrowthIndicator = ({ value }: { value: number }) => {
     if (value > 0) {
       return (
-        <span className="flex items-center text-green-500 text-sm">
+        <span className="flex items-center text-success text-sm">
           <ArrowUpRight className="w-4 h-4" />
           {formatPercent(value)}
         </span>
       );
     } else if (value < 0) {
       return (
-        <span className="flex items-center text-red-500 text-sm">
+        <span className="flex items-center text-destructive text-sm">
           <ArrowDownRight className="w-4 h-4" />
           {formatPercent(value)}
         </span>
@@ -265,8 +265,8 @@ export const Analytics: React.FC = () => {
                 <p className="text-sm text-muted-foreground">Today's Revenue</p>
                 <p className="text-2xl font-bold">{formatCurrency(realtimeData.today.revenue)}</p>
               </div>
-              <div className="p-3 bg-green-500/10 rounded-full">
-                <DollarSign className="w-6 h-6 text-green-500" />
+              <div className="p-3 bg-success/10 rounded-full">
+                <DollarSign className="w-6 h-6 text-success" />
               </div>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
@@ -279,8 +279,8 @@ export const Analytics: React.FC = () => {
                 <p className="text-sm text-muted-foreground">Last Hour</p>
                 <p className="text-2xl font-bold">{formatCurrency(realtimeData.lastHour.revenue)}</p>
               </div>
-              <div className="p-3 bg-blue-500/10 rounded-full">
-                <Activity className="w-6 h-6 text-blue-500" />
+              <div className="p-3 bg-info/10 rounded-full">
+                <Activity className="w-6 h-6 text-info" />
               </div>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
@@ -293,8 +293,8 @@ export const Analytics: React.FC = () => {
                 <p className="text-sm text-muted-foreground">Avg Order Value</p>
                 <p className="text-2xl font-bold">{formatCurrency(realtimeData.today.avgOrderValue)}</p>
               </div>
-              <div className="p-3 bg-purple-500/10 rounded-full">
-                <Target className="w-6 h-6 text-purple-500" />
+              <div className="p-3 bg-primary/10 rounded-full">
+                <Target className="w-6 h-6 text-primary" />
               </div>
             </div>
           </Card>
@@ -304,8 +304,8 @@ export const Analytics: React.FC = () => {
                 <p className="text-sm text-muted-foreground">Alerts</p>
                 <p className="text-2xl font-bold">{realtimeData.alerts.lowStockItems}</p>
               </div>
-              <div className="p-3 bg-orange-500/10 rounded-full">
-                <AlertTriangle className="w-6 h-6 text-orange-500" />
+              <div className="p-3 bg-warning/10 rounded-full">
+                <AlertTriangle className="w-6 h-6 text-warning" />
               </div>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
@@ -512,7 +512,7 @@ export const Analytics: React.FC = () => {
               value={abcDays}
               onChange={(e) => {
                 setAbcDays(e.target.value);
-                setTimeout(fetchABC, 100);
+                fetchABC(e.target.value);
               }}
               className="px-3 py-2 border border-input rounded-md bg-background text-foreground"
             >
@@ -528,10 +528,10 @@ export const Analytics: React.FC = () => {
             <Card className="p-4 border-l-4 border-l-green-500">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-green-500">Class A - Stars</p>
+                  <p className="text-sm font-medium text-success">Class A - Stars</p>
                   <p className="text-2xl font-bold">{abcData.summary.classA.count} products</p>
                 </div>
-                <Star className="w-8 h-8 text-green-500" />
+                <Star className="w-8 h-8 text-success" />
               </div>
               <p className="text-sm text-muted-foreground mt-2">
                 {abcData.summary.classA.revenuePercentage.toFixed(0)}% of revenue ({abcData.summary.classA.percentage.toFixed(0)}% of items)
@@ -540,10 +540,10 @@ export const Analytics: React.FC = () => {
             <Card className="p-4 border-l-4 border-l-yellow-500">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-yellow-500">Class B - Stable</p>
+                  <p className="text-sm font-medium text-warning">Class B - Stable</p>
                   <p className="text-2xl font-bold">{abcData.summary.classB.count} products</p>
                 </div>
-                <BarChart3 className="w-8 h-8 text-yellow-500" />
+                <BarChart3 className="w-8 h-8 text-warning" />
               </div>
               <p className="text-sm text-muted-foreground mt-2">
                 {abcData.summary.classB.revenuePercentage.toFixed(0)}% of revenue ({abcData.summary.classB.percentage.toFixed(0)}% of items)
@@ -552,10 +552,10 @@ export const Analytics: React.FC = () => {
             <Card className="p-4 border-l-4 border-l-red-500">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-red-500">Class C - Slow</p>
+                  <p className="text-sm font-medium text-destructive">Class C - Slow</p>
                   <p className="text-2xl font-bold">{abcData.summary.classC.count} products</p>
                 </div>
-                <TrendingDown className="w-8 h-8 text-red-500" />
+                <TrendingDown className="w-8 h-8 text-destructive" />
               </div>
               <p className="text-sm text-muted-foreground mt-2">
                 {abcData.summary.classC.revenuePercentage.toFixed(0)}% of revenue ({abcData.summary.classC.percentage.toFixed(0)}% of items)
@@ -654,8 +654,8 @@ export const Analytics: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card className="p-4 border-t-4 border-t-green-500">
               <div className="flex items-center gap-2 mb-2">
-                <Star className="w-5 h-5 text-green-500" />
-                <h4 className="font-semibold text-green-500">Stars ({matrixData.quadrants.star.count})</h4>
+                <Star className="w-5 h-5 text-success" />
+                <h4 className="font-semibold text-success">Stars ({matrixData.quadrants.star.count})</h4>
               </div>
               <p className="text-xs text-muted-foreground mb-3">{matrixData.quadrants.star.description}</p>
               <div className="space-y-2">
@@ -670,8 +670,8 @@ export const Analytics: React.FC = () => {
 
             <Card className="p-4 border-t-4 border-t-blue-500">
               <div className="flex items-center gap-2 mb-2">
-                <DollarSign className="w-5 h-5 text-blue-500" />
-                <h4 className="font-semibold text-blue-500">Cash Cows ({matrixData.quadrants.cash_cow.count})</h4>
+                <DollarSign className="w-5 h-5 text-info" />
+                <h4 className="font-semibold text-info">Cash Cows ({matrixData.quadrants.cash_cow.count})</h4>
               </div>
               <p className="text-xs text-muted-foreground mb-3">{matrixData.quadrants.cash_cow.description}</p>
               <div className="space-y-2">
@@ -686,8 +686,8 @@ export const Analytics: React.FC = () => {
 
             <Card className="p-4 border-t-4 border-t-yellow-500">
               <div className="flex items-center gap-2 mb-2">
-                <HelpCircle className="w-5 h-5 text-yellow-500" />
-                <h4 className="font-semibold text-yellow-500">Question Marks ({matrixData.quadrants.question_mark.count})</h4>
+                <HelpCircle className="w-5 h-5 text-warning" />
+                <h4 className="font-semibold text-warning">Question Marks ({matrixData.quadrants.question_mark.count})</h4>
               </div>
               <p className="text-xs text-muted-foreground mb-3">{matrixData.quadrants.question_mark.description}</p>
               <div className="space-y-2">
@@ -702,8 +702,8 @@ export const Analytics: React.FC = () => {
 
             <Card className="p-4 border-t-4 border-t-red-500">
               <div className="flex items-center gap-2 mb-2">
-                <AlertTriangle className="w-5 h-5 text-red-500" />
-                <h4 className="font-semibold text-red-500">Dogs ({matrixData.quadrants.dog.count})</h4>
+                <AlertTriangle className="w-5 h-5 text-destructive" />
+                <h4 className="font-semibold text-destructive">Dogs ({matrixData.quadrants.dog.count})</h4>
               </div>
               <p className="text-xs text-muted-foreground mb-3">{matrixData.quadrants.dog.description}</p>
               <div className="space-y-2">
@@ -771,10 +771,10 @@ export const Analytics: React.FC = () => {
               </ResponsiveContainer>
             </div>
             <div className="flex justify-center gap-4 mt-4 text-sm">
-              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-green-500 rounded-full"></span> Stars</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-500 rounded-full"></span> Cash Cows</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-500 rounded-full"></span> Question Marks</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-red-500 rounded-full"></span> Dogs</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-success rounded-full"></span> Stars</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-info rounded-full"></span> Cash Cows</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-warning rounded-full"></span> Question Marks</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-destructive rounded-full"></span> Dogs</span>
             </div>
           </Card>
         </div>
@@ -794,7 +794,7 @@ export const Analytics: React.FC = () => {
               value={forecastDays}
               onChange={(e) => {
                 setForecastDays(e.target.value);
-                setTimeout(fetchForecast, 100);
+                fetchForecast(e.target.value);
               }}
               className="px-3 py-2 border border-input rounded-md bg-background text-foreground"
             >
@@ -824,9 +824,9 @@ export const Analytics: React.FC = () => {
               <div className="flex items-center">
                 <p className="text-2xl font-bold">{forecastData.summary.expectedGrowth.toFixed(1)}%</p>
                 {forecastData.trends.direction === 'upward' ? (
-                  <TrendingUp className="w-5 h-5 ml-2 text-green-500" />
+                  <TrendingUp className="w-5 h-5 ml-2 text-success" />
                 ) : forecastData.trends.direction === 'downward' ? (
-                  <TrendingDown className="w-5 h-5 ml-2 text-red-500" />
+                  <TrendingDown className="w-5 h-5 ml-2 text-destructive" />
                 ) : null}
               </div>
             </Card>
@@ -948,8 +948,8 @@ export const Analytics: React.FC = () => {
               <div className="text-center">
                 <p className="text-sm text-muted-foreground mb-2">Overall Health</p>
                 <div className={`text-4xl font-bold ${
-                  healthData.healthScores.overall >= 70 ? 'text-green-500' :
-                  healthData.healthScores.overall >= 40 ? 'text-yellow-500' : 'text-red-500'
+                  healthData.healthScores.overall >= 70 ? 'text-success' :
+                  healthData.healthScores.overall >= 40 ? 'text-warning' : 'text-destructive'
                 }`}>
                   {healthData.healthScores.overall}
                 </div>
@@ -960,28 +960,28 @@ export const Analytics: React.FC = () => {
               <p className="text-sm text-muted-foreground">Revenue Score</p>
               <p className="text-2xl font-bold">{healthData.healthScores.revenue}</p>
               <div className="w-full bg-muted rounded-full h-2 mt-2">
-                <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${healthData.healthScores.revenue}%` }}></div>
+                <div className="bg-info h-2 rounded-full" style={{ width: `${healthData.healthScores.revenue}%` }}></div>
               </div>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Profitability</p>
               <p className="text-2xl font-bold">{healthData.healthScores.profitability}</p>
               <div className="w-full bg-muted rounded-full h-2 mt-2">
-                <div className="bg-green-500 h-2 rounded-full" style={{ width: `${healthData.healthScores.profitability}%` }}></div>
+                <div className="bg-success h-2 rounded-full" style={{ width: `${healthData.healthScores.profitability}%` }}></div>
               </div>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Inventory</p>
               <p className="text-2xl font-bold">{healthData.healthScores.inventory}</p>
               <div className="w-full bg-muted rounded-full h-2 mt-2">
-                <div className="bg-purple-500 h-2 rounded-full" style={{ width: `${healthData.healthScores.inventory}%` }}></div>
+                <div className="bg-primary h-2 rounded-full" style={{ width: `${healthData.healthScores.inventory}%` }}></div>
               </div>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Growth</p>
               <p className="text-2xl font-bold">{healthData.healthScores.growth}</p>
               <div className="w-full bg-muted rounded-full h-2 mt-2">
-                <div className="bg-orange-500 h-2 rounded-full" style={{ width: `${healthData.healthScores.growth}%` }}></div>
+                <div className="bg-warning h-2 rounded-full" style={{ width: `${healthData.healthScores.growth}%` }}></div>
               </div>
             </Card>
           </div>
@@ -1020,7 +1020,7 @@ export const Analytics: React.FC = () => {
                 </div>
                 <div className="flex justify-between border-t pt-2">
                   <span>Gross Profit</span>
-                  <span className="font-medium text-green-500">{formatCurrency(healthData.profitability.grossProfit)}</span>
+                  <span className="font-medium text-success">{formatCurrency(healthData.profitability.grossProfit)}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
                   <span>- Operating Expenses</span>
@@ -1028,7 +1028,7 @@ export const Analytics: React.FC = () => {
                 </div>
                 <div className="flex justify-between border-t pt-2 text-lg">
                   <span className="font-semibold">Net Profit</span>
-                  <span className={`font-bold ${healthData.profitability.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  <span className={`font-bold ${healthData.profitability.netProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
                     {formatCurrency(healthData.profitability.netProfit)}
                   </span>
                 </div>
@@ -1077,7 +1077,7 @@ export const Analytics: React.FC = () => {
                 </div>
                 <div className="flex justify-between">
                   <span>Potential Profit</span>
-                  <span className="font-medium text-green-500">{formatCurrency(healthData.inventory.potentialProfit)}</span>
+                  <span className="font-medium text-success">{formatCurrency(healthData.inventory.potentialProfit)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Turnover Ratio</span>
@@ -1090,15 +1090,15 @@ export const Analytics: React.FC = () => {
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span>Cash Inflows</span>
-                  <span className="font-medium text-green-500">{formatCurrency(healthData.cashFlow.inflows)}</span>
+                  <span className="font-medium text-success">{formatCurrency(healthData.cashFlow.inflows)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Cash Outflows</span>
-                  <span className="font-medium text-red-500">{formatCurrency(healthData.cashFlow.outflows)}</span>
+                  <span className="font-medium text-destructive">{formatCurrency(healthData.cashFlow.outflows)}</span>
                 </div>
                 <div className="flex justify-between border-t pt-2">
                   <span className="font-semibold">Net Cash Flow</span>
-                  <span className={`font-bold ${healthData.cashFlow.netCashFlow >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  <span className={`font-bold ${healthData.cashFlow.netCashFlow >= 0 ? 'text-success' : 'text-destructive'}`}>
                     {formatCurrency(healthData.cashFlow.netCashFlow)}
                   </span>
                 </div>
@@ -1109,7 +1109,7 @@ export const Analytics: React.FC = () => {
                   </p>
                   <div className="w-full bg-background rounded-full h-2 mt-2">
                     <div
-                      className={`h-2 rounded-full ${healthData.kpis.breakEvenProgress >= 100 ? 'bg-green-500' : 'bg-blue-500'}`}
+                      className={`h-2 rounded-full ${healthData.kpis.breakEvenProgress >= 100 ? 'bg-success' : 'bg-info'}`}
                       style={{ width: `${Math.min(healthData.kpis.breakEvenProgress, 100)}%` }}
                     ></div>
                   </div>
@@ -1125,7 +1125,7 @@ export const Analytics: React.FC = () => {
         <div className="space-y-6">
           <div>
             <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Brain className="w-5 h-5 text-purple-500" />
+              <Brain className="w-5 h-5 text-primary" />
               AI Inventory Predictions
             </h3>
             <p className="text-sm text-muted-foreground">
@@ -1137,22 +1137,22 @@ export const Analytics: React.FC = () => {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             <Card className="p-4 border-l-4 border-l-red-500">
               <p className="text-sm text-muted-foreground">Critical</p>
-              <p className="text-2xl font-bold text-red-500">{inventoryPredictions.summary.critical}</p>
+              <p className="text-2xl font-bold text-destructive">{inventoryPredictions.summary.critical}</p>
               <p className="text-xs">Order immediately</p>
             </Card>
             <Card className="p-4 border-l-4 border-l-orange-500">
               <p className="text-sm text-muted-foreground">Needs Reorder</p>
-              <p className="text-2xl font-bold text-orange-500">{inventoryPredictions.summary.needsReorder}</p>
+              <p className="text-2xl font-bold text-warning">{inventoryPredictions.summary.needsReorder}</p>
               <p className="text-xs">Order within this week</p>
             </Card>
             <Card className="p-4 border-l-4 border-l-yellow-500">
               <p className="text-sm text-muted-foreground">Overstock</p>
-              <p className="text-2xl font-bold text-yellow-500">{inventoryPredictions.summary.overstock}</p>
+              <p className="text-2xl font-bold text-warning">{inventoryPredictions.summary.overstock}</p>
               <p className="text-xs">Stop buying, run promos</p>
             </Card>
             <Card className="p-4 border-l-4 border-l-red-500/50">
               <p className="text-sm text-muted-foreground">Dead Stock</p>
-              <p className="text-2xl font-bold text-red-500">{inventoryPredictions.summary.deadStock}</p>
+              <p className="text-2xl font-bold text-destructive">{inventoryPredictions.summary.deadStock}</p>
               <p className="text-xs">No sales in 60+ days</p>
             </Card>
             <Card className="p-4">
@@ -1179,15 +1179,15 @@ export const Analytics: React.FC = () => {
             if (fastMovers.length > 0) insights.push(`Top seller: ${fastMovers[0].name} at ${fastMovers[0].dailyVelocity} units/day — ensure consistent supply`);
 
             return insights.length > 0 ? (
-              <Card className="p-4 bg-purple-500/5 border-purple-500/20">
+              <Card className="p-4 bg-primary/5 border-primary/20">
                 <h4 className="font-medium mb-2 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-purple-500" />
+                  <Sparkles className="w-4 h-4 text-primary" />
                   AI Recommendations
                 </h4>
                 <ul className="space-y-1.5 text-sm">
                   {insights.map((insight, i) => (
                     <li key={i} className="flex items-start gap-2">
-                      <Brain className="w-4 h-4 text-purple-500 mt-0.5 shrink-0" />
+                      <Brain className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                       {insight}
                     </li>
                   ))}
@@ -1198,8 +1198,8 @@ export const Analytics: React.FC = () => {
 
           {/* Buy More - Auto Order Suggestions */}
           {inventoryPredictions.autoOrderSuggestions.length > 0 && (
-            <Card className="p-6 border-green-500/20">
-              <h4 className="font-medium mb-1 flex items-center gap-2 text-green-500">
+            <Card className="p-6 border-success/20">
+              <h4 className="font-medium mb-1 flex items-center gap-2 text-success">
                 <ArrowUpRight className="w-5 h-5" />
                 Buy More — Restock These Products
               </h4>
@@ -1224,7 +1224,7 @@ export const Analytics: React.FC = () => {
                       <TableRow key={item.productId}>
                         <TableCell className="font-medium">{item.productName}</TableCell>
                         <TableCell>{prediction?.currentStock ?? '—'} units</TableCell>
-                        <TableCell className="font-bold text-green-500">{item.quantity} units</TableCell>
+                        <TableCell className="font-bold text-success">{item.quantity} units</TableCell>
                         <TableCell>{item.supplier}</TableCell>
                         <TableCell>{formatCurrency(item.estimatedCost)}</TableCell>
                         <TableCell>
@@ -1242,8 +1242,8 @@ export const Analytics: React.FC = () => {
 
           {/* Stop Buying - Overstock & Dead Stock */}
           {(inventoryPredictions.predictions.filter((p: any) => p.status === 'overstock').length > 0 || inventoryPredictions.deadStock.length > 0) && (
-            <Card className="p-6 border-red-500/20">
-              <h4 className="font-medium mb-1 flex items-center gap-2 text-red-500">
+            <Card className="p-6 border-destructive/20">
+              <h4 className="font-medium mb-1 flex items-center gap-2 text-destructive">
                 <ArrowDownRight className="w-5 h-5" />
                 Stop Buying — Reduce These Products
               </h4>
@@ -1284,7 +1284,7 @@ export const Analytics: React.FC = () => {
                       <TableCell>{item.stock ?? item.currentStock} units</TableCell>
                       <TableCell>{item.dailyVelocity?.toFixed(1) ?? '0'} /day</TableCell>
                       <TableCell>{item.daysOfStock === 999 ? 'Never' : `${item.daysOfStock} days`}</TableCell>
-                      <TableCell className="font-medium text-red-500">{formatCurrency(item.totalValue ?? item.value)}</TableCell>
+                      <TableCell className="font-medium text-destructive">{formatCurrency(item.totalValue ?? item.value)}</TableCell>
                       <TableCell className="text-sm max-w-xs">
                         {item.action}
                       </TableCell>
@@ -1331,7 +1331,7 @@ export const Analytics: React.FC = () => {
                     </TableCell>
                     <TableCell>{item.currentStock}</TableCell>
                     <TableCell>{item.dailyVelocity.toFixed(1)} /day</TableCell>
-                    <TableCell className={item.daysOfStock <= 7 ? 'text-red-500 font-bold' : ''}>
+                    <TableCell className={item.daysOfStock <= 7 ? 'text-destructive font-bold' : ''}>
                       {item.daysOfStock === 999 ? '∞' : `${item.daysOfStock}d`}
                     </TableCell>
                     <TableCell>{item.reorderPoint}</TableCell>
@@ -1351,7 +1351,7 @@ export const Analytics: React.FC = () => {
         <div className="space-y-6">
           <div>
             <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Zap className="w-5 h-5 text-yellow-500" />
+              <Zap className="w-5 h-5 text-warning" />
               Sales Anomaly Detection
             </h3>
             <p className="text-sm text-muted-foreground">
@@ -1381,7 +1381,7 @@ export const Analytics: React.FC = () => {
 
           {/* Insights */}
           {anomaliesData.insights.length > 0 && (
-            <Card className="p-4 bg-blue-500/5">
+            <Card className="p-4 bg-info/5">
               <h4 className="font-medium mb-2 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4" />
                 Key Insights
@@ -1415,7 +1415,7 @@ export const Analytics: React.FC = () => {
                       <TableCell>{anomaly.date}</TableCell>
                       <TableCell className="font-medium">{formatCurrency(anomaly.revenue)}</TableCell>
                       <TableCell>{formatCurrency(anomaly.expected)}</TableCell>
-                      <TableCell className={anomaly.deviation > 0 ? 'text-green-500' : 'text-red-500'}>
+                      <TableCell className={anomaly.deviation > 0 ? 'text-success' : 'text-destructive'}>
                         {anomaly.deviation > 0 ? '+' : ''}{formatCurrency(anomaly.deviation)}
                       </TableCell>
                       <TableCell>
@@ -1528,7 +1528,7 @@ export const Analytics: React.FC = () => {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-lg font-bold text-green-500">
+                    <p className="text-lg font-bold text-success">
                       {formatCurrency(bundle.suggestedBundlePrice)}
                     </p>
                     <p className="text-xs text-muted-foreground line-through">
@@ -1546,7 +1546,7 @@ export const Analytics: React.FC = () => {
                 </div>
                 <div className="mt-3 pt-3 border-t flex justify-between text-sm">
                   <span>Suggested Discount</span>
-                  <span className="font-medium text-green-500">{bundle.suggestedDiscount}% off</span>
+                  <span className="font-medium text-success">{bundle.suggestedDiscount}% off</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span>Bundle Margin</span>
@@ -1564,7 +1564,7 @@ export const Analytics: React.FC = () => {
           <div className="flex justify-between items-center">
             <div>
               <h3 className="text-lg font-semibold flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-yellow-500" />
+                <Trophy className="w-5 h-5 text-warning" />
                 Employee Leaderboard
               </h3>
               <p className="text-sm text-muted-foreground">
@@ -1575,7 +1575,7 @@ export const Analytics: React.FC = () => {
               value={employeeDays}
               onChange={(e) => {
                 setEmployeeDays(e.target.value);
-                setTimeout(fetchEmployeePerformance, 100);
+                fetchEmployeePerformance(e.target.value);
               }}
               className="px-3 py-2 border border-input rounded-md bg-background text-foreground"
             >
@@ -1637,9 +1637,9 @@ export const Analytics: React.FC = () => {
                   <TableRow key={emp.id}>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        {emp.rank === 1 && <Medal className="w-5 h-5 text-yellow-500" />}
+                        {emp.rank === 1 && <Medal className="w-5 h-5 text-warning" />}
                         {emp.rank === 2 && <Medal className="w-5 h-5 text-muted-foreground" />}
-                        {emp.rank === 3 && <Medal className="w-5 h-5 text-amber-500" />}
+                        {emp.rank === 3 && <Medal className="w-5 h-5 text-warning" />}
                         {emp.rank > 3 && <span className="w-5 text-center">{emp.rank}</span>}
                       </div>
                     </TableCell>
@@ -1653,8 +1653,8 @@ export const Analytics: React.FC = () => {
                         <div className="w-20 bg-muted rounded-full h-2">
                           <div
                             className={`h-2 rounded-full ${
-                              emp.score >= 70 ? 'bg-green-500' :
-                              emp.score >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+                              emp.score >= 70 ? 'bg-success' :
+                              emp.score >= 40 ? 'bg-warning' : 'bg-destructive'
                             }`}
                             style={{ width: `${emp.score}%` }}
                           ></div>
@@ -1691,7 +1691,7 @@ export const Analytics: React.FC = () => {
         <div className="space-y-6">
           <div>
             <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Calculator className="w-5 h-5 text-blue-500" />
+              <Calculator className="w-5 h-5 text-info" />
               What-If Scenario Analysis
             </h3>
             <p className="text-sm text-muted-foreground">
@@ -1715,7 +1715,7 @@ export const Analytics: React.FC = () => {
                 />
                 <div className="flex justify-between text-sm mt-1">
                   <span>-50%</span>
-                  <span className={`font-bold ${whatIfInputs.priceChange > 0 ? 'text-green-500' : whatIfInputs.priceChange < 0 ? 'text-red-500' : ''}`}>
+                  <span className={`font-bold ${whatIfInputs.priceChange > 0 ? 'text-success' : whatIfInputs.priceChange < 0 ? 'text-destructive' : ''}`}>
                     {whatIfInputs.priceChange > 0 ? '+' : ''}{whatIfInputs.priceChange}%
                   </span>
                   <span>+50%</span>
@@ -1733,7 +1733,7 @@ export const Analytics: React.FC = () => {
                 />
                 <div className="flex justify-between text-sm mt-1">
                   <span>-50%</span>
-                  <span className={`font-bold ${whatIfInputs.costChange < 0 ? 'text-green-500' : whatIfInputs.costChange > 0 ? 'text-red-500' : ''}`}>
+                  <span className={`font-bold ${whatIfInputs.costChange < 0 ? 'text-success' : whatIfInputs.costChange > 0 ? 'text-destructive' : ''}`}>
                     {whatIfInputs.costChange > 0 ? '+' : ''}{whatIfInputs.costChange}%
                   </span>
                   <span>+50%</span>
@@ -1751,7 +1751,7 @@ export const Analytics: React.FC = () => {
                 />
                 <div className="flex justify-between text-sm mt-1">
                   <span>-50%</span>
-                  <span className={`font-bold ${whatIfInputs.volumeChange > 0 ? 'text-green-500' : whatIfInputs.volumeChange < 0 ? 'text-red-500' : ''}`}>
+                  <span className={`font-bold ${whatIfInputs.volumeChange > 0 ? 'text-success' : whatIfInputs.volumeChange < 0 ? 'text-destructive' : ''}`}>
                     {whatIfInputs.volumeChange > 0 ? '+' : ''}{whatIfInputs.volumeChange}%
                   </span>
                   <span>+50%</span>
@@ -1793,7 +1793,7 @@ export const Analytics: React.FC = () => {
                     </div>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-blue-500 mb-2">Projected</p>
+                    <p className="text-sm font-medium text-info mb-2">Projected</p>
                     <div className="space-y-2">
                       <div className="flex justify-between">
                         <span>Revenue</span>
@@ -1818,25 +1818,25 @@ export const Analytics: React.FC = () => {
                     <div className="space-y-2">
                       <div className="flex justify-between">
                         <span>Revenue</span>
-                        <span className={`font-medium ${whatIfData.scenarios.difference.revenue >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        <span className={`font-medium ${whatIfData.scenarios.difference.revenue >= 0 ? 'text-success' : 'text-destructive'}`}>
                           {whatIfData.scenarios.difference.revenue >= 0 ? '+' : ''}{formatCurrency(whatIfData.scenarios.difference.revenue)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span>Transactions</span>
-                        <span className={`font-medium ${whatIfData.scenarios.difference.transactions >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        <span className={`font-medium ${whatIfData.scenarios.difference.transactions >= 0 ? 'text-success' : 'text-destructive'}`}>
                           {whatIfData.scenarios.difference.transactions >= 0 ? '+' : ''}{whatIfData.scenarios.difference.transactions}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span>Profit</span>
-                        <span className={`font-medium ${whatIfData.scenarios.difference.profit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        <span className={`font-medium ${whatIfData.scenarios.difference.profit >= 0 ? 'text-success' : 'text-destructive'}`}>
                           {whatIfData.scenarios.difference.profit >= 0 ? '+' : ''}{formatCurrency(whatIfData.scenarios.difference.profit)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span>Margin</span>
-                        <span className={`font-medium ${whatIfData.scenarios.difference.margin >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        <span className={`font-medium ${whatIfData.scenarios.difference.margin >= 0 ? 'text-success' : 'text-destructive'}`}>
                           {whatIfData.scenarios.difference.margin >= 0 ? '+' : ''}{whatIfData.scenarios.difference.margin.toFixed(1)}%
                         </span>
                       </div>
@@ -1847,12 +1847,12 @@ export const Analytics: React.FC = () => {
 
               {/* Insights */}
               {whatIfData.insights.length > 0 && (
-                <Card className="p-4 bg-blue-500/5">
+                <Card className="p-4 bg-info/5">
                   <h4 className="font-medium mb-2">Analysis Insights</h4>
                   <ul className="space-y-1 text-sm">
                     {whatIfData.insights.map((insight: string, i: number) => (
                       <li key={i} className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-blue-500" />
+                        <Sparkles className="w-4 h-4 text-info" />
                         {insight}
                       </li>
                     ))}

@@ -499,4 +499,76 @@ describe('Sale Workflow Integration Tests', () => {
       assertResponse.error(res, 'already voided');
     });
   });
+
+  describe('Reports after refunds', () => {
+    beforeEach(async () => {
+      await clockIn(cashierToken);
+    });
+
+    it('should subtract partial refunds from overall report revenue and count them from the refunds table', async () => {
+      const sale = await makeCashSale(cashierToken, 2); // total 43.98
+      const saleItemId = sale.items[0].id;
+
+      const before = await api
+        .get('/api/reports/overall')
+        .withAuth(adminToken)
+        .expectStatus(200)
+        .execute();
+      const revenueBefore = before.body.data.revenue.today.total;
+      expect(revenueBefore).toBe(43.98);
+
+      // Partial refund: 1 of 2 units → $21.99. Sale stays COMPLETED.
+      await api
+        .post(`/api/sales/${sale.id}/refund`)
+        .withAuth(adminToken)
+        .withBody({
+          reason: 'Partial return',
+          items: [{ saleItemId, quantity: 1 }],
+        })
+        .expectStatus(200)
+        .execute();
+
+      const saleAfter = await prisma.sale.findUnique({ where: { id: sale.id } });
+      expect(saleAfter!.status).toBe('COMPLETED');
+
+      const after = await api
+        .get('/api/reports/overall')
+        .withAuth(adminToken)
+        .expectStatus(200)
+        .execute();
+
+      // Revenue net of the partial refund
+      expect(after.body.data.revenue.today.total).toBe(21.99);
+      expect(after.body.data.revenue.month.total).toBe(21.99);
+
+      // Refund totals come from the refunds table (partials included)
+      expect(after.body.data.refundsAndVoids.refunds.total).toBe(21.99);
+      expect(after.body.data.refundsAndVoids.refunds.count).toBe(1);
+    });
+
+    it('should not double-count a fully refunded sale in overall revenue', async () => {
+      const sale = await makeCashSale(cashierToken, 2); // total 43.98
+
+      // Full money-only refund → sale becomes REFUNDED
+      await api
+        .post(`/api/sales/${sale.id}/refund`)
+        .withAuth(adminToken)
+        .withBody({ amount: 43.98, reason: 'Full refund' })
+        .expectStatus(200)
+        .execute();
+
+      const saleAfter = await prisma.sale.findUnique({ where: { id: sale.id } });
+      expect(saleAfter!.status).toBe('REFUNDED');
+
+      const report = await api
+        .get('/api/reports/overall')
+        .withAuth(adminToken)
+        .expectStatus(200)
+        .execute();
+
+      // Sale counted when made, refund subtracted when issued → net zero
+      expect(report.body.data.revenue.today.total).toBe(0);
+      expect(report.body.data.refundsAndVoids.refunds.total).toBe(43.98);
+    });
+  });
 });

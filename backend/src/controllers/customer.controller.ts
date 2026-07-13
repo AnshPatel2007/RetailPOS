@@ -132,6 +132,12 @@ export const getCustomer = asyncHandler(async (req: Request, res: Response) => {
 export const createCustomer = asyncHandler(async (req: AuthRequest, res: Response) => {
   const data = req.body;
 
+  // Blank email must be stored as NULL — the column is unique, so a second
+  // customer with '' would collide
+  if (!data.email) {
+    data.email = null;
+  }
+
   // Check if email already exists
   if (data.email) {
     const existing = await prisma.customer.findUnique({
@@ -174,6 +180,11 @@ export const createCustomer = asyncHandler(async (req: AuthRequest, res: Respons
 export const updateCustomer = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const data = req.body;
+
+  // Blank email must be stored as NULL (unique column — '' would collide)
+  if (data.email === '') {
+    data.email = null;
+  }
 
   const customer = await prisma.customer.findUnique({ where: { id } });
 

@@ -37,20 +37,46 @@ export const getComparisonAnalytics = asyncHandler(async (_req: AuthRequest, res
   const lastYearSameMonthStart = new Date(monthStart);
   lastYearSameMonthStart.setFullYear(lastYearSameMonthStart.getFullYear() - 1);
 
-  // Helper function to get sales for a period
+  // Helper function to get sales for a period. Revenue counts sales when
+  // they happened (COMPLETED + later fully REFUNDED) minus refunds issued in
+  // the period (Refund table covers partial refunds too). Profit uses the
+  // sold line totals, not the current product price.
   const getSalesForPeriod = async (start: Date, end: Date) => {
-    const result = await prisma.sale.aggregate({
-      where: {
-        createdAt: { gte: start, lt: end },
-        status: 'COMPLETED',
-      },
-      _sum: { total: true },
-      _count: { id: true },
-    });
+    const saleWhere = {
+      createdAt: { gte: start, lt: end },
+      status: { in: ['COMPLETED', 'REFUNDED'] as any },
+    };
+
+    const [sales, refunds, items] = await Promise.all([
+      prisma.sale.aggregate({
+        where: saleWhere,
+        _sum: { total: true },
+        _count: { id: true },
+      }),
+      prisma.refund.aggregate({
+        where: { createdAt: { gte: start, lt: end } },
+        _sum: { amount: true },
+      }),
+      prisma.saleItem.findMany({
+        where: { sale: saleWhere },
+        select: {
+          quantity: true,
+          total: true,
+          tax: true,
+          product: { select: { cost: true } },
+        },
+      }),
+    ]);
+
+    const profit = items.reduce(
+      (sum, item) => sum + (item.total - item.tax) - (item.product?.cost || 0) * item.quantity,
+      0
+    );
+
     return {
-      revenue: result._sum.total || 0,
-      profit: 0, // Would need to calculate from items
-      transactions: result._count.id || 0,
+      revenue: rc((sales._sum.total || 0) - (refunds._sum.amount || 0)),
+      profit: rc(profit),
+      transactions: sales._count.id || 0,
     };
   };
 
@@ -263,6 +289,7 @@ export const getProductPerformanceMatrix = asyncHandler(async (req: AuthRequest,
     _sum: {
       quantity: true,
       total: true,
+      tax: true,
     },
   });
 
@@ -278,8 +305,8 @@ export const getProductPerformanceMatrix = asyncHandler(async (req: AuthRequest,
     const product = products.find(p => p.id === sale.productId);
     const revenue = sale._sum.total || 0;
     const quantity = sale._sum.quantity || 0;
-    // Calculate profit from cost difference
-    const profit = product ? rc(quantity * (product.price - product.cost)) : 0;
+    // Profit from what was actually charged (discounted, pre-tax), not the current list price
+    const profit = product ? rc((revenue - (sale._sum.tax || 0)) - quantity * product.cost) : 0;
     const margin = revenue > 0 ? rc((profit / revenue) * 100) : 0;
     const velocity = rc(quantity / daysNum);
 
@@ -1346,6 +1373,20 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
     }),
   ]);
 
+  // Refunds issued per period (Refund table — includes partial refunds)
+  const [todayRefunds, monthRefunds, lastMonthRefunds, yearRefunds] = await Promise.all([
+    prisma.refund.aggregate({ where: { createdAt: { gte: todayStart } }, _sum: { amount: true } }),
+    prisma.refund.aggregate({ where: { createdAt: { gte: monthStart } }, _sum: { amount: true } }),
+    prisma.refund.aggregate({
+      where: { createdAt: { gte: lastMonthStart, lt: monthStart } },
+      _sum: { amount: true },
+    }),
+    prisma.refund.aggregate({ where: { createdAt: { gte: yearStart } }, _sum: { amount: true } }),
+  ]);
+
+  const todayRevenueNet = rc((todaySales._sum.total || 0) - (todayRefunds._sum.amount || 0));
+  const yearRevenueNet = rc((yearSales._sum.total || 0) - (yearRefunds._sum.amount || 0));
+
   // Calculate inventory value (need separate query for cost)
   const productsWithCost = await prisma.product.findMany({
     where: { isActive: true },
@@ -1355,14 +1396,14 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
   const inventoryAtCost = rc(productsWithCost.reduce((sum, p) => sum + rc(p.stockQuantity * p.cost), 0));
   const inventoryAtRetail = rc(productsWithCost.reduce((sum, p) => sum + rc(p.stockQuantity * p.price), 0));
 
-  // Calculate estimated COGS (assuming 40% margin on average)
-  const estimatedCOGS = rc((monthSales._sum.total || 0) * 0.6);
-  const grossProfit = rc((monthSales._sum.total || 0) - estimatedCOGS);
-  const netProfit = rc(grossProfit - (expenses._sum.amount || 0));
+  // KPIs (revenue net of refunds issued in the period)
+  const monthlyRevenue = rc((monthSales._sum.total || 0) - (monthRefunds._sum.amount || 0));
+  const lastMonthRevenue = rc((lastMonthSales._sum.total || 0) - (lastMonthRefunds._sum.amount || 0));
 
-  // KPIs
-  const monthlyRevenue = monthSales._sum.total || 0;
-  const lastMonthRevenue = lastMonthSales._sum.total || 0;
+  // Calculate estimated COGS (assuming 40% margin on average)
+  const estimatedCOGS = rc(monthlyRevenue * 0.6);
+  const grossProfit = rc(monthlyRevenue - estimatedCOGS);
+  const netProfit = rc(grossProfit - (expenses._sum.amount || 0));
   const revenueGrowth = lastMonthRevenue > 0
     ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100
     : 0;
@@ -1389,11 +1430,11 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
     success: true,
     data: {
       overview: {
-        todayRevenue: todaySales._sum.total || 0,
+        todayRevenue: todayRevenueNet,
         todayTransactions: todaySales._count.id || 0,
         monthRevenue: monthlyRevenue,
         monthTransactions: monthSales._count.id || 0,
-        yearRevenue: yearSales._sum.total || 0,
+        yearRevenue: yearRevenueNet,
         yearTransactions: yearSales._count.id || 0,
       },
       profitability: {
@@ -1560,6 +1601,7 @@ export const getRealtimeMetrics = asyncHandler(async (_req: AuthRequest, res: Re
 
   const [
     todaySales,
+    todayRefunds,
     lastHourSales,
     pendingSales,
     activeShifts,
@@ -1573,6 +1615,11 @@ export const getRealtimeMetrics = asyncHandler(async (_req: AuthRequest, res: Re
       },
       _sum: { total: true },
       _count: { id: true },
+    }),
+    // Today's refunds (Refund table — includes partial refunds)
+    prisma.refund.aggregate({
+      where: { createdAt: { gte: todayStart } },
+      _sum: { amount: true },
     }),
     // Last hour
     prisma.sale.aggregate({
@@ -1621,7 +1668,7 @@ export const getRealtimeMetrics = asyncHandler(async (_req: AuthRequest, res: Re
   const lowStockCount = productsForLowStock.filter(p => p.stockQuantity <= p.lowStockAlert).length;
 
   const todayCount = todaySales._count?.id || 0;
-  const todayTotal = todaySales._sum?.total || 0;
+  const todayTotal = rc((todaySales._sum?.total || 0) - (todayRefunds._sum?.amount || 0));
 
   res.json({
     success: true,

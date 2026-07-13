@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Badge } from '@/components/ui/Badge';
 import toast from 'react-hot-toast';
 import {
@@ -140,9 +141,9 @@ export const Customers: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this customer? This is a soft delete — the customer can be restored.')) return;
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
+  const handleDelete = async (id: string) => {
     try {
       await customerService.delete(id);
       loadCustomers();
@@ -305,7 +306,7 @@ export const Customers: React.FC = () => {
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <div className="flex items-center">
-                        <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                        <Star className="h-4 w-4 text-warning mr-1" />
                         <span className="font-medium">{customer.loyaltyPoints}</span>
                       </div>
                       {customer.loyaltyTier && (
@@ -355,7 +356,7 @@ export const Customers: React.FC = () => {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDelete(customer.id)}
+                        onClick={() => setDeleteTargetId(customer.id)}
                         className="text-destructive"
                         title="Delete"
                       >
@@ -483,21 +484,21 @@ export const Customers: React.FC = () => {
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 bg-green-500 rounded-full"></span>
+                      <span className="w-3 h-3 bg-success rounded-full"></span>
                       <span>{customerData.segments.byRecency.active.label}</span>
                     </div>
                     <span className="font-bold">{customerData.segments.byRecency.active.count}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 bg-yellow-500 rounded-full"></span>
+                      <span className="w-3 h-3 bg-warning rounded-full"></span>
                       <span>{customerData.segments.byRecency.atRisk.label}</span>
                     </div>
                     <span className="font-bold">{customerData.segments.byRecency.atRisk.count}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 bg-red-500 rounded-full"></span>
+                      <span className="w-3 h-3 bg-destructive rounded-full"></span>
                       <span>{customerData.segments.byRecency.lost.label}</span>
                     </div>
                     <span className="font-bold">{customerData.segments.byRecency.lost.count}</span>
@@ -535,7 +536,7 @@ export const Customers: React.FC = () => {
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                      <Star className="w-4 h-4 text-purple-500" />
+                      <Star className="w-4 h-4 text-primary" />
                       <span>{customerData.segments.byValue.vip.label}</span>
                     </div>
                     <div className="text-right">
@@ -547,7 +548,7 @@ export const Customers: React.FC = () => {
                   </div>
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                      <UsersIcon className="w-4 h-4 text-blue-500" />
+                      <UsersIcon className="w-4 h-4 text-info" />
                       <span>{customerData.segments.byValue.regular.label}</span>
                     </div>
                     <div className="text-right">
@@ -784,6 +785,16 @@ export const Customers: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        isOpen={deleteTargetId !== null}
+        onClose={() => setDeleteTargetId(null)}
+        onConfirm={() => deleteTargetId && handleDelete(deleteTargetId)}
+        title="Delete customer?"
+        message="This is a soft delete — the customer record is kept and can be restored."
+        destructive
+        confirmLabel="Delete"
+      />
     </div>
   );
 };

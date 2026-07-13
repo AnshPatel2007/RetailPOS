@@ -41,7 +41,7 @@ const TrendBadge = ({ trend, label }: { trend?: number | null; label?: string })
   const up = trend >= 0;
   return (
     <div className="flex items-center gap-1">
-      <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${up ? 'text-green-500' : 'text-red-500'}`}>
+      <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${up ? 'text-success' : 'text-destructive'}`}>
         {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
         {up ? '+' : ''}{trend}%
       </span>
@@ -99,6 +99,7 @@ export const Dashboard: React.FC = () => {
   const [activeShifts, setActiveShifts] = useState<ActiveShift[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   const loadMetrics = useCallback(async (silent = false) => {
@@ -120,8 +121,10 @@ export const Dashboard: React.FC = () => {
       setHourlyData(localHourly);
       setTopProducts(hourly.topProducts || []);
       setActiveShifts(hourly.activeShifts || []);
+      setLoadError(false);
     } catch (error) {
       console.error('Failed to load metrics:', error);
+      setLoadError(true);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -203,6 +206,22 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Load failure banner */}
+      {loadError && (
+        <div className="mb-6 p-4 bg-destructive/10 border border-destructive/30 rounded-lg flex items-center justify-between gap-4">
+          <p className="text-sm text-destructive">
+            Failed to load dashboard data. The numbers below may be stale.
+          </p>
+          <button
+            onClick={() => loadMetrics()}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Main KPI stats - 4 cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
         {/* Today's Sales */}
@@ -215,8 +234,8 @@ export const Dashboard: React.FC = () => {
                 <p className="text-xs text-muted-foreground mt-1">{metrics?.todayTransactions || 0} transactions</p>
                 <TrendBadge trend={metrics?.todayTrend} label="vs yesterday" />
               </div>
-              <div className="p-3 rounded-full bg-green-500/10 ml-3 shrink-0">
-                <DollarSign className="h-6 w-6 text-green-500" />
+              <div className="p-3 rounded-full bg-success/10 ml-3 shrink-0">
+                <DollarSign className="h-6 w-6 text-success" />
               </div>
             </div>
           </CardContent>
@@ -232,8 +251,8 @@ export const Dashboard: React.FC = () => {
                 <p className="text-xs text-muted-foreground mt-1">Last 7 days</p>
                 <TrendBadge trend={metrics?.weekTrend} label="vs prev week" />
               </div>
-              <div className="p-3 rounded-full bg-blue-500/10 ml-3 shrink-0">
-                <BarChart3 className="h-6 w-6 text-blue-500" />
+              <div className="p-3 rounded-full bg-info/10 ml-3 shrink-0">
+                <BarChart3 className="h-6 w-6 text-info" />
               </div>
             </div>
           </CardContent>
@@ -249,8 +268,8 @@ export const Dashboard: React.FC = () => {
                 <p className="text-xs text-muted-foreground mt-1">Last 30 days</p>
                 <TrendBadge trend={metrics?.monthTrend} label="vs prev month" />
               </div>
-              <div className="p-3 rounded-full bg-purple-500/10 ml-3 shrink-0">
-                <ShoppingCart className="h-6 w-6 text-purple-500" />
+              <div className="p-3 rounded-full bg-primary/10 ml-3 shrink-0">
+                <ShoppingCart className="h-6 w-6 text-primary" />
               </div>
             </div>
           </CardContent>
@@ -269,8 +288,8 @@ export const Dashboard: React.FC = () => {
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1">Per transaction today</p>
               </div>
-              <div className="p-3 rounded-full bg-indigo-500/10 ml-3 shrink-0">
-                <CreditCard className="h-6 w-6 text-indigo-500" />
+              <div className="p-3 rounded-full bg-info/10 ml-3 shrink-0">
+                <CreditCard className="h-6 w-6 text-info" />
               </div>
             </div>
           </CardContent>
@@ -358,8 +377,8 @@ export const Dashboard: React.FC = () => {
           <Card className="hover:border-primary transition-colors h-full">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-cyan-500/10">
-                  <Users className="h-5 w-5 text-cyan-500" />
+                <div className="p-2 rounded-lg bg-info/10">
+                  <Users className="h-5 w-5 text-info" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Customers</p>
@@ -392,8 +411,8 @@ export const Dashboard: React.FC = () => {
           <Card className="hover:border-primary transition-colors h-full">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-violet-500/10">
-                  <Package className="h-5 w-5 text-violet-500" />
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <Package className="h-5 w-5 text-primary" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Products</p>
@@ -408,8 +427,8 @@ export const Dashboard: React.FC = () => {
           <Card className="hover:border-primary transition-colors h-full">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-orange-500/10">
-                  <AlertTriangle className="h-5 w-5 text-orange-500" />
+                <div className="p-2 rounded-lg bg-warning/10">
+                  <AlertTriangle className="h-5 w-5 text-warning" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Low Stock</p>
@@ -424,8 +443,8 @@ export const Dashboard: React.FC = () => {
           <Card className="hover:border-primary transition-colors h-full">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-red-500/10">
-                  <Undo2 className="h-5 w-5 text-red-500" />
+                <div className="p-2 rounded-lg bg-destructive/10">
+                  <Undo2 className="h-5 w-5 text-destructive" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Refunds Today</p>
@@ -507,7 +526,7 @@ export const Dashboard: React.FC = () => {
                       <p className="text-xs text-muted-foreground font-mono">{item.sku}</p>
                     </div>
                     <div className="text-right ml-3 shrink-0">
-                      <p className={`text-sm font-bold ${item.stock <= 0 ? 'text-red-500' : 'text-orange-500'}`}>
+                      <p className={`text-sm font-bold ${item.stock <= 0 ? 'text-destructive' : 'text-warning'}`}>
                         {item.stock}
                       </p>
                       <p className="text-xs text-muted-foreground">/ {item.alert} min</p>
@@ -570,7 +589,7 @@ export const Dashboard: React.FC = () => {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Clock className="h-4 w-4 text-green-500" />
+              <Clock className="h-4 w-4 text-success" />
               Active Shifts ({activeShifts.length})
             </CardTitle>
           </CardHeader>
@@ -578,7 +597,7 @@ export const Dashboard: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {activeShifts.map((shift) => (
                 <div key={shift.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                  <div className="w-2 h-2 rounded-full bg-green-500 shrink-0 animate-pulse" />
+                  <div className="w-2 h-2 rounded-full bg-success shrink-0 animate-pulse" />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm truncate">{shift.employeeName}</p>
                     <p className="text-xs text-muted-foreground">

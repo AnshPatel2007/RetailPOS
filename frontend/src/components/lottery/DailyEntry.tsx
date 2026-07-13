@@ -310,7 +310,7 @@ export const DailyEntry: React.FC<DailyEntryProps> = ({
               <p className="text-sm text-muted-foreground">Net Amount</p>
               <p
                 className={`text-lg font-semibold ${
-                  netAmount >= 0 ? 'text-green-500' : 'text-red-500'
+                  netAmount >= 0 ? 'text-success' : 'text-destructive'
                 }`}
               >
                 {formatCurrency(netAmount)}
@@ -340,7 +340,7 @@ export const DailyEntry: React.FC<DailyEntryProps> = ({
               onClick={handleCloseDay}
               disabled={saving || !todayTransaction}
               variant="primary"
-              className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
+              className="flex items-center gap-2 bg-success hover:bg-success/90"
             >
               <CheckCircle className="h-4 w-4" />
               Close Day

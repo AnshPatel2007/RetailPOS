@@ -180,7 +180,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
           <h2 className="text-xl font-semibold">Ticket Scanner</h2>
           {scanning && (
             <Badge variant="success" className="ml-2 flex items-center gap-1">
-              <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+              <div className="h-2 w-2 bg-success rounded-full animate-pulse" />
               Scanning Active
             </Badge>
           )}
@@ -348,10 +348,10 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                     <span
                       className={`font-medium ${
                         batch.remainingTickets === 0
-                          ? 'text-red-500'
+                          ? 'text-destructive'
                           : batch.remainingTickets < batch.totalTickets * 0.2
-                          ? 'text-orange-500'
-                          : 'text-green-500'
+                          ? 'text-warning'
+                          : 'text-success'
                       }`}
                     >
                       {batch.remainingTickets}

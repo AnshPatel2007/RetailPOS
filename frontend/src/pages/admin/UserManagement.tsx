@@ -241,8 +241,8 @@ export const UserManagement: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-500/10 rounded-lg">
-                <UserCheck className="h-5 w-5 text-green-500" />
+              <div className="p-2 bg-success/10 rounded-lg">
+                <UserCheck className="h-5 w-5 text-success" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Active Users</p>
@@ -257,8 +257,8 @@ export const UserManagement: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-500/10 rounded-lg">
-                <UserX className="h-5 w-5 text-red-500" />
+              <div className="p-2 bg-destructive/10 rounded-lg">
+                <UserX className="h-5 w-5 text-destructive" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Inactive Users</p>
@@ -452,6 +452,10 @@ export const UserManagement: React.FC = () => {
                 <option value="CASHIER">Cashier</option>
                 <option value="MANAGER">Manager</option>
                 <option value="ADMIN">Admin</option>
+                {/* Editing a SUPER_ADMIN must not silently demote them */}
+                {editingUser?.role === 'SUPER_ADMIN' && (
+                  <option value="SUPER_ADMIN">Super Admin</option>
+                )}
               </select>
             </div>
             <div>

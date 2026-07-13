@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { reportService } from '@/services/api';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, CHART_COLORS } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 // Helper to get local date in YYYY-MM-DD format (avoids timezone issues with toISOString)
@@ -97,7 +97,7 @@ const EmployeeSalesTab: React.FC = () => {
 
       <div className="grid grid-cols-3 gap-3">
         <Card><CardContent className="p-3 text-center"><p className="text-sm text-muted-foreground">Employees</p><p className="text-2xl font-bold">{data.length}</p></CardContent></Card>
-        <Card><CardContent className="p-3 text-center"><p className="text-sm text-muted-foreground">Revenue</p><p className="text-2xl font-bold text-green-600">{formatCurrency(totalRevenue)}</p></CardContent></Card>
+        <Card><CardContent className="p-3 text-center"><p className="text-sm text-muted-foreground">Revenue</p><p className="text-2xl font-bold text-success">{formatCurrency(totalRevenue)}</p></CardContent></Card>
         <Card><CardContent className="p-3 text-center"><p className="text-sm text-muted-foreground">Transactions</p><p className="text-2xl font-bold">{totalTx}</p></CardContent></Card>
       </div>
 
@@ -128,7 +128,7 @@ const EmployeeSalesTab: React.FC = () => {
                     <TableCell className="font-medium">{emp.user.firstName} {emp.user.lastName}</TableCell>
                     <TableCell><Badge variant="secondary" className="text-xs">{emp.user.role.replace(/_/g, ' ')}</Badge></TableCell>
                     <TableCell className="text-right">{emp.transactionCount}</TableCell>
-                    <TableCell className="text-right font-medium text-green-600">{formatCurrency(emp.totalRevenue)}</TableCell>
+                    <TableCell className="text-right font-medium text-success">{formatCurrency(emp.totalRevenue)}</TableCell>
                     <TableCell className="text-right">{formatCurrency(emp.avgTransaction)}</TableCell>
                   </TableRow>
                 ))}
@@ -189,7 +189,7 @@ export const Reports: React.FC = () => {
 
   useEffect(() => {
     loadReports();
-  }, [activeTab, salesFilters.startDate, salesFilters.endDate, inventoryFilters.startDate, inventoryFilters.endDate]);
+  }, [activeTab, salesFilters.startDate, salesFilters.endDate, salesFilters.paymentMethod, salesFilters.status, inventoryFilters.startDate, inventoryFilters.endDate]);
 
   const loadReports = async () => {
     setIsLoading(true);
@@ -201,6 +201,8 @@ export const Reports: React.FC = () => {
         const response = await reportService.getSales({
           startDate: salesFilters.startDate,
           endDate: salesFilters.endDate,
+          paymentMethod: salesFilters.paymentMethod.join(',') || undefined,
+          status: salesFilters.status.join(',') || undefined,
         });
         setSalesData(response.data.data);
       } else if (activeTab === 'inventory') {
@@ -218,11 +220,12 @@ export const Reports: React.FC = () => {
   // Sales helper functions
   const handleSalesExport = async (format: 'csv' | 'pdf') => {
     try {
+      const { employeeId, ...restFilters } = salesFilters;
       const params = {
-        ...salesFilters,
+        ...restFilters,
         paymentMethod: salesFilters.paymentMethod.join(','),
         status: salesFilters.status.join(','),
-        employeeId: salesFilters.employeeId.join(','),
+        userId: employeeId.join(','),
       };
 
       const response =
@@ -278,13 +281,7 @@ export const Reports: React.FC = () => {
       );
     }
 
-    // Apply filters
-    if (salesFilters.paymentMethod.length > 0) {
-      filtered = filtered.filter((sale) => salesFilters.paymentMethod.includes(sale.paymentMethod));
-    }
-    if (salesFilters.status.length > 0) {
-      filtered = filtered.filter((sale) => salesFilters.status.includes(sale.status));
-    }
+    // Apply filters (paymentMethod/status are applied server-side in loadReports)
     if (salesFilters.employeeId.length > 0) {
       filtered = filtered.filter((sale) => salesFilters.employeeId.includes(sale.userId));
     }
@@ -479,7 +476,6 @@ export const Reports: React.FC = () => {
   ];
 
   // Chart colors
-  const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316', '#84cc16'];
 
   return (
     <div className="p-8">

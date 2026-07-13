@@ -220,7 +220,7 @@ export const StoreCredits: React.FC = () => {
                   <td className="px-4 py-2 text-muted-foreground">
                     {acc.customer.phone || acc.customer.email || '-'}
                   </td>
-                  <td className="px-4 py-2 text-right font-bold text-green-600">
+                  <td className="px-4 py-2 text-right font-bold text-success">
                     ${acc.balance.toFixed(2)}
                   </td>
                   <td className="px-4 py-2 text-muted-foreground text-xs">
@@ -352,7 +352,7 @@ export const StoreCredits: React.FC = () => {
           {selectedAccount && (
             <div className="p-3 bg-muted/50 rounded-lg flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Current Balance</span>
-              <span className="text-xl font-bold text-green-600">${selectedAccount.balance.toFixed(2)}</span>
+              <span className="text-xl font-bold text-success">${selectedAccount.balance.toFixed(2)}</span>
             </div>
           )}
 
@@ -367,9 +367,9 @@ export const StoreCredits: React.FC = () => {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                        tx.type === 'CREDIT' ? 'bg-green-100 text-green-700' :
-                        tx.type === 'DEBIT' ? 'bg-red-100 text-red-700' :
-                        'bg-blue-100 text-blue-700'
+                        tx.type === 'CREDIT' ? 'bg-success/10 text-success' :
+                        tx.type === 'DEBIT' ? 'bg-destructive/10 text-destructive' :
+                        'bg-info/10 text-info'
                       }`}>
                         {tx.type}
                       </span>
@@ -380,7 +380,7 @@ export const StoreCredits: React.FC = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className={`font-medium ${tx.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <div className={`font-medium ${tx.amount >= 0 ? 'text-success' : 'text-destructive'}`}>
                       {tx.amount >= 0 ? '+' : ''}${Math.abs(tx.amount).toFixed(2)}
                     </div>
                     <div className="text-xs text-muted-foreground">

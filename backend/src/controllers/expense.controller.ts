@@ -4,6 +4,7 @@ import { AuthRequest } from '../types';
 import { logger } from '../utils/logger';
 import prisma from '../config/database';
 import { createDateFilter } from '../utils/dateFilter.util';
+import { parseListFilter } from '../utils/queryFilter.util';
 
 /**
  * Get all expenses
@@ -127,9 +128,10 @@ export const createExpense = asyncHandler(async (req: AuthRequest, res: Response
     throw new AppError('User not authenticated', 401);
   }
 
-  // Generate expense number
-  const count = await prisma.expense.count();
-  const expenseNumber = `EXP-${String(count + 1).padStart(6, '0')}`;
+  // Collision-safe expense number (count()+1 raced under concurrent creates)
+  const expenseNumber = `EXP-${Date.now()}-${Math.floor(Math.random() * 1000)
+    .toString()
+    .padStart(3, '0')}`;
 
   const expense = await prisma.expense.create({
     data: {
@@ -467,8 +469,10 @@ export const exportExpensesCSV = asyncHandler(async (req: AuthRequest, res: Resp
 
   const where: any = {};
 
-  if (category) where.category = category;
-  if (status) where.status = status;
+  const categoryFilter = parseListFilter(category);
+  if (categoryFilter) where.category = categoryFilter;
+  const statusFilter = parseListFilter(status);
+  if (statusFilter) where.status = statusFilter;
   if (locationId) where.locationId = locationId;
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
@@ -519,8 +523,10 @@ export const exportExpensesPDF = asyncHandler(async (req: AuthRequest, res: Resp
 
   const where: any = {};
 
-  if (category) where.category = category;
-  if (status) where.status = status;
+  const categoryFilter = parseListFilter(category);
+  if (categoryFilter) where.category = categoryFilter;
+  const statusFilter = parseListFilter(status);
+  if (statusFilter) where.status = statusFilter;
   if (locationId) where.locationId = locationId;
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);

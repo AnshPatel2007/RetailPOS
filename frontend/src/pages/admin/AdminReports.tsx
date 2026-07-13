@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { locationService } from '@/services/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, buildCsv, downloadCsv, CHART_COLORS } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ExportPreviewModal } from '@/components/reports/ExportPreviewModal';
@@ -58,7 +58,7 @@ interface CrossLocationData {
   period: number;
 }
 
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+const COLORS = CHART_COLORS;
 
 export const AdminReports: React.FC = () => {
   const [data, setData] = useState<CrossLocationData | null>(null);
@@ -106,14 +106,8 @@ export const AdminReports: React.FC = () => {
       data.totals.totalUsers.toString(),
     ]);
 
-    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cross-location-report-${period}days.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const csvContent = buildCsv(headers, rows);
+    downloadCsv(csvContent, `cross-location-report-${period}days.csv`);
     toast.success('Report exported');
   };
 
@@ -187,8 +181,8 @@ export const AdminReports: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-500/10 rounded-lg">
-                <DollarSign className="h-5 w-5 text-green-500" />
+              <div className="p-2 bg-success/10 rounded-lg">
+                <DollarSign className="h-5 w-5 text-success" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Revenue</p>
@@ -201,8 +195,8 @@ export const AdminReports: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-500/10 rounded-lg">
-                <BarChart3 className="h-5 w-5 text-blue-500" />
+              <div className="p-2 bg-info/10 rounded-lg">
+                <BarChart3 className="h-5 w-5 text-info" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Transactions</p>
@@ -215,8 +209,8 @@ export const AdminReports: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-500/10 rounded-lg">
-                <TrendingDown className="h-5 w-5 text-red-500" />
+              <div className="p-2 bg-destructive/10 rounded-lg">
+                <TrendingDown className="h-5 w-5 text-destructive" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Expenses</p>
@@ -229,8 +223,8 @@ export const AdminReports: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-500/10 rounded-lg">
-                <TrendingUp className="h-5 w-5 text-emerald-500" />
+              <div className="p-2 bg-success/10 rounded-lg">
+                <TrendingUp className="h-5 w-5 text-success" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Profit</p>
@@ -243,8 +237,8 @@ export const AdminReports: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-500/10 rounded-lg">
-                <Users className="h-5 w-5 text-purple-500" />
+              <div className="p-2 bg-primary/10 rounded-lg">
+                <Users className="h-5 w-5 text-primary" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Active Users</p>
@@ -348,16 +342,16 @@ export const AdminReports: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-right">{location.transactions}</TableCell>
                   <TableCell className="text-right">{formatCurrency(avgOrder)}</TableCell>
-                  <TableCell className="text-right text-red-500">
+                  <TableCell className="text-right text-destructive">
                     {formatCurrency(location.expenses)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <span className={location.profit >= 0 ? 'text-green-500' : 'text-red-500'}>
+                    <span className={location.profit >= 0 ? 'text-success' : 'text-destructive'}>
                       {formatCurrency(location.profit)}
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <span className={margin >= 0 ? 'text-green-500' : 'text-red-500'}>
+                    <span className={margin >= 0 ? 'text-success' : 'text-destructive'}>
                       {margin.toFixed(1)}%
                     </span>
                   </TableCell>
@@ -377,16 +371,16 @@ export const AdminReports: React.FC = () => {
                     : 0
                 )}
               </TableCell>
-              <TableCell className="text-right text-red-500">
+              <TableCell className="text-right text-destructive">
                 {formatCurrency(data.totals.totalExpenses)}
               </TableCell>
               <TableCell className="text-right">
-                <span className={data.totals.totalProfit >= 0 ? 'text-green-500' : 'text-red-500'}>
+                <span className={data.totals.totalProfit >= 0 ? 'text-success' : 'text-destructive'}>
                   {formatCurrency(data.totals.totalProfit)}
                 </span>
               </TableCell>
               <TableCell className="text-right">
-                <span className={data.totals.totalProfit >= 0 ? 'text-green-500' : 'text-red-500'}>
+                <span className={data.totals.totalProfit >= 0 ? 'text-success' : 'text-destructive'}>
                   {data.totals.totalRevenue > 0
                     ? ((data.totals.totalProfit / data.totals.totalRevenue) * 100).toFixed(1)
                     : 0}%
@@ -406,10 +400,6 @@ export const AdminReports: React.FC = () => {
           type="locations"
           data={data.locations}
           onExportCSV={async () => {
-            exportToCSV();
-            setShowExportPreview(false);
-          }}
-          onExportPDF={async () => {
             exportToCSV();
             setShowExportPreview(false);
           }}

@@ -95,14 +95,36 @@ api.interceptors.response.use(
  * Auth service
  */
 export const authService = {
-  login: (email: string, password: string) =>
-    api.post('/auth/login', { email, password }),
+  login: (email: string, password: string, twoFactorCode?: string) =>
+    api.post('/auth/login', { email, password, ...(twoFactorCode ? { twoFactorCode } : {}) }),
 
   logout: () => api.post('/auth/logout'),
 
   getMe: () => api.get('/auth/me'),
 
   register: (data: any) => api.post('/auth/register', data),
+
+  forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
+
+  resetPassword: (token: string, password: string) =>
+    api.post('/auth/reset-password', { token, password }),
+};
+
+/**
+ * Two-factor authentication service
+ */
+export const twoFactorService = {
+  getStatus: () => api.get('/auth/2fa/status'),
+
+  setup: () => api.post('/auth/2fa/setup'),
+
+  verify: (code: string) => api.post('/auth/2fa/verify', { code }),
+
+  disable: (password: string, code?: string) =>
+    api.post('/auth/2fa/disable', { password, ...(code ? { code } : {}) }),
+
+  regenerateBackupCodes: (password: string) =>
+    api.post('/auth/2fa/backup-codes', { password }),
 };
 
 /**
@@ -120,6 +142,8 @@ export const productService = {
   delete: (id: string) => api.delete(`/products/${id}`),
 
   getLowStock: () => api.get('/products/low-stock'),
+
+  getStats: () => api.get('/products/stats'),
 
   adjustInventory: (id: string, data: any) =>
     api.post(`/products/${id}/adjust-inventory`, data),
@@ -465,9 +489,11 @@ export const userService = {
  */
 export const giftCardService = {
   getAll: (params?: any) => api.get('/gift-cards', { params }),
+  getStats: () => api.get('/gift-cards/stats'),
   getById: (id: string) => api.get(`/gift-cards/${id}`),
-  checkBalance: (code: string) => api.get(`/gift-cards/check/${code}`),
-  issue: (data: any) => api.post('/gift-cards/issue', data),
+  checkBalance: (code: string) => api.get(`/gift-cards/balance/${code}`),
+  issue: (data: { amount: number; customerId?: string; expiresAt?: string }) =>
+    api.post('/gift-cards', data),
   reload: (id: string, data: { amount: number }) => api.post(`/gift-cards/${id}/reload`, data),
   redeem: (id: string, data: { amount: number; saleId?: string }) => api.post(`/gift-cards/${id}/redeem`, data),
   deactivate: (id: string) => api.post(`/gift-cards/${id}/deactivate`),

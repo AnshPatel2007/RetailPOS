@@ -16,6 +16,7 @@ router.use(authenticate);
  * Static routes MUST come before /:id to avoid being caught by the param route
  */
 router.get('/low-stock', productController.getLowStockProducts);
+router.get('/stats', productController.getProductStats);
 
 router.post(
   '/scan-receipt',

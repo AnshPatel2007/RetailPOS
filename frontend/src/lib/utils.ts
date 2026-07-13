@@ -99,3 +99,52 @@ export function calculatePercentage(value: number, total: number): number {
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/**
+ * Categorical palette for chart fills (Recharts cells, bars, pies).
+ * Hex is allowed inside charts only — everywhere else use semantic tokens.
+ */
+export const CHART_COLORS = [
+  '#3b82f6', // blue
+  '#10b981', // green
+  '#f59e0b', // amber
+  '#ef4444', // red
+  '#8b5cf6', // violet
+  '#06b6d4', // cyan
+  '#f97316', // orange
+  '#84cc16', // lime
+];
+
+/**
+ * Escape a value for a CSV cell: wrap in quotes, double inner quotes.
+ * Prefixing =+-@ with a quote is handled by quoting, which also neutralizes
+ * formula injection in spreadsheet apps.
+ */
+export function escapeCsvValue(value: unknown): string {
+  const str = value === null || value === undefined ? '' : String(value);
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Build a CSV string from a header row and data rows, escaping every cell.
+ */
+export function buildCsv(headers: string[], rows: unknown[][]): string {
+  return [headers, ...rows]
+    .map((row) => row.map(escapeCsvValue).join(','))
+    .join('\n');
+}
+
+/**
+ * Trigger a browser download of a CSV string.
+ */
+export function downloadCsv(csvContent: string, filename: string): void {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}

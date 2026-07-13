@@ -189,8 +189,8 @@ export const DailySummary: React.FC<DailySummaryProps> = ({ locationId }) => {
                   )}
                 </p>
               </div>
-              <div className="bg-blue-500/10 p-3 rounded-full">
-                <DollarSign className="h-6 w-6 text-blue-500" />
+              <div className="bg-info/10 p-3 rounded-full">
+                <DollarSign className="h-6 w-6 text-info" />
               </div>
             </div>
           </Card>
@@ -203,8 +203,8 @@ export const DailySummary: React.FC<DailySummaryProps> = ({ locationId }) => {
                   {formatCurrency(summary.totalCashoutAmount || 0)}
                 </p>
               </div>
-              <div className="bg-orange-500/10 p-3 rounded-full">
-                <DollarSign className="h-6 w-6 text-orange-500" />
+              <div className="bg-warning/10 p-3 rounded-full">
+                <DollarSign className="h-6 w-6 text-warning" />
               </div>
             </div>
           </Card>
@@ -216,15 +216,15 @@ export const DailySummary: React.FC<DailySummaryProps> = ({ locationId }) => {
                 <p
                   className={`text-2xl font-bold mt-1 ${
                     (summary.totalNetAmount || 0) >= 0
-                      ? 'text-green-500'
-                      : 'text-red-500'
+                      ? 'text-success'
+                      : 'text-destructive'
                   }`}
                 >
                   {formatCurrency(summary.totalNetAmount || 0)}
                 </p>
               </div>
-              <div className="bg-green-500/10 p-3 rounded-full">
-                <TrendingUp className="h-6 w-6 text-green-500" />
+              <div className="bg-success/10 p-3 rounded-full">
+                <TrendingUp className="h-6 w-6 text-success" />
               </div>
             </div>
           </Card>
@@ -238,8 +238,8 @@ export const DailySummary: React.FC<DailySummaryProps> = ({ locationId }) => {
                     (summary.totalOfflineSalesCount || 0)}
                 </p>
               </div>
-              <div className="bg-purple-500/10 p-3 rounded-full">
-                <FileText className="h-6 w-6 text-purple-500" />
+              <div className="bg-primary/10 p-3 rounded-full">
+                <FileText className="h-6 w-6 text-primary" />
               </div>
             </div>
           </Card>
@@ -311,7 +311,7 @@ export const DailySummary: React.FC<DailySummaryProps> = ({ locationId }) => {
                       <TableCell>
                         <span
                           className={`font-medium ${
-                            netAmount >= 0 ? 'text-green-500' : 'text-red-500'
+                            netAmount >= 0 ? 'text-success' : 'text-destructive'
                           }`}
                         >
                           {formatCurrency(netAmount)}

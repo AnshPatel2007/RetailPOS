@@ -30,7 +30,7 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import { financialService, expenseService, reportService } from '@/services/api';
-import { formatDate } from '@/lib/utils';
+import { formatDate, buildCsv, downloadCsv } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import type { ExpenseReportData, Expense } from '@/types';
@@ -219,7 +219,16 @@ export const Financial: React.FC = () => {
   const handleExportSales = async () => {
     try {
       const response = await financialService.exportSales();
-      toast.success(`Exported ${response.data.data.recordCount} sales records`);
+      const data = response.data.data;
+      const entries = data.entries || [];
+      const csv = buildCsv(
+        ['Date', 'Reference', 'Description', 'Debit Account', 'Credit Account', 'Amount', 'Tax', 'Payment Method'],
+        entries.map((e: any) => [
+          e.date, e.reference, e.description, e.debitAccount, e.creditAccount, e.amount, e.taxAmount, e.paymentMethod,
+        ])
+      );
+      downloadCsv(csv, `sales-journal-${new Date().toISOString().split('T')[0]}.csv`);
+      toast.success(`Exported ${data.recordCount} sales records`);
       fetchData();
     } catch (error) {
       toast.error('Failed to export sales');
@@ -229,7 +238,16 @@ export const Financial: React.FC = () => {
   const handleExportExpenses = async () => {
     try {
       const response = await financialService.exportExpenses();
-      toast.success(`Exported ${response.data.data.recordCount} expense records`);
+      const data = response.data.data;
+      const entries = data.entries || [];
+      const csv = buildCsv(
+        ['Date', 'Reference', 'Description', 'Debit Account', 'Credit Account', 'Amount', 'Vendor', 'Category'],
+        entries.map((e: any) => [
+          e.date, e.reference, e.description, e.debitAccount, e.creditAccount, e.amount, e.vendor, e.category,
+        ])
+      );
+      downloadCsv(csv, `expenses-journal-${new Date().toISOString().split('T')[0]}.csv`);
+      toast.success(`Exported ${data.recordCount} expense records`);
       fetchData();
     } catch (error) {
       toast.error('Failed to export expenses');
@@ -681,7 +699,7 @@ export const Financial: React.FC = () => {
                   </Card>
                   <Card className="p-4">
                     <p className="text-sm text-muted-foreground">Remaining</p>
-                    <p className={`text-2xl font-bold ${budgetSummary.totals.remaining >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    <p className={`text-2xl font-bold ${budgetSummary.totals.remaining >= 0 ? 'text-success' : 'text-destructive'}`}>
                       {formatCurrency(budgetSummary.totals.remaining)}
                     </p>
                   </Card>
@@ -691,8 +709,8 @@ export const Financial: React.FC = () => {
                     <div className="w-full bg-muted rounded-full h-2 mt-2">
                       <div
                         className={`h-2 rounded-full ${
-                          budgetSummary.totals.percentUsed > 100 ? 'bg-red-500' :
-                          budgetSummary.totals.percentUsed > 80 ? 'bg-yellow-500' : 'bg-green-500'
+                          budgetSummary.totals.percentUsed > 100 ? 'bg-destructive' :
+                          budgetSummary.totals.percentUsed > 80 ? 'bg-warning' : 'bg-success'
                         }`}
                         style={{ width: `${Math.min(budgetSummary.totals.percentUsed, 100)}%` }}
                       ></div>
@@ -717,16 +735,16 @@ export const Financial: React.FC = () => {
                           <div className="w-full bg-muted rounded-full h-2">
                             <div
                               className={`h-2 rounded-full ${
-                                cat.status === 'over' ? 'bg-red-500' :
-                                cat.status === 'warning' ? 'bg-yellow-500' : 'bg-green-500'
+                                cat.status === 'over' ? 'bg-destructive' :
+                                cat.status === 'warning' ? 'bg-warning' : 'bg-success'
                               }`}
                               style={{ width: `${Math.min(cat.percentUsed, 100)}%` }}
                             ></div>
                           </div>
                         </div>
-                        {cat.status === 'over' && <AlertTriangle className="w-4 h-4 text-red-500" />}
-                        {cat.status === 'warning' && <AlertTriangle className="w-4 h-4 text-yellow-500" />}
-                        {cat.status === 'ok' && <CheckCircle className="w-4 h-4 text-green-500" />}
+                        {cat.status === 'over' && <AlertTriangle className="w-4 h-4 text-destructive" />}
+                        {cat.status === 'warning' && <AlertTriangle className="w-4 h-4 text-warning" />}
+                        {cat.status === 'ok' && <CheckCircle className="w-4 h-4 text-success" />}
                       </div>
                     ))}
                   </div>
@@ -768,13 +786,13 @@ export const Financial: React.FC = () => {
                           <TableCell>{budget.period}</TableCell>
                           <TableCell>{formatCurrency(budget.amount)}</TableCell>
                           <TableCell>{formatCurrency(budget.spent)}</TableCell>
-                          <TableCell className={budget.remaining >= 0 ? 'text-green-500' : 'text-red-500'}>
+                          <TableCell className={budget.remaining >= 0 ? 'text-success' : 'text-destructive'}>
                             {formatCurrency(budget.remaining)}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <span>{budget.percentUsed}%</span>
-                              {budget.isOverBudget && <AlertTriangle className="w-4 h-4 text-red-500" />}
+                              {budget.isOverBudget && <AlertTriangle className="w-4 h-4 text-destructive" />}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -794,7 +812,7 @@ export const Financial: React.FC = () => {
                                 variant="ghost"
                                 onClick={() => handleDeleteBudget(budget.id)}
                               >
-                                <Trash2 className="w-4 h-4 text-red-500" />
+                                <Trash2 className="w-4 h-4 text-destructive" />
                               </Button>
                             </div>
                           </TableCell>
@@ -887,7 +905,7 @@ export const Financial: React.FC = () => {
                                 variant="ghost"
                                 onClick={() => handleDeleteRecurring(recurring.id)}
                               >
-                                <Trash2 className="w-4 h-4 text-red-500" />
+                                <Trash2 className="w-4 h-4 text-destructive" />
                               </Button>
                             </div>
                           </TableCell>
@@ -912,7 +930,7 @@ export const Financial: React.FC = () => {
                 <div className="space-y-4">
                   {/* Revenue Section */}
                   <div className="border-b pb-4">
-                    <h4 className="font-medium text-green-500 mb-2">Revenue</h4>
+                    <h4 className="font-medium text-success mb-2">Revenue</h4>
                     <div className="space-y-2 ml-4">
                       <div className="flex justify-between">
                         <span>Gross Sales</span>
@@ -937,13 +955,13 @@ export const Financial: React.FC = () => {
                     </div>
                     <div className="flex justify-between font-medium mt-2">
                       <span>Gross Profit</span>
-                      <span className="text-green-500">{formatCurrency(pnlData.grossProfit)}</span>
+                      <span className="text-success">{formatCurrency(pnlData.grossProfit)}</span>
                     </div>
                   </div>
 
                   {/* Operating Expenses */}
                   <div className="border-b pb-4">
-                    <h4 className="font-medium text-red-500 mb-2">Operating Expenses</h4>
+                    <h4 className="font-medium text-destructive mb-2">Operating Expenses</h4>
                     <div className="space-y-2 ml-4">
                       {pnlData.operatingExpenses.byCategory.map((exp: any) => (
                         <div key={exp.category} className="flex justify-between text-muted-foreground">
@@ -962,7 +980,7 @@ export const Financial: React.FC = () => {
                   <div className="pt-2">
                     <div className="flex justify-between text-xl font-bold">
                       <span>Net Income</span>
-                      <span className={pnlData.netIncome >= 0 ? 'text-green-500' : 'text-red-500'}>
+                      <span className={pnlData.netIncome >= 0 ? 'text-success' : 'text-destructive'}>
                         {formatCurrency(pnlData.netIncome)}
                       </span>
                     </div>

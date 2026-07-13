@@ -160,7 +160,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                   onClick={() => setAdjustmentType('add')}
                   className={`p-2 text-sm rounded-md border ${
                     adjustmentType === 'add'
-                      ? 'bg-green-500/10 border-green-500 text-green-500'
+                      ? 'bg-success/10 border-success text-success'
                       : 'border-input hover:bg-accent'
                   }`}
                 >
@@ -171,7 +171,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                   onClick={() => setAdjustmentType('remove')}
                   className={`p-2 text-sm rounded-md border ${
                     adjustmentType === 'remove'
-                      ? 'bg-red-500/10 border-red-500 text-red-500'
+                      ? 'bg-destructive/10 border-destructive text-destructive'
                       : 'border-input hover:bg-accent'
                   }`}
                 >

@@ -7,6 +7,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/', giftCardController.getGiftCards);
+router.get('/stats', giftCardController.getGiftCardStats);
 router.get('/balance/:code', giftCardController.checkBalance);
 router.get('/:idOrCode', giftCardController.getGiftCard);
 

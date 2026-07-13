@@ -14,6 +14,8 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import { inventoryTransferService, locationService, productService } from '@/services/api';
+import { useAuthStore } from '@/store/authStore';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import toast from 'react-hot-toast';
 
 interface Transfer {
@@ -54,13 +56,19 @@ interface Product {
 }
 
 const statusColors: Record<string, string> = {
-  PENDING: 'bg-yellow-500/10 text-yellow-500',
-  IN_TRANSIT: 'bg-blue-500/10 text-blue-500',
-  RECEIVED: 'bg-green-500/10 text-green-500',
-  CANCELLED: 'bg-red-500/10 text-red-500',
+  PENDING: 'bg-warning/10 text-warning',
+  IN_TRANSIT: 'bg-info/10 text-info',
+  RECEIVED: 'bg-success/10 text-success',
+  CANCELLED: 'bg-destructive/10 text-destructive',
 };
 
 export const InventoryTransfers: React.FC = () => {
+  const { user } = useAuthStore();
+  const { isReadOnly } = useEffectiveLocation();
+  // Mutating routes are ADMIN/MANAGER only — hide the buttons cashiers can't use
+  const canManage =
+    !isReadOnly &&
+    ['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(user?.role || '');
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -178,7 +186,10 @@ export const InventoryTransfers: React.FC = () => {
   };
 
   const handleCancel = async (id: string) => {
-    if (!confirm('Cancel this transfer?')) return;
+    const inTransit = selectedTransfer?.status === 'IN_TRANSIT';
+    if (!confirm(inTransit
+      ? 'Cancel this transfer? Shipped stock will be restored to the source location.'
+      : 'Cancel this transfer?')) return;
     try {
       await inventoryTransferService.cancel(id);
       toast.success('Transfer cancelled');
@@ -208,10 +219,12 @@ export const InventoryTransfers: React.FC = () => {
           <h1 className="text-3xl font-bold mb-2">Inventory Transfers</h1>
           <p className="text-muted-foreground">Transfer stock between locations</p>
         </div>
-        <Button variant="primary" onClick={() => setShowCreateModal(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          New Transfer
-        </Button>
+        {canManage && (
+          <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            New Transfer
+          </Button>
+        )}
       </div>
 
       {/* Status filter */}
@@ -411,7 +424,7 @@ export const InventoryTransfers: React.FC = () => {
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              {selectedTransfer.status === 'PENDING' && (
+              {selectedTransfer.status === 'PENDING' && canManage && (
                 <>
                   <Button variant="destructive" size="sm" onClick={() => handleCancel(selectedTransfer.id)}>Cancel</Button>
                   <Button variant="primary" size="sm" onClick={() => handleShip(selectedTransfer.id)}>
@@ -419,10 +432,13 @@ export const InventoryTransfers: React.FC = () => {
                   </Button>
                 </>
               )}
-              {selectedTransfer.status === 'IN_TRANSIT' && (
-                <Button variant="primary" size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleReceive(selectedTransfer.id)}>
-                  <CheckCircle className="w-4 h-4 mr-1" /> Receive
-                </Button>
+              {selectedTransfer.status === 'IN_TRANSIT' && canManage && (
+                <>
+                  <Button variant="destructive" size="sm" onClick={() => handleCancel(selectedTransfer.id)}>Cancel</Button>
+                  <Button variant="primary" size="sm" onClick={() => handleReceive(selectedTransfer.id)}>
+                    <CheckCircle className="w-4 h-4 mr-1" /> Receive
+                  </Button>
+                </>
               )}
             </div>
           </div>

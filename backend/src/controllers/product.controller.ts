@@ -275,6 +275,21 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     },
   });
 
+  // Stock rewritten through the edit form must leave an inventory audit trail
+  if (data.stockQuantity !== undefined && data.stockQuantity !== product.stockQuantity) {
+    await prisma.inventoryLog.create({
+      data: {
+        productId: id,
+        type: 'ADJUSTMENT',
+        quantity: Math.abs(data.stockQuantity - product.stockQuantity),
+        previousQty: product.stockQuantity,
+        newQty: data.stockQuantity,
+        notes: 'Product edit',
+        userId: req.user?.id,
+      },
+    });
+  }
+
   // Log activity with change details
   const changes: Record<string, { from: any; to: any }> = {};
   if (data.price !== undefined && data.price !== product.price) {
@@ -379,6 +394,51 @@ export const getLowStockProducts = asyncHandler(async (req: AuthRequest, res: Re
   res.json({
     success: true,
     data: lowStockProducts,
+  });
+});
+
+/**
+ * Aggregate product stats for the inventory dashboard cards
+ * GET /api/products/stats
+ */
+export const getProductStats = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationId = req.user?.locationId ?? null;
+
+  const where: any = { isActive: true };
+  if (locationId) where.locationId = locationId;
+
+  const locationClause = locationId
+    ? Prisma.sql`AND "locationId" = ${locationId}`
+    : Prisma.empty;
+
+  const [totalProducts, trackedProducts, valueRows] = await Promise.all([
+    prisma.product.count({ where }),
+    prisma.product.findMany({
+      where: { ...where, trackInventory: true },
+      select: { stockQuantity: true, lowStockAlert: true },
+    }),
+    // SUM of a column product needs raw SQL (Prisma aggregate can't multiply fields)
+    prisma.$queryRaw<{ value: number }[]>`
+      SELECT COALESCE(SUM(cost * "stockQuantity"), 0)::float AS value
+      FROM products
+      WHERE "isActive" = true
+      ${locationClause}
+    `,
+  ]);
+
+  const lowStockCount = trackedProducts.filter(
+    (p) => p.stockQuantity <= p.lowStockAlert
+  ).length;
+  const outOfStockCount = trackedProducts.filter((p) => p.stockQuantity === 0).length;
+
+  res.json({
+    success: true,
+    data: {
+      totalProducts,
+      lowStockCount,
+      outOfStockCount,
+      inventoryValue: Math.round((valueRows[0]?.value || 0) * 100) / 100,
+    },
   });
 });
 

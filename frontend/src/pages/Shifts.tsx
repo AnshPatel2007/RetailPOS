@@ -46,6 +46,7 @@ export const Shifts: React.FC = () => {
       setTotalPages(shiftsResponse.data.pagination?.totalPages || 1);
     } catch (error) {
       console.error('Failed to load shifts:', error);
+      toast.error('Failed to load shifts');
     } finally {
       setIsLoading(false);
     }
@@ -54,7 +55,7 @@ export const Shifts: React.FC = () => {
   const handleClockIn = async () => {
     try {
       await shiftService.clockIn({
-        startingCash: parseFloat(startingCash),
+        startingCash: parseFloat(startingCash) || 0,
       });
       setShowClockInModal(false);
       setStartingCash('0');
@@ -73,7 +74,7 @@ export const Shifts: React.FC = () => {
 
     try {
       const response = await shiftService.clockOut({
-        endingCash: parseFloat(endingCash),
+        endingCash: parseFloat(endingCash) || 0,
       });
       setShowClockOutModal(false);
       setEndingCash('0');
@@ -242,8 +243,6 @@ export const Shifts: React.FC = () => {
                     <TableCell>
                       {shift.isClosed ? (
                         <Badge variant="secondary">Closed</Badge>
-                      ) : shift.clockOutAt ? (
-                        <Badge variant="warning">Pending Close</Badge>
                       ) : (
                         <Badge variant="success">Active</Badge>
                       )}
@@ -344,7 +343,7 @@ export const Shifts: React.FC = () => {
               autoFocus
             />
 
-            {parseFloat(endingCash) > 0 && (
+            {endingCash.trim() !== '' && !isNaN(parseFloat(endingCash)) && (
               <div className="p-4 bg-primary/10 border border-primary rounded-lg">
                 <div className="flex justify-between items-center">
                   <span className="font-medium">Cash Difference:</span>
@@ -401,11 +400,11 @@ export const Shifts: React.FC = () => {
               </div>
               <div className="p-3 bg-muted rounded-lg">
                 <p className="text-sm text-muted-foreground">Total Sales</p>
-                <p className="text-xl font-bold text-green-600">{formatCurrency(shiftSummary.totalSales)}</p>
+                <p className="text-xl font-bold text-success">{formatCurrency(shiftSummary.totalSales)}</p>
               </div>
               <div className="p-3 bg-muted rounded-lg">
                 <p className="text-sm text-muted-foreground">Cash Difference</p>
-                <p className={`text-xl font-bold ${Math.abs(shiftSummary.cashDifference) < 0.01 ? 'text-green-600' : 'text-red-500'}`}>
+                <p className={`text-xl font-bold ${Math.abs(shiftSummary.cashDifference) < 0.01 ? 'text-success' : 'text-destructive'}`}>
                   {formatCurrency(shiftSummary.cashDifference)}
                 </p>
               </div>
@@ -437,7 +436,7 @@ export const Shifts: React.FC = () => {
                 <div className="flex justify-between"><span>Actual Count</span><span>{formatCurrency(shiftSummary.endingCash)}</span></div>
                 <div className="flex justify-between font-bold border-t pt-1">
                   <span>Difference</span>
-                  <span className={Math.abs(shiftSummary.cashDifference) < 0.01 ? 'text-green-600' : 'text-red-500'}>
+                  <span className={Math.abs(shiftSummary.cashDifference) < 0.01 ? 'text-success' : 'text-destructive'}>
                     {formatCurrency(shiftSummary.cashDifference)}
                   </span>
                 </div>

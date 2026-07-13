@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/Table';
 import { cycleCountService, locationService, categoryService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import toast from 'react-hot-toast';
 
 interface CycleCountRecord {
@@ -57,10 +58,10 @@ interface Category {
 }
 
 const statusColors: Record<string, string> = {
-  IN_PROGRESS: 'bg-blue-500/10 text-blue-500',
-  REVIEW: 'bg-yellow-500/10 text-yellow-500',
-  APPROVED: 'bg-green-500/10 text-green-500',
-  CANCELLED: 'bg-red-500/10 text-red-500',
+  IN_PROGRESS: 'bg-info/10 text-info',
+  REVIEW: 'bg-warning/10 text-warning',
+  APPROVED: 'bg-success/10 text-success',
+  CANCELLED: 'bg-destructive/10 text-destructive',
 };
 
 export const CycleCount: React.FC = () => {
@@ -201,6 +202,11 @@ export const CycleCount: React.FC = () => {
 
   const totalPages = Math.ceil(total / 20);
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+  const { isReadOnly } = useEffectiveLocation();
+  // Mutating routes are ADMIN/MANAGER only — hide the buttons cashiers can't use
+  const canManage =
+    !isReadOnly &&
+    ['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(user?.role || '');
 
   return (
     <div className="p-8">
@@ -209,10 +215,12 @@ export const CycleCount: React.FC = () => {
           <h1 className="text-3xl font-bold mb-2">Cycle Counts</h1>
           <p className="text-muted-foreground">Physical inventory verification</p>
         </div>
-        <Button variant="primary" onClick={() => setShowCreateModal(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          New Count
-        </Button>
+        {canManage && (
+          <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            New Count
+          </Button>
+        )}
       </div>
 
       {/* Status filter */}
@@ -389,7 +397,7 @@ export const CycleCount: React.FC = () => {
                       <>
                         <span className="w-20 text-right">Counted: {item.countedQty ?? '-'}</span>
                         {item.discrepancy !== null && item.discrepancy !== 0 && (
-                          <span className={`w-16 text-right font-medium ${item.discrepancy > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          <span className={`w-16 text-right font-medium ${item.discrepancy > 0 ? 'text-success' : 'text-destructive'}`}>
                             {item.discrepancy > 0 ? '+' : ''}{item.discrepancy}
                           </span>
                         )}
@@ -411,7 +419,7 @@ export const CycleCount: React.FC = () => {
             )}
 
             <div className="flex justify-end gap-2 pt-2">
-              {selectedCount.status === 'IN_PROGRESS' && (
+              {selectedCount.status === 'IN_PROGRESS' && canManage && (
                 <>
                   <Button variant="destructive" size="sm" onClick={handleCancel}>
                     <XCircle className="w-4 h-4 mr-1" /> Cancel
@@ -424,10 +432,10 @@ export const CycleCount: React.FC = () => {
                   </Button>
                 </>
               )}
-              {selectedCount.status === 'REVIEW' && isAdmin && (
+              {selectedCount.status === 'REVIEW' && isAdmin && !isReadOnly && (
                 <>
                   <Button variant="destructive" size="sm" onClick={handleCancel}>Reject</Button>
-                  <Button variant="primary" size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleApprove}>
+                  <Button variant="primary" size="sm" onClick={handleApprove}>
                     <CheckCircle className="w-4 h-4 mr-1" /> Approve & Adjust
                   </Button>
                 </>

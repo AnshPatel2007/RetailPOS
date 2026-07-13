@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/utils';
 import {
@@ -88,14 +89,27 @@ interface Product {
   cost: number;
 }
 
+const PAGE_SIZE = 20;
+
 export const Suppliers: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'suppliers' | 'orders'>('suppliers');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [productSuggestions, setProductSuggestions] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState('');
+
+  // Pagination (server-side)
+  const [supplierPage, setSupplierPage] = useState(1);
+  const [supplierTotal, setSupplierTotal] = useState(0);
+  const [supplierTotalPages, setSupplierTotalPages] = useState(1);
+  const [orderPage, setOrderPage] = useState(1);
+  const [orderTotal, setOrderTotal] = useState(0);
+  const [orderTotalPages, setOrderTotalPages] = useState(1);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const productSearchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Modal states
   const [showSupplierModal, setShowSupplierModal] = useState(false);
@@ -143,26 +157,69 @@ export const Suppliers: React.FC = () => {
   });
   const [newProductIndex, setNewProductIndex] = useState<number>(0);
 
+  // Debounce the shared search box (drives the server-side supplier search)
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedSearch(search);
+      setSupplierPage(1);
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [search]);
 
-  const fetchData = async () => {
+  const fetchSuppliers = async () => {
     try {
       setLoading(true);
-      const [suppliersRes, ordersRes, productsRes] = await Promise.all([
-        supplierService.getAll({ limit: 100 }),
-        purchaseOrderService.getAll({ limit: 100 }),
-        productService.getAll({ limit: 500 }),
-      ]);
-      setSuppliers(suppliersRes.data.data);
-      setOrders(ordersRes.data.data);
-      setProducts(productsRes.data.data);
+      const res = await supplierService.getAll({
+        page: supplierPage,
+        limit: PAGE_SIZE,
+        search: debouncedSearch || undefined,
+      });
+      setSuppliers(res.data.data);
+      setSupplierTotal(res.data.pagination?.total ?? res.data.data.length);
+      setSupplierTotalPages(res.data.pagination?.totalPages ?? 1);
     } catch (error) {
-      console.error('Failed to fetch data:', error);
+      console.error('Failed to fetch suppliers:', error);
+      toast.error('Failed to load suppliers');
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchOrders = async () => {
+    try {
+      setLoading(true);
+      const res = await purchaseOrderService.getAll({
+        page: orderPage,
+        limit: PAGE_SIZE,
+        status: orderStatusFilter || undefined,
+      });
+      setOrders(res.data.data);
+      setOrderTotal(res.data.pagination?.total ?? res.data.data.length);
+      setOrderTotalPages(res.data.pagination?.totalPages ?? 1);
+    } catch (error) {
+      console.error('Failed to fetch purchase orders:', error);
+      toast.error('Failed to load purchase orders');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSuppliers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supplierPage, debouncedSearch]);
+
+  useEffect(() => {
+    fetchOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderPage, orderStatusFilter]);
+
+  const fetchData = () => {
+    fetchSuppliers();
+    fetchOrders();
   };
 
   const handleCreateSupplier = async () => {
@@ -188,8 +245,16 @@ export const Suppliers: React.FC = () => {
     }
   };
 
+  // One shared confirm dialog for delete/receive/cancel actions
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    destructive?: boolean;
+    confirmLabel?: string;
+    action: () => void;
+  } | null>(null);
+
   const handleDeleteSupplier = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this supplier?')) return;
     try {
       await supplierService.delete(id);
       fetchData();
@@ -233,12 +298,26 @@ export const Suppliers: React.FC = () => {
     }
   };
 
-  const handleOrderAction = async (orderId: string, action: string) => {
+  const confirmOrderAction = (orderId: string, action: 'receive' | 'cancel') => {
     if (action === 'receive') {
-      if (!confirm('Receive this order? This will update inventory quantities.')) return;
-    } else if (action === 'cancel') {
-      if (!confirm('Cancel this order? This action cannot be undone.')) return;
+      setConfirmState({
+        title: 'Receive order?',
+        message: 'This will update inventory quantities for all items in the order.',
+        confirmLabel: 'Receive',
+        action: () => handleOrderAction(orderId, 'receive'),
+      });
+    } else {
+      setConfirmState({
+        title: 'Cancel order?',
+        message: 'This action cannot be undone.',
+        destructive: true,
+        confirmLabel: 'Cancel Order',
+        action: () => handleOrderAction(orderId, 'cancel'),
+      });
     }
+  };
+
+  const handleOrderAction = async (orderId: string, action: string) => {
     try {
       if (action === 'receive') {
         await purchaseOrderService.receive(orderId);
@@ -261,7 +340,12 @@ export const Suppliers: React.FC = () => {
   const handleAutoGenerate = async () => {
     try {
       const response = await purchaseOrderService.autoGenerate();
-      toast.success(`Created ${response.data.data.ordersCreated} purchase order(s)`);
+      const created = response.data.data.ordersCreated;
+      if (created > 0) {
+        toast.success(`Created ${created} purchase order(s)`);
+      } else {
+        toast('No orders created — only low-stock products that are linked to a supplier can be auto-ordered.', { icon: 'ℹ️', duration: 6000 });
+      }
       fetchData();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to auto-generate orders');
@@ -283,8 +367,6 @@ export const Suppliers: React.FC = () => {
 
       const response = await productService.create(productData);
       const newProduct = response.data.data;
-
-      setProducts([...products, newProduct]);
 
       const newItems = [...orderForm.items];
       newItems[newProductIndex] = {
@@ -321,12 +403,28 @@ export const Suppliers: React.FC = () => {
     setProductSearches(newSearches);
     setShowSuggestions(index);
 
-    const exactMatch = products.find(
-      p => p.barcode === value || p.sku.toLowerCase() === value.toLowerCase()
-    );
-    if (exactMatch) {
-      selectProduct(index, exactMatch);
+    // Server-side product search (debounced), replaces the old 500-row prefetch
+    if (productSearchDebounceRef.current) clearTimeout(productSearchDebounceRef.current);
+    if (!value) {
+      setProductSuggestions([]);
+      return;
     }
+    productSearchDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await productService.getAll({ search: value, limit: 10 });
+        const results: Product[] = res.data.data || [];
+        setProductSuggestions(results);
+
+        const exactMatch = results.find(
+          p => p.barcode === value || p.sku.toLowerCase() === value.toLowerCase()
+        );
+        if (exactMatch) {
+          selectProduct(index, exactMatch);
+        }
+      } catch (error) {
+        console.error('Product search failed:', error);
+      }
+    }, 300);
   };
 
   const selectProduct = (index: number, product: Product) => {
@@ -346,14 +444,9 @@ export const Suppliers: React.FC = () => {
   };
 
   const getFilteredProducts = (searchTerm: string) => {
+    // Suggestions are already server-filtered by the debounced search
     if (!searchTerm) return [];
-    const lower = searchTerm.toLowerCase();
-    return products.filter(
-      p =>
-        p.name.toLowerCase().includes(lower) ||
-        p.sku.toLowerCase().includes(lower) ||
-        (p.barcode && p.barcode.includes(searchTerm))
-    ).slice(0, 10);
+    return productSuggestions;
   };
 
   const resetSupplierForm = () => {
@@ -472,17 +565,15 @@ export const Suppliers: React.FC = () => {
     }
   };
 
-  const filteredSuppliers = suppliers.filter(s =>
-    s.name.toLowerCase().includes(search.toLowerCase()) ||
-    s.email?.toLowerCase().includes(search.toLowerCase())
-  );
+  // Suppliers are searched and status-filtered server-side; the order search
+  // box still narrows within the current page (no order search endpoint yet)
+  const filteredSuppliers = suppliers;
 
-  const filteredOrders = orders.filter(o => {
-    const matchesSearch = o.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
-      o.supplier.name.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = !orderStatusFilter || o.status === orderStatusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredOrders = orders.filter(o =>
+    !search ||
+    o.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
+    o.supplier.name.toLowerCase().includes(search.toLowerCase())
+  );
 
   if (loading) {
     return (
@@ -509,14 +600,14 @@ export const Suppliers: React.FC = () => {
           onClick={() => setActiveTab('suppliers')}
         >
           <Truck className="w-4 h-4 mr-2" />
-          Suppliers ({suppliers.length})
+          Suppliers ({supplierTotal})
         </Button>
         <Button
           variant={activeTab === 'orders' ? 'primary' : 'outline'}
           onClick={() => setActiveTab('orders')}
         >
           <FileText className="w-4 h-4 mr-2" />
-          Purchase Orders ({orders.length})
+          Purchase Orders ({orderTotal})
         </Button>
       </div>
 
@@ -628,7 +719,7 @@ export const Suppliers: React.FC = () => {
                         <Button variant="ghost" size="sm" onClick={() => openEditSupplier(supplier)}>
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDeleteSupplier(supplier.id)} className="text-destructive">
+                        <Button variant="ghost" size="sm" onClick={() => setConfirmState({ title: 'Delete supplier?', message: 'This will remove the supplier. Suppliers with purchase orders cannot be deleted.', destructive: true, confirmLabel: 'Delete', action: () => handleDeleteSupplier(supplier.id) })} className="text-destructive">
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -639,6 +730,14 @@ export const Suppliers: React.FC = () => {
             </Table>
           )}
         </Card>
+      )}
+
+      {activeTab === 'suppliers' && supplierTotalPages > 1 && (
+        <div className="flex justify-center items-center gap-2 mt-4">
+          <Button variant="outline" size="sm" onClick={() => setSupplierPage(p => Math.max(1, p - 1))} disabled={supplierPage === 1}>Previous</Button>
+          <span className="px-3 py-1 text-sm text-muted-foreground">Page {supplierPage} of {supplierTotalPages} ({supplierTotal} suppliers)</span>
+          <Button variant="outline" size="sm" onClick={() => setSupplierPage(p => Math.min(supplierTotalPages, p + 1))} disabled={supplierPage === supplierTotalPages}>Next</Button>
+        </div>
       )}
 
       {activeTab === 'orders' && (
@@ -654,7 +753,7 @@ export const Suppliers: React.FC = () => {
               key={status.value}
               variant={orderStatusFilter === status.value ? 'primary' : 'outline'}
               size="sm"
-              onClick={() => setOrderStatusFilter(status.value)}
+              onClick={() => { setOrderStatusFilter(status.value); setOrderPage(1); }}
             >
               {status.label}
             </Button>
@@ -708,18 +807,18 @@ export const Suppliers: React.FC = () => {
                             <Button variant="ghost" size="sm" onClick={() => openEditOrder(order)} title="Edit Order">
                               <Edit className="w-4 h-4" />
                             </Button>
-                            <Button variant="ghost" size="sm" onClick={() => handleOrderAction(order.id, 'ORDERED')} className="text-blue-500" title="Mark as Ordered">
+                            <Button variant="ghost" size="sm" onClick={() => handleOrderAction(order.id, 'ORDERED')} className="text-info" title="Mark as Ordered">
                               <Truck className="w-4 h-4" />
                             </Button>
                           </>
                         )}
                         {order.status === 'ORDERED' && (
-                          <Button variant="ghost" size="sm" onClick={() => handleOrderAction(order.id, 'receive')} className="text-green-500" title="Receive Order">
+                          <Button variant="ghost" size="sm" onClick={() => confirmOrderAction(order.id, 'receive')} className="text-success" title="Receive Order">
                             <CheckCircle className="w-4 h-4" />
                           </Button>
                         )}
                         {(order.status === 'PENDING' || order.status === 'ORDERED') && (
-                          <Button variant="ghost" size="sm" onClick={() => handleOrderAction(order.id, 'cancel')} className="text-destructive" title="Cancel Order">
+                          <Button variant="ghost" size="sm" onClick={() => confirmOrderAction(order.id, 'cancel')} className="text-destructive" title="Cancel Order">
                             <XCircle className="w-4 h-4" />
                           </Button>
                         )}
@@ -731,6 +830,14 @@ export const Suppliers: React.FC = () => {
             </Table>
           )}
         </Card>
+      )}
+
+      {activeTab === 'orders' && orderTotalPages > 1 && (
+        <div className="flex justify-center items-center gap-2 mt-4">
+          <Button variant="outline" size="sm" onClick={() => setOrderPage(p => Math.max(1, p - 1))} disabled={orderPage === 1}>Previous</Button>
+          <span className="px-3 py-1 text-sm text-muted-foreground">Page {orderPage} of {orderTotalPages} ({orderTotal} orders)</span>
+          <Button variant="outline" size="sm" onClick={() => setOrderPage(p => Math.min(orderTotalPages, p + 1))} disabled={orderPage === orderTotalPages}>Next</Button>
+        </div>
       )}
 
       {/* Supplier Modal */}
@@ -1029,16 +1136,26 @@ export const Suppliers: React.FC = () => {
                   </>
                 )}
                 {selectedOrder.status === 'ORDERED' && (
-                  <Button variant="primary" onClick={() => handleOrderAction(selectedOrder.id, 'receive')}><CheckCircle className="w-4 h-4 mr-2" />Mark as Received</Button>
+                  <Button variant="primary" onClick={() => confirmOrderAction(selectedOrder.id, 'receive')}><CheckCircle className="w-4 h-4 mr-2" />Mark as Received</Button>
                 )}
                 {(selectedOrder.status === 'PENDING' || selectedOrder.status === 'ORDERED') && (
-                  <Button variant="destructive" onClick={() => handleOrderAction(selectedOrder.id, 'cancel')}><XCircle className="w-4 h-4 mr-2" />Cancel</Button>
+                  <Button variant="destructive" onClick={() => confirmOrderAction(selectedOrder.id, 'cancel')}><XCircle className="w-4 h-4 mr-2" />Cancel</Button>
                 )}
               </div>
             </div>
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        isOpen={confirmState !== null}
+        onClose={() => setConfirmState(null)}
+        onConfirm={() => confirmState?.action()}
+        title={confirmState?.title || ''}
+        message={confirmState?.message || ''}
+        destructive={confirmState?.destructive}
+        confirmLabel={confirmState?.confirmLabel}
+      />
     </div>
   );
 };

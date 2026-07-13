@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { lotteryService } from '@/services/api';
+import { formatCurrency } from '@/lib/utils';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { AdminViewBanner } from '@/components/AdminViewBanner';
 import { DailyEntryTable } from '@/components/lottery/DailyEntryTable';
@@ -51,13 +52,6 @@ export const Lottery: React.FC = () => {
       logger.error('Failed to fetch lottery data:', error);
       toast.error('Failed to load lottery data');
     }
-  };
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(value || 0);
   };
 
   const tabs = [
@@ -101,8 +95,8 @@ export const Lottery: React.FC = () => {
                 )}
               </p>
             </div>
-            <div className="bg-blue-500/10 p-3 rounded-full">
-              <DollarSign className="h-6 w-6 text-blue-500" />
+            <div className="bg-info/10 p-3 rounded-full">
+              <DollarSign className="h-6 w-6 text-info" />
             </div>
           </div>
         </Card>
@@ -118,8 +112,8 @@ export const Lottery: React.FC = () => {
                 {formatCurrency(todayTransaction?.onlineSalesAmount || 0)}
               </p>
             </div>
-            <div className="bg-green-500/10 p-3 rounded-full">
-              <TrendingUp className="h-6 w-6 text-green-500" />
+            <div className="bg-success/10 p-3 rounded-full">
+              <TrendingUp className="h-6 w-6 text-success" />
             </div>
           </div>
         </Card>
@@ -135,8 +129,8 @@ export const Lottery: React.FC = () => {
                 {formatCurrency(todayTransaction?.offlineSalesAmount || 0)}
               </p>
             </div>
-            <div className="bg-purple-500/10 p-3 rounded-full">
-              <Ticket className="h-6 w-6 text-purple-500" />
+            <div className="bg-primary/10 p-3 rounded-full">
+              <Ticket className="h-6 w-6 text-primary" />
             </div>
           </div>
         </Card>
@@ -152,8 +146,8 @@ export const Lottery: React.FC = () => {
                 Net: {formatCurrency(todayTransaction?.netAmount || 0)}
               </p>
             </div>
-            <div className="bg-orange-500/10 p-3 rounded-full">
-              <DollarSign className="h-6 w-6 text-orange-500" />
+            <div className="bg-warning/10 p-3 rounded-full">
+              <DollarSign className="h-6 w-6 text-warning" />
             </div>
           </div>
         </Card>

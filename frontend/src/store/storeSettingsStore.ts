@@ -123,56 +123,38 @@ export const useStoreSettingsStore = create<StoreSettingsState>()(
         }
       },
 
+      // Savers update local state only after the backend write succeeds, so a
+      // failed save doesn't leave the UI claiming settings that were never stored
       saveStoreInfo: async (info: StoreInfo) => {
+        await locationService.updateMySettings({
+          locationId: get().locationId,
+          storeInfo: info,
+        });
         set({ storeInfo: info });
-        try {
-          const state = get();
-          await locationService.updateMySettings({
-            locationId: state.locationId,
-            storeInfo: info,
-          });
-        } catch (err) {
-          throw err;
-        }
       },
 
       saveReceiptSettings: async (settings: ReceiptSettings) => {
+        await locationService.updateMySettings({
+          locationId: get().locationId,
+          receiptSettings: settings,
+        });
         set({ receiptSettings: settings });
-        try {
-          const state = get();
-          await locationService.updateMySettings({
-            locationId: state.locationId,
-            receiptSettings: settings,
-          });
-        } catch (err) {
-          throw err;
-        }
       },
 
       savePaymentMethods: async (methods: EnabledPaymentMethods) => {
+        await locationService.updateMySettings({
+          locationId: get().locationId,
+          paymentMethods: methods,
+        });
         set({ paymentMethods: methods });
-        try {
-          const state = get();
-          await locationService.updateMySettings({
-            locationId: state.locationId,
-            paymentMethods: methods,
-          });
-        } catch (err) {
-          throw err;
-        }
       },
 
       saveNotificationSettings: async (settings: NotificationSettings) => {
+        await locationService.updateMySettings({
+          locationId: get().locationId,
+          notificationSettings: settings,
+        });
         set({ notificationSettings: settings });
-        try {
-          const state = get();
-          await locationService.updateMySettings({
-            locationId: state.locationId,
-            notificationSettings: settings,
-          });
-        } catch (err) {
-          throw err;
-        }
       },
 
       reset: () => {

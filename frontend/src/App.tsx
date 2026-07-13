@@ -33,6 +33,7 @@ const UserManagement = lazy(() => import('./pages/admin/UserManagement').then(m 
 const AdminReports = lazy(() => import('./pages/admin/AdminReports').then(m => ({ default: m.AdminReports })));
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings').then(m => ({ default: m.AdminSettings })));
 const EmployeeSales = lazy(() => import('./pages/admin/EmployeeSales').then(m => ({ default: m.EmployeeSales })));
+const ResetPassword = lazy(() => import('./pages/ResetPassword').then(m => ({ default: m.ResetPassword })));
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
 
@@ -145,6 +146,14 @@ function App() {
       />
       <Routes>
         <Route path="/login" element={isAuthenticated ? <SmartRedirect /> : <Login />} />
+        <Route
+          path="/reset-password"
+          element={
+            <Suspense fallback={<LoadingSpinner />}>
+              <ResetPassword />
+            </Suspense>
+          }
+        />
 
         {/* Main routes */}
         <Route path="/dashboard" element={<PageRoute page={<Dashboard />} />} />

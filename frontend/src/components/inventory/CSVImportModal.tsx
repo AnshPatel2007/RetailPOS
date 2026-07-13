@@ -173,12 +173,12 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
                 <p className="text-2xl font-bold">{result.total}</p>
                 <p className="text-xs text-muted-foreground">Total Rows</p>
               </div>
-              <div className="p-3 bg-green-500/10 rounded-lg text-center">
-                <p className="text-2xl font-bold text-green-600">{result.created}</p>
+              <div className="p-3 bg-success/10 rounded-lg text-center">
+                <p className="text-2xl font-bold text-success">{result.created}</p>
                 <p className="text-xs text-muted-foreground">Created</p>
               </div>
-              <div className="p-3 bg-blue-500/10 rounded-lg text-center">
-                <p className="text-2xl font-bold text-blue-600">{result.updated}</p>
+              <div className="p-3 bg-info/10 rounded-lg text-center">
+                <p className="text-2xl font-bold text-info">{result.updated}</p>
                 <p className="text-xs text-muted-foreground">Updated</p>
               </div>
             </div>
@@ -198,7 +198,7 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
             )}
 
             {result.errors.length === 0 && (
-              <div className="flex items-center gap-2 text-green-600 font-medium">
+              <div className="flex items-center gap-2 text-success font-medium">
                 <CheckCircle className="h-5 w-5" />
                 All products imported successfully!
               </div>

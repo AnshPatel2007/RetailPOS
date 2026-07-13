@@ -62,6 +62,33 @@ export const getGiftCard = asyncHandler(async (req: AuthRequest, res: Response) 
 });
 
 /**
+ * Aggregate gift card stats for the dashboard cards
+ * GET /api/gift-cards/stats
+ */
+export const getGiftCardStats = asyncHandler(async (_req: AuthRequest, res: Response) => {
+  const [activeStats, totalCount] = await Promise.all([
+    prisma.giftCard.aggregate({
+      where: {
+        isActive: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      _sum: { currentBalance: true },
+      _count: true,
+    }),
+    prisma.giftCard.count(),
+  ]);
+
+  res.json({
+    success: true,
+    data: {
+      totalCards: totalCount,
+      activeCards: activeStats._count,
+      outstandingBalance: Math.round((activeStats._sum.currentBalance || 0) * 100) / 100,
+    },
+  });
+});
+
+/**
  * Issue (create) a new gift card
  * POST /api/gift-cards
  */

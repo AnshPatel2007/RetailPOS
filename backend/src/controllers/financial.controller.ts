@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { asyncHandler } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
+import { parseEndDate } from '../utils/dateFilter.util';
 
 /** Round a number to 2 decimal places (currency precision) */
 const rc = (n: number) => Math.round(n * 100) / 100;
@@ -355,9 +356,10 @@ export const generateRecurringExpenses = asyncHandler(async (_req: AuthRequest, 
   const generated: any[] = [];
 
   for (const recurring of dueExpenses) {
-    // Generate expense number
-    const count = await prisma.expense.count();
-    const expenseNumber = `EXP-${String(count + 1).padStart(6, '0')}`;
+    // Collision-safe expense number (count()+1 raced under concurrent creates)
+    const expenseNumber = `EXP-${Date.now()}-${Math.floor(Math.random() * 1000)
+      .toString()
+      .padStart(3, '0')}`;
 
     // Create the expense
     const expense = await prisma.expense.create({
@@ -428,7 +430,7 @@ export const exportSales = asyncHandler(async (req: AuthRequest, res: Response) 
   const { startDate, endDate, format = 'CSV' } = req.query;
 
   const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1));
-  const end = endDate ? new Date(endDate as string) : new Date();
+  const end = endDate ? parseEndDate(endDate as string) : new Date();
 
   const sales = await prisma.sale.findMany({
     where: {
@@ -443,17 +445,36 @@ export const exportSales = asyncHandler(async (req: AuthRequest, res: Response) 
     orderBy: { createdAt: 'asc' },
   });
 
+  // Refunds issued in the period (includes partial refunds on COMPLETED sales)
+  const refunds = await prisma.refund.findMany({
+    where: { createdAt: { gte: start, lte: end } },
+    include: { sale: { select: { saleNumber: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+
   // Format for accounting export
-  const journalEntries = sales.map(sale => ({
-    date: sale.createdAt.toISOString().split('T')[0],
-    reference: sale.saleNumber,
-    description: `Sale to ${sale.customer ? `${sale.customer.firstName} ${sale.customer.lastName}` : 'Walk-in'}`,
-    debitAccount: 'Cash/AR',
-    creditAccount: 'Sales Revenue',
-    amount: sale.total,
-    taxAmount: sale.tax,
-    paymentMethod: sale.paymentMethod,
-  }));
+  const journalEntries = [
+    ...sales.map(sale => ({
+      date: sale.createdAt.toISOString().split('T')[0],
+      reference: sale.saleNumber,
+      description: `Sale to ${sale.customer ? `${sale.customer.firstName} ${sale.customer.lastName}` : 'Walk-in'}`,
+      debitAccount: 'Cash/AR',
+      creditAccount: 'Sales Revenue',
+      amount: sale.total,
+      taxAmount: sale.tax,
+      paymentMethod: sale.paymentMethod,
+    })),
+    ...refunds.map(refund => ({
+      date: refund.createdAt.toISOString().split('T')[0],
+      reference: refund.sale.saleNumber,
+      description: `Refund on sale ${refund.sale.saleNumber}`,
+      debitAccount: 'Sales Returns',
+      creditAccount: 'Cash/AR',
+      amount: -refund.amount,
+      taxAmount: 0,
+      paymentMethod: refund.method || 'REFUND',
+    })),
+  ].sort((a, b) => a.date.localeCompare(b.date));
 
   // Log the export
   await prisma.accountingExport.create({
@@ -471,8 +492,11 @@ export const exportSales = asyncHandler(async (req: AuthRequest, res: Response) 
     success: true,
     data: {
       period: { start, end },
-      recordCount: sales.length,
-      totalRevenue: rc(sales.reduce((sum, s) => sum + s.total, 0)),
+      recordCount: journalEntries.length,
+      totalRevenue: rc(
+        sales.reduce((sum, s) => sum + s.total, 0) -
+          refunds.reduce((sum, r) => sum + r.amount, 0)
+      ),
       totalTax: rc(sales.reduce((sum, s) => sum + s.tax, 0)),
       entries: journalEntries,
     },
@@ -487,7 +511,7 @@ export const exportExpenses = asyncHandler(async (req: AuthRequest, res: Respons
   const { startDate, endDate, format = 'CSV' } = req.query;
 
   const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1));
-  const end = endDate ? new Date(endDate as string) : new Date();
+  const end = endDate ? parseEndDate(endDate as string) : new Date();
 
   const expenses = await prisma.expense.findMany({
     where: {
@@ -551,7 +575,7 @@ export const getProfitAndLoss = asyncHandler(async (req: AuthRequest, res: Respo
   const { startDate, endDate } = req.query;
 
   const start = startDate ? new Date(startDate as string) : new Date(new Date().getFullYear(), 0, 1);
-  const end = endDate ? new Date(endDate as string) : new Date();
+  const end = endDate ? parseEndDate(endDate as string) : new Date();
 
   // Get revenue
   const salesData = await prisma.sale.aggregate({

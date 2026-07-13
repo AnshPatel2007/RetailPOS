@@ -38,6 +38,7 @@ export const AuditLog: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [actionFilter, setActionFilter] = useState('');
   const [entityFilter, setEntityFilter] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -51,7 +52,7 @@ export const AuditLog: React.FC = () => {
     setLoading(true);
     try {
       const params: any = { page, limit: 50 };
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
       if (actionFilter) params.action = actionFilter;
       if (entityFilter) params.entity = entityFilter;
       if (startDate) params.startDate = startDate;
@@ -66,7 +67,16 @@ export const AuditLog: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, search, actionFilter, entityFilter, startDate, endDate]);
+  }, [page, debouncedSearch, actionFilter, entityFilter, startDate, endDate]);
+
+  // Debounce search input so we don't fetch on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const fetchFilters = async () => {
     try {
@@ -92,19 +102,19 @@ export const AuditLog: React.FC = () => {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setPage(1);
-    fetchLogs();
+    setDebouncedSearch(search);
   };
 
   const getActionColor = (action: string) => {
     if (action.includes('DELETE') || action.includes('VOID') || action.includes('REFUND'))
-      return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+      return 'bg-destructive/10 text-destructive';
     if (action.includes('CREATE') || action.includes('ENABLED'))
-      return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
+      return 'bg-success/10 text-success';
     if (action.includes('UPDATE') || action.includes('EDIT') || action.includes('PRICE'))
-      return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
+      return 'bg-warning/10 text-warning';
     if (action.includes('LOGIN') || action.includes('AUTH'))
-      return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
-    return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
+      return 'bg-info/10 text-info';
+    return 'bg-muted text-muted-foreground';
   };
 
   const formatDate = (dateStr: string) => {

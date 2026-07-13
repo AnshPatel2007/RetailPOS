@@ -18,7 +18,8 @@ interface ExportPreviewModalProps {
   type: 'sales' | 'inventory' | 'expenses' | 'locations';
   data: any[];
   onExportCSV: () => Promise<void>;
-  onExportPDF: () => Promise<void>;
+  /** Omit to hide the PDF button (e.g. when only CSV export is implemented) */
+  onExportPDF?: () => Promise<void>;
 }
 
 const typeLabels: Record<string, string> = {
@@ -42,7 +43,7 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
     setIsExporting(true);
     try {
       if (format === 'csv') await onExportCSV();
-      else await onExportPDF();
+      else if (onExportPDF) await onExportPDF();
     } finally {
       setIsExporting(false);
     }
@@ -202,21 +203,23 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
             Cancel
           </Button>
           <Button
-            variant="outline"
+            variant={onExportPDF ? 'outline' : 'primary'}
             onClick={() => handleExport('csv')}
             disabled={isExporting}
           >
             <FileSpreadsheet className="h-4 w-4 mr-2" />
             {isExporting ? 'Exporting...' : 'Download CSV'}
           </Button>
-          <Button
-            variant="primary"
-            onClick={() => handleExport('pdf')}
-            disabled={isExporting}
-          >
-            <FileText className="h-4 w-4 mr-2" />
-            {isExporting ? 'Exporting...' : 'Download PDF'}
-          </Button>
+          {onExportPDF && (
+            <Button
+              variant="primary"
+              onClick={() => handleExport('pdf')}
+              disabled={isExporting}
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              {isExporting ? 'Exporting...' : 'Download PDF'}
+            </Button>
+          )}
         </div>
       </div>
     </Modal>

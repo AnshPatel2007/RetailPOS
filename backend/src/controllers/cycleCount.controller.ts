@@ -14,7 +14,9 @@ export const getCycleCounts = asyncHandler(async (req: AuthRequest, res: Respons
 
   const where: any = {};
   if (status) where.status = status;
-  if (locationId) where.locationId = locationId;
+  // Location-bound users only see their own location's counts
+  const scopeLocationId = req.user?.locationId || locationId;
+  if (scopeLocationId) where.locationId = scopeLocationId;
 
   const [counts, total] = await Promise.all([
     prisma.cycleCount.findMany({
@@ -111,7 +113,6 @@ export const updateCountItems = asyncHandler(async (req: AuthRequest, res: Respo
         where: { id: item.id },
         data: {
           countedQty: item.countedQty,
-          discrepancy: item.countedQty - (prisma.cycleCountItem.fields ? 0 : 0), // computed below
           notes: item.notes,
         },
       })

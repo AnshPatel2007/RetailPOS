@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Loader2,
   Info,
+  RotateCcw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -80,6 +81,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [autoSaveFailed, setAutoSaveFailed] = useState(false);
 
   // Helper to check if selected date is in the past
   const isPastDate = useMemo(() => {
@@ -371,6 +373,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
       await saveEntries();
       setLastSaved(new Date());
       setHasUnsavedChanges(false);
+      setAutoSaveFailed(false);
       setShowSuccessToast(true);
       setTimeout(() => setShowSuccessToast(false), 3000);
       logger.info('Auto-save completed successfully');
@@ -379,7 +382,8 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
         error: error.message,
         user: user?.email,
       });
-      // Don't show error toast for auto-save failures
+      // Keep hasUnsavedChanges true and surface a subtle indicator
+      setAutoSaveFailed(true);
     } finally {
       setAutoSaving(false);
     }
@@ -406,7 +410,9 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
       selectedDate,
     });
 
-    // Save or update each entry
+    // Save or update each entry; remember ids of newly created entries so
+    // subsequent auto-saves go through update instead of a duplicate create
+    const createdIds = new Map<string, string>();
     for (const row of entries) {
       if (row.ticketsSold === 0 && !row.entryId) {
         logger.debug('Skipping empty entry', { ticketName: row.ticketName });
@@ -437,8 +443,20 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
           startNumber: row.openNumber,
           endNumber: row.closeNumber,
         });
-        await lotteryService.createDailyEntry(data);
+        const response = await lotteryService.createDailyEntry(data);
+        const createdId = response.data?.data?.id;
+        if (createdId) {
+          createdIds.set(row.ticketTypeId, createdId);
+        }
       }
+    }
+
+    if (createdIds.size > 0) {
+      setEntries((prev) =>
+        prev.map((r) =>
+          createdIds.has(r.ticketTypeId) ? { ...r, entryId: createdIds.get(r.ticketTypeId) } : r
+        )
+      );
     }
 
     // Update day status cashout if changed
@@ -462,7 +480,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
   };
 
   const handleCloseDay = async () => {
-    if (!confirm('Are you sure you want to close this day? This will lock all entries and cannot be undone.')) {
+    if (!confirm('Are you sure you want to close this day? This will lock all entries. An admin can reopen the day if a correction is needed.')) {
       logger.info('Close day cancelled by user');
       return;
     }
@@ -498,6 +516,25 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
         user: user?.email,
       });
       toast.error(error.response?.data?.message || 'Failed to close day');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReopenDay = async () => {
+    if (!dayStatus.id) return;
+    if (!confirm('Reopen this day for corrections? Entries become editable again.')) return;
+
+    setSaving(true);
+    try {
+      await lotteryService.reopenDay(dayStatus.id, { notes: 'Reopened for correction' });
+      toast.success('Day reopened');
+      logger.info('Day reopened', { selectedDate, user: user?.email });
+      await loadDailyData();
+      if (onUpdate) onUpdate();
+    } catch (error: any) {
+      logger.error('Failed to reopen day', { error: error.message, selectedDate });
+      toast.error(error.response?.data?.message || error.response?.data?.error || 'Failed to reopen day');
     } finally {
       setSaving(false);
     }
@@ -554,7 +591,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
     return (
       <Card className="p-8">
         <div className="flex flex-col items-center justify-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+          <Loader2 className="h-8 w-8 animate-spin text-info" />
           <div className="text-center">
             <div className="text-sm font-medium text-foreground">
               Loading Daily Entries
@@ -574,7 +611,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
       {showSuccessToast && !autoSaving && lastSaved && (
         <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-bottom-5">
           <div className="bg-card border border-border shadow-lg rounded px-4 py-2 flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-green-500" />
+            <CheckCircle2 className="h-4 w-4 text-success" />
             <span className="text-sm text-foreground">
               Saved at {lastSaved.toLocaleTimeString()}
             </span>
@@ -586,7 +623,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
       {autoSaving && (
         <div className="fixed bottom-4 right-4 z-50">
           <div className="bg-card border border-border shadow-lg rounded px-4 py-2 flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+            <Loader2 className="h-4 w-4 animate-spin text-info" />
             <span className="text-sm text-foreground">
               Saving...
             </span>
@@ -596,11 +633,11 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
 
       {/* Error Summary Banner */}
       {hasValidationErrors && (
-        <div className="bg-red-500/10 border border-red-500/20 rounded p-4">
+        <div className="bg-destructive/10 border border-destructive/20 rounded p-4">
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" />
+            <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-red-500">
+              <p className="text-sm font-medium text-destructive">
                 {entries.filter(r => r.error).length} validation {entries.filter(r => r.error).length === 1 ? 'error' : 'errors'}. Please correct before closing the day.
               </p>
             </div>
@@ -610,14 +647,14 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
 
       {/* Past Date Warning Banner */}
       {isPastDate && !dayStatus.isClosed && (
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded p-4">
+        <div className="bg-warning/10 border border-warning/20 rounded p-4">
           <div className="flex items-start gap-2">
-            <Info className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
+            <Info className="h-5 w-5 text-warning mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-amber-500">
+              <p className="text-sm font-medium text-warning">
                 Viewing past date - entries are read-only
               </p>
-              <p className="text-xs text-amber-500 mt-1">
+              <p className="text-xs text-warning mt-1">
                 Only today's date ({new Date().toLocaleDateString()}) can be edited. Historical data cannot be modified.
               </p>
             </div>
@@ -641,15 +678,21 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                   </Badge>
                 )}
                 {autoSaving && (
-                  <Badge className="bg-blue-500/10 text-blue-500 border border-blue-500/20">
+                  <Badge className="bg-info/10 text-info border border-info/20">
                     <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                     Saving
                   </Badge>
                 )}
                 {!dayStatus.isClosed && !autoSaving && !hasUnsavedChanges && lastSaved && (
-                  <Badge className="bg-green-500/10 text-green-500 border border-green-500/20">
+                  <Badge className="bg-success/10 text-success border border-success/20">
                     <CheckCircle2 className="h-3 w-3 mr-1" />
                     Saved
+                  </Badge>
+                )}
+                {!dayStatus.isClosed && !autoSaving && autoSaveFailed && (
+                  <Badge className="bg-warning/10 text-warning border border-warning/20">
+                    <AlertCircle className="h-3 w-3 mr-1" />
+                    Unsaved changes
                   </Badge>
                 )}
               </div>
@@ -665,10 +708,10 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
               {/* Left side - Date Info */}
               <div className="flex items-center gap-4">
                 <div className="bg-card rounded-lg p-3 shadow-sm border border-primary/20">
-                  <Calendar className="h-8 w-8 text-blue-500" />
+                  <Calendar className="h-8 w-8 text-info" />
                 </div>
                 <div>
-                  <div className="text-xs font-semibold text-blue-500 uppercase tracking-wide mb-1">
+                  <div className="text-xs font-semibold text-info uppercase tracking-wide mb-1">
                     Entry Date
                   </div>
                   <div className="text-2xl font-bold text-foreground">
@@ -681,11 +724,11 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                   </div>
                   <div className={cn(
                     "text-xs font-medium mt-1 flex items-center gap-1.5",
-                    isPastDate ? "text-amber-500" : "text-green-500"
+                    isPastDate ? "text-warning" : "text-success"
                   )}>
                     <div className={cn(
                       "w-1.5 h-1.5 rounded-full",
-                      isPastDate ? "bg-amber-500/100" : "bg-green-500/100"
+                      isPastDate ? "bg-warning/100" : "bg-success/100"
                     )} />
                     {isPastDate ? "Historical (Read-only)" : "Current (Editable)"}
                   </div>
@@ -716,9 +759,9 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                     "transition-all duration-200",
                     "focus:outline-none focus:ring-2 focus:ring-offset-2",
                     isPastDate
-                      ? "bg-amber-500/10 border-amber-500/30 text-amber-500 focus:border-amber-500 focus:ring-amber-500/20"
+                      ? "bg-warning/10 border-warning/30 text-warning focus:border-warning focus:ring-warning/20"
                       : "bg-card border-primary/40 text-foreground focus:border-ring focus:ring-ring/30",
-                    "hover:border-blue-400 hover:shadow-sm",
+                    "hover:border-info hover:shadow-sm",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 />
@@ -766,7 +809,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                   role="row"
                   className={cn(
                     'transition-colors',
-                    row.error ? 'bg-red-500/10' : 'hover:bg-muted/50',
+                    row.error ? 'bg-destructive/10' : 'hover:bg-muted/50',
                   )}
                 >
                   <td role="gridcell" className="px-3 py-2.5 text-center">
@@ -805,7 +848,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                         'text-right text-sm tabular-nums',
                         'border transition-colors',
                         'focus:border-ring focus:ring-1 focus:ring-ring',
-                        row.error ? 'border-red-500 bg-red-500/10' : 'border-border bg-card'
+                        row.error ? 'border-destructive bg-destructive/10' : 'border-border bg-card'
                       )}
                       min={row.openNumber}
                       aria-label={`Closing number for ${row.ticketName}`}
@@ -813,7 +856,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                     />
                     {row.error && (
                       <div className="absolute left-0 right-0 top-full mt-1 z-10">
-                        <div className="bg-red-500/10 border border-red-500/30 rounded p-2 shadow-md text-xs text-red-500">
+                        <div className="bg-destructive/10 border border-destructive/30 rounded p-2 shadow-md text-xs text-destructive">
                           {row.error}
                         </div>
                       </div>
@@ -905,7 +948,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
               "border",
               dayStatus.netAmount >= 0
                 ? "bg-card border-border"
-                : "bg-red-500/10 border-red-500/20"
+                : "bg-destructive/10 border-destructive/20"
             )}>
               <div className="p-4">
                 <div className="text-xs text-muted-foreground mb-2">
@@ -913,7 +956,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                 </div>
                 <div className={cn(
                   "text-2xl font-semibold tabular-nums",
-                  dayStatus.netAmount >= 0 ? "text-foreground" : "text-red-500"
+                  dayStatus.netAmount >= 0 ? "text-foreground" : "text-destructive"
                 )}>
                   {formatCurrency(dayStatus.netAmount)}
                 </div>
@@ -930,21 +973,34 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
               <div className="flex items-start gap-2 text-xs text-muted-foreground">
                 <Info className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                 <span>
-                  Closing the day locks all entries and cannot be undone.
+                  Closing the day locks all entries. An admin can reopen the day if a correction is needed.
                 </span>
               </div>
 
               <Button
+                variant="primary"
                 onClick={handleCloseDay}
                 disabled={saving || autoSaving || hasValidationErrors}
-                className={cn(
-                  "bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 text-sm font-medium shadow-sm",
-                  "disabled:opacity-50 disabled:cursor-not-allowed"
-                )}
+                className="px-6 py-2 text-sm font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title={autoSaving ? 'Please wait while changes are being saved...' : hasValidationErrors ? 'Please fix validation errors first' : ''}
               >
                 <Lock className="h-4 w-4 mr-2" />
                 Close Day
+              </Button>
+            </div>
+          )}
+
+          {/* Reopen (ADMIN+) */}
+          {!isReadOnly && dayStatus.isClosed && dayStatus.id &&
+            (user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN') && (
+            <div className="flex justify-end pt-4 border-t border-border">
+              <Button
+                variant="outline"
+                onClick={handleReopenDay}
+                disabled={saving}
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Reopen Day
               </Button>
             </div>
           )}

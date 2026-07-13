@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Badge } from '@/components/ui/Badge';
 import toast from 'react-hot-toast';
 import {
@@ -42,6 +43,7 @@ export const Inventory: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<'' | 'true' | 'false'>('');
   const [lowStockCount, setLowStockCount] = useState(0);
   const [outOfStockCount, setOutOfStockCount] = useState(0);
+  const [inventoryValue, setInventoryValue] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
@@ -83,12 +85,13 @@ export const Inventory: React.FC = () => {
 
   const loadLowStockCount = async () => {
     try {
-      const response = await productService.getLowStock();
-      const items = response.data.data || [];
-      setLowStockCount(items.length);
-      setOutOfStockCount(items.filter((p: any) => p.stockQuantity === 0).length);
+      const response = await productService.getStats();
+      const stats = response.data.data;
+      setLowStockCount(stats.lowStockCount || 0);
+      setOutOfStockCount(stats.outOfStockCount || 0);
+      setInventoryValue(stats.inventoryValue || 0);
     } catch (error) {
-      console.error('Failed to load low stock count:', error);
+      console.error('Failed to load product stats:', error);
     }
   };
 
@@ -140,6 +143,7 @@ export const Inventory: React.FC = () => {
       setTotalProducts(response.data.pagination?.total || response.data.data.length);
     } catch (error) {
       console.error('Failed to load products:', error);
+      toast.error('Failed to load products');
     } finally {
       setIsLoading(false);
     }
@@ -207,9 +211,9 @@ export const Inventory: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this product?')) return;
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
+  const handleDelete = async (id: string) => {
     try {
       await productService.delete(id);
       loadProducts();
@@ -320,7 +324,7 @@ export const Inventory: React.FC = () => {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Inventory Value</p>
-              <p className="text-xl font-bold">{formatCurrency(products.reduce((sum, p) => sum + p.cost * p.stockQuantity, 0))}</p>
+              <p className="text-xl font-bold">{formatCurrency(inventoryValue)}</p>
             </div>
           </div>
         </Card>
@@ -474,7 +478,7 @@ export const Inventory: React.FC = () => {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDelete(product.id)}
+                          onClick={() => setDeleteTargetId(product.id)}
                           className="text-destructive"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -757,6 +761,16 @@ export const Inventory: React.FC = () => {
         isOpen={showCSVImportModal}
         onClose={() => setShowCSVImportModal(false)}
         onImportComplete={() => { loadProducts(); loadLowStockCount(); }}
+      />
+
+      <ConfirmDialog
+        isOpen={deleteTargetId !== null}
+        onClose={() => setDeleteTargetId(null)}
+        onConfirm={() => deleteTargetId && handleDelete(deleteTargetId)}
+        title="Delete product?"
+        message="This will remove the product from your catalog. This action cannot be undone."
+        destructive
+        confirmLabel="Delete"
       />
     </div>
   );

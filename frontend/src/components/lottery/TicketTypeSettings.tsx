@@ -194,7 +194,7 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
           </TableHeader>
           <TableBody>
             {isAdding && (
-              <TableRow className="bg-blue-500/10">
+              <TableRow className="bg-info/10">
                 <TableCell>
                   <Input
                     type="number"
@@ -310,7 +310,7 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
                       <span
                         className={`px-2 py-1 rounded text-xs ${
                           ticketType.isActive
-                            ? 'bg-green-500/10 text-green-500'
+                            ? 'bg-success/10 text-success'
                             : 'bg-muted text-foreground'
                         }`}
                       >
@@ -347,7 +347,7 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
                         disabled={isReadOnly}
                         className={`px-2 py-1 rounded text-xs ${
                           ticketType.isActive
-                            ? 'bg-green-500/10 text-green-500 hover:bg-green-500/20'
+                            ? 'bg-success/10 text-success hover:bg-success/20'
                             : 'bg-muted text-foreground hover:bg-muted'
                         } ${isReadOnly ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                       >
@@ -370,7 +370,7 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
                             size="sm"
                             variant="outline"
                             onClick={() => handleDelete(ticketType.id)}
-                            className="flex items-center gap-1 text-red-500 hover:text-red-500"
+                            className="flex items-center gap-1 text-destructive hover:text-destructive"
                           >
                             <Trash2 className="h-3 w-3" />
                             Delete
