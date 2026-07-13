@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Clock3, AlertTriangle, Sun, Moon } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Sun, Moon } from 'lucide-react';
 import { shiftService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
@@ -12,9 +12,9 @@ interface CurrentShift {
 }
 
 /**
- * Status bar across the top of the fullscreen POS view.
- * Carries navigation, store identity, and live status (shift, connectivity,
- * clock, cashier, theme) so cashiers see everything at a glance.
+ * Slim status bar across the top of the fullscreen POS view.
+ * Left: navigation, store identity, shift status. Center: clock.
+ * Right: connectivity, cashier, theme.
  */
 export const POSTopBar: React.FC = () => {
   const navigate = useNavigate();
@@ -47,67 +47,74 @@ export const POSTopBar: React.FC = () => {
     new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   return (
-    <header className="h-14 shrink-0 flex items-center gap-2 px-2 sm:px-3 border-b border-border bg-card">
-      {/* Left: back + store name */}
-      <button
-        onClick={() => navigate('/dashboard')}
-        className="h-10 w-10 shrink-0 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
-        title="Back to Dashboard (Esc)"
-      >
-        <ArrowLeft className="h-5 w-5" />
-      </button>
-      <div className="min-w-0">
-        <span className="font-semibold truncate block">{storeName || 'POS System'}</span>
-      </div>
+    <header className="relative h-12 shrink-0 flex items-center px-2 sm:px-3 border-b border-border bg-card">
+      {/* Left: navigation + store identity + shift status */}
+      <div className="flex items-center gap-1.5 min-w-0">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="h-9 w-9 shrink-0 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
+          title="Back to Dashboard (Esc)"
+        >
+          <ArrowLeft className="h-[18px] w-[18px]" />
+        </button>
 
-      {/* Right: status cluster */}
-      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+        <span className="font-semibold text-sm truncate">{storeName || 'POS System'}</span>
+
+        <div className="hidden sm:block h-5 w-px bg-border mx-1" />
+
         {currentShift !== undefined && (
           <button
             onClick={() => navigate('/shifts')}
-            className={`h-9 flex items-center gap-1.5 px-2.5 rounded-full text-xs font-medium transition-colors hover:opacity-80 ${
+            className={`h-7 shrink-0 flex items-center gap-1.5 px-2 rounded-md text-[11px] font-medium transition-colors ${
               currentShift
-                ? 'bg-success/10 text-success'
-                : 'bg-warning/15 text-warning border border-warning/30'
+                ? 'text-success hover:bg-success/10'
+                : 'text-warning bg-warning/10 hover:bg-warning/20'
             }`}
             title={currentShift ? 'View shift' : 'Sales can’t be completed until you clock in'}
           >
             {currentShift ? (
               <>
-                <Clock3 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">In since {formatTime(currentShift.clockInAt)}</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                <span>In since {formatTime(currentShift.clockInAt)}</span>
               </>
             ) : (
               <>
-                <AlertTriangle className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Not clocked in</span>
+                <AlertTriangle className="h-3 w-3" />
+                Not clocked in
               </>
             )}
           </button>
         )}
+      </div>
 
+      {/* Center: clock */}
+      <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 hidden md:inline text-sm font-medium tabular-nums text-muted-foreground">
+        {formatTime(now)}
+      </span>
+
+      {/* Right: connectivity + cashier + theme */}
+      <div className="ml-auto flex items-center gap-2 sm:gap-3">
         <OfflineIndicator variant="badge" showDetails />
 
-        <span className="hidden lg:inline text-sm tabular-nums text-muted-foreground">
-          {formatTime(now)}
-        </span>
-
         {user && (
-          <div className="hidden md:flex flex-col items-end leading-tight">
-            <span className="text-sm font-medium">{user.firstName} {user.lastName}</span>
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              {user.role.replace(/_/g, ' ')}
-            </span>
-          </div>
+          <>
+            <div className="hidden md:block h-5 w-px bg-border" />
+            <div className="hidden md:flex flex-col items-end leading-tight">
+              <span className="text-xs font-medium">{user.firstName} {user.lastName}</span>
+              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                {user.role.replace(/_/g, ' ')}
+              </span>
+            </div>
+          </>
         )}
 
         <button
           onClick={toggleTheme}
-          className="h-10 w-10 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
+          className="h-9 w-9 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
           aria-label="Toggle theme"
           title="Toggle theme"
         >
-          {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>
       </div>
     </header>
