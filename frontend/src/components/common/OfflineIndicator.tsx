@@ -5,11 +5,18 @@ import { useSyncService } from '../../hooks/useSyncService';
 interface OfflineIndicatorProps {
   variant?: 'badge' | 'banner' | 'floating';
   showDetails?: boolean;
+  /**
+   * Which edge of the badge the hover tooltip aligns to. Use 'left' when the
+   * badge sits near the left screen edge (e.g. sidebar) so the tooltip opens
+   * rightward instead of being cut off.
+   */
+  tooltipAlign?: 'left' | 'right';
 }
 
 export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
   variant = 'badge',
   showDetails = false,
+  tooltipAlign = 'right',
 }) => {
   const {
     isOnline,
@@ -87,7 +94,11 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
 
         {/* Tooltip */}
         {showTooltip && showDetails && (
-          <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-card rounded-lg shadow-lg border border-border z-50">
+          <div
+            className={`absolute top-full mt-2 w-64 p-3 bg-card rounded-lg shadow-lg border border-border z-50 ${
+              tooltipAlign === 'left' ? 'left-0' : 'right-0'
+            }`}
+          >
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Status:</span>

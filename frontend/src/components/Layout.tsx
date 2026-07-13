@@ -236,15 +236,15 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Logo + collapse toggle */}
       <div className={cn(
         'h-16 flex items-center border-b border-border shrink-0',
-        isSidebarCollapsed ? 'justify-center px-2' : 'justify-between px-6'
+        isSidebarCollapsed ? 'justify-center px-2' : 'justify-between gap-3 px-4'
       )}>
         {isSidebarCollapsed ? (
           <span className="text-lg font-bold text-primary">P</span>
         ) : (
           <>
             <h1 className="text-base font-bold text-primary whitespace-nowrap">POS System</h1>
-            <div className="flex items-center gap-1 shrink-0">
-              <OfflineIndicator variant="badge" showDetails />
+            <div className="flex items-center gap-1.5 shrink-0">
+              <OfflineIndicator variant="badge" showDetails tooltipAlign="left" />
               <button
                 onClick={toggleSidebar}
                 className="hidden lg:flex p-1.5 rounded-md hover:bg-accent transition-colors text-muted-foreground"
