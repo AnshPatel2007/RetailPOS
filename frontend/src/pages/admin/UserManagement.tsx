@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/Table';
 import { Search, Edit, Trash2, Key, Users, UserCheck, UserX, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { PageHeader } from '@/components/common/PageHeader';
+import { EmptyState } from '@/components/common/EmptyState';
 
 interface User {
   id: string;
@@ -208,19 +210,16 @@ export const UserManagement: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">User Management</h1>
-          <p className="text-muted-foreground">
-            Manage users across all stores
-          </p>
-        </div>
-        <Button onClick={openCreateModal}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add User
-        </Button>
-      </div>
+      <PageHeader
+        title="User Management"
+        subtitle="Manage users across all stores"
+        actions={
+          <Button onClick={openCreateModal}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add User
+          </Button>
+        }
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -321,11 +320,11 @@ export const UserManagement: React.FC = () => {
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
           </div>
         ) : users.length === 0 ? (
-          <div className="p-12 text-center">
-            <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No users found</h3>
-            <p className="text-muted-foreground">Try adjusting your filters</p>
-          </div>
+          <EmptyState
+            icon={Users}
+            title="No users found"
+            hint="Try adjusting your filters"
+          />
         ) : (
           <Table>
             <TableHeader>

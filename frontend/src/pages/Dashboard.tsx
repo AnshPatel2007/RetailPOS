@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { reportService } from '@/services/api';
 import { DashboardMetrics } from '@/types';
 import { useAuthStore } from '@/store/authStore';
+import { PageHeader } from '@/components/common/PageHeader';
 import { formatCurrency } from '@/lib/utils';
 import {
   BarChart,
@@ -176,35 +177,30 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="p-8">
-      {/* Header */}
-      <div className="mb-8 flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">
-            {getGreeting()}, {user?.firstName || 'there'}
-          </h1>
-          <p className="text-muted-foreground">
-            Here's what's happening at your store today.
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right">
-            <p className="text-sm font-medium">
-              {currentTime.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {currentTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </p>
-          </div>
-          <button
-            onClick={() => loadMetrics(true)}
-            disabled={isRefreshing}
-            className="p-2 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
-            title="Refresh dashboard"
-          >
-            <RefreshCw className={`h-4 w-4 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title={`${getGreeting()}, ${user?.firstName || 'there'}`}
+        subtitle="Here's what's happening at your store today."
+        actions={
+          <>
+            <div className="text-right">
+              <p className="text-sm font-medium">
+                {currentTime.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {currentTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </p>
+            </div>
+            <button
+              onClick={() => loadMetrics(true)}
+              disabled={isRefreshing}
+              className="p-2 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+              title="Refresh dashboard"
+            >
+              <RefreshCw className={`h-4 w-4 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </>
+        }
+      />
 
       {/* Load failure banner */}
       {loadError && (

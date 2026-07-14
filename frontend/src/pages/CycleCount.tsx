@@ -5,6 +5,10 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
+import { EmptyState } from '@/components/common/EmptyState';
 import {
   Table,
   TableHeader,
@@ -161,9 +165,17 @@ export const CycleCount: React.FC = () => {
     }
   };
 
+  // One shared confirm dialog for submit/approve/cancel
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    destructive?: boolean;
+    confirmLabel?: string;
+    action: () => void;
+  } | null>(null);
+
   const handleSubmit = async () => {
     if (!selectedCount) return;
-    if (!confirm('Submit this cycle count for review? Make sure all items have been counted.')) return;
     try {
       await cycleCountService.submit(selectedCount.id);
       toast.success('Submitted for review');
@@ -176,8 +188,6 @@ export const CycleCount: React.FC = () => {
 
   const handleApprove = async () => {
     if (!selectedCount) return;
-    const discrepancies = selectedCount.items.filter(i => i.discrepancy && i.discrepancy !== 0).length;
-    if (!confirm(`Approve this cycle count? ${discrepancies} item(s) with discrepancies will have their inventory adjusted.`)) return;
     try {
       await cycleCountService.approve(selectedCount.id);
       toast.success('Cycle count approved, inventory adjusted');
@@ -189,7 +199,7 @@ export const CycleCount: React.FC = () => {
   };
 
   const handleCancel = async () => {
-    if (!selectedCount || !confirm('Cancel this cycle count?')) return;
+    if (!selectedCount) return;
     try {
       await cycleCountService.cancel(selectedCount.id);
       toast.success('Cycle count cancelled');
@@ -210,18 +220,16 @@ export const CycleCount: React.FC = () => {
 
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Cycle Counts</h1>
-          <p className="text-muted-foreground">Physical inventory verification</p>
-        </div>
-        {canManage && (
+      <PageHeader
+        title="Cycle Counts"
+        subtitle="Physical inventory verification"
+        actions={canManage && (
           <Button variant="primary" onClick={() => setShowCreateModal(true)}>
             <Plus className="w-4 h-4 mr-2" />
             New Count
           </Button>
         )}
-      </div>
+      />
 
       {/* Status filter */}
       <div className="flex gap-2 mb-6">
@@ -248,10 +256,11 @@ export const CycleCount: React.FC = () => {
               <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
             </div>
           ) : counts.length === 0 ? (
-            <div className="p-12 text-center">
-              <ClipboardCheck className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">No cycle counts found</p>
-            </div>
+            <EmptyState
+              icon={ClipboardCheck}
+              title="No cycle counts found"
+              hint={statusFilter ? 'Try a different status filter' : 'Start a count to verify physical inventory'}
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -281,13 +290,7 @@ export const CycleCount: React.FC = () => {
             </Table>
           )}
 
-          {totalPages > 1 && (
-            <div className="flex justify-center gap-2 mt-4">
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
-              <span className="px-3 py-1 text-sm text-muted-foreground">Page {page} of {totalPages}</span>
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next</Button>
-            </div>
-          )}
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} totalItems={total} itemName="counts" />
         </CardContent>
       </Card>
 
@@ -421,21 +424,61 @@ export const CycleCount: React.FC = () => {
             <div className="flex justify-end gap-2 pt-2">
               {selectedCount.status === 'IN_PROGRESS' && canManage && (
                 <>
-                  <Button variant="destructive" size="sm" onClick={handleCancel}>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setConfirmState({
+                      title: 'Cancel cycle count?',
+                      message: 'Entered counts will be discarded and no inventory will be adjusted.',
+                      destructive: true,
+                      confirmLabel: 'Cancel Count',
+                      action: handleCancel,
+                    })}
+                  >
                     <XCircle className="w-4 h-4 mr-1" /> Cancel
                   </Button>
                   <Button variant="outline" size="sm" onClick={handleSaveItems}>
                     <Eye className="w-4 h-4 mr-1" /> Save Progress
                   </Button>
-                  <Button variant="primary" size="sm" onClick={handleSubmit}>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setConfirmState({
+                      title: 'Submit for review?',
+                      message: 'Make sure all items have been counted before submitting.',
+                      confirmLabel: 'Submit',
+                      action: handleSubmit,
+                    })}
+                  >
                     <Send className="w-4 h-4 mr-1" /> Submit for Review
                   </Button>
                 </>
               )}
               {selectedCount.status === 'REVIEW' && isAdmin && !isReadOnly && (
                 <>
-                  <Button variant="destructive" size="sm" onClick={handleCancel}>Reject</Button>
-                  <Button variant="primary" size="sm" onClick={handleApprove}>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setConfirmState({
+                      title: 'Reject cycle count?',
+                      message: 'The count will be cancelled and no inventory will be adjusted.',
+                      destructive: true,
+                      confirmLabel: 'Reject',
+                      action: handleCancel,
+                    })}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setConfirmState({
+                      title: 'Approve cycle count?',
+                      message: `${selectedCount.items.filter(i => i.discrepancy && i.discrepancy !== 0).length} item(s) with discrepancies will have their inventory adjusted.`,
+                      confirmLabel: 'Approve & Adjust',
+                      action: handleApprove,
+                    })}
+                  >
                     <CheckCircle className="w-4 h-4 mr-1" /> Approve & Adjust
                   </Button>
                 </>
@@ -444,6 +487,16 @@ export const CycleCount: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        isOpen={confirmState !== null}
+        onClose={() => setConfirmState(null)}
+        onConfirm={() => confirmState?.action()}
+        title={confirmState?.title || ''}
+        message={confirmState?.message || ''}
+        destructive={confirmState?.destructive}
+        confirmLabel={confirmState?.confirmLabel}
+      />
     </div>
   );
 };

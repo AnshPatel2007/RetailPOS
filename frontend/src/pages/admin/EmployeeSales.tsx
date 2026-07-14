@@ -15,7 +15,10 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Users, DollarSign, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users, DollarSign, ShoppingCart } from 'lucide-react';
+import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
+import { EmptyState } from '@/components/common/EmptyState';
 import toast from 'react-hot-toast';
 
 interface EmployeeData {
@@ -145,10 +148,10 @@ export const EmployeeSales: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Employee Sales</h1>
-        <p className="text-muted-foreground">Sales performance breakdown by employee</p>
-      </div>
+      <PageHeader
+        title="Employee Sales"
+        subtitle="Sales performance breakdown by employee"
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-end">
@@ -237,9 +240,11 @@ export const EmployeeSales: React.FC = () => {
               <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
             </div>
           ) : employees.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              No sales data found for this period
-            </div>
+            <EmptyState
+              icon={Users}
+              title="No sales data found"
+              hint="Try a wider date range or a different store"
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -352,19 +357,7 @@ export const EmployeeSales: React.FC = () => {
             </div>
           )}
 
-          {salesTotalPages > 1 && (
-            <div className="flex items-center justify-between pt-2">
-              <p className="text-sm text-muted-foreground">Page {salesPage} of {salesTotalPages}</p>
-              <div className="flex gap-1">
-                <Button variant="outline" size="sm" onClick={() => handlePageChange(salesPage - 1)} disabled={salesPage <= 1}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => handlePageChange(salesPage + 1)} disabled={salesPage >= salesTotalPages}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <Pagination page={salesPage} totalPages={salesTotalPages} onPageChange={handlePageChange} />
         </div>
       </Modal>
     </div>

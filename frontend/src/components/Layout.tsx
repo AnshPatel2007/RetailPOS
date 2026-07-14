@@ -30,6 +30,7 @@ import {
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useLayoutStore } from '@/store/layoutStore';
+import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { cn } from '@/lib/utils';
 import { OfflineIndicator } from './common/OfflineIndicator';
 
@@ -121,6 +122,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { theme, toggleTheme } = useThemeStore();
   const { isSidebarCollapsed, isMobileMenuOpen, toggleSidebar, setMobileMenuOpen } = useLayoutStore();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  // Show which store you're operating — mirrors the POS top bar
+  const settingsStoreName = useStoreSettingsStore((s) => s.storeInfo.storeName);
+  const storeName = settingsStoreName || user?.location?.name || '';
 
   const isPOSPage = location.pathname === '/pos';
 
@@ -242,7 +246,14 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           <span className="text-lg font-bold text-primary">P</span>
         ) : (
           <>
-            <h1 className="text-base font-bold text-primary whitespace-nowrap">POS System</h1>
+            <div className="min-w-0">
+              <h1 className="text-base font-bold text-primary whitespace-nowrap">POS System</h1>
+              {storeName && (
+                <p className="text-xs text-muted-foreground truncate" title={storeName}>
+                  {storeName}
+                </p>
+              )}
+            </div>
             <div className="flex items-center gap-1.5 shrink-0">
               <OfflineIndicator variant="badge" showDetails tooltipAlign="left" />
               <button

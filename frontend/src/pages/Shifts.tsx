@@ -17,6 +17,9 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import { Clock, LogIn, LogOut } from 'lucide-react';
+import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
+import { EmptyState } from '@/components/common/EmptyState';
 
 export const Shifts: React.FC = () => {
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -94,15 +97,10 @@ export const Shifts: React.FC = () => {
 
   return (
     <div className="p-8">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Time & Shifts</h1>
-          <p className="text-muted-foreground">
-            Manage employee shifts and cash drawers
-          </p>
-        </div>
-        {!currentShift ? (
+      <PageHeader
+        title="Time & Shifts"
+        subtitle="Manage employee shifts and cash drawers"
+        actions={!currentShift ? (
           <Button variant="primary" onClick={() => setShowClockInModal(true)}>
             <LogIn className="h-4 w-4 mr-2" />
             Clock In
@@ -113,7 +111,7 @@ export const Shifts: React.FC = () => {
             Clock Out
           </Button>
         )}
-      </div>
+      />
 
       {/* Shift Content */}
       <>
@@ -164,11 +162,11 @@ export const Shifts: React.FC = () => {
             <p className="mt-4 text-muted-foreground">Loading shifts...</p>
           </div>
         ) : shifts.length === 0 ? (
-          <div className="p-12 text-center">
-            <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No shifts found</h3>
-            <p className="text-muted-foreground">Clock in to start your first shift</p>
-          </div>
+          <EmptyState
+            icon={Clock}
+            title="No shifts found"
+            hint="Clock in to start your first shift"
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -255,14 +253,7 @@ export const Shifts: React.FC = () => {
         )}
       </Card>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex justify-center gap-2 mt-4">
-          <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
-          <span className="px-3 py-1 text-sm text-muted-foreground">Page {page} of {totalPages}</span>
-          <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next</Button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
 
       {/* Clock In Modal */}
       <Modal

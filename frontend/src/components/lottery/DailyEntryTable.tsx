@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { lotteryService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import toast from 'react-hot-toast';
@@ -82,6 +83,13 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [autoSaveFailed, setAutoSaveFailed] = useState(false);
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    destructive?: boolean;
+    confirmLabel?: string;
+    action: () => void;
+  } | null>(null);
 
   // Helper to check if selected date is in the past
   const isPastDate = useMemo(() => {
@@ -480,11 +488,6 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
   };
 
   const handleCloseDay = async () => {
-    if (!confirm('Are you sure you want to close this day? This will lock all entries. An admin can reopen the day if a correction is needed.')) {
-      logger.info('Close day cancelled by user');
-      return;
-    }
-
     logger.info('Closing day', {
       selectedDate,
       totalSales: dayStatus.totalSales,
@@ -523,7 +526,6 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
 
   const handleReopenDay = async () => {
     if (!dayStatus.id) return;
-    if (!confirm('Reopen this day for corrections? Entries become editable again.')) return;
 
     setSaving(true);
     try {
@@ -979,7 +981,12 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
 
               <Button
                 variant="primary"
-                onClick={handleCloseDay}
+                onClick={() => setConfirmState({
+                  title: 'Close this day?',
+                  message: 'All entries will be locked. An admin can reopen the day if a correction is needed.',
+                  confirmLabel: 'Close Day',
+                  action: handleCloseDay,
+                })}
                 disabled={saving || autoSaving || hasValidationErrors}
                 className="px-6 py-2 text-sm font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title={autoSaving ? 'Please wait while changes are being saved...' : hasValidationErrors ? 'Please fix validation errors first' : ''}
@@ -996,7 +1003,12 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
             <div className="flex justify-end pt-4 border-t border-border">
               <Button
                 variant="outline"
-                onClick={handleReopenDay}
+                onClick={() => setConfirmState({
+                  title: 'Reopen this day?',
+                  message: 'Entries become editable again for corrections.',
+                  confirmLabel: 'Reopen',
+                  action: handleReopenDay,
+                })}
                 disabled={saving}
               >
                 <RotateCcw className="h-4 w-4 mr-2" />
@@ -1024,6 +1036,16 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmState !== null}
+        onClose={() => setConfirmState(null)}
+        onConfirm={() => confirmState?.action()}
+        title={confirmState?.title || ''}
+        message={confirmState?.message || ''}
+        destructive={confirmState?.destructive}
+        confirmLabel={confirmState?.confirmLabel}
+      />
     </div>
   );
 };

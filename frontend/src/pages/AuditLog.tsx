@@ -4,13 +4,14 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import {
   Search,
-  ChevronLeft,
-  ChevronRight,
   Filter,
   RefreshCw,
   Shield,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
+import { EmptyState } from '@/components/common/EmptyState';
 
 interface AuditEntry {
   id: string;
@@ -129,25 +130,22 @@ export const AuditLog: React.FC = () => {
 
   return (
     <div className="p-8 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Shield className="h-6 w-6 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">Audit Log</h1>
-            <p className="text-sm text-muted-foreground">{total} total entries</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
-            <Filter className="h-4 w-4 mr-1" />
-            Filters
-          </Button>
-          <Button variant="outline" size="sm" onClick={fetchLogs}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Audit Log"
+        subtitle={`${total} total entries`}
+        icon={Shield}
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
+              <Filter className="h-4 w-4 mr-1" />
+              Filters
+            </Button>
+            <Button variant="outline" size="sm" onClick={fetchLogs} title="Refresh">
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </>
+        }
+      />
 
       {/* Search & Filters */}
       <div className="space-y-3">
@@ -237,8 +235,12 @@ export const AuditLog: React.FC = () => {
                 </tr>
               ) : logs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-muted-foreground">
-                    No audit log entries found
+                  <td colSpan={6}>
+                    <EmptyState
+                      icon={Shield}
+                      title="No audit log entries found"
+                      hint="Try widening the date range or clearing filters"
+                    />
                   </td>
                 </tr>
               ) : (
@@ -295,32 +297,7 @@ export const AuditLog: React.FC = () => {
         </div>
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Page {page} of {totalPages}
-          </p>
-          <div className="flex gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} totalItems={total} itemName="entries" />
     </div>
   );
 };

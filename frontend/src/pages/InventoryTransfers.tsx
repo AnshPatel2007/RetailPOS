@@ -5,6 +5,10 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
+import { EmptyState } from '@/components/common/EmptyState';
 import {
   Table,
   TableHeader,
@@ -161,8 +165,16 @@ export const InventoryTransfers: React.FC = () => {
     setNotes('');
   };
 
+  // One shared confirm dialog for ship/receive/cancel
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    destructive?: boolean;
+    confirmLabel?: string;
+    action: () => void;
+  } | null>(null);
+
   const handleShip = async (id: string) => {
-    if (!confirm('Ship this transfer? Stock will be deducted from the source location.')) return;
     try {
       await inventoryTransferService.ship(id);
       toast.success('Transfer shipped');
@@ -174,7 +186,6 @@ export const InventoryTransfers: React.FC = () => {
   };
 
   const handleReceive = async (id: string) => {
-    if (!confirm('Receive this transfer? Stock will be added to the destination location.')) return;
     try {
       await inventoryTransferService.receive(id);
       toast.success('Transfer received');
@@ -186,10 +197,6 @@ export const InventoryTransfers: React.FC = () => {
   };
 
   const handleCancel = async (id: string) => {
-    const inTransit = selectedTransfer?.status === 'IN_TRANSIT';
-    if (!confirm(inTransit
-      ? 'Cancel this transfer? Shipped stock will be restored to the source location.'
-      : 'Cancel this transfer?')) return;
     try {
       await inventoryTransferService.cancel(id);
       toast.success('Transfer cancelled');
@@ -214,18 +221,16 @@ export const InventoryTransfers: React.FC = () => {
 
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Inventory Transfers</h1>
-          <p className="text-muted-foreground">Transfer stock between locations</p>
-        </div>
-        {canManage && (
+      <PageHeader
+        title="Inventory Transfers"
+        subtitle="Transfer stock between locations"
+        actions={canManage && (
           <Button variant="primary" onClick={() => setShowCreateModal(true)}>
             <Plus className="w-4 h-4 mr-2" />
             New Transfer
           </Button>
         )}
-      </div>
+      />
 
       {/* Status filter */}
       <div className="flex gap-2 mb-6">
@@ -252,10 +257,11 @@ export const InventoryTransfers: React.FC = () => {
               <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
             </div>
           ) : transfers.length === 0 ? (
-            <div className="p-12 text-center">
-              <ArrowLeftRight className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">No transfers found</p>
-            </div>
+            <EmptyState
+              icon={ArrowLeftRight}
+              title="No transfers found"
+              hint={statusFilter ? 'Try a different status filter' : 'Create a transfer to move stock between locations'}
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -285,13 +291,7 @@ export const InventoryTransfers: React.FC = () => {
             </Table>
           )}
 
-          {totalPages > 1 && (
-            <div className="flex justify-center gap-2 mt-4">
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
-              <span className="px-3 py-1 text-sm text-muted-foreground">Page {page} of {totalPages}</span>
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next</Button>
-            </div>
-          )}
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} totalItems={total} itemName="transfers" />
         </CardContent>
       </Card>
 
@@ -426,16 +426,58 @@ export const InventoryTransfers: React.FC = () => {
             <div className="flex justify-end gap-2 pt-2">
               {selectedTransfer.status === 'PENDING' && canManage && (
                 <>
-                  <Button variant="destructive" size="sm" onClick={() => handleCancel(selectedTransfer.id)}>Cancel</Button>
-                  <Button variant="primary" size="sm" onClick={() => handleShip(selectedTransfer.id)}>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setConfirmState({
+                      title: 'Cancel transfer?',
+                      message: 'This transfer has not shipped yet — no stock will change.',
+                      destructive: true,
+                      confirmLabel: 'Cancel Transfer',
+                      action: () => handleCancel(selectedTransfer.id),
+                    })}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setConfirmState({
+                      title: 'Ship transfer?',
+                      message: 'Stock will be deducted from the source location.',
+                      confirmLabel: 'Ship',
+                      action: () => handleShip(selectedTransfer.id),
+                    })}
+                  >
                     <Truck className="w-4 h-4 mr-1" /> Ship
                   </Button>
                 </>
               )}
               {selectedTransfer.status === 'IN_TRANSIT' && canManage && (
                 <>
-                  <Button variant="destructive" size="sm" onClick={() => handleCancel(selectedTransfer.id)}>Cancel</Button>
-                  <Button variant="primary" size="sm" onClick={() => handleReceive(selectedTransfer.id)}>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setConfirmState({
+                      title: 'Cancel transfer?',
+                      message: 'Shipped stock will be restored to the source location.',
+                      destructive: true,
+                      confirmLabel: 'Cancel Transfer',
+                      action: () => handleCancel(selectedTransfer.id),
+                    })}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setConfirmState({
+                      title: 'Receive transfer?',
+                      message: 'Stock will be added to the destination location.',
+                      confirmLabel: 'Receive',
+                      action: () => handleReceive(selectedTransfer.id),
+                    })}
+                  >
                     <CheckCircle className="w-4 h-4 mr-1" /> Receive
                   </Button>
                 </>
@@ -444,6 +486,16 @@ export const InventoryTransfers: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        isOpen={confirmState !== null}
+        onClose={() => setConfirmState(null)}
+        onConfirm={() => confirmState?.action()}
+        title={confirmState?.title || ''}
+        message={confirmState?.message || ''}
+        destructive={confirmState?.destructive}
+        confirmLabel={confirmState?.confirmLabel}
+      />
     </div>
   );
 };

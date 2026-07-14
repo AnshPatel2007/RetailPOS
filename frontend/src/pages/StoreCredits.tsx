@@ -1,13 +1,23 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { storeCreditService, customerService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/ui/Table';
+import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
+import { EmptyState } from '@/components/common/EmptyState';
+import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils';
+import {
   Search,
   Plus,
-  ChevronLeft,
-  ChevronRight,
   Wallet,
   History,
   RefreshCw,
@@ -46,6 +56,8 @@ export const StoreCredits: React.FC = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<StoreCreditAccount | null>(null);
@@ -65,7 +77,7 @@ export const StoreCredits: React.FC = () => {
     setLoading(true);
     try {
       const params: any = { page, limit: 25 };
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
       const res = await storeCreditService.getAll(params);
       setAccounts(res.data.data);
       setTotalPages(res.data.pagination.totalPages);
@@ -74,17 +86,23 @@ export const StoreCredits: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, [page, debouncedSearch]);
 
   useEffect(() => {
     fetchAccounts();
   }, [fetchAccounts]);
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPage(1);
-    fetchAccounts();
-  };
+  // Live search, debounced — no submit button needed
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [search]);
 
   const openHistory = async (account: StoreCreditAccount) => {
     setSelectedAccount(account);
@@ -135,7 +153,7 @@ export const StoreCredits: React.FC = () => {
         amount,
         notes: creditNotes || undefined,
       });
-      toast.success(`$${amount.toFixed(2)} credit added for ${selectedCustomerName}`);
+      toast.success(`${formatCurrency(amount)} credit added for ${selectedCustomerName}`);
       setShowAddModal(false);
       resetAddForm();
       fetchAccounts();
@@ -156,77 +174,74 @@ export const StoreCredits: React.FC = () => {
   };
 
   return (
-    <div className="p-8 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Wallet className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold">Store Credits</h1>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchAccounts}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button variant="primary" size="sm" onClick={() => setShowAddModal(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Issue Credit
-          </Button>
-        </div>
-      </div>
+    <div className="p-8">
+      <PageHeader
+        title="Store Credits"
+        subtitle="Issue and track customer store credit balances"
+        icon={Wallet}
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={fetchAccounts} title="Refresh">
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setShowAddModal(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Issue Credit
+            </Button>
+          </>
+        }
+      />
 
       {/* Search */}
-      <form onSubmit={handleSearch} className="flex gap-2">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by name, phone, or email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <Button type="submit" variant="outline" size="sm">Search</Button>
-      </form>
+      <div className="relative max-w-md mb-6">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search by name, phone, or email..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-9"
+        />
+      </div>
 
       {/* Accounts table */}
       <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 border-b">
-            <tr>
-              <th className="text-left px-4 py-2 font-medium">Customer</th>
-              <th className="text-left px-4 py-2 font-medium">Contact</th>
-              <th className="text-right px-4 py-2 font-medium">Balance</th>
-              <th className="text-left px-4 py-2 font-medium">Last Updated</th>
-              <th className="text-right px-4 py-2 font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {loading ? (
-              <tr>
-                <td colSpan={5} className="text-center py-8 text-muted-foreground">Loading...</td>
-              </tr>
-            ) : accounts.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="text-center py-8 text-muted-foreground">
-                  No store credit accounts found
-                </td>
-              </tr>
-            ) : (
-              accounts.map((acc) => (
-                <tr key={acc.id} className="hover:bg-muted/30">
-                  <td className="px-4 py-2 font-medium">
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+          </div>
+        ) : accounts.length === 0 ? (
+          <EmptyState
+            icon={Wallet}
+            title="No store credit accounts found"
+            hint={search ? 'Try adjusting your search' : 'Issue a credit to create the first account'}
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Customer</TableHead>
+                <TableHead>Contact</TableHead>
+                <TableHead className="text-right">Balance</TableHead>
+                <TableHead>Last Updated</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {accounts.map((acc) => (
+                <TableRow key={acc.id}>
+                  <TableCell className="font-medium">
                     {acc.customer.firstName} {acc.customer.lastName}
-                  </td>
-                  <td className="px-4 py-2 text-muted-foreground">
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
                     {acc.customer.phone || acc.customer.email || '-'}
-                  </td>
-                  <td className="px-4 py-2 text-right font-bold text-success">
-                    ${acc.balance.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2 text-muted-foreground text-xs">
-                    {new Date(acc.updatedAt).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-2 text-right">
+                  </TableCell>
+                  <TableCell className="text-right font-bold text-success">
+                    {formatCurrency(acc.balance)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-xs">
+                    {formatDate(acc.updatedAt)}
+                  </TableCell>
+                  <TableCell className="text-right">
                     <div className="flex gap-1 justify-end">
                       <Button variant="outline" size="sm" onClick={() => openHistory(acc)}>
                         <History className="h-3 w-3 mr-1" /> History
@@ -244,28 +259,15 @@ export const StoreCredits: React.FC = () => {
                         <Plus className="h-3 w-3 mr-1" /> Add
                       </Button>
                     </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">Page {page} of {totalPages}</p>
-          <div className="flex gap-1">
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
 
       {/* Add Credit Modal */}
       <Modal isOpen={showAddModal} onClose={() => { setShowAddModal(false); resetAddForm(); }} title="Issue Store Credit" size="md">
@@ -352,7 +354,7 @@ export const StoreCredits: React.FC = () => {
           {selectedAccount && (
             <div className="p-3 bg-muted/50 rounded-lg flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Current Balance</span>
-              <span className="text-xl font-bold text-success">${selectedAccount.balance.toFixed(2)}</span>
+              <span className="text-xl font-bold text-success">{formatCurrency(selectedAccount.balance)}</span>
             </div>
           )}
 
@@ -376,15 +378,15 @@ export const StoreCredits: React.FC = () => {
                       {tx.notes && <span className="text-xs text-muted-foreground">{tx.notes}</span>}
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      {new Date(tx.createdAt).toLocaleString()}
+                      {formatDateTime(tx.createdAt)}
                     </div>
                   </div>
                   <div className="text-right">
                     <div className={`font-medium ${tx.amount >= 0 ? 'text-success' : 'text-destructive'}`}>
-                      {tx.amount >= 0 ? '+' : ''}${Math.abs(tx.amount).toFixed(2)}
+                      {tx.amount >= 0 ? '+' : '-'}{formatCurrency(Math.abs(tx.amount))}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      Bal: ${tx.balanceAfter.toFixed(2)}
+                      Bal: {formatCurrency(tx.balanceAfter)}
                     </div>
                   </div>
                 </div>

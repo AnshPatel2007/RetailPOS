@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { locationService } from '@/services/api';
 import { formatCurrency, CHART_COLORS } from '@/lib/utils';
+import { PageHeader } from '@/components/common/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -189,31 +190,28 @@ export const AdminDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-          <p className="text-muted-foreground">
-            Complete overview of all stores
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={loadData}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-          {[7, 30, 90].map((p) => (
-            <Button
-              key={p}
-              variant={period === p ? 'primary' : 'outline'}
-              size="sm"
-              onClick={() => setPeriod(p)}
-            >
-              {p}d
+      <PageHeader
+        title="Admin Dashboard"
+        subtitle="Complete overview of all stores"
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={loadData}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
             </Button>
-          ))}
-        </div>
-      </div>
+            {[7, 30, 90].map((p) => (
+              <Button
+                key={p}
+                variant={period === p ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setPeriod(p)}
+              >
+                {p}d
+              </Button>
+            ))}
+          </>
+        }
+      />
 
       {/* Key Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">

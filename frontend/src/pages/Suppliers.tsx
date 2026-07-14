@@ -21,6 +21,9 @@ import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
+import { EmptyState } from '@/components/common/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/utils';
 import {
@@ -575,24 +578,20 @@ export const Suppliers: React.FC = () => {
     o.supplier.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
-      </div>
-    );
-  }
+  // Loading is rendered inside the tab cards so the page chrome (tabs,
+  // search box) stays mounted — otherwise typing in search loses focus
+  const loadingRow = (
+    <div className="flex justify-center py-12">
+      <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+    </div>
+  );
 
   return (
     <div className="p-8">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Supplier Management</h1>
-          <p className="text-muted-foreground">
-            Manage suppliers and create purchase orders
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Supplier Management"
+        subtitle="Manage suppliers and create purchase orders"
+      />
 
       <div className="flex gap-4 mb-6">
         <Button
@@ -649,14 +648,14 @@ export const Suppliers: React.FC = () => {
 
       {activeTab === 'suppliers' && (
         <Card>
-          {filteredSuppliers.length === 0 ? (
-            <div className="p-12 text-center">
-              <Truck className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-medium mb-2">No suppliers found</h3>
-              <p className="text-muted-foreground mb-4">
-                {search ? 'Try adjusting your search' : 'Get started by adding your first supplier'}
-              </p>
-            </div>
+          {loading ? (
+            loadingRow
+          ) : filteredSuppliers.length === 0 ? (
+            <EmptyState
+              icon={Truck}
+              title="No suppliers found"
+              hint={search ? 'Try adjusting your search' : 'Get started by adding your first supplier'}
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -732,12 +731,14 @@ export const Suppliers: React.FC = () => {
         </Card>
       )}
 
-      {activeTab === 'suppliers' && supplierTotalPages > 1 && (
-        <div className="flex justify-center items-center gap-2 mt-4">
-          <Button variant="outline" size="sm" onClick={() => setSupplierPage(p => Math.max(1, p - 1))} disabled={supplierPage === 1}>Previous</Button>
-          <span className="px-3 py-1 text-sm text-muted-foreground">Page {supplierPage} of {supplierTotalPages} ({supplierTotal} suppliers)</span>
-          <Button variant="outline" size="sm" onClick={() => setSupplierPage(p => Math.min(supplierTotalPages, p + 1))} disabled={supplierPage === supplierTotalPages}>Next</Button>
-        </div>
+      {activeTab === 'suppliers' && (
+        <Pagination
+          page={supplierPage}
+          totalPages={supplierTotalPages}
+          onPageChange={setSupplierPage}
+          totalItems={supplierTotal}
+          itemName="suppliers"
+        />
       )}
 
       {activeTab === 'orders' && (
@@ -763,14 +764,14 @@ export const Suppliers: React.FC = () => {
 
       {activeTab === 'orders' && (
         <Card>
-          {filteredOrders.length === 0 ? (
-            <div className="p-12 text-center">
-              <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-medium mb-2">No purchase orders found</h3>
-              <p className="text-muted-foreground mb-4">
-                {search ? 'Try adjusting your search' : 'Create a new purchase order to get started'}
-              </p>
-            </div>
+          {loading ? (
+            loadingRow
+          ) : filteredOrders.length === 0 ? (
+            <EmptyState
+              icon={FileText}
+              title="No purchase orders found"
+              hint={search ? 'Try adjusting your search' : 'Create a new purchase order to get started'}
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -832,12 +833,14 @@ export const Suppliers: React.FC = () => {
         </Card>
       )}
 
-      {activeTab === 'orders' && orderTotalPages > 1 && (
-        <div className="flex justify-center items-center gap-2 mt-4">
-          <Button variant="outline" size="sm" onClick={() => setOrderPage(p => Math.max(1, p - 1))} disabled={orderPage === 1}>Previous</Button>
-          <span className="px-3 py-1 text-sm text-muted-foreground">Page {orderPage} of {orderTotalPages} ({orderTotal} orders)</span>
-          <Button variant="outline" size="sm" onClick={() => setOrderPage(p => Math.min(orderTotalPages, p + 1))} disabled={orderPage === orderTotalPages}>Next</Button>
-        </div>
+      {activeTab === 'orders' && (
+        <Pagination
+          page={orderPage}
+          totalPages={orderTotalPages}
+          onPageChange={setOrderPage}
+          totalItems={orderTotal}
+          itemName="orders"
+        />
       )}
 
       {/* Supplier Modal */}

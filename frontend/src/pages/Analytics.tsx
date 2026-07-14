@@ -42,6 +42,7 @@ import {
 } from 'recharts';
 import { analyticsService } from '../services/api';
 import toast from 'react-hot-toast';
+import { PageHeader } from '@/components/common/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -243,18 +244,16 @@ export const Analytics: React.FC = () => {
 
   return (
     <div className="p-8">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Analytics</h1>
-          <p className="text-muted-foreground">
-            Deep insights into your business performance
-          </p>
-        </div>
-        <Button variant="outline" onClick={fetchAllData}>
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Analytics"
+        subtitle="Deep insights into your business performance"
+        actions={
+          <Button variant="outline" onClick={fetchAllData}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+        }
+      />
 
       {/* Real-time Summary */}
       {realtimeData && (

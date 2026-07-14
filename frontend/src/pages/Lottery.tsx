@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { lotteryService } from '@/services/api';
 import { formatCurrency } from '@/lib/utils';
+import { PageHeader } from '@/components/common/PageHeader';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { AdminViewBanner } from '@/components/AdminViewBanner';
 import { DailyEntryTable } from '@/components/lottery/DailyEntryTable';
@@ -64,23 +65,20 @@ export const Lottery: React.FC = () => {
     <div className="p-8">
       {isAdminViewing && <AdminViewBanner storeName={storeName || ''} />}
 
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Lottery Management</h1>
-          <p className="text-muted-foreground">
-            Track lottery sales and daily transactions
-          </p>
-        </div>
-        <Button
-          onClick={fetchDashboardData}
-          variant="outline"
-          className="flex items-center gap-2"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Lottery Management"
+        subtitle="Track lottery sales and daily transactions"
+        actions={
+          <Button
+            onClick={fetchDashboardData}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        }
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">

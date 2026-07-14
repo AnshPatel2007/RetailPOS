@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { locationService } from '@/services/api';
 import { formatCurrency, CHART_COLORS } from '@/lib/utils';
+import { PageHeader } from '@/components/common/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -226,19 +227,16 @@ export const StoreManagement: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Store Management</h1>
-          <p className="text-muted-foreground">
-            Manage all store locations
-          </p>
-        </div>
-        <Button onClick={openCreateModal}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Store
-        </Button>
-      </div>
+      <PageHeader
+        title="Store Management"
+        subtitle="Manage all store locations"
+        actions={
+          <Button onClick={openCreateModal}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Store
+          </Button>
+        }
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/Card';
+import { PageHeader } from '@/components/common/PageHeader';
 import {
   Store,
   Users,
@@ -48,13 +49,10 @@ export const AdminSettings: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold">System Settings</h1>
-        <p className="text-muted-foreground">
-          Configuration lives in the pages below
-        </p>
-      </div>
+      <PageHeader
+        title="System Settings"
+        subtitle="Configuration lives in the pages below"
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {links.map((link) => (

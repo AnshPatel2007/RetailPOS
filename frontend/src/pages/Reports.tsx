@@ -54,6 +54,8 @@ import { FilterDropdown } from '@/components/common/FilterDropdown';
 import { ExportPreviewModal } from '@/components/reports/ExportPreviewModal';
 import { DataVisualizationCard } from '@/components/reports/DataVisualizationCard';
 import { Badge } from '@/components/ui/Badge';
+import { PageHeader } from '@/components/common/PageHeader';
+import { EmptyState } from '@/components/common/EmptyState';
 
 const EmployeeSalesTab: React.FC = () => {
   const [data, setData] = useState<any[]>([]);
@@ -479,35 +481,32 @@ export const Reports: React.FC = () => {
 
   return (
     <div className="p-8">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Reports</h1>
-          <p className="text-muted-foreground">
-            Track performance and gain business insights
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {activeTab === 'overall' && (
-            <Button variant="outline" onClick={loadReports} title="Refresh data">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh
-            </Button>
-          )}
-          {activeTab === 'sales' && filteredSales.length > 0 && (
-            <Button variant="outline" onClick={() => setShowExportPreview('sales')}>
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-          )}
-          {activeTab === 'inventory' && filteredProducts.length > 0 && (
-            <Button variant="outline" onClick={() => setShowExportPreview('inventory')}>
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Reports"
+        subtitle="Track performance and gain business insights"
+        actions={
+          <>
+            {activeTab === 'overall' && (
+              <Button variant="outline" onClick={loadReports} title="Refresh data">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh
+              </Button>
+            )}
+            {activeTab === 'sales' && filteredSales.length > 0 && (
+              <Button variant="outline" onClick={() => setShowExportPreview('sales')}>
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            )}
+            {activeTab === 'inventory' && filteredProducts.length > 0 && (
+              <Button variant="outline" onClick={() => setShowExportPreview('inventory')}>
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {/* Tabs */}
       <div className="flex space-x-1 mb-6">
@@ -1217,8 +1216,12 @@ export const Reports: React.FC = () => {
               <TableBody>
                 {filteredSales.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                      No sales found
+                    <TableCell colSpan={9}>
+                      <EmptyState
+                        icon={ShoppingCart}
+                        title="No sales found"
+                        hint="Try widening the date range or clearing filters"
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -1474,8 +1477,12 @@ export const Reports: React.FC = () => {
               <TableBody>
                 {filteredProducts.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                      No products found
+                    <TableCell colSpan={10}>
+                      <EmptyState
+                        icon={Package}
+                        title="No products found"
+                        hint="Try adjusting your search or filters"
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (

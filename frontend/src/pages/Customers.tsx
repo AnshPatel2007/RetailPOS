@@ -7,6 +7,9 @@ import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
+import { EmptyState } from '@/components/common/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import toast from 'react-hot-toast';
 import {
@@ -190,21 +193,16 @@ export const Customers: React.FC = () => {
 
   return (
     <div className="p-8">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Customers</h1>
-          <p className="text-muted-foreground">
-            Manage customers, view insights, and track segments
-          </p>
-        </div>
-        {activeTab === 'directory' && (
+      <PageHeader
+        title="Customers"
+        subtitle="Manage customers, view insights, and track segments"
+        actions={activeTab === 'directory' && (
           <Button variant="primary" onClick={openCreateModal}>
             <Plus className="h-4 w-4 mr-2" />
             Add Customer
           </Button>
         )}
-      </div>
+      />
 
       {/* Tab Navigation */}
       <div className="flex gap-2 mb-6">
@@ -259,19 +257,17 @@ export const Customers: React.FC = () => {
             <p className="mt-4 text-muted-foreground">Loading customers...</p>
           </div>
         ) : customers.length === 0 ? (
-          <div className="p-12 text-center">
-            <UsersIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No customers found</h3>
-            <p className="text-muted-foreground mb-4">
-              {search ? 'Try adjusting your search' : 'Get started by adding your first customer'}
-            </p>
-            {!search && (
+          <EmptyState
+            icon={UsersIcon}
+            title="No customers found"
+            hint={search ? 'Try adjusting your search' : 'Get started by adding your first customer'}
+            action={!search && (
               <Button variant="primary" onClick={openCreateModal}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Customer
               </Button>
             )}
-          </div>
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -372,14 +368,7 @@ export const Customers: React.FC = () => {
         )}
           </Card>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex justify-center items-center gap-2 mt-4">
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
-              <span className="px-3 py-1 text-sm text-muted-foreground">Page {page} of {totalPages} ({total} customers)</span>
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next</Button>
-            </div>
-          )}
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} totalItems={total} itemName="customers" />
         </>
       )}
 

@@ -7,6 +7,9 @@ import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
+import { EmptyState } from '@/components/common/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import toast from 'react-hot-toast';
 import {
@@ -17,7 +20,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Plus, Search, Edit, Trash2, AlertTriangle, Package, FolderPlus, RotateCcw, ChevronLeft, ChevronRight, DollarSign, TrendingDown, Camera, Tag, Upload } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, AlertTriangle, Package, FolderPlus, RotateCcw, DollarSign, TrendingDown, Camera, Tag, Upload } from 'lucide-react';
 import { StockAdjustmentModal } from '@/components/inventory/StockAdjustmentModal';
 import { ReceiptScanModal } from '@/components/inventory/ReceiptScanModal';
 import { BarcodeLabelPrint } from '@/components/inventory/BarcodeLabelPrint';
@@ -254,33 +257,30 @@ export const Inventory: React.FC = () => {
 
   return (
     <div className="p-8">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Inventory Management</h1>
-          <p className="text-muted-foreground">
-            Manage your products and track stock levels
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowCSVImportModal(true)}>
-            <Upload className="h-4 w-4 mr-2" />
-            Import CSV
-          </Button>
-          <Button variant="outline" onClick={() => { setSelectedForLabels(products); setShowLabelPrintModal(true); }}>
-            <Tag className="h-4 w-4 mr-2" />
-            Print Labels
-          </Button>
-          <Button variant="outline" onClick={() => setShowReceiptScanModal(true)}>
-            <Camera className="h-4 w-4 mr-2" />
-            Scan Receipt
-          </Button>
-          <Button variant="primary" onClick={openCreateModal}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Product
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Inventory Management"
+        subtitle="Manage your products and track stock levels"
+        actions={
+          <>
+            <Button variant="outline" onClick={() => setShowCSVImportModal(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Import CSV
+            </Button>
+            <Button variant="outline" onClick={() => { setSelectedForLabels(products); setShowLabelPrintModal(true); }}>
+              <Tag className="h-4 w-4 mr-2" />
+              Print Labels
+            </Button>
+            <Button variant="outline" onClick={() => setShowReceiptScanModal(true)}>
+              <Camera className="h-4 w-4 mr-2" />
+              Scan Receipt
+            </Button>
+            <Button variant="primary" onClick={openCreateModal}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Product
+            </Button>
+          </>
+        }
+      />
 
       {/* Summary Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -377,19 +377,17 @@ export const Inventory: React.FC = () => {
             <p className="mt-4 text-muted-foreground">Loading products...</p>
           </div>
         ) : products.length === 0 ? (
-          <div className="p-12 text-center">
-            <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No products found</h3>
-            <p className="text-muted-foreground mb-4">
-              {search ? 'Try adjusting your search' : 'Get started by adding your first product'}
-            </p>
-            {!search && (
+          <EmptyState
+            icon={Package}
+            title="No products found"
+            hint={search ? 'Try adjusting your search' : 'Get started by adding your first product'}
+            action={!search && (
               <Button variant="primary" onClick={openCreateModal}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Product
               </Button>
             )}
-          </div>
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -493,35 +491,13 @@ export const Inventory: React.FC = () => {
         )}
       </Card>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
-          <p className="text-sm text-muted-foreground">
-            Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, totalProducts)} of {totalProducts} products
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-sm px-2">
-              Page {currentPage} of {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        totalItems={totalProducts}
+        itemName="products"
+      />
 
       {/* Product Modal */}
       <Modal

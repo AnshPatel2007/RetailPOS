@@ -5,6 +5,10 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
+import { EmptyState } from '@/components/common/EmptyState';
 import {
   Table,
   TableHeader,
@@ -124,8 +128,9 @@ export const GiftCards: React.FC = () => {
     }
   };
 
+  const [deactivateTarget, setDeactivateTarget] = useState<GiftCard | null>(null);
+
   const handleDeactivate = async (card: GiftCard) => {
-    if (!confirm(`Deactivate gift card ${card.code}?`)) return;
     try {
       await giftCardService.deactivate(card.id);
       toast.success('Gift card deactivated');
@@ -140,16 +145,16 @@ export const GiftCards: React.FC = () => {
 
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Gift Cards</h1>
-          <p className="text-muted-foreground">Issue, manage, and track gift cards</p>
-        </div>
-        <Button variant="primary" onClick={() => setShowIssueModal(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Issue Gift Card
-        </Button>
-      </div>
+      <PageHeader
+        title="Gift Cards"
+        subtitle="Issue, manage, and track gift cards"
+        actions={
+          <Button variant="primary" onClick={() => setShowIssueModal(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Issue Gift Card
+          </Button>
+        }
+      />
 
       {/* Search */}
       <div className="relative max-w-md mb-6">
@@ -210,10 +215,11 @@ export const GiftCards: React.FC = () => {
               <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
             </div>
           ) : giftCards.length === 0 ? (
-            <div className="p-12 text-center">
-              <Gift className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">No gift cards found</p>
-            </div>
+            <EmptyState
+              icon={Gift}
+              title="No gift cards found"
+              hint={search ? 'Try a different code' : 'Issue your first gift card to get started'}
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -259,7 +265,7 @@ export const GiftCards: React.FC = () => {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleDeactivate(card)}
+                              onClick={() => setDeactivateTarget(card)}
                               className="text-destructive hover:text-destructive"
                               title="Deactivate"
                             >
@@ -275,20 +281,7 @@ export const GiftCards: React.FC = () => {
             </Table>
           )}
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex justify-center gap-2 mt-4">
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                Previous
-              </Button>
-              <span className="px-3 py-1 text-sm text-muted-foreground">
-                Page {page} of {totalPages}
-              </span>
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
-                Next
-              </Button>
-            </div>
-          )}
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} totalItems={total} itemName="cards" />
         </CardContent>
       </Card>
 
@@ -363,6 +356,16 @@ export const GiftCards: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={deactivateTarget !== null}
+        onClose={() => setDeactivateTarget(null)}
+        onConfirm={() => deactivateTarget && handleDeactivate(deactivateTarget)}
+        title="Deactivate gift card?"
+        message={`Gift card ${deactivateTarget?.code || ''} will no longer be usable for payments.`}
+        destructive
+        confirmLabel="Deactivate"
+      />
     </div>
   );
 };

@@ -31,6 +31,8 @@ import {
 } from '@/components/ui/Table';
 import { financialService, expenseService, reportService } from '@/services/api';
 import { formatDate, buildCsv, downloadCsv } from '@/lib/utils';
+import { PageHeader } from '@/components/common/PageHeader';
+import { EmptyState } from '@/components/common/EmptyState';
 import toast from 'react-hot-toast';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import type { ExpenseReportData, Expense } from '@/types';
@@ -303,18 +305,16 @@ export const Financial: React.FC = () => {
 
   return (
     <div className="p-8">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Financial Management</h1>
-          <p className="text-muted-foreground">
-            Manage expenses, budgets, and financial reports
-          </p>
-        </div>
-        <Button onClick={fetchData} variant="outline">
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Financial Management"
+        subtitle="Manage expenses, budgets, and financial reports"
+        actions={
+          <Button onClick={fetchData} variant="outline">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+        }
+      />
 
       {/* Tab Navigation */}
       <div className="flex gap-2 mb-6">
@@ -580,8 +580,12 @@ export const Financial: React.FC = () => {
                   <TableBody>
                     {filteredExpenses.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                          No expenses found
+                        <TableCell colSpan={9}>
+                          <EmptyState
+                            icon={DollarSign}
+                            title="No expenses found"
+                            hint="Try widening the date range or clearing filters"
+                          />
                         </TableCell>
                       </TableRow>
                     ) : (

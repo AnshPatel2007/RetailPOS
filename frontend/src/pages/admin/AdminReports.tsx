@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { locationService } from '@/services/api';
 import { formatCurrency, buildCsv, downloadCsv, CHART_COLORS } from '@/lib/utils';
+import { PageHeader } from '@/components/common/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ExportPreviewModal } from '@/components/reports/ExportPreviewModal';
@@ -146,35 +147,32 @@ export const AdminReports: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Cross-Location Reports</h1>
-          <p className="text-muted-foreground">
-            Compare performance across all stores
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <select
-            value={period}
-            onChange={(e) => setPeriod(parseInt(e.target.value))}
-            className="px-3 py-2 border border-input rounded-md bg-background text-foreground"
-          >
-            <option value={7}>Last 7 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={90}>Last 90 days</option>
-            <option value={365}>Last year</option>
-          </select>
-          <Button variant="outline" onClick={loadData}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-          <Button onClick={() => setShowExportPreview(true)}>
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Cross-Location Reports"
+        subtitle="Compare performance across all stores"
+        actions={
+          <>
+            <select
+              value={period}
+              onChange={(e) => setPeriod(parseInt(e.target.value))}
+              className="px-3 py-2 border border-input rounded-md bg-background text-foreground"
+            >
+              <option value={7}>Last 7 days</option>
+              <option value={30}>Last 30 days</option>
+              <option value={90}>Last 90 days</option>
+              <option value={365}>Last year</option>
+            </select>
+            <Button variant="outline" onClick={loadData}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+            <Button onClick={() => setShowExportPreview(true)}>
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+          </>
+        }
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">

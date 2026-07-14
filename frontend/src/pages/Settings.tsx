@@ -18,6 +18,7 @@ import {
 import { hardware, HardwareSettings } from '@/services/hardware';
 import { userService } from '@/services/api';
 import { TwoFactorCard } from '@/components/settings/TwoFactorCard';
+import { PageHeader } from '@/components/common/PageHeader';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import toast from 'react-hot-toast';
 
@@ -243,12 +244,10 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="p-8">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2">Settings</h1>
-        <p className="text-muted-foreground">
-          {isAdmin ? 'Configure your POS system' : 'Manage your profile settings'}
-        </p>
-      </div>
+      <PageHeader
+        title="Settings"
+        subtitle={isAdmin ? 'Configure your POS system' : 'Manage your profile settings'}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Store Settings — Admin only */}
