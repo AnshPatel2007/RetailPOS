@@ -99,7 +99,7 @@ describe('Product API Integration Tests', () => {
         expect(data.sku).toBe('CREATED-001');
       });
 
-      const inDb = await prisma.product.findUnique({ where: { sku: 'CREATED-001' } });
+      const inDb = await prisma.product.findFirst({ where: { sku: 'CREATED-001' } });
       expect(inDb).not.toBeNull();
       expect(inDb!.stockQuantity).toBe(25);
     });

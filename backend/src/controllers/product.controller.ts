@@ -180,29 +180,31 @@ export const getProduct = asyncHandler(async (req: AuthRequest, res: Response) =
 export const createProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   const data = req.body;
 
-  // Check if SKU already exists
-  const existingProduct = await prisma.product.findUnique({
-    where: { sku: data.sku },
+  // Set locationId from authenticated user (non-SUPER_ADMIN always scoped to
+  // their own store; SUPER_ADMIN may leave it unset for a chain-wide product)
+  if (req.user?.locationId) {
+    data.locationId = req.user.locationId;
+  }
+  const targetLocationId = data.locationId ?? null;
+
+  // Check if SKU already exists — SKU is unique per-store, not globally
+  const existingProduct = await prisma.product.findFirst({
+    where: { sku: data.sku, locationId: targetLocationId },
   });
 
   if (existingProduct) {
     throw new AppError('Product with this SKU already exists', 400);
   }
 
-  // Check barcode uniqueness
+  // Check barcode uniqueness (same per-store scope)
   if (data.barcode) {
-    const existingBarcode = await prisma.product.findUnique({
-      where: { barcode: data.barcode },
+    const existingBarcode = await prisma.product.findFirst({
+      where: { barcode: data.barcode, locationId: targetLocationId },
     });
 
     if (existingBarcode) {
       throw new AppError('Product with this barcode already exists', 400);
     }
-  }
-
-  // Set locationId from authenticated user
-  if (req.user?.locationId) {
-    data.locationId = req.user.locationId;
   }
 
   const product = await prisma.product.create({
@@ -251,10 +253,10 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     throw new AppError('Product not found', 404);
   }
 
-  // Check SKU uniqueness if changing
+  // Check SKU uniqueness if changing — scoped to the product's own store
   if (data.sku && data.sku !== product.sku) {
-    const existingSku = await prisma.product.findUnique({
-      where: { sku: data.sku },
+    const existingSku = await prisma.product.findFirst({
+      where: { sku: data.sku, locationId: product.locationId },
     });
 
     if (existingSku) {
@@ -262,10 +264,10 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     }
   }
 
-  // Check barcode uniqueness if changing
+  // Check barcode uniqueness if changing (same per-store scope)
   if (data.barcode && data.barcode !== product.barcode) {
-    const existingBarcode = await prisma.product.findUnique({
-      where: { barcode: data.barcode },
+    const existingBarcode = await prisma.product.findFirst({
+      where: { barcode: data.barcode, locationId: product.locationId },
     });
 
     if (existingBarcode) {

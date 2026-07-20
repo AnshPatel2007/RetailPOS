@@ -49,7 +49,6 @@ export interface TestData {
   supplier: any;
   customer: any;
   product: any;
-  taxRate: any;
 }
 
 export async function seedTestData(): Promise<TestData> {
@@ -64,6 +63,7 @@ export async function seedTestData(): Promise<TestData> {
       zipCode: '12345',
       phone: '555-0001',
       email: 'test@store.com',
+      taxRate: 10,
       isActive: true,
     },
   });
@@ -143,16 +143,6 @@ export async function seedTestData(): Promise<TestData> {
     },
   });
 
-  // Default tax rate (sales tax math depends on it)
-  const taxRate = await prisma.taxRate.create({
-    data: {
-      name: 'Test Tax',
-      rate: 10,
-      isDefault: true,
-      isActive: true,
-    },
-  });
-
   return {
     location,
     adminUser,
@@ -161,7 +151,6 @@ export async function seedTestData(): Promise<TestData> {
     supplier,
     customer,
     product,
-    taxRate,
   };
 }
 

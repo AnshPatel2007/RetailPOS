@@ -8,38 +8,38 @@ datasource db {
 }
 
 model User {
-  id                   String              @id @default(uuid())
-  email                String              @unique
-  password             String
-  firstName            String
-  lastName             String
-  role                 UserRole            @default(CASHIER)
-  isActive             Boolean             @default(true)
-  locationId           String?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  lastLoginAt          DateTime?
-  failedLoginAttempts  Int                 @default(0)
-  lockoutUntil         DateTime?
-  passwordResetExpires DateTime?
-  passwordResetToken   String?
-  twoFactorBackupCodes String[]            @default([])
-  twoFactorEnabled     Boolean             @default(false)
-  twoFactorSecret      String?
-  activityLogs         ActivityLog[]
-  expenses             Expense[]
-  refreshTokens        RefreshToken[]
-  sales                Sale[]
-  shifts               Shift[]
-  location             Location?           @relation(fields: [locationId], references: [id])
-  recurringExpenses    RecurringExpense[]
-  lotteryBatches               LotteryBatch[]
-  lotteryTransactions          LotteryTransaction[]
-  lotteryScans                 LotteryTicketScan[]
-  lotteryDailyEntriesCreated   LotteryDailyEntry[]  @relation("DailyEntryCreator")
-  lotteryDailyEntriesEdited    LotteryDailyEntry[]  @relation("DailyEntryEditor")
-  lotteryDaysClosedBy          LotteryDayStatus[]   @relation("DayClosedBy")
-  lotteryDaysReopenedBy        LotteryDayStatus[]   @relation("DayReopenedBy")
+  id                         String               @id @default(uuid())
+  email                      String               @unique
+  password                   String
+  firstName                  String
+  lastName                   String
+  role                       UserRole             @default(CASHIER)
+  isActive                   Boolean              @default(true)
+  locationId                 String?
+  createdAt                  DateTime             @default(now())
+  updatedAt                  DateTime             @updatedAt
+  lastLoginAt                DateTime?
+  failedLoginAttempts        Int                  @default(0)
+  lockoutUntil               DateTime?
+  passwordResetExpires       DateTime?
+  passwordResetToken         String?
+  twoFactorBackupCodes       String[]             @default([])
+  twoFactorEnabled           Boolean              @default(false)
+  twoFactorSecret            String?
+  activityLogs               ActivityLog[]
+  expenses                   Expense[]
+  refreshTokens              RefreshToken[]
+  sales                      Sale[]
+  shifts                     Shift[]
+  location                   Location?            @relation(fields: [locationId], references: [id])
+  recurringExpenses          RecurringExpense[]
+  lotteryBatches             LotteryBatch[]
+  lotteryTransactions        LotteryTransaction[]
+  lotteryScans               LotteryTicketScan[]
+  lotteryDailyEntriesCreated LotteryDailyEntry[]  @relation("DailyEntryCreator")
+  lotteryDailyEntriesEdited  LotteryDailyEntry[]  @relation("DailyEntryEditor")
+  lotteryDaysClosedBy        LotteryDayStatus[]   @relation("DayClosedBy")
+  lotteryDaysReopenedBy      LotteryDayStatus[]   @relation("DayReopenedBy")
 
   @@index([email])
   @@index([locationId])
@@ -65,31 +65,31 @@ model RefreshToken {
 }
 
 model Location {
-  id                String             @id @default(uuid())
-  name              String
-  address           String
-  city              String
-  state             String
-  zipCode           String
-  country           String             @default("US")
-  phone             String
-  email             String
-  taxRate           Float              @default(0)
-  cardSurchargePercent Float           @default(0) // card surcharge / cash-discount program (0 = off)
-  isActive          Boolean            @default(true)
-  businessHours     Json?
-  settings          Json?
-  currency          String             @default("USD")
-  timezone          String             @default("America/New_York")
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  expenses          Expense[]
-  products          Product[]
-  sales             Sale[]
-  shifts            Shift[]
-  users             User[]
-  budgets           Budget[]
-  recurringExpenses RecurringExpense[]
+  id                   String               @id @default(uuid())
+  name                 String
+  address              String
+  city                 String
+  state                String
+  zipCode              String
+  country              String               @default("US")
+  phone                String
+  email                String
+  taxRate              Float                @default(0)
+  cardSurchargePercent Float                @default(0) // card surcharge / cash-discount program (0 = off)
+  isActive             Boolean              @default(true)
+  businessHours        Json?
+  settings             Json?
+  currency             String               @default("USD")
+  timezone             String               @default("America/New_York")
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  expenses             Expense[]
+  products             Product[]
+  sales                Sale[]
+  shifts               Shift[]
+  users                User[]
+  budgets              Budget[]
+  recurringExpenses    RecurringExpense[]
   lotteryBatches       LotteryBatch[]
   lotteryTransactions  LotteryTransaction[]
   lotteryScans         LotteryTicketScan[]
@@ -109,48 +109,52 @@ model Category {
   parentId    String?
   sortOrder   Int        @default(0)
   isActive    Boolean    @default(true)
+  locationId  String? // null = shared across all locations
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
   children    Category[] @relation("CategoryHierarchy")
   products    Product[]
 
+  @@index([locationId])
   @@map("categories")
 }
 
 model Product {
-  id             String            @id @default(uuid())
-  sku            String            @unique
-  name           String
-  description    String?
-  categoryId     String?
-  cost           Float             @default(0)
-  price          Float
-  compareAtPrice Float?
-  trackInventory Boolean           @default(true)
-  stockQuantity  Int               @default(0)
-  lowStockAlert  Int               @default(10)
-  barcode        String?           @unique
-  image          String?
-  images         Json?
-  isActive       Boolean           @default(true)
-  isTaxable      Boolean           @default(true)
-  allowBackorder Boolean           @default(false)
-  minimumAge     Int? // age-restricted item (18/21) — checkout requires a logged verification
-  ebtEligible    Boolean           @default(false) // SNAP/EBT-eligible; caps EBT tender server-side
-  priceEmbedded  Boolean           @default(false) // sold via 2-prefix price-embedded barcodes (deli/scale)
-  locationId     String?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  inventoryLogs  InventoryLog[]
-  suppliers      ProductSupplier[]
-  variants       ProductVariant[]
-  category       Category?         @relation(fields: [categoryId], references: [id])
-  location       Location?         @relation(fields: [locationId], references: [id])
+  id              String            @id @default(uuid())
+  sku             String
+  name            String
+  description     String?
+  categoryId      String?
+  cost            Float             @default(0)
+  price           Float
+  compareAtPrice  Float?
+  trackInventory  Boolean           @default(true)
+  stockQuantity   Int               @default(0)
+  lowStockAlert   Int               @default(10)
+  barcode         String?
+  image           String?
+  images          Json?
+  isActive        Boolean           @default(true)
+  isTaxable       Boolean           @default(true)
+  allowBackorder  Boolean           @default(false)
+  minimumAge      Int? // age-restricted item (18/21) — checkout requires a logged verification
+  ebtEligible     Boolean           @default(false) // SNAP/EBT-eligible; caps EBT tender server-side
+  priceEmbedded   Boolean           @default(false) // sold via 2-prefix price-embedded barcodes (deli/scale)
+  locationId      String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  inventoryLogs   InventoryLog[]
+  suppliers       ProductSupplier[]
+  variants        ProductVariant[]
+  category        Category?         @relation(fields: [categoryId], references: [id])
+  location        Location?         @relation(fields: [locationId], references: [id])
   saleItems       SaleItem[]
   transferItems   TransferItem[]
   cycleCountItems CycleCountItem[]
 
+  @@unique([sku, locationId])
+  @@unique([barcode, locationId])
   @@index([sku])
   @@index([barcode])
   @@index([categoryId])
@@ -190,11 +194,13 @@ model Supplier {
   leadTimeDays   Int?
   minimumOrder   Float?
   isActive       Boolean           @default(true)
+  locationId     String? // null = shared across all locations
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   products       ProductSupplier[]
   purchaseOrders PurchaseOrder[]
 
+  @@index([locationId])
   @@map("suppliers")
 }
 
@@ -222,6 +228,7 @@ model PurchaseOrder {
   status      String              @default("PENDING")
   totalAmount Float               @default(0)
   notes       String?
+  locationId  String? // null = shared across all locations
   orderedAt   DateTime?
   expectedAt  DateTime?
   receivedAt  DateTime?
@@ -230,6 +237,7 @@ model PurchaseOrder {
   items       PurchaseOrderItem[]
   supplier    Supplier            @relation(fields: [supplierId], references: [id])
 
+  @@index([locationId])
   @@map("purchase_orders")
 }
 
@@ -267,36 +275,36 @@ model InventoryLog {
 }
 
 model Sale {
-  id            String        @id @default(uuid())
-  saleNumber    String        @unique
-  customerId    String?
-  userId        String
-  locationId    String?
-  subtotal      Float         @default(0)
-  tax           Float         @default(0)
-  discount      Float         @default(0)
-  surcharge     Float         @default(0) // card surcharge collected (included in total)
-  total         Float         @default(0)
-  paymentMethod PaymentMethod
-  amountPaid    Float         @default(0)
-  changeDue     Float         @default(0)
-  status        SaleStatus    @default(COMPLETED)
-  notes         String?
-  receiptNumber String?
-  receiptEmail  String?
+  id             String        @id @default(uuid())
+  saleNumber     String        @unique
+  customerId     String?
+  userId         String
+  locationId     String?
+  subtotal       Float         @default(0)
+  tax            Float         @default(0)
+  discount       Float         @default(0)
+  surcharge      Float         @default(0) // card surcharge collected (included in total)
+  total          Float         @default(0)
+  paymentMethod  PaymentMethod
+  amountPaid     Float         @default(0)
+  changeDue      Float         @default(0)
+  status         SaleStatus    @default(COMPLETED)
+  notes          String?
+  receiptNumber  String?
+  receiptEmail   String?
   shiftId        String?
   idempotencyKey String?       @unique
   createdAt      DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  completedAt   DateTime?
-  refundedAt    DateTime?
-  refunds       Refund[]
-  items         SaleItem[]
-  payments      SalePayment[]
-  customer      Customer?     @relation(fields: [customerId], references: [id])
-  location      Location?     @relation(fields: [locationId], references: [id])
-  shift         Shift?        @relation(fields: [shiftId], references: [id])
-  user          User          @relation(fields: [userId], references: [id])
+  updatedAt      DateTime      @updatedAt
+  completedAt    DateTime?
+  refundedAt     DateTime?
+  refunds        Refund[]
+  items          SaleItem[]
+  payments       SalePayment[]
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+  location       Location?     @relation(fields: [locationId], references: [id])
+  shift          Shift?        @relation(fields: [shiftId], references: [id])
+  user           User          @relation(fields: [userId], references: [id])
 
   @@index([saleNumber])
   @@index([customerId])
@@ -308,25 +316,25 @@ model Sale {
 }
 
 model SaleItem {
-  id          String   @id @default(uuid())
-  saleId      String
-  productId   String
-  sku         String
-  productName String
-  quantity    Int      @default(1)
-  price       Float
-  discount    Float    @default(0)
-  tax         Float    @default(0)
-  total       Float
-  notes       String?
+  id                String       @id @default(uuid())
+  saleId            String
+  productId         String
+  sku               String
+  productName       String
+  quantity          Int          @default(1)
+  price             Float
+  discount          Float        @default(0)
+  tax               Float        @default(0)
+  total             Float
+  notes             String?
   promotionId       String? // promotion applied to this line (denormalized — promo may be edited/deleted later)
   promotionName     String?
-  promotionDiscount Float   @default(0) // portion of `discount` contributed by the promotion
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  product     Product  @relation(fields: [productId], references: [id])
-  sale        Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  refundItems RefundItem[]
+  promotionDiscount Float        @default(0) // portion of `discount` contributed by the promotion
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  product           Product      @relation(fields: [productId], references: [id])
+  sale              Sale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  refundItems       RefundItem[]
 
   @@index([saleId])
   @@index([productId])
@@ -353,8 +361,8 @@ model Refund {
   reason     String
   notes      String?
   refundedBy String
-  method     String?      // CASH, CARD, GIFT_CARD, STORE_CREDIT — where the money went back to
-  reference  String?      // gift card code when method = GIFT_CARD
+  method     String? // CASH, CARD, GIFT_CARD, STORE_CREDIT — where the money went back to
+  reference  String? // gift card code when method = GIFT_CARD
   createdAt  DateTime     @default(now())
   sale       Sale         @relation(fields: [saleId], references: [id])
   items      RefundItem[]
@@ -380,37 +388,39 @@ model RefundItem {
 }
 
 model Customer {
-  id                 String              @id @default(uuid())
-  email              String?             @unique
-  phone              String?             @unique
-  firstName          String
-  lastName           String
-  address            String?
-  city               String?
-  state              String?
-  zipCode            String?
-  country            String?
-  emailMarketing     Boolean             @default(false)
-  smsMarketing       Boolean             @default(false)
-  tags               String[]            @default([])
+  id                  String              @id @default(uuid())
+  email               String?             @unique
+  phone               String?             @unique
+  firstName           String
+  lastName            String
+  address             String?
+  city                String?
+  state               String?
+  zipCode             String?
+  country             String?
+  emailMarketing      Boolean             @default(false)
+  smsMarketing        Boolean             @default(false)
+  tags                String[]            @default([])
   birthDate           DateTime? // birthday perks (month/day is what matters)
   lastBirthdayEmailAt DateTime? // resend guard — one birthday email per year
-  loyaltyPoints      Int                 @default(0)
-  loyaltyTier        String              @default("BRONZE")
-  totalSpent         Float               @default(0)
-  visitCount         Int                 @default(0)
-  notes              String?
-  isActive           Boolean             @default(true)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  lastVisitAt        DateTime?
-  sales              Sale[]
-  giftCards          GiftCard[]
-  storeCreditAccount StoreCreditAccount?
-  houseAccount       HouseAccount?
+  loyaltyPoints       Int                 @default(0)
+  loyaltyTier         String              @default("BRONZE")
+  totalSpent          Float               @default(0)
+  visitCount          Int                 @default(0)
+  notes               String?
+  isActive            Boolean             @default(true)
+  locationId          String? // null = shared across all locations
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  lastVisitAt         DateTime?
+  sales               Sale[]
+  giftCards           GiftCard[]
+  storeCreditAccount  StoreCreditAccount?
+  houseAccount        HouseAccount?
 
   @@index([email])
   @@index([phone])
+  @@index([locationId])
   @@map("customers")
 }
 
@@ -422,6 +432,7 @@ model GiftCard {
   isActive       Boolean               @default(true)
   expiresAt      DateTime?
   customerId     String?
+  locationId     String? // issuing store; null = valid at all locations
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
   customer       Customer?             @relation(fields: [customerId], references: [id])
@@ -429,20 +440,21 @@ model GiftCard {
 
   @@index([code])
   @@index([customerId])
+  @@index([locationId])
   @@map("gift_cards")
 }
 
 model GiftCardTransaction {
-  id           String   @id @default(uuid())
-  giftCardId   String
-  type         String   // ISSUE, RELOAD, REDEEM, REFUND
-  amount       Float
+  id            String   @id @default(uuid())
+  giftCardId    String
+  type          String // ISSUE, RELOAD, REDEEM, REFUND
+  amount        Float
   balanceBefore Float
-  balanceAfter Float
-  saleId       String?
-  notes        String?
-  createdAt    DateTime @default(now())
-  giftCard     GiftCard @relation(fields: [giftCardId], references: [id], onDelete: Cascade)
+  balanceAfter  Float
+  saleId        String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  giftCard      GiftCard @relation(fields: [giftCardId], references: [id], onDelete: Cascade)
 
   @@index([giftCardId])
   @@index([saleId])
@@ -450,28 +462,30 @@ model GiftCardTransaction {
 }
 
 model StoreCreditAccount {
-  id           String                    @id @default(uuid())
-  customerId   String                    @unique
-  balance      Float                     @default(0)
-  createdAt    DateTime                  @default(now())
-  updatedAt    DateTime                  @updatedAt
-  customer     Customer                  @relation(fields: [customerId], references: [id])
+  id           String                   @id @default(uuid())
+  customerId   String                   @unique
+  balance      Float                    @default(0)
+  locationId   String? // null = shared across all locations
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  customer     Customer                 @relation(fields: [customerId], references: [id])
   transactions StoreCreditTransaction[]
 
+  @@index([locationId])
   @@map("store_credit_accounts")
 }
 
 model StoreCreditTransaction {
-  id           String             @id @default(uuid())
-  accountId    String
-  type         String             // CREDIT, DEBIT, REFUND
-  amount       Float
+  id            String             @id @default(uuid())
+  accountId     String
+  type          String // CREDIT, DEBIT, REFUND
+  amount        Float
   balanceBefore Float
-  balanceAfter Float
-  saleId       String?
-  notes        String?
-  createdAt    DateTime           @default(now())
-  account      StoreCreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  balanceAfter  Float
+  saleId        String?
+  notes         String?
+  createdAt     DateTime           @default(now())
+  account       StoreCreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId])
   @@index([saleId])
@@ -479,16 +493,18 @@ model StoreCreditTransaction {
 }
 
 model HouseAccount {
-  id           String   @id @default(uuid())
-  customerId   String   @unique
-  creditLimit  Float    @default(0)
-  balance      Float    @default(0) // amount the customer currently owes
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  customer     Customer @relation(fields: [customerId], references: [id])
+  id           String                    @id @default(uuid())
+  customerId   String                    @unique
+  creditLimit  Float                     @default(0)
+  balance      Float                     @default(0) // amount the customer currently owes
+  isActive     Boolean                   @default(true)
+  locationId   String? // null = shared across all locations
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  customer     Customer                  @relation(fields: [customerId], references: [id])
   transactions HouseAccountTransaction[]
 
+  @@index([locationId])
   @@map("house_accounts")
 }
 
@@ -511,22 +527,24 @@ model HouseAccountTransaction {
 }
 
 model Exchange {
-  id             String   @id @default(uuid())
-  exchangeNumber String   @unique
-  originalSaleId String
-  newSaleId      String?
-  type           String   // RETURN_ONLY, EXCHANGE, RETURN_FOR_CREDIT
-  status         String   @default("PENDING") // PENDING, COMPLETED, CANCELLED
-  reason         String
-  returnedItems  Json     // [{productId, quantity, price}]
-  priceDifference Float   @default(0)
-  notes          String?
-  processedBy    String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(uuid())
+  exchangeNumber  String   @unique
+  originalSaleId  String
+  newSaleId       String?
+  type            String // RETURN_ONLY, EXCHANGE, RETURN_FOR_CREDIT
+  status          String   @default("PENDING") // PENDING, COMPLETED, CANCELLED
+  reason          String
+  returnedItems   Json // [{productId, quantity, price}]
+  priceDifference Float    @default(0)
+  notes           String?
+  processedBy     String
+  locationId      String? // denormalized from the original sale's location
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([originalSaleId])
   @@index([exchangeNumber])
+  @@index([locationId])
   @@map("exchanges")
 }
 
@@ -586,17 +604,17 @@ model CycleCount {
 }
 
 model CycleCountItem {
-  id          String     @id @default(uuid())
+  id           String     @id @default(uuid())
   cycleCountId String
-  productId   String
-  expectedQty Int
-  countedQty  Int?
-  discrepancy Int?
-  notes       String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  cycleCount  CycleCount @relation(fields: [cycleCountId], references: [id], onDelete: Cascade)
-  product     Product    @relation(fields: [productId], references: [id])
+  productId    String
+  expectedQty  Int
+  countedQty   Int?
+  discrepancy  Int?
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  cycleCount   CycleCount @relation(fields: [cycleCountId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id])
 
   @@index([cycleCountId])
   @@index([productId])
@@ -604,25 +622,25 @@ model CycleCountItem {
 }
 
 model Shift {
-  id                String    @id @default(uuid())
+  id                String         @id @default(uuid())
   userId            String
   locationId        String?
   clockInAt         DateTime
   clockOutAt        DateTime?
-  startingCash      Float     @default(0)
+  startingCash      Float          @default(0)
   endingCash        Float?
   expectedCash      Float?
   cashDifference    Float?
-  totalSales        Float     @default(0)
-  totalTransactions Int       @default(0)
-  isClosed          Boolean   @default(false)
+  totalSales        Float          @default(0)
+  totalTransactions Int            @default(0)
+  isClosed          Boolean        @default(false)
   notes             String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
   sales             Sale[]
   cashMovements     CashMovement[]
-  location          Location? @relation(fields: [locationId], references: [id])
-  user              User      @relation(fields: [userId], references: [id])
+  location          Location?      @relation(fields: [locationId], references: [id])
+  user              User           @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([locationId])
@@ -732,18 +750,6 @@ model Setting {
   @@map("settings")
 }
 
-model TaxRate {
-  id        String   @id @default(uuid())
-  name      String
-  rate      Float
-  isDefault Boolean  @default(false)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("tax_rates")
-}
-
 model Discount {
   id          String    @id @default(uuid())
   code        String    @unique
@@ -815,18 +821,18 @@ model Promotion {
 }
 
 model Budget {
-  id          String          @id @default(uuid())
-  category    ExpenseCategory
-  amount      Float
-  period      BudgetPeriod    @default(MONTHLY)
-  startDate   DateTime
-  endDate     DateTime?
-  locationId  String?
-  isActive    Boolean         @default(true)
-  alertAt     Float?          // Alert when spending reaches this percentage (e.g., 80)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  location    Location?       @relation(fields: [locationId], references: [id])
+  id         String          @id @default(uuid())
+  category   ExpenseCategory
+  amount     Float
+  period     BudgetPeriod    @default(MONTHLY)
+  startDate  DateTime
+  endDate    DateTime?
+  locationId String?
+  isActive   Boolean         @default(true)
+  alertAt    Float? // Alert when spending reaches this percentage (e.g., 80)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  location   Location?       @relation(fields: [locationId], references: [id])
 
   @@unique([category, period, startDate, locationId])
   @@index([category])
@@ -835,25 +841,25 @@ model Budget {
 }
 
 model RecurringExpense {
-  id            String          @id @default(uuid())
+  id            String             @id @default(uuid())
   description   String
   category      ExpenseCategory
   amount        Float
   vendor        String?
   frequency     RecurringFrequency
-  dayOfMonth    Int?            // For MONTHLY: which day (1-31)
-  dayOfWeek     Int?            // For WEEKLY: which day (0-6)
+  dayOfMonth    Int? // For MONTHLY: which day (1-31)
+  dayOfWeek     Int? // For WEEKLY: which day (0-6)
   startDate     DateTime
   endDate       DateTime?
   nextDueDate   DateTime
   locationId    String?
   userId        String
-  isActive      Boolean         @default(true)
+  isActive      Boolean            @default(true)
   lastGenerated DateTime?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  location      Location?       @relation(fields: [locationId], references: [id])
-  user          User            @relation(fields: [userId], references: [id])
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  location      Location?          @relation(fields: [locationId], references: [id])
+  user          User               @relation(fields: [userId], references: [id])
 
   @@index([nextDueDate])
   @@index([category])
@@ -862,16 +868,16 @@ model RecurringExpense {
 }
 
 model AccountingExport {
-  id          String       @id @default(uuid())
+  id          String     @id @default(uuid())
   type        ExportType
-  format      String       // CSV, QBO, XLS
+  format      String // CSV, QBO, XLS
   startDate   DateTime
   endDate     DateTime
-  status      String       @default("COMPLETED")
+  status      String     @default("COMPLETED")
   fileUrl     String?
-  recordCount Int          @default(0)
+  recordCount Int        @default(0)
   userId      String
-  createdAt   DateTime     @default(now())
+  createdAt   DateTime   @default(now())
 
   @@index([type])
   @@index([createdAt])
@@ -969,7 +975,7 @@ enum LotteryTransactionStatus {
 }
 
 model LotteryBatch {
-  id               String             @id @default(uuid())
+  id               String              @id @default(uuid())
   batchNumber      String
   gameType         String
   startTicketNum   String
@@ -977,16 +983,16 @@ model LotteryBatch {
   totalTickets     Int
   remainingTickets Int
   pricePerTicket   Float
-  status           LotteryBatchStatus @default(ACTIVE)
+  status           LotteryBatchStatus  @default(ACTIVE)
   activatedAt      DateTime?
   depletedAt       DateTime?
   notes            String?
   userId           String
   locationId       String?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-  user             User               @relation(fields: [userId], references: [id])
-  location         Location?          @relation(fields: [locationId], references: [id])
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  user             User                @relation(fields: [userId], references: [id])
+  location         Location?           @relation(fields: [locationId], references: [id])
   scans            LotteryTicketScan[]
 
   @@index([locationId])
@@ -995,25 +1001,25 @@ model LotteryBatch {
 }
 
 model LotteryTransaction {
-  id                String                   @id @default(uuid())
-  transactionDate   DateTime
-  onlineSalesCount  Int                      @default(0)
-  onlineSalesAmount Float                    @default(0)
-  offlineSalesCount Int                      @default(0)
-  offlineSalesAmount Float                   @default(0)
-  cashoutAmount     Float                    @default(0)
-  netAmount         Float                    @default(0)
-  status            LotteryTransactionStatus @default(OPEN)
-  closedAt          DateTime?
-  closedBy          String?
-  notes             String?
-  userId            String
-  locationId        String?
-  createdAt         DateTime                 @default(now())
-  updatedAt         DateTime                 @updatedAt
-  user              User                     @relation(fields: [userId], references: [id])
-  location          Location?                @relation(fields: [locationId], references: [id])
-  scans             LotteryTicketScan[]
+  id                 String                   @id @default(uuid())
+  transactionDate    DateTime
+  onlineSalesCount   Int                      @default(0)
+  onlineSalesAmount  Float                    @default(0)
+  offlineSalesCount  Int                      @default(0)
+  offlineSalesAmount Float                    @default(0)
+  cashoutAmount      Float                    @default(0)
+  netAmount          Float                    @default(0)
+  status             LotteryTransactionStatus @default(OPEN)
+  closedAt           DateTime?
+  closedBy           String?
+  notes              String?
+  userId             String
+  locationId         String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  user               User                     @relation(fields: [userId], references: [id])
+  location           Location?                @relation(fields: [locationId], references: [id])
+  scans              LotteryTicketScan[]
 
   @@unique([transactionDate, locationId], name: "transactionDate_locationId")
   @@index([locationId])

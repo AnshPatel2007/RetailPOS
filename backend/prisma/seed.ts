@@ -313,29 +313,6 @@ async function main() {
 
   console.log('✅ Created suppliers');
 
-  // Create tax rates
-  await prisma.taxRate.createMany({
-    data: [
-      {
-        name: 'Standard Tax',
-        rate: 8.875,
-        isDefault: true,
-      },
-      {
-        name: 'Reduced Tax',
-        rate: 4.0,
-        isDefault: false,
-      },
-      {
-        name: 'No Tax',
-        rate: 0,
-        isDefault: false,
-      },
-    ],
-  });
-
-  console.log('✅ Created tax rates');
-
   // Create discounts
   await prisma.discount.createMany({
     data: [

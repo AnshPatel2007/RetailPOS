@@ -21,7 +21,7 @@ function calculateLoyaltyTier(points: number): string {
 /**
  * Generate unique sale number
  */
-const generateSaleNumber = async (): Promise<string> => {
+const generateSaleNumber = async (locationId: string | null): Promise<string> => {
   const date = new Date();
   const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
   const count = await prisma.sale.count({
@@ -29,6 +29,7 @@ const generateSaleNumber = async (): Promise<string> => {
       createdAt: {
         gte: new Date(date.setHours(0, 0, 0, 0)),
       },
+      ...(locationId ? { locationId } : {}),
     },
   });
   return `SALE-${dateStr}-${(count + 1).toString().padStart(4, '0')}`;
@@ -72,27 +73,41 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     throw new AppError('You must clock in before creating a sale', 400);
   }
 
-  // Fetch default tax rate once for the whole transaction (not per item)
-  const defaultTaxRate = await prisma.taxRate.findFirst({
-    where: { isDefault: true, isActive: true },
-  });
+  // Card surcharge rate + tax rate both come from the location config, never
+  // from the register — fetched once for the whole transaction (not per item)
+  let locationTaxRate = 0;
+  let surchargeRate = 0;
+  if (req.user.locationId) {
+    const loc = await prisma.location.findUnique({
+      where: { id: req.user.locationId },
+      select: { cardSurchargePercent: true, taxRate: true },
+    });
+    surchargeRate = loc?.cardSurchargePercent || 0;
+    locationTaxRate = loc?.taxRate || 0;
+  }
 
   // Separate misc items (no real productId) from regular items
   const regularItems = items.filter((item: any) => item.productId && !item.productId.startsWith('misc-'));
   const miscItems = items.filter((item: any) => !item.productId || item.productId.startsWith('misc-'));
 
-  // Batch-fetch all real products at once (avoids N+1 queries)
+  // Batch-fetch all real products at once (avoids N+1 queries) — scoped to the
+  // cashier's own store so a cart can't reference (and corrupt the stock of)
+  // another store's product
   const productIds = regularItems.map((item: any) => item.productId);
   const products = await prisma.product.findMany({
-    where: { id: { in: productIds } },
+    where: {
+      id: { in: productIds },
+      ...(req.user.locationId ? { locationId: req.user.locationId } : {}),
+    },
   });
   const productMap = new Map(products.map(p => [p.id, p]));
 
-  // Find or create a MISC product for ad-hoc items
+  // Find or create a MISC product for ad-hoc items — one per store, since
+  // Product.sku is now only unique per-location
   let miscProduct: any = null;
   if (miscItems.length > 0) {
     miscProduct = await prisma.product.findFirst({
-      where: { sku: 'MISC-001' },
+      where: { sku: 'MISC-001', locationId: req.user!.locationId },
     });
     if (!miscProduct) {
       miscProduct = await prisma.product.create({
@@ -190,17 +205,6 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
   // Track products that drop below low-stock threshold
   const lowStockProducts: { name: string; sku: string; stock: number; threshold: number }[] = [];
 
-  // Card surcharge rate (cash-discount program) comes from the location config,
-  // never from the register
-  let surchargeRate = 0;
-  if (req.user.locationId) {
-    const loc = await prisma.location.findUnique({
-      where: { id: req.user.locationId },
-      select: { cardSurchargePercent: true },
-    });
-    surchargeRate = loc?.cardSurchargePercent || 0;
-  }
-
   // Active promotions for this location — the server recomputes promo discounts
   // itself rather than trusting anything the register sends
   const promotionRows = await prisma.promotion.findMany({
@@ -237,13 +241,19 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
   // can generate the same number — retry with a fresh number on unique collision.
   let sale: any;
   for (let attempt = 1; ; attempt++) {
-    const saleNumber = await generateSaleNumber();
+    const saleNumber = await generateSaleNumber(req.user.locationId);
     try {
   // Create sale with transaction — re-fetch products inside to prevent race conditions
   sale = await prisma.$transaction(async (tx) => {
-    // Re-fetch all products INSIDE transaction for accurate stock
+    // Re-fetch all products INSIDE transaction for accurate stock — scoped to
+    // the cashier's own store, same as the pre-check fetch above
     const freshProducts = regularItems.length > 0
-      ? await tx.product.findMany({ where: { id: { in: productIds } } })
+      ? await tx.product.findMany({
+          where: {
+            id: { in: productIds },
+            ...(req.user!.locationId ? { locationId: req.user!.locationId } : {}),
+          },
+        })
       : [];
     const freshProductMap = new Map(freshProducts.map(p => [p.id, p]));
 
@@ -308,8 +318,8 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       const itemTotal = itemSubtotal - itemDiscount;
 
       let itemTax = 0;
-      if (product.isTaxable && defaultTaxRate) {
-        itemTax = Math.round((itemTotal * defaultTaxRate.rate) / 100 * 100) / 100;
+      if (product.isTaxable) {
+        itemTax = Math.round((itemTotal * locationTaxRate) / 100 * 100) / 100;
       }
 
       subtotal += itemSubtotal;
