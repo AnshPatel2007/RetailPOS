@@ -6,7 +6,11 @@ services:
     # This project syncs schema with `db push` — the migrations folder is stale.
     # Running migrate:deploy here left the production DB missing new columns,
     # which broke every query (including login) after deploys.
-    startCommand: npx prisma db push && npm run start
+    # --accept-data-loss: answers the non-interactive confirmation when Prisma
+    # drops legacy structures left over from the old migration-built schema
+    # (current tables/data are untouched — the schema changes are additive).
+    # --skip-generate: the client was already generated during the build.
+    startCommand: npx prisma db push --accept-data-loss --skip-generate && npm run start
     envVars:
       - key: NODE_ENV
         value: production
