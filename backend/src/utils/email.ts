@@ -3,6 +3,10 @@ import { config } from '../config';
 import { logger } from './logger';
 
 // Create reusable transporter
+// Explicit short timeouts: nodemailer's defaults are 2 minutes to connect and
+// 30s for the SMTP greeting, so a misconfigured host/port/secure combo (or an
+// unreachable network path) hangs the whole request for minutes instead of
+// failing with a clear, actionable error.
 const transporter = nodemailer.createTransport({
   host: config.email.host,
   port: config.email.port,
@@ -11,6 +15,9 @@ const transporter = nodemailer.createTransport({
     user: config.email.user,
     pass: config.email.pass,
   },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 15000,
 });
 
 interface EmailOptions {

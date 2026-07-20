@@ -71,7 +71,11 @@ export const Login: React.FC = () => {
       await authService.forgotPassword(forgotEmail);
       setForgotSent(true);
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to send reset email');
+      const message =
+        err.code === 'ECONNABORTED'
+          ? 'The request timed out. The email server may be unreachable — please try again shortly.'
+          : err.response?.data?.error || 'Failed to send reset email';
+      toast.error(message);
     } finally {
       setForgotSubmitting(false);
     }

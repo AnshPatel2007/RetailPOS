@@ -104,10 +104,13 @@ export const authService = {
 
   register: (data: any) => api.post('/auth/register', data),
 
-  forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
+  // Sending an email can be slow to fail (SMTP connection issues); bound it
+  // client-side too so the UI never appears to hang indefinitely.
+  forgotPassword: (email: string) =>
+    api.post('/auth/forgot-password', { email }, { timeout: 20000 }),
 
   resetPassword: (token: string, password: string) =>
-    api.post('/auth/reset-password', { token, password }),
+    api.post('/auth/reset-password', { token, password }, { timeout: 20000 }),
 };
 
 /**
