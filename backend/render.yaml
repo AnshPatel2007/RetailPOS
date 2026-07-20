@@ -26,9 +26,11 @@ services:
       - key: APP_URL
         sync: false
       # Required for "forgot password" / receipt emails to actually send.
-      # Leave these unset and every send attempt fails loudly in production
-      # (a real SMTP account is required — e.g. a Gmail address with an App
-      # Password, or any transactional email provider's SMTP credentials).
+      # Render blocks outbound SMTP entirely (confirmed: both 587 and 465
+      # time out at the TCP connect stage, regardless of credentials), so
+      # raw SMTP_* vars alone will NOT work here — set SENDGRID_API_KEY
+      # below, which sends over HTTPS instead. SMTP_* is still read as a
+      # fallback for local dev, where SMTP isn't blocked.
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -40,4 +42,9 @@ services:
       - key: SMTP_PASS
         sync: false
       - key: EMAIL_FROM
+        sync: false
+      # Sends email via SendGrid's HTTPS API instead of SMTP — required on
+      # Render since SMTP ports are blocked outbound. Get a free API key at
+      # sendgrid.com after verifying a "Single Sender" (no domain needed).
+      - key: SENDGRID_API_KEY
         sync: false

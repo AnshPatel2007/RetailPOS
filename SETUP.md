@@ -144,13 +144,24 @@ Outputs: `backend/dist/` and `frontend/dist/`
 with the code — usually after pulling new changes, or after running the stale migrations.
 Fix: `cd backend && npm run db:push`, then restart the backend.
 
-**"Forgot password" fails or the email never arrives:** the backend needs real SMTP
-credentials to send mail — without them, in production the request fails outright
-(you'll see "Failed to send password reset email"); nothing is sent silently either
-way. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and
-`EMAIL_FROM` in the backend's environment (a Gmail address with an
-[App Password](https://myaccount.google.com/apppasswords) works for testing; use a
-proper transactional provider — SendGrid, Mailgun, Postmark, etc. — for real users).
+**"Forgot password" fails or the email never arrives:** the backend needs a way to
+send mail — without one, in production the request fails outright (you'll see
+"Failed to send password reset email"); nothing is sent silently either way.
+
+- **On Render specifically**, outbound SMTP is blocked entirely (confirmed:
+  connections to `smtp.gmail.com` time out on both port 587 and 465, before
+  credentials are ever checked) — raw `SMTP_*` vars alone will not work. Set
+  `SENDGRID_API_KEY` instead: sign up at [sendgrid.com](https://sendgrid.com)
+  (free tier), verify a "Single Sender" email address (Settings → Sender
+  Authentication — no custom domain required), create an API key (Settings →
+  API Keys), and set `EMAIL_FROM` to that same verified sender address. Email
+  then sends over HTTPS, which isn't blocked.
+- **For local dev**, `SMTP_HOST`/`SMTP_PORT`/`SMTP_SECURE`/`SMTP_USER`/`SMTP_PASS`/
+  `EMAIL_FROM` still work directly (a Gmail address with an
+  [App Password](https://myaccount.google.com/apppasswords) is enough) — SMTP
+  isn't blocked on a home/dev network, and `SENDGRID_API_KEY` can simply be left
+  unset there.
+
 Also set `APP_URL` to your deployed frontend's URL (e.g.
 `https://your-app.vercel.app`) — otherwise, even once email sends, the reset link
 inside it points at `localhost` and does nothing for a real visitor. `APP_URL` falls

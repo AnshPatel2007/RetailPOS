@@ -39,6 +39,10 @@ export const config = {
     user: process.env.SMTP_USER || '',
     pass: process.env.SMTP_PASS || '',
     from: process.env.EMAIL_FROM || 'noreply@possystem.com',
+    // Many hosts (Render included) block outbound SMTP entirely, so raw SMTP
+    // only works reliably for local dev. When set, email.ts sends via
+    // SendGrid's HTTPS API instead, which isn't affected by SMTP port blocks.
+    sendgridApiKey: process.env.SENDGRID_API_KEY || '',
   },
 
   security: {

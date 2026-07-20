@@ -27,26 +27,60 @@ interface EmailOptions {
   text?: string;
 }
 
+// SendGrid's HTTPS API, used in place of SMTP when SENDGRID_API_KEY is set.
+const sendViaSendGrid = async (
+  to: string,
+  subject: string,
+  html: string,
+  text: string
+): Promise<void> => {
+  const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.email.sendgridApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: config.email.from, name: config.app.name },
+      subject,
+      content: [
+        { type: 'text/plain', value: text },
+        { type: 'text/html', value: html },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`SendGrid API error ${res.status}: ${body}`);
+  }
+};
+
 /**
  * Send an email
  */
 export const sendEmail = async (options: EmailOptions): Promise<void> => {
   try {
-    const mailOptions = {
-      from: `"${config.app.name}" <${config.email.from}>`,
-      to: options.to,
-      subject: options.subject,
-      html: options.html,
-      text: options.text || options.html.replace(/<[^>]*>/g, ''),
-    };
+    const text = options.text || options.html.replace(/<[^>]*>/g, '');
 
-    if (config.nodeEnv === 'development' && !config.email.user) {
+    if (config.nodeEnv === 'development' && !config.email.user && !config.email.sendgridApiKey) {
       logger.info(`[DEV] Email would be sent to ${options.to}: ${options.subject}`);
       logger.info(`[DEV] Email content: ${options.html}`);
       return;
     }
 
-    await transporter.sendMail(mailOptions);
+    if (config.email.sendgridApiKey) {
+      await sendViaSendGrid(options.to, options.subject, options.html, text);
+    } else {
+      await transporter.sendMail({
+        from: `"${config.app.name}" <${config.email.from}>`,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+        text,
+      });
+    }
     logger.info(`Email sent to ${options.to}: ${options.subject}`);
   } catch (error) {
     logger.error('Error sending email:', error);
