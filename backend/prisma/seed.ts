@@ -386,6 +386,7 @@ async function main() {
 
   console.log('🎉 Database seeded successfully!');
   console.log('\n📝 Login credentials:');
+  console.log('Super Admin: superadmin@pos.com / superadmin123');
   console.log('Admin: admin@pos.com / admin123');
   console.log('Manager: manager@pos.com / manager123');
   console.log('Cashier: cashier@pos.com / cashier123');

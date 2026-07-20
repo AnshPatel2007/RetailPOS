@@ -48,22 +48,29 @@ FRONTEND_URL="http://localhost:5173"
 VITE_API_URL=http://localhost:5000/api
 ```
 
-## 4. Database Migration & Seeding
+## 4. Database Schema & Seeding
+
+> **This project syncs the schema with `prisma db push` — do NOT run `prisma migrate`.**
+> The `migrations/` folder is stale and missing the current schema; a migrated database
+> lacks columns the code expects, and the app fails with "Database operation failed"
+> (including at login).
 
 ```bash
 # Generate Prisma client
 cd backend
 npm run db:generate
 
-# Run all migrations
-npm run db:migrate
+# Sync the database to the current schema
+npm run db:push
 
 # Seed sample data
 npm run db:seed
 cd ..
 ```
 
-The seed creates: a Main Store location, demo users (admin/manager/cashier), sample products, customers, suppliers, categories, and tax rates.
+Re-run `npm run db:push` **every time you pull changes** that touch `backend/prisma/schema.prisma`.
+
+The seed creates: a Main Store location, demo users (super admin/admin/manager/cashier), sample products, customers, suppliers, categories, and tax rates.
 
 ## 5. Run the Application
 
@@ -92,7 +99,8 @@ cd frontend && npm run dev
 
 | Role | Email | Password | Access |
 |------|-------|----------|--------|
-| Super Admin | admin@pos.com | admin123 | All stores, all permissions |
+| Super Admin | superadmin@pos.com | superadmin123 | All stores, admin panel, all permissions |
+| Admin | admin@pos.com | admin123 | Assigned store, all store-level features |
 | Manager | manager@pos.com | manager123 | Assigned store only |
 | Cashier | cashier@pos.com | cashier123 | POS operations, assigned store only |
 
@@ -110,8 +118,8 @@ cd frontend && npm run dev
 cd backend && npm run db:studio
 # Opens Prisma Studio at http://localhost:5555
 
-# Reset database completely
-cd backend && npx prisma migrate reset && npm run db:seed
+# Reset database completely (drops all data, re-syncs schema, re-seeds)
+cd backend && npx prisma db push --force-reset && npm run db:seed
 ```
 
 ## Building for Production
@@ -131,6 +139,10 @@ Outputs: `backend/dist/` and `frontend/dist/`
 - Database backups configured
 
 ## Troubleshooting
+
+**"Database operation failed" (including at login):** the database schema is out of date
+with the code — usually after pulling new changes, or after running the stale migrations.
+Fix: `cd backend && npm run db:push`, then restart the backend.
 
 **Port already in use:** Change `PORT` in `backend/.env` or port in `frontend/vite.config.ts`.
 
