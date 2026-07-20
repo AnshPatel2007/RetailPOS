@@ -101,17 +101,15 @@ export const createUser = asyncHandler(async (req: AuthRequest, res: Response) =
     throw new AppError('Email already in use', 400);
   }
 
-  // Only super-admin can create users for any location
-  // Admin can only create users for their own location
+  // An admin can create managers/cashiers for their own store only — never for
+  // another location, and never with an admin or super-admin role
   if (req.user?.role !== 'SUPER_ADMIN') {
     if (locationId && locationId !== req.user?.locationId) {
       throw new AppError('You can only create users for your own location', 403);
     }
-  }
-
-  // Only super-admin can create super-admin or admin users
-  if ((role === 'SUPER_ADMIN' || role === 'ADMIN') && req.user?.role !== 'SUPER_ADMIN') {
-    throw new AppError('Only super-admin can create admin users', 403);
+    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
+      throw new AppError('Only super-admin can create admin users', 403);
+    }
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -241,9 +239,20 @@ export const updateUser = asyncHandler(async (req: AuthRequest, res: Response) =
     throw new AppError('Access denied', 403);
   }
 
-  // Prevent changing super-admin role unless you're a super-admin
-  if (existingUser.role === 'SUPER_ADMIN' && req.user?.role !== 'SUPER_ADMIN') {
-    throw new AppError('Cannot modify super-admin', 403);
+  if (req.user?.role !== 'SUPER_ADMIN') {
+    // An admin can manage managers/cashiers at their own store, but never
+    // another admin (or super-admin) — even one at the same location
+    if (existingUser.role === 'ADMIN' || existingUser.role === 'SUPER_ADMIN') {
+      throw new AppError('Only super-admin can modify admin accounts', 403);
+    }
+    // ...and can't promote anyone into an admin role themselves
+    if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+      throw new AppError('Only super-admin can assign admin roles', 403);
+    }
+    // ...or move a user to a different store
+    if (locationId !== undefined && locationId !== req.user?.locationId) {
+      throw new AppError('You can only assign users to your own location', 403);
+    }
   }
 
   // Check if email is taken by another user
@@ -305,9 +314,13 @@ export const resetUserPassword = asyncHandler(async (req: AuthRequest, res: Resp
     throw new AppError('Access denied', 403);
   }
 
-  // Prevent resetting super-admin password unless you're a super-admin
-  if (existingUser.role === 'SUPER_ADMIN' && req.user?.role !== 'SUPER_ADMIN') {
-    throw new AppError('Cannot modify super-admin', 403);
+  // An admin can reset passwords for managers/cashiers at their store, but
+  // never another admin (or super-admin) — even one at the same location
+  if (
+    (existingUser.role === 'ADMIN' || existingUser.role === 'SUPER_ADMIN') &&
+    req.user?.role !== 'SUPER_ADMIN'
+  ) {
+    throw new AppError('Only super-admin can modify admin accounts', 403);
   }
 
   const hashedPassword = await bcrypt.hash(newPassword, 10);
@@ -340,9 +353,13 @@ export const deleteUser = asyncHandler(async (req: AuthRequest, res: Response) =
     throw new AppError('Access denied', 403);
   }
 
-  // Prevent deleting super-admin unless you're a super-admin
-  if (existingUser.role === 'SUPER_ADMIN' && req.user?.role !== 'SUPER_ADMIN') {
-    throw new AppError('Cannot delete super-admin', 403);
+  // An admin can deactivate managers/cashiers at their store, but never
+  // another admin (or super-admin) — even one at the same location
+  if (
+    (existingUser.role === 'ADMIN' || existingUser.role === 'SUPER_ADMIN') &&
+    req.user?.role !== 'SUPER_ADMIN'
+  ) {
+    throw new AppError('Only super-admin can deactivate admin accounts', 403);
   }
 
   // Check for active shift

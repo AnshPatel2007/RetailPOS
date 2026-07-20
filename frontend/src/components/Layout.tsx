@@ -30,6 +30,7 @@ import {
   ClipboardList,
   BookUser,
   Code2,
+  UserCog,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
@@ -88,6 +89,7 @@ const navigation: NavEntry[] = [
     ],
   },
   { name: 'Customers', href: '/customers', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
+  { name: 'My Team', href: '/team', icon: UserCog, roles: ['ADMIN'] },
   { name: 'Shifts', href: '/shifts', icon: Clock, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
   {
     name: 'Insights',

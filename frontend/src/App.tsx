@@ -32,6 +32,7 @@ const SuggestedOrders = lazy(() => import('./pages/SuggestedOrders').then(m => (
 const CustomerDisplay = lazy(() => import('./pages/CustomerDisplay').then(m => ({ default: m.CustomerDisplay })));
 const HouseAccounts = lazy(() => import('./pages/HouseAccounts').then(m => ({ default: m.HouseAccounts })));
 const Developers = lazy(() => import('./pages/Developers').then(m => ({ default: m.Developers })));
+const Team = lazy(() => import('./pages/Team').then(m => ({ default: m.Team })));
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 const StoreManagement = lazy(() => import('./pages/admin/StoreManagement').then(m => ({ default: m.StoreManagement })));
 const UserManagement = lazy(() => import('./pages/admin/UserManagement').then(m => ({ default: m.UserManagement })));
@@ -180,6 +181,7 @@ function App() {
         <Route path="/customer-display" element={<PageRoute page={<CustomerDisplay />} />} />
         <Route path="/house-accounts" element={<PageRoute page={<HouseAccounts />} roles={MANAGER_ROLES} />} />
         <Route path="/developers" element={<PageRoute page={<Developers />} roles={['SUPER_ADMIN', 'ADMIN']} />} />
+        <Route path="/team" element={<PageRoute page={<Team />} roles={['ADMIN']} />} />
 
         {/* Admin routes — SUPER_ADMIN only */}
         <Route path="/admin" element={<PageRoute page={<AdminDashboard />} layout="admin" roles={['SUPER_ADMIN']} />} />
