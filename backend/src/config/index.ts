@@ -50,6 +50,13 @@ export const config = {
 
   app: {
     name: process.env.APP_NAME || 'POS System',
-    url: process.env.APP_URL || 'http://localhost:5173',
+    // Password-reset emails link to this URL. Falls back to the first
+    // FRONTEND_URL origin (already required for CORS in every deployment) so
+    // reset links don't silently point at localhost when APP_URL is simply
+    // never set — a separate, easy-to-miss variable from FRONTEND_URL.
+    url:
+      process.env.APP_URL ||
+      process.env.FRONTEND_URL?.split(',')[0]?.trim().replace(/\/$/, '') ||
+      'http://localhost:5173',
   },
 };

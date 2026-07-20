@@ -144,6 +144,18 @@ Outputs: `backend/dist/` and `frontend/dist/`
 with the code — usually after pulling new changes, or after running the stale migrations.
 Fix: `cd backend && npm run db:push`, then restart the backend.
 
+**"Forgot password" fails or the email never arrives:** the backend needs real SMTP
+credentials to send mail — without them, in production the request fails outright
+(you'll see "Failed to send password reset email"); nothing is sent silently either
+way. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and
+`EMAIL_FROM` in the backend's environment (a Gmail address with an
+[App Password](https://myaccount.google.com/apppasswords) works for testing; use a
+proper transactional provider — SendGrid, Mailgun, Postmark, etc. — for real users).
+Also set `APP_URL` to your deployed frontend's URL (e.g.
+`https://your-app.vercel.app`) — otherwise, even once email sends, the reset link
+inside it points at `localhost` and does nothing for a real visitor. `APP_URL` falls
+back to `FRONTEND_URL` automatically if not set separately.
+
 **Port already in use:** Change `PORT` in `backend/.env` or port in `frontend/vite.config.ts`.
 
 **Database connection error:** Verify PostgreSQL is running and `DATABASE_URL` in `backend/.env` is correct.

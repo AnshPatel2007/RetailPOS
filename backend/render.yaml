@@ -20,3 +20,24 @@ services:
         generateValue: true
       - key: FRONTEND_URL
         sync: false
+      # Required for "forgot password" emails to link to your real site
+      # instead of localhost. Falls back to FRONTEND_URL if left unset, but
+      # set it explicitly if FRONTEND_URL ever lists more than one origin.
+      - key: APP_URL
+        sync: false
+      # Required for "forgot password" / receipt emails to actually send.
+      # Leave these unset and every send attempt fails loudly in production
+      # (a real SMTP account is required — e.g. a Gmail address with an App
+      # Password, or any transactional email provider's SMTP credentials).
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
