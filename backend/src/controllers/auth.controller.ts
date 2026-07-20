@@ -544,6 +544,11 @@ export const forgotPassword = asyncHandler(async (req: Request, res: Response) =
     await sendPasswordResetEmail(user.email, resetToken, user.firstName);
     logger.info(`Password reset email sent to: ${user.email}`);
   } catch (error) {
+    // The underlying SMTP error is swallowed by sendEmail's generic rethrow —
+    // log it here too so the real cause (auth failure, timeout, etc.) is
+    // visible next to the request that triggered it, not just buried under
+    // email.ts's own "Error sending email:" log line.
+    logger.error(`Failed to send password reset email to ${user.email}:`, error);
     // Clear token on email failure
     await prisma.user.update({
       where: { id: user.id },
