@@ -20,7 +20,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Plus, Search, Edit, Trash2, Users as UsersIcon, Star, BarChart3, PieChart, Eye } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Users as UsersIcon, Star, BarChart3, PieChart, Eye, Megaphone } from 'lucide-react';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { useAuthStore } from '@/store/authStore';
 
@@ -68,7 +68,69 @@ export const Customers: React.FC = () => {
     zipCode: '',
     emailMarketing: false,
     smsMarketing: false,
+    tags: [] as string[],
+    birthDate: '',
   });
+  const [tagInput, setTagInput] = useState('');
+
+  // ─── Email campaign (admin) ───
+  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const [showCampaignModal, setShowCampaignModal] = useState(false);
+  const [campaignSegment, setCampaignSegment] = useState('all');
+  const [campaignTag, setCampaignTag] = useState('');
+  const [campaignSubject, setCampaignSubject] = useState('');
+  const [campaignMessage, setCampaignMessage] = useState('');
+  const [campaignReach, setCampaignReach] = useState<number | null>(null);
+  const [campaignSending, setCampaignSending] = useState(false);
+
+  const effectiveSegment = campaignSegment === 'tag' ? `tag:${campaignTag.trim().toLowerCase()}` : campaignSegment;
+
+  // Live reach preview as the segment changes
+  useEffect(() => {
+    if (!showCampaignModal) return;
+    if (campaignSegment === 'tag' && !campaignTag.trim()) { setCampaignReach(null); return; }
+    let cancelled = false;
+    customerService.previewCampaign(effectiveSegment)
+      .then((res) => { if (!cancelled) setCampaignReach(res.data.data.matched); })
+      .catch(() => { if (!cancelled) setCampaignReach(null); });
+    return () => { cancelled = true; };
+  }, [showCampaignModal, effectiveSegment]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSendCampaign = async () => {
+    if (!campaignSubject.trim() || !campaignMessage.trim()) {
+      toast.error('Subject and message are required');
+      return;
+    }
+    setCampaignSending(true);
+    try {
+      const res = await customerService.sendCampaign({
+        segment: effectiveSegment,
+        subject: campaignSubject.trim(),
+        message: campaignMessage.trim(),
+      });
+      toast.success(res.data.message);
+      setShowCampaignModal(false);
+      setCampaignSubject('');
+      setCampaignMessage('');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to send campaign');
+    } finally {
+      setCampaignSending(false);
+    }
+  };
+
+  const addTag = () => {
+    const tag = tagInput.trim().toLowerCase();
+    if (!tag) return;
+    if (formData.tags.includes(tag)) { setTagInput(''); return; }
+    if (formData.tags.length >= 20) { toast.error('Maximum 20 tags'); return; }
+    setFormData((f) => ({ ...f, tags: [...f.tags, tag] }));
+    setTagInput('');
+  };
+
+  const removeTag = (tag: string) => {
+    setFormData((f) => ({ ...f, tags: f.tags.filter((t) => t !== tag) }));
+  };
 
   useEffect(() => {
     if (activeTab === 'directory') {
@@ -140,7 +202,10 @@ export const Customers: React.FC = () => {
       zipCode: customer.zipCode || '',
       emailMarketing: customer.emailMarketing ?? false,
       smsMarketing: customer.smsMarketing ?? false,
+      tags: customer.tags ?? [],
+      birthDate: customer.birthDate ? customer.birthDate.slice(0, 10) : '',
     });
+    setTagInput('');
     setShowModal(true);
   };
 
@@ -183,7 +248,10 @@ export const Customers: React.FC = () => {
       zipCode: '',
       emailMarketing: false,
       smsMarketing: false,
+      tags: [],
+      birthDate: '',
     });
+    setTagInput('');
   };
 
   const openCreateModal = () => {
@@ -197,10 +265,18 @@ export const Customers: React.FC = () => {
         title="Customers"
         subtitle="Manage customers, view insights, and track segments"
         actions={activeTab === 'directory' && (
-          <Button variant="primary" onClick={openCreateModal}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Customer
-          </Button>
+          <>
+            {isAdmin && (
+              <Button variant="outline" onClick={() => setShowCampaignModal(true)}>
+                <Megaphone className="h-4 w-4 mr-2" />
+                Email Campaign
+              </Button>
+            )}
+            <Button variant="primary" onClick={openCreateModal}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Customer
+            </Button>
+          </>
         )}
       />
 
@@ -288,6 +364,18 @@ export const Customers: React.FC = () => {
                     <p className="font-medium">
                       {customer.firstName} {customer.lastName}
                     </p>
+                    {(customer.tags?.length ?? 0) > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-0.5">
+                        {customer.tags!.slice(0, 3).map((tag) => (
+                          <span key={tag} className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                            {tag}
+                          </span>
+                        ))}
+                        {customer.tags!.length > 3 && (
+                          <span className="text-[10px] text-muted-foreground">+{customer.tags!.length - 3}</span>
+                        )}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="text-sm">
@@ -636,6 +724,51 @@ export const Customers: React.FC = () => {
             />
           </div>
 
+          {/* Birthday */}
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Birthday <span className="text-xs text-muted-foreground font-normal">(for the birthday email perk)</span>
+            </label>
+            <Input
+              type="date"
+              value={formData.birthDate}
+              onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
+            />
+          </div>
+
+          {/* Tags */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Tags</label>
+            {formData.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {formData.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full"
+                  >
+                    {tag}
+                    <button type="button" onClick={() => removeTag(tag)} className="hover:text-destructive" title="Remove tag">
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Input
+                placeholder='e.g. "wholesale", "vip", "coffee-club"'
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); addTag(); }
+                }}
+              />
+              <Button type="button" variant="outline" onClick={addTag} disabled={!tagInput.trim()}>
+                Add
+              </Button>
+            </div>
+          </div>
+
           <div className="space-y-2 pt-2">
             <label className="flex items-center space-x-2">
               <input
@@ -678,6 +811,88 @@ export const Customers: React.FC = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Email Campaign Modal */}
+      <Modal
+        isOpen={showCampaignModal}
+        onClose={() => setShowCampaignModal(false)}
+        title="Email Campaign"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Who gets it?</label>
+            <select
+              value={campaignSegment}
+              onChange={(e) => setCampaignSegment(e.target.value)}
+              className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
+            >
+              <option value="all">All opted-in customers</option>
+              <option value="lapsed30">Lapsed — no visit in 30+ days</option>
+              <option value="lapsed60">Lapsed — no visit in 60+ days</option>
+              <option value="top20">Top 20 spenders</option>
+              <option value="tag">Customers with a tag...</option>
+            </select>
+            {campaignSegment === 'tag' && (
+              <Input
+                placeholder='Tag name, e.g. "vip"'
+                value={campaignTag}
+                onChange={(e) => setCampaignTag(e.target.value)}
+                className="mt-2"
+              />
+            )}
+            <p className="text-xs text-muted-foreground mt-1.5">
+              {campaignReach === null
+                ? 'Only customers who opted into emails are ever contacted.'
+                : `Will reach ${campaignReach} opted-in customer${campaignReach !== 1 ? 's' : ''}.`}
+            </p>
+          </div>
+
+          <Input
+            label="Subject"
+            placeholder="This weekend only: 2-for-1 energy drinks"
+            value={campaignSubject}
+            onChange={(e) => setCampaignSubject(e.target.value)}
+          />
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Message</label>
+            <textarea
+              value={campaignMessage}
+              onChange={(e) => setCampaignMessage(e.target.value)}
+              placeholder={'Hi {firstName},\n\nCome see us this weekend...'}
+              rows={5}
+              className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {'{firstName}'} is replaced with each customer's name.
+            </p>
+          </div>
+
+          <div className="flex gap-3 pt-2 border-t">
+            <Button variant="outline" className="flex-1" onClick={() => setShowCampaignModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              className="flex-1"
+              onClick={handleSendCampaign}
+              disabled={
+                campaignSending ||
+                !campaignSubject.trim() ||
+                !campaignMessage.trim() ||
+                campaignReach === 0 ||
+                (campaignSegment === 'tag' && !campaignTag.trim())
+              }
+            >
+              <Megaphone className="h-4 w-4 mr-2" />
+              {campaignSending
+                ? 'Sending...'
+                : `Send${campaignReach ? ` to ${campaignReach}` : ''}`}
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Customer Detail Modal */}

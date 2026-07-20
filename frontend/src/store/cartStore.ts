@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { CartItem, Product, Customer } from '../types';
+import { CartItem, Product, Customer, Promotion } from '../types';
+import { applyPromotions, isPromotionActiveNow } from '../lib/promotionEngine';
 
 interface HeldSale {
   id: string;
@@ -10,12 +11,23 @@ interface HeldSale {
   heldAt: string;
 }
 
+/** Per-line pricing after manual discounts and automatic promotions */
+export interface LineBreakdown {
+  gross: number;
+  manualDiscount: number;
+  promoDiscount: number;
+  totalDiscount: number; // manual + promo, clamped to the line total (mirrors backend)
+  promotionName?: string;
+}
+
 interface CartState {
   items: CartItem[];
   customer: Customer | null;
   notes: string;
   taxRate: number;
+  cardSurchargePercent: number; // location's card-surcharge rate (0 = off)
   heldSales: HeldSale[];
+  promotions: Promotion[]; // active promotions, refreshed by the POS page (not persisted)
 
   addItem: (product: Product, quantity?: number) => void;
   removeItem: (productId: string) => void;
@@ -26,6 +38,8 @@ interface CartState {
   setCustomer: (customer: Customer | null) => void;
   setNotes: (notes: string) => void;
   setTaxRate: (rate: number) => void;
+  setCardSurchargePercent: (rate: number) => void;
+  setPromotions: (promotions: Promotion[]) => void;
   clearCart: () => void;
 
   // Hold sales
@@ -35,6 +49,10 @@ interface CartState {
   cleanupExpiredHeldSales: () => number;
 
   // Computed values
+  getLineBreakdown: () => Record<string, LineBreakdown>;
+  getPromoSavings: () => number;
+  getEbtEligibleTotal: () => number;
+  getRequiredAge: () => number;
   getSubtotal: () => number;
   getTax: () => number;
   getTotal: () => number;
@@ -52,7 +70,9 @@ export const useCartStore = create<CartState>()(
       customer: null,
       notes: '',
       taxRate: 0,
+      cardSurchargePercent: 0,
       heldSales: [],
+      promotions: [],
 
       addItem: (product: Product, quantity = 1) => {
         const items = get().items;
@@ -151,6 +171,14 @@ export const useCartStore = create<CartState>()(
         set({ taxRate: rate });
       },
 
+      setCardSurchargePercent: (rate: number) => {
+        set({ cardSurchargePercent: rate });
+      },
+
+      setPromotions: (promotions: Promotion[]) => {
+        set({ promotions });
+      },
+
       clearCart: () => {
         set({
           items: [],
@@ -232,24 +260,92 @@ export const useCartStore = create<CartState>()(
         return before - get().heldSales.length;
       },
 
+      // Mirrors backend createSale pricing: promo discounts are computed by the same
+      // engine the server runs, and manual + promo discounts are clamped per line
+      getLineBreakdown: () => {
+        const { items, promotions } = get();
+        const now = new Date();
+        const active = promotions.filter((p) => isPromotionActiveNow(p, now));
+
+        const promoResults = applyPromotions(
+          items
+            .filter((i) => !i.product.id.startsWith('misc-'))
+            .map((i) => ({
+              key: i.product.id,
+              productId: i.product.id,
+              categoryId: i.product.categoryId,
+              unitPrice: i.product.price,
+              quantity: i.quantity,
+            })),
+          active
+        );
+
+        const breakdown: Record<string, LineBreakdown> = {};
+        for (const item of items) {
+          const gross = item.product.price * item.quantity;
+          const manualDiscount = Math.min(item.discount, gross);
+          const promo = promoResults.get(item.product.id);
+          const totalDiscount = Math.min(manualDiscount + (promo?.discount || 0), gross);
+          const promoDiscount = Math.round((totalDiscount - manualDiscount) * 100) / 100;
+          breakdown[item.product.id] = {
+            gross: Math.round(gross * 100) / 100,
+            manualDiscount: Math.round(manualDiscount * 100) / 100,
+            promoDiscount,
+            totalDiscount,
+            promotionName: promoDiscount > 0 ? promo?.promotionName : undefined,
+          };
+        }
+        return breakdown;
+      },
+
+      getPromoSavings: () => {
+        const breakdown = get().getLineBreakdown();
+        return Math.round(
+          Object.values(breakdown).reduce((sum, line) => sum + line.promoDiscount, 0) * 100
+        ) / 100;
+      },
+
+      // SNAP-eligible portion of the sale: eligible lines net of discounts plus
+      // their tax — mirrors the backend cap in createSale
+      getEbtEligibleTotal: () => {
+        const { items, taxRate } = get();
+        const breakdown = get().getLineBreakdown();
+        return Math.round(items.reduce((total, item) => {
+          if (!item.product.ebtEligible || item.product.id.startsWith('misc-')) return total;
+          const line = breakdown[item.product.id];
+          const net = Math.max(0, item.product.price * item.quantity - (line?.totalDiscount ?? item.discount));
+          const tax = item.product.isTaxable ? Math.round((net * taxRate) / 100 * 100) / 100 : 0;
+          return total + net + tax;
+        }, 0) * 100) / 100;
+      },
+
+      // Strictest age requirement across cart items (0 = unrestricted)
+      getRequiredAge: () => {
+        return get().items.reduce(
+          (max, item) => Math.max(max, item.product.minimumAge || 0),
+          0
+        );
+      },
+
       getSubtotal: () => {
+        const breakdown = get().getLineBreakdown();
         return Math.round(get().items.reduce((total, item) => {
-          return total + item.product.price * item.quantity - item.discount;
+          const line = breakdown[item.product.id];
+          return total + item.product.price * item.quantity - (line?.totalDiscount ?? item.discount);
         }, 0) * 100) / 100;
       },
 
       getTax: () => {
         const taxRate = get().taxRate;
+        const breakdown = get().getLineBreakdown();
 
-        // Tax applies to taxable items only, net of their item discounts
-        const taxableAmount = get().items.reduce((total, item) => {
-          if (item.product.isTaxable) {
-            return total + (item.product.price * item.quantity - item.discount);
-          }
-          return total;
-        }, 0);
-
-        return Math.round((Math.max(0, taxableAmount) * taxRate) / 100 * 100) / 100;
+        // Tax applies per taxable line, net of discounts, rounded per line like the backend
+        return Math.round(get().items.reduce((total, item) => {
+          if (!item.product.isTaxable) return total;
+          const line = breakdown[item.product.id];
+          const net = Math.max(0, item.product.price * item.quantity - (line?.totalDiscount ?? item.discount));
+          return total + Math.round((net * taxRate) / 100 * 100) / 100;
+        }, 0) * 100) / 100;
       },
 
       getTotal: () => {
@@ -264,12 +360,14 @@ export const useCartStore = create<CartState>()(
     }),
     {
       name: 'pos-cart',
-      // Only persist state, not computed functions
+      // Only persist state, not computed functions. Promotions are intentionally
+      // excluded — the POS refetches the active list so stale promos never price a sale.
       partialize: (state) => ({
         items: state.items,
         customer: state.customer,
         notes: state.notes,
         taxRate: state.taxRate,
+        cardSurchargePercent: state.cardSurchargePercent,
         heldSales: state.heldSales,
       }),
     }

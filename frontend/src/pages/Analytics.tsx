@@ -43,6 +43,7 @@ import {
 import { analyticsService } from '../services/api';
 import toast from 'react-hot-toast';
 import { PageHeader } from '@/components/common/PageHeader';
+import { AnalyticsChat } from '@/components/analytics/AnalyticsChat';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -56,7 +57,7 @@ import {
 } from '@/components/ui/Table';
 
 export const Analytics: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'inventory' | 'products' | 'forecast' | 'predictions' | 'anomalies' | 'bundles' | 'employees' | 'health' | 'whatif'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'inventory' | 'products' | 'forecast' | 'predictions' | 'anomalies' | 'bundles' | 'employees' | 'health' | 'whatif' | 'ask'>('overview');
   const [loading, setLoading] = useState(true);
   const [comparisonData, setComparisonData] = useState<any>(null);
   const [abcData, setAbcData] = useState<any>(null);
@@ -317,6 +318,14 @@ export const Analytics: React.FC = () => {
       {/* Tab Navigation */}
       <div className="flex flex-wrap gap-2 mb-6">
         <Button
+          variant={activeTab === 'ask' ? 'primary' : 'outline'}
+          onClick={() => setActiveTab('ask')}
+          size="sm"
+        >
+          <Sparkles className="w-4 h-4 mr-2" />
+          Ask AI
+        </Button>
+        <Button
           variant={activeTab === 'overview' ? 'primary' : 'outline'}
           onClick={() => setActiveTab('overview')}
           size="sm"
@@ -397,6 +406,9 @@ export const Analytics: React.FC = () => {
           Forecast
         </Button>
       </div>
+
+      {/* Ask AI Tab */}
+      {activeTab === 'ask' && <AnalyticsChat />}
 
       {/* Comparison Analytics Tab */}
       {activeTab === 'overview' && comparisonData && (

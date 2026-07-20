@@ -26,6 +26,10 @@ import {
   ChevronDown,
   FileText,
   Wallet,
+  Tag,
+  ClipboardList,
+  BookUser,
+  Code2,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
@@ -68,6 +72,7 @@ const navigation: NavEntry[] = [
       { name: 'Suppliers', href: '/suppliers', icon: Truck, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
       { name: 'Transfers', href: '/inventory-transfers', icon: ArrowLeftRight, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
       { name: 'Cycle Count', href: '/cycle-counts', icon: ClipboardCheck, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+      { name: 'Suggested Orders', href: '/suggested-orders', icon: ClipboardList, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
     ],
   },
   {
@@ -75,8 +80,10 @@ const navigation: NavEntry[] = [
     icon: Gift,
     roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'],
     children: [
+      { name: 'Promotions', href: '/promotions', icon: Tag, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
       { name: 'Gift Cards', href: '/gift-cards', icon: Gift, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
       { name: 'Store Credits', href: '/store-credits', icon: Wallet, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+      { name: 'House Accounts', href: '/house-accounts', icon: BookUser, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
       { name: 'Lottery', href: '/lottery', icon: Ticket, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
     ],
   },
@@ -94,6 +101,7 @@ const navigation: NavEntry[] = [
     ],
   },
   { name: 'Settings', href: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
+  { name: 'Developers', href: '/developers', icon: Code2, roles: ['SUPER_ADMIN', 'ADMIN'] },
   { name: 'Admin Panel', href: '/admin', icon: Shield, roles: ['SUPER_ADMIN'] },
 ];
 
@@ -126,7 +134,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const settingsStoreName = useStoreSettingsStore((s) => s.storeInfo.storeName);
   const storeName = settingsStoreName || user?.location?.name || '';
 
-  const isPOSPage = location.pathname === '/pos';
+  // Full-screen routes with no sidebar/chrome (register + second screen)
+  const isPOSPage = location.pathname === '/pos' || location.pathname === '/customer-display';
 
   // Auto-expand groups that contain the active route
   useEffect(() => {

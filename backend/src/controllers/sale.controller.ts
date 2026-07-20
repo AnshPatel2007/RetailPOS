@@ -5,6 +5,8 @@ import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { PaymentMethod, SaleStatus } from '@prisma/client';
 import { createDateFilter } from '../utils/dateFilter.util';
+import { applyPromotions, isPromotionActiveNow } from '../utils/promotionEngine';
+import { emitWebhook } from '../services/webhook.service';
 import { businessConfig } from '../config/business.config';
 import { sendEmail, sendLowStockAlert } from '../utils/email';
 import { config } from '../config';
@@ -37,7 +39,7 @@ const generateSaleNumber = async (): Promise<string> => {
  * POST /api/sales
  */
 export const createSale = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { customerId, items, paymentMethod, amountPaid, notes, receiptEmail, payments, pointsRedeemed, idempotencyKey } = req.body;
+  const { customerId, items, paymentMethod, amountPaid, notes, receiptEmail, payments, pointsRedeemed, idempotencyKey, ageVerification } = req.body;
 
   if (!req.user) {
     throw new AppError('User not authenticated', 401);
@@ -117,8 +119,97 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     }
   }
 
+  // Age-restricted items require a verification record — the register must have
+  // checked ID (or DOB, or visually confirmed) before this sale can complete.
+  // Every verification is logged for compliance audits.
+  const restrictedProducts = regularItems
+    .map((item: any) => productMap.get(item.productId))
+    .filter((p: any) => p && p.minimumAge && p.minimumAge > 0);
+
+  let ageVerificationRecord: {
+    minimumAge: number;
+    method: string;
+    birthDate: Date | null;
+    productNames: string[];
+  } | null = null;
+
+  if (restrictedProducts.length > 0) {
+    const requiredAge = Math.max(...restrictedProducts.map((p: any) => p.minimumAge));
+
+    if (!ageVerification || !ageVerification.method) {
+      throw new AppError(
+        `Age verification required: cart contains item(s) restricted to ${requiredAge}+`,
+        400
+      );
+    }
+
+    let birthDate: Date | null = null;
+    if (ageVerification.method !== 'VISUAL') {
+      if (!ageVerification.birthDate) {
+        throw new AppError('Birth date is required for ID scan / manual verification', 400);
+      }
+      birthDate = new Date(ageVerification.birthDate);
+      if (isNaN(birthDate.getTime())) {
+        throw new AppError('Invalid birth date', 400);
+      }
+      const now = new Date();
+      let age = now.getFullYear() - birthDate.getFullYear();
+      const beforeBirthday =
+        now.getMonth() < birthDate.getMonth() ||
+        (now.getMonth() === birthDate.getMonth() && now.getDate() < birthDate.getDate());
+      if (beforeBirthday) age -= 1;
+
+      if (age < requiredAge) {
+        // Log the failed check too — declined-sale evidence matters in audits
+        await prisma.ageVerificationLog.create({
+          data: {
+            userId: req.user.id,
+            locationId: req.user.locationId,
+            minimumAge: requiredAge,
+            method: ageVerification.method,
+            birthDate,
+            productNames: restrictedProducts.map((p: any) => p.name),
+            approved: false,
+          },
+        });
+        throw new AppError(
+          `Customer is ${age} — must be ${requiredAge} or older for item(s) in this sale`,
+          400
+        );
+      }
+    }
+
+    ageVerificationRecord = {
+      minimumAge: requiredAge,
+      method: ageVerification.method,
+      birthDate,
+      productNames: restrictedProducts.map((p: any) => p.name),
+    };
+  }
+
   // Track products that drop below low-stock threshold
   const lowStockProducts: { name: string; sku: string; stock: number; threshold: number }[] = [];
+
+  // Card surcharge rate (cash-discount program) comes from the location config,
+  // never from the register
+  let surchargeRate = 0;
+  if (req.user.locationId) {
+    const loc = await prisma.location.findUnique({
+      where: { id: req.user.locationId },
+      select: { cardSurchargePercent: true },
+    });
+    surchargeRate = loc?.cardSurchargePercent || 0;
+  }
+
+  // Active promotions for this location — the server recomputes promo discounts
+  // itself rather than trusting anything the register sends
+  const promotionRows = await prisma.promotion.findMany({
+    where: {
+      isActive: true,
+      OR: [{ locationId: null }, { locationId: req.user.locationId ?? null }],
+    },
+  });
+  const activePromotions = promotionRows.filter((p) => isPromotionActiveNow(p));
 
   // Price overrides are only honored for manager+ roles (UI hides the control for
   // cashiers, but the API must enforce it too)
@@ -161,7 +252,9 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     let totalTax = 0;
     let totalDiscount = 0;
 
-    const itemsWithDetails = items.map((item: any) => {
+    // Pre-pass: resolve products and verified prices so promotions evaluate
+    // against the same numbers the sale is priced with
+    const pricedItems = items.map((item: any, index: number) => {
       const isMisc = !item.productId || item.productId.startsWith('misc-');
       const product = isMisc ? miscProduct : freshProductMap.get(item.productId);
 
@@ -178,11 +271,40 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
       // Use the ACTUAL product price from DB, not the frontend-supplied price
       const verifiedPrice = isMisc ? item.price : product.price;
-      // Honor the override flag only for manager+ users
-      const itemPrice = item.priceOverride && canOverridePrice ? item.price : verifiedPrice;
+      // Honor the override flag for manager+ users, and for price-embedded-barcode
+      // products (deli/scale items whose price comes from the label, any role)
+      const itemPrice =
+        item.priceOverride && (canOverridePrice || product.priceEmbedded)
+          ? item.price
+          : verifiedPrice;
 
+      return { item, isMisc, product, itemPrice, key: String(index) };
+    });
+
+    // Promotions apply to real catalog items only (misc lines have no identity)
+    const promoResults = applyPromotions(
+      pricedItems
+        .filter((pi: any) => !pi.isMisc)
+        .map((pi: any) => ({
+          key: pi.key,
+          productId: pi.product.id,
+          categoryId: pi.product.categoryId,
+          unitPrice: pi.itemPrice,
+          quantity: pi.item.quantity,
+        })),
+      activePromotions
+    );
+
+    // SNAP/EBT can only pay for eligible items — accumulate their share of the total
+    let ebtEligibleTotal = 0;
+
+    const itemsWithDetails = pricedItems.map(({ item, isMisc, product, itemPrice, key }: any) => {
       const itemSubtotal = itemPrice * item.quantity;
-      const itemDiscount = Math.min(item.discount || 0, itemSubtotal); // Discount can't exceed item total
+      const manualDiscount = Math.min(item.discount || 0, itemSubtotal);
+      const promo = promoResults.get(key);
+      // Combined discount can't exceed the line total; the promo portion absorbs the clamp
+      const itemDiscount = Math.min(manualDiscount + (promo?.discount || 0), itemSubtotal);
+      const promoDiscount = Math.round((itemDiscount - manualDiscount) * 100) / 100;
       const itemTotal = itemSubtotal - itemDiscount;
 
       let itemTax = 0;
@@ -193,6 +315,9 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       subtotal += itemSubtotal;
       totalDiscount += itemDiscount;
       totalTax += itemTax;
+      if (!isMisc && product.ebtEligible) {
+        ebtEligibleTotal += itemTotal + itemTax;
+      }
 
       return {
         productId: product.id,
@@ -204,6 +329,9 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
         tax: itemTax,
         total: itemTotal + itemTax,
         notes: item.notes,
+        promotionId: promoDiscount > 0 ? promo!.promotionId : null,
+        promotionName: promoDiscount > 0 ? promo!.promotionName : null,
+        promotionDiscount: promoDiscount,
       };
     });
 
@@ -233,12 +361,29 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       total = Math.round((total - redemptionValue) * 100) / 100;
     }
 
+    // Card surcharge: a % of the card-paid share of the pre-surcharge total.
+    // Splits pay it only on the card portion; cash-only sales pay nothing
+    // (that's the "cash discount"). Mirrored in the payment modal.
+    let surcharge = 0;
+    if (surchargeRate > 0) {
+      const cardIntent =
+        payments && payments.length > 0
+          ? payments
+              .filter((p: { paymentMethod: string }) => p.paymentMethod === 'CARD')
+              .reduce((sum: number, p: { amount: number }) => sum + p.amount, 0)
+          : paymentMethod === 'CARD'
+            ? total
+            : 0;
+      surcharge = Math.round((surchargeRate / 100) * Math.min(cardIntent, total) * 100) / 100;
+      total = Math.round((total + surcharge) * 100) / 100;
+    }
+
     const changeDue = Math.round((amountPaid - total) * 100) / 100;
 
     // Allow 1 cent tolerance for floating point rounding differences
     if (amountPaid < total - 0.01) {
       throw new AppError(
-        `Insufficient payment: received $${amountPaid.toFixed(2)} but total is $${total.toFixed(2)}. Short by $${(total - amountPaid).toFixed(2)}`,
+        `Insufficient payment: received $${amountPaid.toFixed(2)} but total is $${total.toFixed(2)}${surcharge > 0 ? ` (includes $${surcharge.toFixed(2)} card surcharge)` : ''}. Short by $${(total - amountPaid).toFixed(2)}`,
         400
       );
     }
@@ -273,6 +418,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
         subtotal,
         tax: totalTax,
         discount: totalDiscount,
+        surcharge,
         total,
         paymentMethod: paymentMethod as PaymentMethod,
         amountPaid,
@@ -306,6 +452,49 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       },
     });
 
+    // EBT tender is capped at the SNAP-eligible portion of the sale (items
+    // flagged ebtEligible, net of discounts, plus their tax). Computed
+    // server-side — never trusted from the register.
+    ebtEligibleTotal = Math.round(ebtEligibleTotal * 100) / 100;
+    const ebtPaid = Math.round(
+      paymentRecords
+        .filter((p) => p.paymentMethod === 'EBT')
+        .reduce((sum, p) => sum + p.amount, 0) * 100
+    ) / 100;
+    if (ebtPaid > ebtEligibleTotal + 0.01) {
+      throw new AppError(
+        `EBT can only cover eligible items: $${ebtEligibleTotal.toFixed(2)} eligible, $${ebtPaid.toFixed(2)} tendered`,
+        400
+      );
+    }
+
+    // Log the age verification against this sale (compliance audit trail)
+    if (ageVerificationRecord) {
+      await tx.ageVerificationLog.create({
+        data: {
+          saleId: newSale.id,
+          userId: req.user!.id,
+          locationId: req.user!.locationId,
+          minimumAge: ageVerificationRecord.minimumAge,
+          method: ageVerificationRecord.method,
+          birthDate: ageVerificationRecord.birthDate,
+          productNames: ageVerificationRecord.productNames,
+          approved: true,
+        },
+      });
+    }
+
+    // Count each applied promotion once per sale
+    const usedPromotionIds = [
+      ...new Set(itemsWithDetails.map((i: any) => i.promotionId).filter(Boolean)),
+    ] as string[];
+    if (usedPromotionIds.length > 0) {
+      await tx.promotion.updateMany({
+        where: { id: { in: usedPromotionIds } },
+        data: { timesUsed: { increment: 1 } },
+      });
+    }
+
     // Debit gift card / store credit balances for those payment methods.
     // This validates the tender actually exists and has funds.
     for (const payment of paymentRecords) {
@@ -338,6 +527,41 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
                 balanceBefore: card.currentBalance,
                 balanceAfter: Math.round((card.currentBalance - payment.amount) * 100) / 100,
                 saleId: newSale.id,
+              },
+            },
+          },
+        });
+      }
+
+      if (payment.paymentMethod === 'HOUSE_ACCOUNT') {
+        if (!customerId) {
+          throw new AppError('A customer must be linked to charge to a house account', 400);
+        }
+        const account = await tx.houseAccount.findUnique({ where: { customerId } });
+        if (!account || !account.isActive) {
+          throw new AppError('This customer has no active house account', 400);
+        }
+        const newBalance = Math.round((account.balance + payment.amount) * 100) / 100;
+        if (newBalance > account.creditLimit + 0.001) {
+          const available = Math.max(0, Math.round((account.creditLimit - account.balance) * 100) / 100);
+          throw new AppError(
+            `House account credit limit exceeded: $${available.toFixed(2)} available of $${account.creditLimit.toFixed(2)} limit`,
+            400
+          );
+        }
+        await tx.houseAccount.update({
+          where: { id: account.id },
+          data: {
+            // Store the rounded value — float increments drift over many charges
+            balance: newBalance,
+            transactions: {
+              create: {
+                type: 'CHARGE',
+                amount: payment.amount,
+                balanceBefore: account.balance,
+                balanceAfter: newBalance,
+                saleId: newSale.id,
+                userId: req.user!.id,
               },
             },
           },
@@ -496,7 +720,25 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     sendLowStockAlert(lowStockProducts).catch((err) => {
       logger.error('Failed to send low stock alert email:', err);
     });
+    for (const p of lowStockProducts) {
+      void emitWebhook('product.low_stock', p);
+    }
   }
+
+  // Fire-and-forget: notify webhook subscribers
+  void emitWebhook('sale.completed', {
+    id: sale.id,
+    saleNumber: sale.saleNumber,
+    total: sale.total,
+    subtotal: sale.subtotal,
+    tax: sale.tax,
+    discount: sale.discount,
+    surcharge: sale.surcharge,
+    paymentMethod: sale.paymentMethod,
+    customerId: sale.customerId,
+    itemCount: sale.items?.length ?? 0,
+    createdAt: sale.createdAt,
+  });
 });
 
 /**
@@ -905,6 +1147,15 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
   });
 
   logger.info(`Sale refunded: ${sale.saleNumber} - Amount: $${refundAmount}`);
+
+  // Fire-and-forget: notify webhook subscribers
+  void emitWebhook('sale.refunded', {
+    saleId: id,
+    saleNumber: sale.saleNumber,
+    refundAmount,
+    refundMethod: refundMethod || 'CASH',
+    reason,
+  });
 
   res.json({
     success: true,
@@ -1372,6 +1623,7 @@ export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response)
         <tr><td>Subtotal</td><td style="text-align:right;">$${sale.subtotal.toFixed(2)}</td></tr>
         <tr><td>Tax</td><td style="text-align:right;">$${sale.tax.toFixed(2)}</td></tr>
         ${sale.discount > 0 ? `<tr><td>Discount</td><td style="text-align:right;">-$${sale.discount.toFixed(2)}</td></tr>` : ''}
+        ${sale.surcharge > 0 ? `<tr><td>Card Surcharge</td><td style="text-align:right;">$${sale.surcharge.toFixed(2)}</td></tr>` : ''}
         <tr class="grand-total"><td>Total</td><td style="text-align:right;">$${sale.total.toFixed(2)}</td></tr>
         <tr><td>Paid (${paymentInfo})</td><td style="text-align:right;">$${sale.amountPaid.toFixed(2)}</td></tr>
         ${sale.changeDue > 0 ? `<tr><td>Change</td><td style="text-align:right;">$${sale.changeDue.toFixed(2)}</td></tr>` : ''}

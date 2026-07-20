@@ -75,6 +75,7 @@ model Location {
   phone             String
   email             String
   taxRate           Float              @default(0)
+  cardSurchargePercent Float           @default(0) // card surcharge / cash-discount program (0 = off)
   isActive          Boolean            @default(true)
   businessHours     Json?
   settings          Json?
@@ -135,6 +136,9 @@ model Product {
   isActive       Boolean           @default(true)
   isTaxable      Boolean           @default(true)
   allowBackorder Boolean           @default(false)
+  minimumAge     Int? // age-restricted item (18/21) — checkout requires a logged verification
+  ebtEligible    Boolean           @default(false) // SNAP/EBT-eligible; caps EBT tender server-side
+  priceEmbedded  Boolean           @default(false) // sold via 2-prefix price-embedded barcodes (deli/scale)
   locationId     String?
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
@@ -271,6 +275,7 @@ model Sale {
   subtotal      Float         @default(0)
   tax           Float         @default(0)
   discount      Float         @default(0)
+  surcharge     Float         @default(0) // card surcharge collected (included in total)
   total         Float         @default(0)
   paymentMethod PaymentMethod
   amountPaid    Float         @default(0)
@@ -314,6 +319,9 @@ model SaleItem {
   tax         Float    @default(0)
   total       Float
   notes       String?
+  promotionId       String? // promotion applied to this line (denormalized — promo may be edited/deleted later)
+  promotionName     String?
+  promotionDiscount Float   @default(0) // portion of `discount` contributed by the promotion
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   product     Product  @relation(fields: [productId], references: [id])
@@ -384,6 +392,9 @@ model Customer {
   country            String?
   emailMarketing     Boolean             @default(false)
   smsMarketing       Boolean             @default(false)
+  tags               String[]            @default([])
+  birthDate           DateTime? // birthday perks (month/day is what matters)
+  lastBirthdayEmailAt DateTime? // resend guard — one birthday email per year
   loyaltyPoints      Int                 @default(0)
   loyaltyTier        String              @default("BRONZE")
   totalSpent         Float               @default(0)
@@ -396,6 +407,7 @@ model Customer {
   sales              Sale[]
   giftCards          GiftCard[]
   storeCreditAccount StoreCreditAccount?
+  houseAccount       HouseAccount?
 
   @@index([email])
   @@index([phone])
@@ -464,6 +476,38 @@ model StoreCreditTransaction {
   @@index([accountId])
   @@index([saleId])
   @@map("store_credit_transactions")
+}
+
+model HouseAccount {
+  id           String   @id @default(uuid())
+  customerId   String   @unique
+  creditLimit  Float    @default(0)
+  balance      Float    @default(0) // amount the customer currently owes
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  customer     Customer @relation(fields: [customerId], references: [id])
+  transactions HouseAccountTransaction[]
+
+  @@map("house_accounts")
+}
+
+model HouseAccountTransaction {
+  id            String       @id @default(uuid())
+  accountId     String
+  type          String // CHARGE, PAYMENT, ADJUSTMENT
+  amount        Float
+  balanceBefore Float
+  balanceAfter  Float
+  saleId        String?
+  notes         String?
+  userId        String?
+  createdAt     DateTime     @default(now())
+  account       HouseAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([saleId])
+  @@map("house_account_transactions")
 }
 
 model Exchange {
@@ -576,6 +620,7 @@ model Shift {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   sales             Sale[]
+  cashMovements     CashMovement[]
   location          Location? @relation(fields: [locationId], references: [id])
   user              User      @relation(fields: [userId], references: [id])
 
@@ -583,6 +628,20 @@ model Shift {
   @@index([locationId])
   @@index([clockInAt])
   @@map("shifts")
+}
+
+model CashMovement {
+  id        String   @id @default(uuid())
+  shiftId   String
+  type      String // SAFE_DROP, PAID_IN, PAID_OUT
+  amount    Float
+  reason    String
+  userId    String
+  createdAt DateTime @default(now())
+  shift     Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@index([shiftId])
+  @@map("cash_movements")
 }
 
 model ActivityLog {
@@ -633,6 +692,35 @@ model Expense {
   @@map("expenses")
 }
 
+model ApiKey {
+  id         String    @id @default(uuid())
+  name       String
+  keyHash    String    @unique // SHA-256 of the key — the key itself is shown once
+  prefix     String // first characters, for display ("pos_a1b2…")
+  isActive   Boolean   @default(true)
+  lastUsedAt DateTime?
+  createdBy  String
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@map("api_keys")
+}
+
+model WebhookEndpoint {
+  id             String    @id @default(uuid())
+  url            String
+  events         String[]  @default([]) // sale.completed, sale.refunded, product.low_stock
+  secret         String // HMAC signing secret (whsec_…) — kept to sign payloads
+  isActive       Boolean   @default(true)
+  failCount      Int       @default(0) // consecutive failures; auto-disabled at 20
+  lastStatus     Int?
+  lastDeliveryAt DateTime?
+  createdBy      String
+  createdAt      DateTime  @default(now())
+
+  @@map("webhook_endpoints")
+}
+
 model Setting {
   id          String   @id @default(uuid())
   key         String   @unique
@@ -674,6 +762,56 @@ model Discount {
   updatedAt   DateTime  @updatedAt
 
   @@map("discounts")
+}
+
+model AgeVerificationLog {
+  id           String    @id @default(uuid())
+  saleId       String? // linked once the sale completes
+  userId       String // cashier who performed the check
+  locationId   String?
+  minimumAge   Int // the strictest age requirement in the cart
+  method       String // ID_SCAN, MANUAL_DOB, VISUAL
+  birthDate    DateTime? // captured for ID_SCAN / MANUAL_DOB
+  productNames String[]  @default([]) // restricted items in the cart at check time
+  approved     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([saleId])
+  @@map("age_verification_logs")
+}
+
+model Promotion {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  type        PromotionType
+  isActive    Boolean       @default(true)
+  // Rule parameters (which ones apply depends on `type`)
+  buyQuantity Int? // QUANTITY_PRICE: units per bundle; BOGO: paid units
+  getQuantity Int? // BOGO: discounted units per group
+  bundlePrice Float? // QUANTITY_PRICE: total price for buyQuantity units
+  percentOff  Float? // BOGO (default 100 = free) and PERCENT_OFF
+  amountOff   Float? // AMOUNT_OFF: $ off per unit
+  // Targeting — a unit is eligible if its product OR category is listed (mix-and-match group)
+  productIds  String[]      @default([])
+  categoryIds String[]      @default([])
+  // Schedule
+  startsAt    DateTime?
+  endsAt      DateTime?
+  daysOfWeek  Int[]         @default([]) // 0=Sun..6=Sat, empty = every day
+  startTime   String? // "HH:MM" store-local, with endTime enables happy-hour windows
+  endTime     String?
+  locationId  String? // null = all locations
+  priority    Int           @default(0) // higher wins when units qualify for several promos
+  timesUsed   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([isActive])
+  @@index([locationId])
+  @@map("promotions")
 }
 
 model Budget {
@@ -752,6 +890,8 @@ enum PaymentMethod {
   CARD
   GIFT_CARD
   STORE_CREDIT
+  EBT
+  HOUSE_ACCOUNT
   OTHER
 }
 
@@ -777,6 +917,13 @@ enum ExpenseCategory {
   SOFTWARE
   EQUIPMENT
   OTHER
+}
+
+enum PromotionType {
+  QUANTITY_PRICE // N for $X (2 for $6.00)
+  BOGO // buy N get M at percentOff (100 = free)
+  PERCENT_OFF // % off every eligible unit
+  AMOUNT_OFF // $ off every eligible unit
 }
 
 enum ExpenseStatus {

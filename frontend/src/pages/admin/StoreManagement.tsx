@@ -95,6 +95,7 @@ export const StoreManagement: React.FC = () => {
     phone: '',
     email: '',
     taxRate: '0',
+    cardSurchargePercent: '0',
     currency: 'USD',
     timezone: 'America/New_York',
   });
@@ -155,6 +156,7 @@ export const StoreManagement: React.FC = () => {
       const data = {
         ...formData,
         taxRate: parseFloat(formData.taxRate),
+        cardSurchargePercent: parseFloat(formData.cardSurchargePercent) || 0,
       };
 
       if (editingLocation) {
@@ -185,6 +187,7 @@ export const StoreManagement: React.FC = () => {
       phone: location.phone,
       email: location.email,
       taxRate: location.taxRate.toString(),
+      cardSurchargePercent: ((location as any).cardSurchargePercent ?? 0).toString(),
       currency: location.currency,
       timezone: location.timezone,
     });
@@ -215,6 +218,7 @@ export const StoreManagement: React.FC = () => {
       phone: '',
       email: '',
       taxRate: '0',
+      cardSurchargePercent: '0',
       currency: 'USD',
       timezone: 'America/New_York',
     });
@@ -470,6 +474,16 @@ export const StoreManagement: React.FC = () => {
               step="0.001"
               value={formData.taxRate}
               onChange={(e) => setFormData({ ...formData, taxRate: e.target.value })}
+            />
+            <Input
+              label="Card Surcharge (%)"
+              type="number"
+              step="0.1"
+              min="0"
+              max="10"
+              value={formData.cardSurchargePercent}
+              onChange={(e) => setFormData({ ...formData, cardSurchargePercent: e.target.value })}
+              title="Cash-discount program: % added to card-paid amounts (0 = off)"
             />
             <Input
               label="Currency"

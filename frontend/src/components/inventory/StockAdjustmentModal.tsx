@@ -22,6 +22,7 @@ const ADJUSTMENT_REASONS = [
   { value: 'RECEIVED', label: 'Received Shipment' },
   { value: 'RETURNED', label: 'Customer Return' },
   { value: 'EXPIRED', label: 'Expired' },
+  { value: 'WASTE', label: 'Waste / Spoilage' },
   { value: 'CORRECTION', label: 'Data Correction' },
   { value: 'OTHER', label: 'Other' },
 ];

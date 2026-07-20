@@ -46,6 +46,9 @@ export interface Product {
   isActive: boolean;
   isTaxable: boolean;
   allowBackorder: boolean;
+  minimumAge?: number | null;
+  ebtEligible?: boolean;
+  priceEmbedded?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -78,6 +81,8 @@ export interface Customer {
   isActive: boolean;
   emailMarketing?: boolean;
   smsMarketing?: boolean;
+  tags?: string[];
+  birthDate?: string | null;
 }
 
 export interface Sale {
@@ -116,6 +121,33 @@ export interface SaleItem {
   tax: number;
   total: number;
   notes: string | null;
+}
+
+export type PromotionType = 'QUANTITY_PRICE' | 'BOGO' | 'PERCENT_OFF' | 'AMOUNT_OFF';
+
+export interface Promotion {
+  id: string;
+  name: string;
+  description: string | null;
+  type: PromotionType;
+  isActive: boolean;
+  buyQuantity: number | null;
+  getQuantity: number | null;
+  bundlePrice: number | null;
+  percentOff: number | null;
+  amountOff: number | null;
+  productIds: string[];
+  categoryIds: string[];
+  startsAt: string | null;
+  endsAt: string | null;
+  daysOfWeek: number[];
+  startTime: string | null;
+  endTime: string | null;
+  locationId: string | null;
+  priority: number;
+  timesUsed: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CartItem {

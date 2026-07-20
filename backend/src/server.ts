@@ -82,6 +82,21 @@ const financialLimiter = rateLimit({
   skip: () => config.nodeEnv === 'test', // no rate limiting in tests
 });
 
+/**
+ * Rate limiting - Public API (per key rather than per IP)
+ */
+const publicApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 600, // 600 requests / 15 min per API key
+  keyGenerator: (req) => req.header('x-api-key') || req.ip || 'anonymous',
+  message: { success: false, error: 'API rate limit exceeded — try again shortly.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => config.nodeEnv === 'test',
+});
+
+app.use('/api/v1', publicApiLimiter);
+
 app.use('/api/', generalLimiter);
 app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth/forgot-password', passwordResetLimiter);
@@ -115,6 +130,12 @@ if (config.nodeEnv === 'development') {
  * Serve static files (uploaded receipts)
  */
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+/**
+ * Public API v1 (API-key auth) — must mount before the internal /api router
+ */
+import publicApiRoutes from './routes/publicApi.routes';
+app.use('/api/v1', publicApiRoutes);
 
 /**
  * API Routes
@@ -158,6 +179,16 @@ if (config.nodeEnv !== 'test') {
   app.listen(Number(PORT), '0.0.0.0', () => {
     logger.info(`Server running on port ${PORT} in ${config.nodeEnv} mode`);
     logger.info(`API available at http://localhost:${PORT}/api`);
+  });
+
+  // End-of-day digest email (see services/dailyDigest.service.ts)
+  import('./services/dailyDigest.service').then(({ startDailyDigestScheduler }) => {
+    startDailyDigestScheduler();
+  });
+
+  // Daily birthday emails (see services/marketing.service.ts)
+  import('./services/marketing.service').then(({ startMarketingScheduler }) => {
+    startMarketingScheduler();
   });
 }
 

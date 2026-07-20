@@ -22,6 +22,8 @@ router.get(
 
 router.post('/clock-in', shiftController.clockIn);
 router.post('/clock-out', shiftController.clockOut);
+router.post('/cash-movement', shiftController.recordCashMovement);
+router.get('/:id/z-report', shiftController.getShiftZReport);
 
 router.post(
   '/:id/close',

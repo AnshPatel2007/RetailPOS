@@ -19,11 +19,13 @@ import {
   Award,
   Star,
   ArrowRight,
+  ShoppingBasket,
+  BookUser,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 
-type PaymentMethod = 'CASH' | 'CARD' | 'GIFT_CARD' | 'STORE_CREDIT';
+type PaymentMethod = 'CASH' | 'CARD' | 'GIFT_CARD' | 'STORE_CREDIT' | 'EBT' | 'HOUSE_ACCOUNT';
 
 interface Payment {
   paymentMethod: PaymentMethod;
@@ -40,6 +42,10 @@ interface EnhancedPaymentModalProps {
   initialPaymentMethod?: PaymentMethod;
   linkedCustomer: LinkedCustomer | null;
   onCustomerChange: (customer: LinkedCustomer | null) => void;
+  /** SNAP-eligible portion of the sale — EBT tender is capped at this (0 hides the EBT tile) */
+  ebtEligibleTotal?: number;
+  /** Card surcharge %, from the location's cash-discount program (0 = off) */
+  cardSurchargePercent?: number;
 }
 
 /**
@@ -64,6 +70,8 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   initialPaymentMethod,
   linkedCustomer,
   onCustomerChange,
+  ebtEligibleTotal = 0,
+  cardSurchargePercent = 0,
 }) => {
   const [step, setStep] = useState<'customer' | 'payment'>('customer');
   const [activeTab, setActiveTab] = useState<'single' | 'split'>('single');
@@ -174,15 +182,37 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   };
   const effectiveTotal = Math.round((total - getPointsDiscount()) * 100) / 100;
 
+  // Card surcharge (cash-discount program): % of the card-paid share of the
+  // pre-surcharge total — the server recomputes this with the same rule
+  const getCardPaidPlanned = () => {
+    if (activeTab === 'single') return paymentMethod === 'CARD' ? effectiveTotal : 0;
+    return Math.round(
+      payments.filter((p) => p.paymentMethod === 'CARD').reduce((s, p) => s + p.amount, 0) * 100
+    ) / 100;
+  };
+  const getSurcharge = () =>
+    cardSurchargePercent > 0
+      ? Math.round((cardSurchargePercent / 100) * Math.min(getCardPaidPlanned(), effectiveTotal) * 100) / 100
+      : 0;
+  const dueTotal = Math.round((effectiveTotal + getSurcharge()) * 100) / 100;
+
   const getTotalPaid = () => Math.round(payments.reduce((sum, p) => sum + p.amount, 0) * 100) / 100;
-  const getRemainingBalance = () => Math.round(Math.max(0, effectiveTotal - getTotalPaid()) * 100) / 100;
+  const getRemainingBalance = () => Math.round(Math.max(0, dueTotal - getTotalPaid()) * 100) / 100;
   const getChange = () => {
     if (activeTab === 'single') {
       const paid = parseFloat(amountInput) || 0;
-      return Math.max(0, paid - effectiveTotal);
+      return Math.max(0, paid - dueTotal);
     }
-    return Math.max(0, getTotalPaid() - effectiveTotal);
+    return Math.max(0, getTotalPaid() - dueTotal);
   };
+
+  // Switching tender in single mode re-fills the amount with what's actually due
+  // (card includes the surcharge, cash doesn't)
+  useEffect(() => {
+    if (isOpen && step === 'payment' && activeTab === 'single') {
+      setAmountInput(dueTotal.toFixed(2));
+    }
+  }, [paymentMethod]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleQuickAmount = (amount: number) => {
     if (activeTab === 'single') {
@@ -203,6 +233,27 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     if (method === 'STORE_CREDIT' && !linkedCustomer) {
       return 'Link a customer to pay with store credit';
     }
+    if (method === 'HOUSE_ACCOUNT' && !linkedCustomer) {
+      return 'Link a customer to charge their house account';
+    }
+    return null;
+  };
+
+  // EBT can only cover the SNAP-eligible portion of the sale (server enforces this too)
+  const getEbtPaidSoFar = () =>
+    Math.round(payments.filter((p) => p.paymentMethod === 'EBT').reduce((s, p) => s + p.amount, 0) * 100) / 100;
+
+  const getEbtError = (amount: number): string | null => {
+    if (paymentMethod !== 'EBT') return null;
+    const cap = Math.round(ebtEligibleTotal * 100) / 100;
+    if (activeTab === 'single') {
+      const charge = Math.min(amount, effectiveTotal);
+      if (charge > cap + 0.005) {
+        return `EBT covers only ${formatCurrency(cap)} of this sale — use Split Payment for the rest`;
+      }
+    } else if (getEbtPaidSoFar() + amount > cap + 0.005) {
+      return `EBT is capped at ${formatCurrency(cap)} (${formatCurrency(Math.max(0, cap - getEbtPaidSoFar()))} left)`;
+    }
     return null;
   };
 
@@ -213,7 +264,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     if (activeTab === 'split') {
       const remaining = getRemainingBalance();
       if (amount > remaining) return;
-      const tenderError = getTenderError(paymentMethod, referenceInput);
+      const tenderError = getTenderError(paymentMethod, referenceInput) || getEbtError(amount);
       if (tenderError) {
         toast.error(tenderError);
         return;
@@ -232,22 +283,22 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     const redeemed = parseInt(pointsToRedeem) || 0;
     if (activeTab === 'single') {
       const paid = parseFloat(amountInput);
-      if (paid < effectiveTotal) return;
-      const tenderError = getTenderError(paymentMethod, referenceInput);
+      if (paid < dueTotal) return;
+      const tenderError = getTenderError(paymentMethod, referenceInput) || getEbtError(paid);
       if (tenderError) {
         toast.error(tenderError);
         return;
       }
       // Only cash can be tendered over the total (change given); other methods
-      // are charged exactly the amount due
-      const charge = paymentMethod === 'CASH' ? paid : Math.min(paid, effectiveTotal);
+      // are charged exactly the amount due (surcharge included for card)
+      const charge = paymentMethod === 'CASH' ? paid : Math.min(paid, dueTotal);
       await onComplete(
         [{ paymentMethod, amount: charge, reference: referenceInput.trim() || undefined }],
         charge,
         redeemed > 0 ? redeemed : undefined
       );
     } else {
-      if (getTotalPaid() < effectiveTotal) return;
+      if (getTotalPaid() < dueTotal) return;
       await onComplete(payments, getTotalPaid(), redeemed > 0 ? redeemed : undefined);
     }
   };
@@ -257,6 +308,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
       case 'CARD': return 'Transaction ID / last 4 digits';
       case 'GIFT_CARD': return 'Gift card number';
       case 'STORE_CREDIT': return 'Store credit account / ID';
+      case 'EBT': return 'EBT card last 4 (optional)';
       default: return null;
     }
   };
@@ -268,13 +320,19 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     { value: 'CARD' as const, label: 'Card', icon: CreditCard, enabled: enabledMethods.card },
     { value: 'GIFT_CARD' as const, label: 'Gift Card', icon: Gift, enabled: enabledMethods.giftCard },
     { value: 'STORE_CREDIT' as const, label: 'Store Credit', icon: Wallet, enabled: enabledMethods.storeCredit },
+    // EBT only appears when the cart actually contains SNAP-eligible items
+    { value: 'EBT' as const, label: 'EBT / SNAP', icon: ShoppingBasket, enabled: ebtEligibleTotal > 0 },
+    // House account needs a linked customer (the server checks the account + limit)
+    { value: 'HOUSE_ACCOUNT' as const, label: 'House Account', icon: BookUser, enabled: !!linkedCustomer },
   ];
 
   const paymentMethods = allPaymentMethods.filter((m) => m.enabled);
 
   const canSubmit = activeTab === 'single'
-    ? parseFloat(amountInput) >= effectiveTotal && !getTenderError(paymentMethod, referenceInput)
-    : getTotalPaid() >= effectiveTotal;
+    ? parseFloat(amountInput) >= dueTotal
+      && !getTenderError(paymentMethod, referenceInput)
+      && !getEbtError(parseFloat(amountInput) || 0)
+    : getTotalPaid() >= dueTotal;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={step === 'customer' ? 'Link Customer · Step 1 of 2' : 'Payment'} size="lg">
@@ -527,14 +585,22 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
               </button>
             </div>
 
+            {/* Card surcharge callout */}
+            {getSurcharge() > 0 && (
+              <div className="p-2.5 rounded-lg bg-warning/10 border border-warning/30 text-sm flex items-center justify-between">
+                <span>Card surcharge ({cardSurchargePercent}%)</span>
+                <span className="font-bold tabular-nums">+{formatCurrency(getSurcharge())}</span>
+              </div>
+            )}
+
             {/* Payment Summary */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Card className="p-3 text-center">
                 <p className="text-xs text-muted-foreground mb-1">Total</p>
-                {getPointsDiscount() > 0 ? (
+                {getPointsDiscount() > 0 || getSurcharge() > 0 ? (
                   <>
                     <p className="text-xs text-muted-foreground line-through">{formatCurrency(total)}</p>
-                    <p className="text-lg font-bold text-warning">{formatCurrency(effectiveTotal)}</p>
+                    <p className="text-lg font-bold text-warning">{formatCurrency(dueTotal)}</p>
                   </>
                 ) : (
                   <p className="text-lg font-bold">{formatCurrency(total)}</p>
@@ -640,6 +706,19 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                   </div>
                 </div>
 
+                {/* EBT eligibility banner */}
+                {paymentMethod === 'EBT' && (
+                  <div className="p-2.5 rounded-lg bg-info/10 border border-info/30 text-sm flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <ShoppingBasket className="h-4 w-4 text-info" />
+                      EBT eligible on this sale
+                    </span>
+                    <span className="font-bold tabular-nums">
+                      {formatCurrency(Math.max(0, Math.round(ebtEligibleTotal * 100) / 100 - getEbtPaidSoFar()))}
+                    </span>
+                  </div>
+                )}
+
                 {/* Reference input for non-cash methods */}
                 {getReferencePlaceholder(paymentMethod) && (
                   <div>
@@ -673,20 +752,32 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setAmountInput(effectiveTotal.toFixed(2))}
+                      onClick={() => setAmountInput(dueTotal.toFixed(2))}
                       className="flex-1 min-w-[80px] h-10"
                     >
-                      Exact ({formatCurrency(effectiveTotal)})
+                      Exact ({formatCurrency(dueTotal)})
                     </Button>
                   ) : getRemainingBalance() > 0 ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setAmountInput(getRemainingBalance().toFixed(2))}
-                      className="flex-1 min-w-[80px] h-10"
-                    >
-                      Exact ({formatCurrency(getRemainingBalance())})
-                    </Button>
+                    (() => {
+                      // EBT quick-fill stops at the eligible cap, not the full remaining balance
+                      const fill = paymentMethod === 'EBT'
+                        ? Math.min(
+                            getRemainingBalance(),
+                            Math.max(0, Math.round(ebtEligibleTotal * 100) / 100 - getEbtPaidSoFar())
+                          )
+                        : getRemainingBalance();
+                      return (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setAmountInput(fill.toFixed(2))}
+                          className="flex-1 min-w-[80px] h-10"
+                          disabled={fill <= 0}
+                        >
+                          {paymentMethod === 'EBT' ? 'EBT Max' : 'Exact'} ({formatCurrency(fill)})
+                        </Button>
+                      );
+                    })()
                   ) : null}
                 </div>
               </>
@@ -713,7 +804,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                 ) : (
                   <>
                     <Check className="h-4 w-4 mr-2" />
-                    Charge {formatCurrency(effectiveTotal)}
+                    Charge {formatCurrency(dueTotal)}
                   </>
                 )}
               </Button>

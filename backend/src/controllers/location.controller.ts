@@ -38,6 +38,7 @@ export const getMyStoreSettings = asyncHandler(async (req: AuthRequest, res: Res
       phone: true,
       email: true,
       taxRate: true,
+      cardSurchargePercent: true,
       settings: true,
     },
   });
@@ -113,6 +114,7 @@ export const updateMyStoreSettings = asyncHandler(async (req: AuthRequest, res: 
       phone: true,
       email: true,
       taxRate: true,
+      cardSurchargePercent: true,
       settings: true,
     },
   });
@@ -252,6 +254,7 @@ export const createLocation = asyncHandler(async (req: AuthRequest, res: Respons
     phone,
     email,
     taxRate,
+    cardSurchargePercent,
     businessHours,
     currency,
     timezone,
@@ -273,6 +276,7 @@ export const createLocation = asyncHandler(async (req: AuthRequest, res: Respons
       phone,
       email,
       taxRate: taxRate || 0,
+      cardSurchargePercent: cardSurchargePercent || 0,
       businessHours,
       currency: currency || 'USD',
       timezone: timezone || 'America/New_York',

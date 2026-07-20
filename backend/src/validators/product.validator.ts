@@ -16,6 +16,9 @@ export const createProductSchema = z.object({
     image: z.string().url().optional(),
     isTaxable: z.boolean().optional(),
     allowBackorder: z.boolean().optional(),
+    minimumAge: z.number().int().min(1).max(99).optional().nullable(),
+    ebtEligible: z.boolean().optional(),
+    priceEmbedded: z.boolean().optional(),
     locationId: z.string().uuid().optional(),
   }),
 });
@@ -37,5 +40,8 @@ export const updateProductSchema = z.object({
     isActive: z.boolean().optional(),
     isTaxable: z.boolean().optional(),
     allowBackorder: z.boolean().optional(),
+    minimumAge: z.number().int().min(1).max(99).optional().nullable(),
+    ebtEligible: z.boolean().optional(),
+    priceEmbedded: z.boolean().optional(),
   }),
 });

@@ -1914,3 +1914,325 @@ export const getEmployeeSalesBreakdown = asyncHandler(async (req: Request, res: 
 
   res.json({ success: true, data });
 });
+
+/**
+ * Inventory-log types that represent shrinkage (stock lost, not sold or moved).
+ * Matches the reason list in the frontend StockAdjustmentModal.
+ */
+const SHRINKAGE_TYPES = ['DAMAGED', 'LOST', 'THEFT', 'EXPIRED', 'WASTE', 'OTHER'];
+
+/**
+ * Stock health report: dead stock, sell-through, and shrinkage over a window
+ * GET /api/reports/stock-health?days=30
+ */
+export const getStockHealthReport = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const days = Math.min(Math.max(parseInt(String(req.query.days || 30), 10) || 30, 7), 365);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+
+  const locationId = req.user?.locationId || undefined;
+  const revenueStatuses = { in: [SaleStatus.COMPLETED, SaleStatus.REFUNDED] };
+
+  const [products, soldRows, lastSaleRows, shrinkLogs] = await Promise.all([
+    // Active tracked catalog (misc pseudo-product excluded)
+    prisma.product.findMany({
+      where: {
+        isActive: true,
+        trackInventory: true,
+        sku: { not: 'MISC-001' },
+        ...(locationId ? { locationId } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        price: true,
+        cost: true,
+        stockQuantity: true,
+        category: { select: { id: true, name: true } },
+      },
+    }),
+    // Units sold per product inside the window
+    prisma.saleItem.groupBy({
+      by: ['productId'],
+      where: {
+        createdAt: { gte: cutoff },
+        sale: { status: revenueStatuses, ...(locationId ? { locationId } : {}) },
+      },
+      _sum: { quantity: true },
+    }),
+    // Most recent sale per product (all time) — shown for dead-stock rows
+    prisma.saleItem.groupBy({
+      by: ['productId'],
+      where: { sale: { status: revenueStatuses, ...(locationId ? { locationId } : {}) } },
+      _max: { createdAt: true },
+    }),
+    // Loss-reason stock removals inside the window
+    prisma.inventoryLog.findMany({
+      where: {
+        type: { in: SHRINKAGE_TYPES },
+        quantity: { lt: 0 },
+        createdAt: { gte: cutoff },
+        ...(locationId ? { product: { locationId } } : {}),
+      },
+      include: { product: { select: { name: true, sku: true, cost: true, price: true } } },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ]);
+
+  const soldMap = new Map(soldRows.map((r) => [r.productId, r._sum.quantity || 0]));
+  const lastSaleMap = new Map(lastSaleRows.map((r) => [r.productId, r._max.createdAt]));
+
+  // ---- Dead stock: on hand but zero sales in the window ----
+  const deadStock = products
+    .filter((p) => p.stockQuantity > 0 && !soldMap.has(p.id))
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      sku: p.sku,
+      categoryName: p.category?.name || 'Uncategorized',
+      stockQuantity: p.stockQuantity,
+      price: p.price,
+      cost: p.cost,
+      stockValue: rc(p.cost * p.stockQuantity),
+      retailValue: rc(p.price * p.stockQuantity),
+      lastSoldAt: lastSaleMap.get(p.id) || null,
+    }))
+    .sort((a, b) => b.stockValue - a.stockValue)
+    .slice(0, 200);
+
+  const deadStockTotals = {
+    products: deadStock.length,
+    units: deadStock.reduce((s, p) => s + p.stockQuantity, 0),
+    stockValue: rc(deadStock.reduce((s, p) => s + p.stockValue, 0)),
+    retailValue: rc(deadStock.reduce((s, p) => s + p.retailValue, 0)),
+  };
+
+  // ---- Sell-through by category: sold / (sold + on hand) ----
+  const byCategory = new Map<
+    string,
+    { categoryName: string; unitsSold: number; stockOnHand: number }
+  >();
+  for (const p of products) {
+    const key = p.category?.id || 'uncategorized';
+    const entry = byCategory.get(key) || {
+      categoryName: p.category?.name || 'Uncategorized',
+      unitsSold: 0,
+      stockOnHand: 0,
+    };
+    entry.unitsSold += soldMap.get(p.id) || 0;
+    entry.stockOnHand += p.stockQuantity;
+    byCategory.set(key, entry);
+  }
+  const sellThrough = Array.from(byCategory.values())
+    .filter((c) => c.unitsSold > 0 || c.stockOnHand > 0)
+    .map((c) => ({
+      ...c,
+      sellThroughPct:
+        c.unitsSold + c.stockOnHand > 0
+          ? rc((c.unitsSold / (c.unitsSold + c.stockOnHand)) * 100)
+          : 0,
+    }))
+    .sort((a, b) => b.sellThroughPct - a.sellThroughPct);
+
+  const totalSold = sellThrough.reduce((s, c) => s + c.unitsSold, 0);
+  const totalStock = sellThrough.reduce((s, c) => s + c.stockOnHand, 0);
+  const sellThroughOverall =
+    totalSold + totalStock > 0 ? rc((totalSold / (totalSold + totalStock)) * 100) : 0;
+
+  // ---- Shrinkage grouped by reason ----
+  const byReason = new Map<
+    string,
+    { reason: string; entries: number; units: number; costValue: number; retailValue: number }
+  >();
+  for (const log of shrinkLogs) {
+    const units = Math.abs(log.quantity);
+    const entry = byReason.get(log.type) || {
+      reason: log.type,
+      entries: 0,
+      units: 0,
+      costValue: 0,
+      retailValue: 0,
+    };
+    entry.entries += 1;
+    entry.units += units;
+    entry.costValue += (log.product?.cost || 0) * units;
+    entry.retailValue += (log.product?.price || 0) * units;
+    byReason.set(log.type, entry);
+  }
+  const shrinkageByReason = Array.from(byReason.values())
+    .map((r) => ({ ...r, costValue: rc(r.costValue), retailValue: rc(r.retailValue) }))
+    .sort((a, b) => b.costValue - a.costValue);
+
+  const shrinkageTotals = {
+    entries: shrinkLogs.length,
+    units: shrinkageByReason.reduce((s, r) => s + r.units, 0),
+    costValue: rc(shrinkageByReason.reduce((s, r) => s + r.costValue, 0)),
+    retailValue: rc(shrinkageByReason.reduce((s, r) => s + r.retailValue, 0)),
+  };
+
+  const shrinkageRecent = shrinkLogs.slice(0, 25).map((log) => ({
+    id: log.id,
+    productName: log.product?.name || 'Unknown',
+    sku: log.product?.sku || '',
+    reason: log.type,
+    units: Math.abs(log.quantity),
+    costValue: rc((log.product?.cost || 0) * Math.abs(log.quantity)),
+    notes: log.notes,
+    createdAt: log.createdAt,
+  }));
+
+  res.json({
+    success: true,
+    data: {
+      days,
+      deadStock: { totals: deadStockTotals, products: deadStock },
+      sellThrough: { overallPct: sellThroughOverall, unitsSold: totalSold, stockOnHand: totalStock, byCategory: sellThrough },
+      shrinkage: { totals: shrinkageTotals, byReason: shrinkageByReason, recent: shrinkageRecent },
+    },
+  });
+});
+
+/**
+ * Send the end-of-day digest email now (also returns the narrative for preview)
+ * POST /api/reports/daily-digest/send
+ */
+export const sendDailyDigestNow = asyncHandler(async (_req: AuthRequest, res: Response) => {
+  // Imported lazily so test runs don't construct the Anthropic client path eagerly
+  const { sendDailyDigest } = await import('../services/dailyDigest.service');
+  const result = await sendDailyDigest();
+
+  res.json({
+    success: true,
+    data: result,
+    message:
+      result.recipients.length > 0
+        ? `Digest sent to ${result.recipients.join(', ')}`
+        : 'No recipients configured — set DAILY_DIGEST_EMAILS or add admin users',
+  });
+});
+
+/**
+ * Age verification audit trail (compliance record for inspections)
+ * GET /api/reports/age-verifications
+ */
+export const getAgeVerifications = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { page = 1, limit = 25, startDate, endDate } = req.query;
+  const pageNum = parseInt(page as string);
+  const limitNum = parseInt(limit as string);
+
+  const where: any = {};
+  if (req.user?.locationId) where.locationId = req.user.locationId;
+  const dateFilter = createDateFilter(startDate as string, endDate as string);
+  if (dateFilter) where.createdAt = dateFilter;
+
+  const [logs, total] = await Promise.all([
+    prisma.ageVerificationLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (pageNum - 1) * limitNum,
+      take: limitNum,
+    }),
+    prisma.ageVerificationLog.count({ where }),
+  ]);
+
+  // Resolve cashier names without a schema relation
+  const userIds = [...new Set(logs.map((l) => l.userId))];
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, firstName: true, lastName: true },
+  });
+  const userMap = new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`]));
+
+  res.json({
+    success: true,
+    data: logs.map((l) => ({ ...l, cashierName: userMap.get(l.userId) || 'Unknown' })),
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum),
+    },
+  });
+});
+
+/**
+ * Tobacco / manufacturer scan-data export.
+ *
+ * Scan-data programs (Altria, RJR/ITG buydown reporting) pay retailers for
+ * submitting weekly line-item sales of program categories. This produces the
+ * generic wide-format CSV those portals ingest: one row per sold line item
+ * with UPC, quantity, pricing, and promo attribution.
+ *
+ * GET /api/reports/scan-data/export/csv?startDate&endDate&categoryIds=a,b
+ */
+export const exportScanDataCSV = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { Parser } = require('json2csv');
+  const { startDate, endDate, categoryIds } = req.query;
+
+  const categoryFilter = parseListFilter(categoryIds);
+  if (!categoryFilter) {
+    res.status(400).json({ success: false, error: 'Select at least one category to export' });
+    return;
+  }
+
+  const dateFilter = createDateFilter(startDate as string, endDate as string);
+
+  const items = await prisma.saleItem.findMany({
+    where: {
+      ...(dateFilter ? { createdAt: dateFilter } : {}),
+      product: { categoryId: categoryFilter },
+      sale: {
+        status: { in: [SaleStatus.COMPLETED, SaleStatus.REFUNDED] },
+        ...(req.user?.locationId ? { locationId: req.user.locationId } : {}),
+      },
+    },
+    include: {
+      product: { select: { barcode: true, categoryId: true, category: { select: { name: true } } } },
+      sale: {
+        select: {
+          saleNumber: true,
+          createdAt: true,
+          location: { select: { id: true, name: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const csvData = items.map((item) => {
+    const dt = new Date(item.sale.createdAt);
+    return {
+      'Transaction Date': dt.toISOString().slice(0, 10),
+      'Transaction Time': dt.toTimeString().slice(0, 8),
+      'Store ID': item.sale.location?.id || '',
+      'Store Name': item.sale.location?.name || '',
+      'Transaction ID': item.sale.saleNumber,
+      'UPC': item.product?.barcode || item.sku,
+      'SKU': item.sku,
+      'Item Description': item.productName,
+      'Category': item.product?.category?.name || '',
+      'Quantity': item.quantity,
+      'Unit Price': item.price.toFixed(2),
+      'Total Discount': item.discount.toFixed(2),
+      'Promotion Flag': item.promotionDiscount > 0 ? 'Y' : 'N',
+      'Promotion Name': item.promotionName || '',
+      'Final Price': (item.total - item.tax).toFixed(2),
+      'Tax': item.tax.toFixed(2),
+    };
+  });
+
+  const parser = new Parser();
+  const csv = parser.parse(
+    csvData.length > 0
+      ? csvData
+      : [{ 'Transaction Date': '', 'Transaction Time': '', 'Store ID': '', 'Store Name': '', 'Transaction ID': '', 'UPC': '', 'SKU': '', 'Item Description': '', 'Category': '', 'Quantity': '', 'Unit Price': '', 'Total Discount': '', 'Promotion Flag': '', 'Promotion Name': '', 'Final Price': '', 'Tax': '' }]
+  );
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename=scan-data-${startDate || 'all'}-${endDate || 'all'}.csv`
+  );
+  res.send(csv);
+});

@@ -3,6 +3,8 @@
  * Handles barcode scanners, receipt printers, cash drawers, and card readers
  */
 
+import QRCode from 'qrcode';
+
 // Hardware Settings Interface
 export interface HardwareSettings {
   barcodeScanner: {
@@ -250,6 +252,8 @@ export interface Receipt {
   subtotal: number;
   tax: number;
   discount: number;
+  /** Card surcharge collected (already included in total) */
+  surcharge?: number;
   total: number;
   paymentMethod: string;
   amountPaid: number;
@@ -257,6 +261,8 @@ export interface Receipt {
   employeeName: string;
   customerName?: string;
   loyaltyPoints?: number;
+  /** Promotion savings already reflected in the totals — printed as a callout line */
+  savings?: number;
 }
 
 /**
@@ -283,6 +289,13 @@ class ReceiptPrinter {
   async print(receipt: Receipt): Promise<boolean> {
     if (!this.settings.enabled) return false;
 
+    // QR encodes the sale number — scanning a receipt at the register pulls the
+    // sale straight up for refunds/lookups. Generated locally; skipped on failure.
+    let qrDataUrl = '';
+    try {
+      qrDataUrl = await QRCode.toDataURL(receipt.saleNumber, { margin: 0, width: 120 });
+    } catch { /* print without QR */ }
+
     try {
       const printWindow = window.open('', '_blank', 'width=350,height=600');
       if (!printWindow) {
@@ -301,7 +314,7 @@ class ReceiptPrinter {
           return false;
         }
         doc.open();
-        doc.write(this.generateReceiptHTML(receipt));
+        doc.write(this.generateReceiptHTML(receipt, qrDataUrl));
         doc.close();
 
         iframe.onload = () => {
@@ -313,7 +326,7 @@ class ReceiptPrinter {
         return true;
       }
 
-      printWindow.document.write(this.generateReceiptHTML(receipt));
+      printWindow.document.write(this.generateReceiptHTML(receipt, qrDataUrl));
       printWindow.document.close();
 
       if (this.settings.autoPrint) {
@@ -340,7 +353,7 @@ class ReceiptPrinter {
   /**
    * Generate HTML for receipt
    */
-  private generateReceiptHTML(receipt: Receipt): string {
+  private generateReceiptHTML(receipt: Receipt, qrDataUrl = ''): string {
     const widthMm = this.settings.paperWidth === 58 ? '58mm' : '80mm';
     const widthPx = this.settings.paperWidth === 58 ? '220px' : '302px';
     // Escape all dynamic text — product/customer names must not inject HTML into the print window
@@ -412,10 +425,12 @@ class ReceiptPrinter {
       <tr><td>Subtotal:</td><td class="right">$${receipt.subtotal.toFixed(2)}</td></tr>
       <tr><td>Tax:</td><td class="right">$${receipt.tax.toFixed(2)}</td></tr>
       ${receipt.discount > 0 ? `<tr><td>Discount:</td><td class="right">-$${receipt.discount.toFixed(2)}</td></tr>` : ''}
+      ${receipt.surcharge && receipt.surcharge > 0 ? `<tr><td>Card Surcharge:</td><td class="right">$${receipt.surcharge.toFixed(2)}</td></tr>` : ''}
     </table>
     <table>
       <tr class="grand-total"><td>TOTAL:</td><td class="right">$${receipt.total.toFixed(2)}</td></tr>
     </table>
+    ${receipt.savings && receipt.savings > 0 ? `<div class="center" style="margin:4px 0;font-weight:bold;">*** You saved $${receipt.savings.toFixed(2)} today! ***</div>` : ''}
     <table>
       <tr><td>Paid (${esc(receipt.paymentMethod)}):</td><td class="right">$${receipt.amountPaid.toFixed(2)}</td></tr>
       ${receipt.change > 0 ? `<tr><td>Change:</td><td class="right">$${receipt.change.toFixed(2)}</td></tr>` : ''}
@@ -427,6 +442,11 @@ class ReceiptPrinter {
       ${receipt.loyaltyPoints ? `<div>Loyalty Points: ${receipt.loyaltyPoints}</div>` : ''}
     </div>` : ''}
     <div class="line"></div>
+    ${qrDataUrl ? `
+    <div class="center" style="margin:6px 0;">
+      <img src="${qrDataUrl}" width="72" height="72" alt="" />
+      <div style="font-size:9px;color:#555;">Scan for returns &amp; lookups</div>
+    </div>` : ''}
     <div class="center footer">${esc(this.settings.footerText)}</div>
   </div>
 </body>

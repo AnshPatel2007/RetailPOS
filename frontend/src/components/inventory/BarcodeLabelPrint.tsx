@@ -1,9 +1,32 @@
 import React, { useState } from 'react';
+import JsBarcode from 'jsbarcode';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Product } from '@/types';
 import { Printer, Minus, Plus } from 'lucide-react';
+
+/**
+ * Render a scannable Code128 barcode as an inline SVG string. Generated
+ * locally — no network fonts, works offline, and scans reliably (the old
+ * approach used a Code 39 webfont with negative letter-spacing, which
+ * broke scanning and required internet).
+ */
+const barcodeSvg = (value: string): string => {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  try {
+    JsBarcode(svg, value, {
+      format: 'CODE128',
+      displayValue: false,
+      margin: 0,
+      height: 40,
+      width: 2,
+    });
+    return svg.outerHTML;
+  } catch {
+    return `<div style="font-size:8px;color:#999;">invalid barcode</div>`;
+  }
+};
 
 interface BarcodeLabelPrintProps {
   isOpen: boolean;
@@ -44,23 +67,28 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
     if (labelsToprint.length === 0) return;
 
     const sizes = {
-      small: { width: '38mm', height: '25mm', fontSize: '8px', barcodeHeight: '20px' },
-      medium: { width: '50mm', height: '30mm', fontSize: '9px', barcodeHeight: '28px' },
-      large: { width: '62mm', height: '38mm', fontSize: '10px', barcodeHeight: '35px' },
+      small: { width: '38mm', height: '25mm', fontSize: '8px', barcodeHeight: '6mm' },
+      medium: { width: '50mm', height: '30mm', fontSize: '9px', barcodeHeight: '9mm' },
+      large: { width: '62mm', height: '38mm', fontSize: '10px', barcodeHeight: '12mm' },
     };
     const size = sizes[labelSize];
 
+    const esc = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
     const labelsHtml = labelsToprint
-      .flatMap((item) =>
-        Array(item.quantity).fill(null).map(() => `
+      .flatMap((item) => {
+        const code = item.product.barcode || item.product.sku;
+        const svg = barcodeSvg(code);
+        return Array(item.quantity).fill(null).map(() => `
           <div class="label">
-            <div class="product-name">${item.product.name}</div>
-            <div class="barcode">*${item.product.barcode || item.product.sku}*</div>
-            <div class="sku">${item.product.sku}</div>
+            <div class="product-name">${esc(item.product.name)}</div>
+            <div class="barcode">${svg}</div>
+            <div class="code-text">${esc(code)}</div>
             <div class="price">$${item.product.price.toFixed(2)}</div>
           </div>
-        `)
-      )
+        `);
+      })
       .join('');
 
     const html = `<!DOCTYPE html>
@@ -102,22 +130,25 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
       max-width: 100%;
     }
     .barcode {
-      font-family: 'Libre Barcode 39', 'Free 3 of 9', monospace;
-      font-size: ${size.barcodeHeight};
-      line-height: 1;
-      margin: 1mm 0;
-      letter-spacing: -1px;
+      margin: 1mm 0 0.5mm;
+      width: 100%;
+      display: flex;
+      justify-content: center;
     }
-    .sku {
+    .barcode svg {
+      height: ${size.barcodeHeight};
+      max-width: 100%;
+    }
+    .code-text {
       font-size: ${size.fontSize};
       color: #555;
+      letter-spacing: 1px;
     }
     .price {
-      font-size: ${size.fontSize};
+      font-size: calc(${size.fontSize} + 2px);
       font-weight: bold;
     }
   </style>
-  <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="labels-container">${labelsHtml}</div>

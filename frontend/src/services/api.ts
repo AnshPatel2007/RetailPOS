@@ -148,6 +148,9 @@ export const productService = {
   adjustInventory: (id: string, data: any) =>
     api.post(`/products/${id}/adjust-inventory`, data),
 
+  identify: (data: { barcode?: string; image?: string; mediaType?: string }) =>
+    api.post('/products/identify', data, { timeout: 60000 }),
+
   bulkUpdateStock: (updates: any[]) =>
     api.post('/products/bulk-update-stock', { updates }),
 
@@ -226,6 +229,12 @@ export const customerService = {
   getHistory: (id: string) => api.get(`/customers/${id}/history`),
 
   searchByPhone: (phone: string) => api.get('/customers/search/phone', { params: { phone } }),
+
+  previewCampaign: (segment: string) =>
+    api.get('/customers/campaign/preview', { params: { segment } }),
+
+  sendCampaign: (data: { segment: string; subject: string; message: string }) =>
+    api.post('/customers/campaign', data, { timeout: 120000 }),
 };
 
 /**
@@ -243,6 +252,11 @@ export const shiftService = {
   close: (id: string, data: any) => api.post(`/shifts/${id}/close`, data),
 
   getEmployeePerformance: (params?: any) => api.get('/shifts/employee-performance', { params }),
+
+  cashMovement: (data: { type: string; amount: number; reason: string }) =>
+    api.post('/shifts/cash-movement', data),
+
+  getZReport: (id: string) => api.get(`/shifts/${id}/z-report`),
 };
 
 /**
@@ -265,6 +279,13 @@ export const reportService = {
   getExpenses: (params?: any) => api.get('/reports/expenses', { params }),
 
   getEmployeeSales: (params?: any) => api.get('/reports/employee-sales', { params }),
+
+  getStockHealth: (params?: { days?: number }) => api.get('/reports/stock-health', { params }),
+
+  sendDailyDigest: () => api.post('/reports/daily-digest/send'),
+
+  exportScanDataCSV: (params: { startDate: string; endDate: string; categoryIds: string }) =>
+    api.get('/reports/scan-data/export/csv', { params, responseType: 'blob' }),
 
   exportSalesCSV: (params?: any) => {
     return api.get('/reports/sales/export/csv', {
@@ -391,6 +412,8 @@ export const purchaseOrderService = {
     api.post(`/purchase-orders/${id}/cancel`, { reason }),
 
   autoGenerate: () => api.post('/purchase-orders/auto-generate'),
+
+  getSuggested: () => api.get('/purchase-orders/suggested'),
 };
 
 /**
@@ -422,6 +445,9 @@ export const analyticsService = {
 
   getWhatIfAnalysis: (data: { priceChange?: number; costChange?: number; volumeChange?: number }) =>
     api.post('/analytics/what-if', data),
+
+  chat: (data: { question: string; history?: { role: string; content: string }[] }) =>
+    api.post('/analytics/chat', data, { timeout: 120000 }),
 };
 
 /**
@@ -596,4 +622,47 @@ export const auditLogService = {
   getAll: (params?: any) => api.get('/audit-logs', { params }),
   getActions: () => api.get('/audit-logs/actions'),
   getEntities: () => api.get('/audit-logs/entities'),
+};
+
+/**
+ * Developer service (API keys + webhooks, admin only)
+ */
+export const developerService = {
+  listApiKeys: () => api.get('/developer/api-keys'),
+  createApiKey: (name: string) => api.post('/developer/api-keys', { name }),
+  revokeApiKey: (id: string) => api.delete(`/developer/api-keys/${id}`),
+
+  listWebhooks: () => api.get('/developer/webhooks'),
+  createWebhook: (data: { url: string; events: string[] }) => api.post('/developer/webhooks', data),
+  updateWebhook: (id: string, data: { url?: string; events?: string[]; isActive?: boolean }) =>
+    api.put(`/developer/webhooks/${id}`, data),
+  deleteWebhook: (id: string) => api.delete(`/developer/webhooks/${id}`),
+  testWebhook: (id: string) => api.post(`/developer/webhooks/${id}/test`),
+};
+
+/**
+ * House Account service (charge-to-account / AR)
+ */
+export const houseAccountService = {
+  getAll: (params?: any) => api.get('/house-accounts', { params }),
+  create: (data: { customerId: string; creditLimit: number }) => api.post('/house-accounts', data),
+  update: (id: string, data: { creditLimit?: number; isActive?: boolean }) =>
+    api.put(`/house-accounts/${id}`, data),
+  recordPayment: (id: string, data: { amount: number; notes?: string }) =>
+    api.post(`/house-accounts/${id}/payment`, data),
+  getTransactions: (id: string) => api.get(`/house-accounts/${id}/transactions`),
+  emailStatement: (id: string) => api.post(`/house-accounts/${id}/statement`),
+};
+
+/**
+ * Promotion service
+ */
+export const promotionService = {
+  getAll: (params?: any) => api.get('/promotions', { params }),
+  getActive: () => api.get('/promotions/active'),
+  getById: (id: string) => api.get(`/promotions/${id}`),
+  create: (data: any) => api.post('/promotions', data),
+  update: (id: string, data: any) => api.put(`/promotions/${id}`, data),
+  toggle: (id: string) => api.post(`/promotions/${id}/toggle`),
+  delete: (id: string) => api.delete(`/promotions/${id}`),
 };

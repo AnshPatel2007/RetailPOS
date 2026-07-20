@@ -16,6 +16,21 @@ router.use(authenticate);
  */
 router.get('/search/phone', customerController.searchByPhone);
 router.get('/', customerController.getCustomers);
+
+/**
+ * Email campaigns (segment blast) — admin only
+ */
+router.get(
+  '/campaign/preview',
+  authorize('ADMIN'),
+  customerController.previewCampaignSegment
+);
+router.post(
+  '/campaign',
+  authorize('ADMIN'),
+  customerController.sendCustomerCampaign
+);
+
 router.get('/:id', customerController.getCustomer);
 router.get('/:id/history', customerController.getCustomerHistory);
 

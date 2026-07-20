@@ -21,6 +21,7 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
     isActive,
     inStock,
     lowStock,
+    ids,
   } = req.query;
 
   const pageNum = parseInt(page as string);
@@ -45,6 +46,11 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
 
   if (categoryId) {
     where.categoryId = categoryId as string;
+  }
+
+  // Fetch a specific set of products (comma-separated ids)
+  if (ids) {
+    where.id = { in: String(ids).split(',').filter(Boolean) };
   }
 
   if (isActive !== undefined) {
@@ -764,8 +770,44 @@ export const scanReceipt = asyncHandler(async (req: AuthRequest, res: Response) 
   const anthropic = new Anthropic({ apiKey });
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    // claude-sonnet-4-20250514 was retired June 2026 — this endpoint 404'd until
+    // the migration to Opus 4.8. Structured outputs also guarantee parseable JSON.
+    model: 'claude-opus-4-8',
     max_tokens: 4096,
+    thinking: { type: 'adaptive' },
+    output_config: {
+      format: {
+        type: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: {
+            supplier: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+            invoiceNumber: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+            invoiceDate: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  quantity: { type: 'number' },
+                  packSize: { type: 'number' },
+                  unitQuantity: { type: 'number' },
+                  unitCost: { type: 'number' },
+                  totalCost: { type: 'number' },
+                  barcode: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+                  matchedProductName: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+                },
+                required: ['name', 'quantity', 'packSize', 'unitQuantity', 'unitCost', 'totalCost', 'barcode', 'matchedProductName'],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['supplier', 'invoiceNumber', 'invoiceDate', 'items'],
+          additionalProperties: false,
+        },
+      },
+    },
     messages: [
       {
         role: 'user',

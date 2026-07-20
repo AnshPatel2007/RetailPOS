@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertTriangle, Sun, Moon } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Sun, Moon, MonitorSmartphone } from 'lucide-react';
 import { shiftService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
@@ -107,6 +107,15 @@ export const POSTopBar: React.FC = () => {
             </div>
           </>
         )}
+
+        <button
+          onClick={() => window.open('/customer-display', 'customerDisplay', 'width=1024,height=768')}
+          className="h-9 w-9 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
+          aria-label="Open customer display"
+          title="Open customer display (drag to the second monitor)"
+        >
+          <MonitorSmartphone className="h-4 w-4" />
+        </button>
 
         <button
           onClick={toggleTheme}

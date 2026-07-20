@@ -29,6 +29,15 @@ router.post(
 );
 
 /**
+ * Suggested purchase orders (velocity-based reorder plan)
+ */
+router.get(
+  '/suggested',
+  authorize('ADMIN', 'MANAGER'),
+  purchaseOrderController.getSuggestedOrders
+);
+
+/**
  * Get purchase order by ID
  */
 router.get('/:id', purchaseOrderController.getPurchaseOrder);

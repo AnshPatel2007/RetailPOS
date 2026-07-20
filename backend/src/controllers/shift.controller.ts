@@ -5,6 +5,17 @@ import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { createDateFilter } from '../utils/dateFilter.util';
 
+const CASH_MOVEMENT_TYPES = ['SAFE_DROP', 'PAID_IN', 'PAID_OUT'] as const;
+
+/** Net drawer effect of cash movements: paid-in adds, drops and paid-out remove */
+const movementNet = (movements: { type: string; amount: number }[]): number =>
+  Math.round(
+    movements.reduce(
+      (sum, m) => sum + (m.type === 'PAID_IN' ? m.amount : -m.amount),
+      0
+    ) * 100
+  ) / 100;
+
 /**
  * Clock in (start shift)
  * POST /api/shifts/clock-in
@@ -84,6 +95,7 @@ export const clockOut = asyncHandler(async (req: AuthRequest, res: Response) => 
         where: { status: 'COMPLETED' },
         select: { paymentMethod: true, total: true, changeDue: true, payments: true },
       },
+      cashMovements: true,
     },
     orderBy: {
       clockInAt: 'desc',
@@ -115,7 +127,9 @@ export const clockOut = asyncHandler(async (req: AuthRequest, res: Response) => 
   }
   cashIn = Math.round(cashIn * 100) / 100;
 
-  const expectedCash = Math.round((openShift.startingCash + cashIn) * 100) / 100;
+  // Safe drops / paid-outs left the drawer during the shift; paid-ins added to it
+  const movements = movementNet(openShift.cashMovements);
+  const expectedCash = Math.round((openShift.startingCash + cashIn + movements) * 100) / 100;
   const cashDifference = Math.round((endingCash - expectedCash) * 100) / 100;
 
   const shift = await prisma.shift.update({
@@ -167,6 +181,7 @@ export const clockOut = asyncHandler(async (req: AuthRequest, res: Response) => 
     totalTransactions: openShift.totalTransactions,
     cashSales: cashIn,
     startingCash: openShift.startingCash,
+    cashMovementNet: movements,
     expectedCash,
     endingCash,
     cashDifference,
@@ -315,6 +330,7 @@ export const getCurrentShift = asyncHandler(async (req: AuthRequest, res: Respon
         },
         orderBy: { createdAt: 'desc' },
       },
+      cashMovements: { orderBy: { createdAt: 'desc' } },
     },
     orderBy: {
       clockInAt: 'desc',
@@ -323,6 +339,7 @@ export const getCurrentShift = asyncHandler(async (req: AuthRequest, res: Respon
 
   // Calculate cash-only total for expected drawer amount
   let totalCashSales = 0;
+  let cashMovementNet = 0;
   if (shift) {
     for (const sale of shift.sales) {
       if (sale.payments && sale.payments.length > 0) {
@@ -335,11 +352,172 @@ export const getCurrentShift = asyncHandler(async (req: AuthRequest, res: Respon
       }
     }
     totalCashSales = Math.round(totalCashSales * 100) / 100;
+    cashMovementNet = movementNet(shift.cashMovements);
   }
 
   res.json({
     success: true,
-    data: shift ? { ...shift, totalCashSales } : null,
+    data: shift
+      ? {
+          ...shift,
+          totalCashSales,
+          cashMovementNet,
+          expectedDrawer: Math.round((shift.startingCash + totalCashSales + cashMovementNet) * 100) / 100,
+        }
+      : null,
+  });
+});
+
+/**
+ * Record a cash movement on the current open shift
+ * POST /api/shifts/cash-movement
+ */
+export const recordCashMovement = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { type, amount, reason } = req.body;
+
+  if (!req.user) {
+    throw new AppError('User not authenticated', 401);
+  }
+  if (!CASH_MOVEMENT_TYPES.includes(type)) {
+    throw new AppError(`Type must be one of: ${CASH_MOVEMENT_TYPES.join(', ')}`, 400);
+  }
+  const value = Math.round(parseFloat(amount) * 100) / 100;
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new AppError('Amount must be greater than 0', 400);
+  }
+  if (!reason || !String(reason).trim()) {
+    throw new AppError('A reason is required for every cash movement', 400);
+  }
+
+  const openShift = await prisma.shift.findFirst({
+    where: { userId: req.user.id, isClosed: false },
+    orderBy: { clockInAt: 'desc' },
+  });
+  if (!openShift) {
+    throw new AppError('No open shift — clock in first', 404);
+  }
+
+  const movement = await prisma.cashMovement.create({
+    data: {
+      shiftId: openShift.id,
+      type,
+      amount: value,
+      reason: String(reason).trim(),
+      userId: req.user.id,
+    },
+  });
+
+  await prisma.activityLog.create({
+    data: {
+      userId: req.user.id,
+      action: 'CASH_MOVEMENT',
+      entity: 'SHIFT',
+      entityId: openShift.id,
+      details: { type, amount: value, reason: movement.reason },
+    },
+  });
+
+  logger.info(`Cash movement: ${type} $${value} by ${req.user.email}`);
+
+  res.status(201).json({
+    success: true,
+    data: movement,
+    message: `${type.replace(/_/g, ' ').toLowerCase()} of $${value.toFixed(2)} recorded`,
+  });
+});
+
+/**
+ * Z-report: full end-of-shift summary for printing/records
+ * GET /api/shifts/:id/z-report
+ */
+export const getShiftZReport = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+
+  const shift = await prisma.shift.findUnique({
+    where: { id },
+    include: {
+      user: { select: { firstName: true, lastName: true } },
+      location: { select: { name: true } },
+      cashMovements: { orderBy: { createdAt: 'asc' } },
+      sales: {
+        where: { status: { in: ['COMPLETED', 'REFUNDED'] } },
+        select: {
+          paymentMethod: true,
+          total: true,
+          tax: true,
+          discount: true,
+          changeDue: true,
+          payments: { select: { paymentMethod: true, amount: true } },
+        },
+      },
+    },
+  });
+
+  if (!shift) {
+    throw new AppError('Shift not found', 404);
+  }
+  // Cashiers can only pull their own Z-report
+  if (req.user?.role === 'CASHIER' && shift.userId !== req.user.id) {
+    throw new AppError('Shift not found', 404);
+  }
+
+  // Tender breakdown (split payments counted per tender)
+  const tenderBreakdown: Record<string, { count: number; total: number }> = {};
+  let cashIn = 0;
+  let totalTax = 0;
+  let totalDiscount = 0;
+  for (const sale of shift.sales) {
+    totalTax += sale.tax;
+    totalDiscount += sale.discount;
+    if (sale.payments && sale.payments.length > 0) {
+      for (const p of sale.payments) {
+        if (!tenderBreakdown[p.paymentMethod]) tenderBreakdown[p.paymentMethod] = { count: 0, total: 0 };
+        tenderBreakdown[p.paymentMethod].count++;
+        tenderBreakdown[p.paymentMethod].total += p.amount;
+        if (p.paymentMethod === 'CASH') cashIn += p.amount;
+      }
+      if (sale.payments.some((p) => p.paymentMethod === 'CASH')) {
+        cashIn -= sale.changeDue || 0;
+      }
+    } else {
+      if (!tenderBreakdown[sale.paymentMethod]) tenderBreakdown[sale.paymentMethod] = { count: 0, total: 0 };
+      tenderBreakdown[sale.paymentMethod].count++;
+      tenderBreakdown[sale.paymentMethod].total += sale.total;
+      if (sale.paymentMethod === 'CASH') cashIn += sale.total;
+    }
+  }
+  for (const key of Object.keys(tenderBreakdown)) {
+    tenderBreakdown[key].total = Math.round(tenderBreakdown[key].total * 100) / 100;
+  }
+  cashIn = Math.round(cashIn * 100) / 100;
+
+  const movements = movementNet(shift.cashMovements);
+  const liveExpected = Math.round((shift.startingCash + cashIn + movements) * 100) / 100;
+
+  res.json({
+    success: true,
+    data: {
+      shiftId: shift.id,
+      cashier: `${shift.user.firstName} ${shift.user.lastName}`,
+      location: shift.location?.name || null,
+      clockInAt: shift.clockInAt,
+      clockOutAt: shift.clockOutAt,
+      isClosed: shift.isClosed,
+      totalSales: shift.totalSales,
+      totalTransactions: shift.totalTransactions,
+      totalTax: Math.round(totalTax * 100) / 100,
+      totalDiscount: Math.round(totalDiscount * 100) / 100,
+      tenderBreakdown,
+      cashSales: cashIn,
+      startingCash: shift.startingCash,
+      cashMovements: shift.cashMovements,
+      cashMovementNet: movements,
+      // Closed shifts report the drawer count that actually happened;
+      // open shifts report the live expectation
+      expectedCash: shift.isClosed ? shift.expectedCash : liveExpected,
+      endingCash: shift.endingCash,
+      cashDifference: shift.cashDifference,
+    },
   });
 });
 

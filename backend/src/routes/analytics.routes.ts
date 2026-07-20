@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as analyticsController from '../controllers/analytics.controller';
+import { analyticsChat } from '../controllers/aiChat.controller';
 import { authenticate, authorize } from '../middleware/auth';
 
 const router = Router();
@@ -112,6 +113,15 @@ router.post(
   '/what-if',
   authorize('ADMIN', 'MANAGER'),
   analyticsController.getWhatIfAnalysis
+);
+
+/**
+ * Natural-language analytics chat (Claude tool-use over read-only queries)
+ */
+router.post(
+  '/chat',
+  authorize('ADMIN', 'MANAGER'),
+  analyticsChat
 );
 
 export default router;

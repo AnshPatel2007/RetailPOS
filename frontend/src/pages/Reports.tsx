@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { reportService } from '@/services/api';
+import { reportService, saleService } from '@/services/api';
+import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate, CHART_COLORS } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
@@ -53,9 +54,12 @@ import { InventoryBulkActions } from '@/components/reports/InventoryBulkActions'
 import { FilterDropdown } from '@/components/common/FilterDropdown';
 import { ExportPreviewModal } from '@/components/reports/ExportPreviewModal';
 import { DataVisualizationCard } from '@/components/reports/DataVisualizationCard';
+import { StockHealthTab } from '@/components/reports/StockHealthTab';
+import { ExportsTab } from '@/components/reports/ExportsTab';
 import { Badge } from '@/components/ui/Badge';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
+import { useAuthStore } from '@/store/authStore';
 
 const EmployeeSalesTab: React.FC = () => {
   const [data, setData] = useState<any[]>([]);
@@ -65,6 +69,29 @@ const EmployeeSalesTab: React.FC = () => {
     return getLocalDateString(d);
   });
   const [endDate, setEndDate] = useState(() => getLocalDateString());
+
+  // Per-employee drill-down (ported from the retired admin Employee Sales page)
+  const [selectedEmployee, setSelectedEmployee] = useState<any | null>(null);
+  const [employeeSales, setEmployeeSales] = useState<any[]>([]);
+  const [drillLoading, setDrillLoading] = useState(false);
+
+  const openEmployeeSales = async (emp: any) => {
+    setSelectedEmployee(emp);
+    setDrillLoading(true);
+    try {
+      const res = await saleService.getAll({
+        userId: emp.user.id,
+        startDate,
+        endDate,
+        limit: 50,
+      });
+      setEmployeeSales(res.data.data || []);
+    } catch {
+      toast.error('Failed to load sales');
+    } finally {
+      setDrillLoading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -125,7 +152,11 @@ const EmployeeSalesTab: React.FC = () => {
               </TableHeader>
               <TableBody>
                 {data.map((emp: any, idx: number) => (
-                  <TableRow key={emp.user.id}>
+                  <TableRow
+                    key={emp.user.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => openEmployeeSales(emp)}
+                  >
                     <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
                     <TableCell className="font-medium">{emp.user.firstName} {emp.user.lastName}</TableCell>
                     <TableCell><Badge variant="secondary" className="text-xs">{emp.user.role.replace(/_/g, ' ')}</Badge></TableCell>
@@ -139,12 +170,48 @@ const EmployeeSalesTab: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Per-employee sales drill-down */}
+      <Modal
+        isOpen={selectedEmployee !== null}
+        onClose={() => setSelectedEmployee(null)}
+        title={selectedEmployee ? `Sales — ${selectedEmployee.user.firstName} ${selectedEmployee.user.lastName}` : 'Sales'}
+        size="lg"
+      >
+        {drillLoading ? (
+          <div className="flex justify-center py-8">
+            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+          </div>
+        ) : employeeSales.length === 0 ? (
+          <p className="text-center py-8 text-muted-foreground">No sales in this period</p>
+        ) : (
+          <div className="max-h-[420px] overflow-y-auto border rounded-lg divide-y">
+            {employeeSales.map((sale: any) => (
+              <div key={sale.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                <div>
+                  <p className="font-medium">{sale.saleNumber}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(sale.createdAt).toLocaleString()} · {sale.paymentMethod.replace(/_/g, ' ')}
+                    {sale.items?.length ? ` · ${sale.items.length} line${sale.items.length > 1 ? 's' : ''}` : ''}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold tabular-nums">{formatCurrency(sale.total)}</p>
+                  {sale.status !== 'COMPLETED' && (
+                    <Badge variant="secondary" className="text-[10px]">{sale.status}</Badge>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
 
 export const Reports: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'overall' | 'sales' | 'inventory' | 'employee'>('sales');
+  const [activeTab, setActiveTab] = useState<'overall' | 'sales' | 'inventory' | 'employee' | 'stock-health' | 'exports'>('sales');
   const [overallData, setOverallData] = useState<any>(null);
   const [salesData, setSalesData] = useState<SalesReportData | null>(null);
   const [inventoryData, setInventoryData] = useState<any>(null);
@@ -470,11 +537,29 @@ export const Reports: React.FC = () => {
     return Array.from(categoryMap.values());
   }, [inventoryData?.products]);
 
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const [sendingDigest, setSendingDigest] = useState(false);
+
+  const handleSendDigest = async () => {
+    setSendingDigest(true);
+    try {
+      const res = await reportService.sendDailyDigest();
+      toast.success(res.data.message || 'Digest sent');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to send digest');
+    } finally {
+      setSendingDigest(false);
+    }
+  };
+
   const tabs = [
     { id: 'sales', label: 'Sales Reports' },
     { id: 'inventory', label: 'Inventory Reports' },
+    { id: 'stock-health', label: 'Stock Health' },
     { id: 'overall', label: 'Overall Report' },
     { id: 'employee', label: 'Employee Sales' },
+    { id: 'exports', label: 'Exports' },
   ];
 
   // Chart colors
@@ -490,6 +575,16 @@ export const Reports: React.FC = () => {
               <Button variant="outline" onClick={loadReports} title="Refresh data">
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
+              </Button>
+            )}
+            {activeTab === 'overall' && isAdmin && (
+              <Button
+                variant="outline"
+                onClick={handleSendDigest}
+                disabled={sendingDigest}
+                title="Email today's end-of-day digest to the store admins now"
+              >
+                {sendingDigest ? 'Sending...' : 'Send Daily Digest'}
               </Button>
             )}
             {activeTab === 'sales' && filteredSales.length > 0 && (
@@ -1600,7 +1695,17 @@ export const Reports: React.FC = () => {
         <EmployeeSalesTab />
       )}
 
-      {isLoading && activeTab !== 'employee' && (
+      {/* Stock Health Tab (self-loading) */}
+      {activeTab === 'stock-health' && (
+        <StockHealthTab />
+      )}
+
+      {/* Exports Tab (self-loading — journals, scan data, history) */}
+      {activeTab === 'exports' && (
+        <ExportsTab />
+      )}
+
+      {isLoading && !['employee', 'stock-health', 'exports'].includes(activeTab) && (
         <div className="flex justify-center p-12">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
         </div>

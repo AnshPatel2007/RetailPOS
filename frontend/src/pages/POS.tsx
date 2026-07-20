@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingCart, X, DollarSign, Keyboard } from 'lucide-react';
-import { productService, saleService, locationService, categoryService } from '@/services/api';
+import { productService, saleService, locationService, categoryService, promotionService } from '@/services/api';
 import { syncService } from '@/services/syncService';
 import { offlineDb } from '@/services/offlineDb';
 import { Modal } from '@/components/ui/Modal';
@@ -15,6 +15,9 @@ import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { QuantityNumpad } from '@/components/pos/QuantityNumpad';
 import { EnhancedPaymentModal } from '@/components/pos/EnhancedPaymentModal';
+import { AgeVerificationModal, AgeVerificationResult } from '@/components/pos/AgeVerificationModal';
+import { parsePriceEmbeddedBarcode } from '@/lib/priceBarcode';
+import { publishDisplayState } from '@/lib/customerDisplay';
 import { ReceiptPreviewModal } from '@/components/pos/ReceiptPreviewModal';
 import { QuickRefundModal } from '@/components/pos/QuickRefundModal';
 import { HeldSalesModal } from '@/components/pos/HeldSalesModal';
@@ -25,7 +28,7 @@ import { LinkedCustomer } from '@/components/pos/CustomerLinkSection';
 import { hardware, Receipt } from '@/services/hardware';
 import toast from 'react-hot-toast';
 
-type PaymentMethod = 'CASH' | 'CARD' | 'GIFT_CARD' | 'STORE_CREDIT';
+type PaymentMethod = 'CASH' | 'CARD' | 'GIFT_CARD' | 'STORE_CREDIT' | 'EBT' | 'HOUSE_ACCOUNT';
 
 export const POS: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -56,11 +59,39 @@ export const POS: React.FC = () => {
   const { locationId } = useEffectiveLocation();
   const { favoriteIds, toggleFavorite, isFavorite } = useFavoritesStore();
   const {
-    items, addItem, updateQuantity, clearCart, notes,
+    items, addItem, updateQuantity, updatePrice, clearCart, notes,
     getSubtotal, getTax, getTotal, setTaxRate, setCustomer,
+    getLineBreakdown, setPromotions, getEbtEligibleTotal, getRequiredAge,
+    setCardSurchargePercent, cardSurchargePercent, taxRate,
     heldSales, holdSale, restoreHeldSale, discardHeldSale,
     cleanupExpiredHeldSales,
   } = useCartStore();
+
+  // Age-restricted sales: verification survives until the sale completes or the
+  // cart empties, so re-opening the payment modal doesn't re-prompt
+  const [ageVerification, setAgeVerification] = useState<AgeVerificationResult | null>(null);
+  const [showAgeModal, setShowAgeModal] = useState(false);
+  const [pendingPaymentMethod, setPendingPaymentMethod] = useState<'CASH' | 'CARD' | undefined>(undefined);
+  const showAgeModalRef = useRef(false);
+  useEffect(() => { showAgeModalRef.current = showAgeModal; }, [showAgeModal]);
+
+  // A fresh cart means a fresh customer — never carry a verification over
+  useEffect(() => {
+    if (items.length === 0 && ageVerification) setAgeVerification(null);
+  }, [items.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** All checkout entry points funnel through here so the age gate always runs */
+  const startCheckout = (method?: 'CASH' | 'CARD') => {
+    if (items.length === 0) return;
+    const requiredAge = getRequiredAge();
+    if (requiredAge > 0 && (!ageVerification || ageVerification.verifiedForAge < requiredAge)) {
+      setPendingPaymentMethod(method);
+      setShowAgeModal(true);
+      return;
+    }
+    setInitialPaymentMethod(method);
+    setShowPaymentModal(true);
+  };
 
   // Cleanup expired held sales on mount
   useEffect(() => {
@@ -76,14 +107,54 @@ export const POS: React.FC = () => {
     setCustomer(linkedCustomer as any);
   }, [linkedCustomer, setCustomer]);
 
-  // Load location tax rate
+  // Load location tax + card-surcharge rates
   useEffect(() => {
     if (!locationId) return;
     locationService.getById(locationId).then((res) => {
-      const rate = res.data?.data?.taxRate ?? res.data?.taxRate;
-      if (typeof rate === 'number') setTaxRate(rate);
+      const loc = res.data?.data ?? res.data;
+      if (typeof loc?.taxRate === 'number') setTaxRate(loc.taxRate);
+      if (typeof loc?.cardSurchargePercent === 'number') setCardSurchargePercent(loc.cardSurchargePercent);
     }).catch(() => {});
-  }, [locationId, setTaxRate]);
+  }, [locationId, setTaxRate, setCardSurchargePercent]);
+
+  // Mirror the cart to the customer-facing display (second window, if open)
+  useEffect(() => {
+    const breakdown = getLineBreakdown();
+    const gross = Math.round(items.reduce((s, i) => s + i.product.price * i.quantity, 0) * 100) / 100;
+    const savings = Math.round(
+      Object.values(breakdown).reduce((s, l) => s + l.totalDiscount, 0) * 100
+    ) / 100;
+    publishDisplayState({
+      storeName: '', // display falls back to its own store settings
+      lines: items.map((i) => ({
+        name: i.product.name,
+        quantity: i.quantity,
+        lineTotal: Math.round(
+          (i.product.price * i.quantity - (breakdown[i.product.id]?.totalDiscount ?? i.discount)) * 100
+        ) / 100,
+        promoName: breakdown[i.product.id]?.promotionName,
+      })),
+      subtotal: gross,
+      promoSavings: savings,
+      tax: getTax(),
+      total: getTotal(),
+    });
+  }, [items, taxRate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load active promotions so the cart preview prices lines like the server will.
+  // Refreshed on focus; the engine re-checks day/time windows on every render.
+  const loadPromotions = useCallback(() => {
+    promotionService.getActive().then((res) => {
+      setPromotions(res.data.data || []);
+    }).catch(() => {});
+  }, [setPromotions]);
+
+  useEffect(() => {
+    loadPromotions();
+    const handleFocus = () => loadPromotions();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [loadPromotions]);
 
   // Load categories (and refresh on window focus)
   const loadCategories = useCallback(() => {
@@ -113,6 +184,59 @@ export const POS: React.FC = () => {
   // Barcode scanner
   useEffect(() => {
     const handleBarcodeScan = async (barcode: string) => {
+      // The age-verification modal handles its own license scans — don't let
+      // AAMVA payload fragments trigger product searches underneath it
+      if (showAgeModalRef.current) return;
+
+      // Price-embedded barcodes (2-prefix scale/deli labels): the barcode itself
+      // carries the price; the item code identifies the product
+      const embedded = parsePriceEmbeddedBarcode(barcode);
+      if (embedded) {
+        toast.loading(`Reading price label...`, { id: 'barcode-search' });
+        try {
+          const resp = await productService.getAll({ search: embedded.itemCode, isActive: true, limit: 10 });
+          const found = (resp.data.data || []).find(
+            (p: Product) =>
+              p.priceEmbedded &&
+              (p.barcode === embedded.itemCode || p.sku === embedded.itemCode || p.barcode === barcode)
+          );
+          if (found) {
+            addItem(found, 1);
+            // The label price wins — flags the line as an override so the server
+            // (which allows it for priceEmbedded products) charges the same amount
+            updatePrice(found.id, embedded.price);
+            toast.success(`Added: ${found.name} — ${formatCurrency(embedded.price)}`, { id: 'barcode-search' });
+          } else {
+            toast.error(
+              `No price-embedded product for code ${embedded.itemCode}. Flag the product as "Price-embedded barcode" in Inventory.`,
+              { id: 'barcode-search' }
+            );
+          }
+        } catch {
+          toast.error('Failed to look up price label', { id: 'barcode-search' });
+        }
+        return;
+      }
+
+      // Receipt QR codes encode the sale number — scanning one pulls up the
+      // receipt for returns/lookups instead of searching products
+      if (/^SALE-\d{8}-\d{4}$/.test(barcode)) {
+        toast.loading('Looking up receipt...', { id: 'barcode-search' });
+        try {
+          const saleRes = await saleService.getAll({ saleNumber: barcode, limit: 1 });
+          const found = saleRes.data.data?.[0];
+          if (found) {
+            toast.success(`Receipt ${barcode}`, { id: 'barcode-search' });
+            handleViewRecentReceipt(found.id);
+          } else {
+            toast.error(`Sale not found: ${barcode}`, { id: 'barcode-search' });
+          }
+        } catch {
+          toast.error('Failed to look up receipt', { id: 'barcode-search' });
+        }
+        return;
+      }
+
       toast.loading(`Searching for barcode: ${barcode}`, { id: 'barcode-search' });
       try {
         const response = await productService.getAll({ search: barcode, isActive: true, limit: 10 });
@@ -142,6 +266,7 @@ export const POS: React.FC = () => {
     if (e.key === 'Escape') {
       e.preventDefault();
       // Close any open modal first, then navigate away
+      if (showAgeModal) { setShowAgeModal(false); return; }
       if (showPaymentModal) { setShowPaymentModal(false); return; }
       if (showHeldSalesModal) { setShowHeldSalesModal(false); return; }
       if (showRefundModal) { setShowRefundModal(false); return; }
@@ -153,9 +278,9 @@ export const POS: React.FC = () => {
       navigate('/dashboard');
       return;
     }
-    if (e.key === 'F1') { e.preventDefault(); if (items.length > 0) { setInitialPaymentMethod('CASH'); setShowPaymentModal(true); } return; }
-    if (e.key === 'F2') { e.preventDefault(); if (items.length > 0) { setInitialPaymentMethod('CARD'); setShowPaymentModal(true); } return; }
-    if (e.key === 'F4') { e.preventDefault(); if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); } return; }
+    if (e.key === 'F1') { e.preventDefault(); startCheckout('CASH'); return; }
+    if (e.key === 'F2') { e.preventDefault(); startCheckout('CARD'); return; }
+    if (e.key === 'F4') { e.preventDefault(); startCheckout(undefined); return; }
     if (e.key === 'F5') { e.preventDefault(); handleHoldSale(); return; }
     if (e.key === 'F6') { e.preventDefault(); setShowHeldSalesModal(true); return; }
     if (e.key === 'F7') { e.preventDefault(); setMiscPrice(''); setMiscName(''); setShowMiscModal(true); return; }
@@ -165,7 +290,7 @@ export const POS: React.FC = () => {
       e.preventDefault();
       searchInputRef.current?.focus();
     }
-  }, [items, showPaymentModal, showHeldSalesModal, showRefundModal, showMiscModal, showReceiptPreview, showShortcutsHelp, numpadProduct]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, showPaymentModal, showHeldSalesModal, showRefundModal, showMiscModal, showReceiptPreview, showShortcutsHelp, numpadProduct, showAgeModal, ageVerification]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyboardShortcuts);
@@ -319,7 +444,10 @@ export const POS: React.FC = () => {
         subtotal: sale.subtotal,
         tax: sale.tax,
         discount: sale.discount,
+        surcharge: sale.surcharge > 0 ? sale.surcharge : undefined,
         total: sale.total,
+        // SaleItem.discount already includes the promotion portion
+        savings: (sale.items || []).reduce((s: number, i: any) => s + (i.discount || 0), 0) || undefined,
         paymentMethod: sale.payments?.length > 1
           ? sale.payments.map((p: any) => `${p.paymentMethod}: ${formatCurrency(p.amount)}`).join(' / ')
           : sale.paymentMethod,
@@ -377,6 +505,13 @@ export const POS: React.FC = () => {
 
       if (linkedCustomer) saleData.customerId = linkedCustomer.id;
       if (pointsRedeemed && pointsRedeemed > 0) saleData.pointsRedeemed = pointsRedeemed;
+      // Attach the age check so the server can log it against the sale
+      if (getRequiredAge() > 0 && ageVerification) {
+        saleData.ageVerification = {
+          method: ageVerification.method,
+          birthDate: ageVerification.birthDate,
+        };
+      }
 
       const noteParts: string[] = [];
       if (notes.trim()) noteParts.push(notes.trim());
@@ -391,6 +526,14 @@ export const POS: React.FC = () => {
       const saleNumber = createdSale?.saleNumber || `SALE-${Date.now()}`;
       setLastSaleId(createdSale?.id || null);
 
+      const lineBreakdown = getLineBreakdown();
+      const totalSavings = Math.round(
+        Object.values(lineBreakdown).reduce((s, l) => s + l.totalDiscount, 0) * 100
+      ) / 100;
+      // The server's totals are authoritative (they include any card surcharge)
+      const chargedTotal = createdSale?.total ?? amountDue;
+      const saleSurcharge = createdSale?.surcharge || 0;
+
       const receipt: Receipt = {
         saleNumber,
         date: new Date().toLocaleString(),
@@ -398,17 +541,20 @@ export const POS: React.FC = () => {
           name: item.product.name,
           quantity: item.quantity,
           price: item.product.price,
-          total: item.product.price * item.quantity - item.discount,
+          total: item.product.price * item.quantity
+            - (lineBreakdown[item.product.id]?.totalDiscount ?? item.discount),
         })),
         subtotal: getSubtotal(),
         tax: getTax(),
         discount: pointsValue,
-        total: amountDue,
+        surcharge: saleSurcharge > 0 ? saleSurcharge : undefined,
+        total: chargedTotal,
+        savings: totalSavings > 0 ? totalSavings : undefined,
         paymentMethod: payments.length > 1
           ? payments.map(p => `${p.paymentMethod}: ${formatCurrency(p.amount)}`).join(' / ')
           : primaryPayment.paymentMethod,
         amountPaid: totalPaid,
-        change: Math.max(0, Math.round((totalPaid - amountDue) * 100) / 100),
+        change: Math.max(0, Math.round((totalPaid - chargedTotal) * 100) / 100),
         employeeName: user ? `${user.firstName} ${user.lastName}` : 'Unknown',
         customerName: linkedCustomer
           ? `${linkedCustomer.firstName} ${linkedCustomer.lastName}`
@@ -423,14 +569,26 @@ export const POS: React.FC = () => {
         hardware.drawer.open();
       }
 
-      const change = Math.max(0, totalPaid - amountDue);
+      const change = Math.max(0, totalPaid - chargedTotal);
       const message = linkedCustomer
         ? `Sale completed for ${linkedCustomer.firstName} ${linkedCustomer.lastName}!${change > 0 ? `\nChange: ${formatCurrency(change)}` : ''}`
         : `Sale completed!${change > 0 ? ` Change: ${formatCurrency(change)}` : ''}`;
 
+      // Thank-you splash on the customer display
+      publishDisplayState({
+        storeName: '',
+        lines: [],
+        subtotal: 0,
+        promoSavings: 0,
+        tax: 0,
+        total: 0,
+        completed: { total: chargedTotal, change: Math.max(0, Math.round((totalPaid - chargedTotal) * 100) / 100) },
+      });
+
       toast.success(message);
       clearCart();
       setLinkedCustomer(null);
+      setAgeVerification(null);
       setShowPaymentModal(false);
       setShowReceiptPreview(true);
       setSalesRefreshTrigger((n) => n + 1);
@@ -526,7 +684,7 @@ export const POS: React.FC = () => {
             onPrintReceipt={handlePrintReceipt}
             onShowHeldSales={() => setShowHeldSalesModal(true)}
             onShowRefund={() => setShowRefundModal(true)}
-            onCheckout={() => { if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); } }}
+            onCheckout={() => startCheckout(undefined)}
             onHoldSale={handleHoldSale}
             linkedCustomer={linkedCustomer}
             onCustomerChange={setLinkedCustomer}
@@ -553,7 +711,7 @@ export const POS: React.FC = () => {
                 onPrintReceipt={handlePrintReceipt}
                 onShowHeldSales={() => setShowHeldSalesModal(true)}
                 onShowRefund={() => setShowRefundModal(true)}
-                onCheckout={() => { if (items.length > 0) { setInitialPaymentMethod(undefined); setShowPaymentModal(true); setMobileCartOpen(false); } }}
+                onCheckout={() => { setMobileCartOpen(false); startCheckout(undefined); }}
                 onHoldSale={() => { handleHoldSale(); setMobileCartOpen(false); }}
                 linkedCustomer={linkedCustomer}
                 onCustomerChange={setLinkedCustomer}
@@ -584,6 +742,21 @@ export const POS: React.FC = () => {
       )}
 
       {/* Modals */}
+      <AgeVerificationModal
+        isOpen={showAgeModal}
+        requiredAge={getRequiredAge()}
+        itemNames={items
+          .filter((i) => (i.product.minimumAge || 0) > 0)
+          .map((i) => i.product.name)}
+        onConfirm={(result) => {
+          setAgeVerification(result);
+          setShowAgeModal(false);
+          setInitialPaymentMethod(pendingPaymentMethod);
+          setShowPaymentModal(true);
+        }}
+        onClose={() => setShowAgeModal(false)}
+      />
+
       <EnhancedPaymentModal
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
@@ -593,6 +766,8 @@ export const POS: React.FC = () => {
         initialPaymentMethod={initialPaymentMethod}
         linkedCustomer={linkedCustomer}
         onCustomerChange={setLinkedCustomer}
+        ebtEligibleTotal={getEbtEligibleTotal()}
+        cardSurchargePercent={cardSurchargePercent}
       />
 
       <HeldSalesModal

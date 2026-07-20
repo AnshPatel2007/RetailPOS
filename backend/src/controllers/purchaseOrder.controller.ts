@@ -605,3 +605,138 @@ export const deletePurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
     message: 'Purchase order deleted successfully',
   });
 });
+/**
+ * Suggested purchase orders — velocity-based reorder plan, grouped by supplier.
+ *
+ * A product is suggested when it's at/below its low-stock threshold, or when
+ * its 30-day sales velocity gives it less than a week of cover. Suggested
+ * quantity targets two weeks of cover (minimum of restoring 2× the threshold).
+ *
+ * GET /api/purchase-orders/suggested
+ */
+export const getSuggestedOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const VELOCITY_DAYS = 30;
+  const COVER_TARGET_DAYS = 14;
+  const URGENT_DAYS = 7;
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - VELOCITY_DAYS);
+
+  const locationFilter = req.user?.locationId ? { locationId: req.user.locationId } : {};
+
+  const [products, soldRows] = await Promise.all([
+    prisma.product.findMany({
+      where: {
+        isActive: true,
+        trackInventory: true,
+        sku: { not: 'MISC-001' },
+        ...locationFilter,
+      },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        cost: true,
+        stockQuantity: true,
+        lowStockAlert: true,
+        suppliers: {
+          take: 1,
+          select: {
+            cost: true,
+            leadTime: true,
+            supplier: { select: { id: true, name: true, leadTimeDays: true } },
+          },
+        },
+      },
+    }),
+    prisma.saleItem.groupBy({
+      by: ['productId'],
+      where: {
+        createdAt: { gte: cutoff },
+        sale: {
+          status: { in: ['COMPLETED', 'REFUNDED'] },
+          ...(req.user?.locationId ? { locationId: req.user.locationId } : {}),
+        },
+      },
+      _sum: { quantity: true },
+    }),
+  ]);
+
+  const soldMap = new Map(soldRows.map((r) => [r.productId, r._sum.quantity || 0]));
+
+  interface SuggestedItem {
+    productId: string;
+    name: string;
+    sku: string;
+    stock: number;
+    lowStockAlert: number;
+    velocityPerDay: number;
+    daysOfCover: number | null;
+    suggestedQty: number;
+    cost: number;
+    urgent: boolean;
+  }
+
+  const groups = new Map<
+    string,
+    { supplierId: string | null; supplierName: string; leadTimeDays: number | null; items: SuggestedItem[] }
+  >();
+
+  for (const p of products) {
+    const sold = soldMap.get(p.id) || 0;
+    const velocity = sold / VELOCITY_DAYS;
+    const daysOfCover = velocity > 0 ? Math.round((p.stockQuantity / velocity) * 10) / 10 : null;
+
+    const belowThreshold = p.lowStockAlert > 0 && p.stockQuantity <= p.lowStockAlert;
+    const runningOut = velocity > 0 && (daysOfCover as number) < URGENT_DAYS;
+    if (!belowThreshold && !runningOut) continue;
+
+    // Enough for two weeks of selling, or back above 2× the alert threshold
+    const coverQty = Math.ceil(velocity * COVER_TARGET_DAYS) - p.stockQuantity;
+    const thresholdQty = p.lowStockAlert > 0 ? p.lowStockAlert * 2 - p.stockQuantity : 0;
+    const suggestedQty = Math.max(coverQty, thresholdQty, 1);
+
+    const link = p.suppliers[0];
+    const supplierId = link?.supplier.id ?? null;
+    const key = supplierId ?? 'unassigned';
+    if (!groups.has(key)) {
+      groups.set(key, {
+        supplierId,
+        supplierName: link?.supplier.name ?? 'No supplier linked',
+        leadTimeDays: link?.leadTime ?? link?.supplier.leadTimeDays ?? null,
+        items: [],
+      });
+    }
+    groups.get(key)!.items.push({
+      productId: p.id,
+      name: p.name,
+      sku: p.sku,
+      stock: p.stockQuantity,
+      lowStockAlert: p.lowStockAlert,
+      velocityPerDay: Math.round(velocity * 100) / 100,
+      daysOfCover,
+      suggestedQty,
+      cost: link?.cost ?? p.cost,
+      urgent: p.stockQuantity === 0 || runningOut,
+    });
+  }
+
+  const data = Array.from(groups.values())
+    .map((g) => ({
+      ...g,
+      items: g.items.sort((a, b) => (a.daysOfCover ?? 999) - (b.daysOfCover ?? 999)),
+      estimatedTotal:
+        Math.round(g.items.reduce((s, i) => s + i.cost * i.suggestedQty, 0) * 100) / 100,
+    }))
+    // Real suppliers first, unassigned last
+    .sort((a, b) => (a.supplierId === null ? 1 : 0) - (b.supplierId === null ? 1 : 0));
+
+  res.json({
+    success: true,
+    data: {
+      velocityWindowDays: VELOCITY_DAYS,
+      coverTargetDays: COVER_TARGET_DAYS,
+      suppliers: data,
+    },
+  });
+});

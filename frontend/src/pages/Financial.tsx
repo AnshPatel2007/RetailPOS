@@ -30,7 +30,7 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import { financialService, expenseService, reportService } from '@/services/api';
-import { formatDate, buildCsv, downloadCsv } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
 import toast from 'react-hot-toast';
@@ -53,7 +53,7 @@ const getLocalDateString = (date: Date = new Date()): string => {
 };
 
 export const Financial: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'expenses' | 'budgets' | 'recurring' | 'pnl' | 'exports'>('expenses');
+  const [activeTab, setActiveTab] = useState<'expenses' | 'budgets' | 'recurring' | 'pnl'>('expenses');
   const [loading, setLoading] = useState(true);
 
   // Data states
@@ -62,7 +62,6 @@ export const Financial: React.FC = () => {
   const [budgetSummary, setBudgetSummary] = useState<any>(null);
   const [recurringExpenses, setRecurringExpenses] = useState<any[]>([]);
   const [pnlData, setPnlData] = useState<any>(null);
-  const [exportHistory, setExportHistory] = useState<any[]>([]);
 
   // Expense-specific state
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -118,10 +117,6 @@ export const Financial: React.FC = () => {
         case 'pnl':
           const pnlRes = await financialService.getProfitAndLoss();
           setPnlData(pnlRes.data.data);
-          break;
-        case 'exports':
-          const expHistRes = await financialService.getExportHistory();
-          setExportHistory(expHistRes.data.data || []);
           break;
       }
     } catch (error) {
@@ -218,44 +213,6 @@ export const Financial: React.FC = () => {
     }).format(value || 0);
   };
 
-  const handleExportSales = async () => {
-    try {
-      const response = await financialService.exportSales();
-      const data = response.data.data;
-      const entries = data.entries || [];
-      const csv = buildCsv(
-        ['Date', 'Reference', 'Description', 'Debit Account', 'Credit Account', 'Amount', 'Tax', 'Payment Method'],
-        entries.map((e: any) => [
-          e.date, e.reference, e.description, e.debitAccount, e.creditAccount, e.amount, e.taxAmount, e.paymentMethod,
-        ])
-      );
-      downloadCsv(csv, `sales-journal-${new Date().toISOString().split('T')[0]}.csv`);
-      toast.success(`Exported ${data.recordCount} sales records`);
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to export sales');
-    }
-  };
-
-  const handleExportExpenses = async () => {
-    try {
-      const response = await financialService.exportExpenses();
-      const data = response.data.data;
-      const entries = data.entries || [];
-      const csv = buildCsv(
-        ['Date', 'Reference', 'Description', 'Debit Account', 'Credit Account', 'Amount', 'Vendor', 'Category'],
-        entries.map((e: any) => [
-          e.date, e.reference, e.description, e.debitAccount, e.creditAccount, e.amount, e.vendor, e.category,
-        ])
-      );
-      downloadCsv(csv, `expenses-journal-${new Date().toISOString().split('T')[0]}.csv`);
-      toast.success(`Exported ${data.recordCount} expense records`);
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to export expenses');
-    }
-  };
-
   const handleGenerateRecurring = async () => {
     try {
       const response = await financialService.generateRecurringExpenses();
@@ -349,14 +306,6 @@ export const Financial: React.FC = () => {
         >
           <FileText className="w-4 h-4 mr-2" />
           P&L Report
-        </Button>
-        <Button
-          variant={activeTab === 'exports' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('exports')}
-          size="sm"
-        >
-          <Download className="w-4 h-4 mr-2" />
-          Exports
         </Button>
       </div>
 
@@ -1002,77 +951,6 @@ export const Financial: React.FC = () => {
                     </Card>
                   </div>
                 </div>
-              </Card>
-            </div>
-          )}
-
-          {/* Exports Tab */}
-          {activeTab === 'exports' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <Card className="p-6">
-                  <h3 className="font-medium mb-4">Export Sales Data</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Export sales transactions in accounting format (journal entries)
-                  </p>
-                  <Button onClick={handleExportSales}>
-                    <Download className="w-4 h-4 mr-2" />
-                    Export Sales
-                  </Button>
-                </Card>
-                <Card className="p-6">
-                  <h3 className="font-medium mb-4">Export Expenses Data</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Export expenses in accounting format (journal entries)
-                  </p>
-                  <Button onClick={handleExportExpenses}>
-                    <Download className="w-4 h-4 mr-2" />
-                    Export Expenses
-                  </Button>
-                </Card>
-              </div>
-
-              {/* Export History */}
-              <Card>
-                <div className="p-4 border-b">
-                  <h3 className="font-medium">Export History</h3>
-                </div>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Format</TableHead>
-                      <TableHead>Period</TableHead>
-                      <TableHead>Records</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {exportHistory.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground">
-                          No exports yet
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      exportHistory.map((exp) => (
-                        <TableRow key={exp.id}>
-                          <TableCell>
-                            {new Date(exp.createdAt).toLocaleString()}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="secondary">{exp.type}</Badge>
-                          </TableCell>
-                          <TableCell>{exp.format}</TableCell>
-                          <TableCell>
-                            {new Date(exp.startDate).toLocaleDateString()} - {new Date(exp.endDate).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell>{exp.recordCount}</TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
               </Card>
             </div>
           )}

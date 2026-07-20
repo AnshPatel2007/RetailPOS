@@ -16,7 +16,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Clock, LogIn, LogOut } from 'lucide-react';
+import { Clock, LogIn, LogOut, Banknote, Printer, ArrowDownToLine, ArrowUpFromLine, Landmark } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -72,6 +72,112 @@ export const Shifts: React.FC = () => {
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [shiftSummary, setShiftSummary] = useState<any>(null);
 
+  // Cash movement modal (safe drop / paid in / paid out on the open shift)
+  const [showMovementModal, setShowMovementModal] = useState(false);
+  const [movementType, setMovementType] = useState<'SAFE_DROP' | 'PAID_IN' | 'PAID_OUT'>('SAFE_DROP');
+  const [movementAmount, setMovementAmount] = useState('');
+  const [movementReason, setMovementReason] = useState('');
+  const [movementSubmitting, setMovementSubmitting] = useState(false);
+
+  const MOVEMENT_TYPES = [
+    { value: 'SAFE_DROP' as const, label: 'Safe Drop', icon: Landmark, hint: 'Cash pulled from the drawer to the safe' },
+    { value: 'PAID_IN' as const, label: 'Paid In', icon: ArrowDownToLine, hint: 'Cash added to the drawer' },
+    { value: 'PAID_OUT' as const, label: 'Paid Out', icon: ArrowUpFromLine, hint: 'Cash removed for an expense (vendor, supplies...)' },
+  ];
+
+  const handleCashMovement = async () => {
+    const amount = parseFloat(movementAmount);
+    if (!amount || amount <= 0) { toast.error('Enter a valid amount'); return; }
+    if (!movementReason.trim()) { toast.error('A reason is required'); return; }
+    setMovementSubmitting(true);
+    try {
+      const res = await shiftService.cashMovement({
+        type: movementType,
+        amount,
+        reason: movementReason.trim(),
+      });
+      toast.success(res.data.message || 'Movement recorded');
+      setShowMovementModal(false);
+      setMovementAmount('');
+      setMovementReason('');
+      loadData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to record movement');
+    } finally {
+      setMovementSubmitting(false);
+    }
+  };
+
+  // Z-report: fetch the shift summary and open a printable receipt-style window
+  const handlePrintZReport = async (shiftId: string) => {
+    try {
+      const res = await shiftService.getZReport(shiftId);
+      const z = res.data.data;
+      const line = (label: string, value: string, bold = false) =>
+        `<tr${bold ? ' style="font-weight:bold;border-top:1px solid #000;"' : ''}><td>${label}</td><td style="text-align:right;">${value}</td></tr>`;
+      const money = (n: number | null | undefined) => (n === null || n === undefined ? '—' : `$${n.toFixed(2)}`);
+
+      const tenderRows = Object.entries(z.tenderBreakdown as Record<string, { count: number; total: number }>)
+        .map(([m, d]) => line(`${m.replace(/_/g, ' ')} (${d.count})`, money(d.total)))
+        .join('');
+      const movementRows = (z.cashMovements as any[])
+        .map((m) =>
+          line(
+            `${m.type.replace(/_/g, ' ')} — ${m.reason}`,
+            `${m.type === 'PAID_IN' ? '+' : '-'}${money(m.amount)}`
+          )
+        )
+        .join('');
+
+      const html = `<!DOCTYPE html><html><head><title>Z-Report</title><style>
+        body { font-family: 'Courier New', monospace; font-size: 12px; width: 300px; margin: 0 auto; padding: 12px; }
+        h2, h3 { text-align: center; margin: 4px 0; }
+        table { width: 100%; border-collapse: collapse; }
+        td { padding: 2px 0; vertical-align: top; }
+        .rule { border-top: 1px dashed #000; margin: 8px 0; }
+        .center { text-align: center; }
+      </style></head><body>
+        <h2>Z-REPORT</h2>
+        <p class="center">${z.location || ''}<br/>${z.cashier}<br/>
+        ${new Date(z.clockInAt).toLocaleString()} — ${z.clockOutAt ? new Date(z.clockOutAt).toLocaleString() : 'OPEN'}</p>
+        <div class="rule"></div>
+        <table>
+          ${line('Transactions', String(z.totalTransactions))}
+          ${line('Gross Sales', money(z.totalSales))}
+          ${line('Tax Collected', money(z.totalTax))}
+          ${line('Discounts', money(z.totalDiscount))}
+        </table>
+        <div class="rule"></div>
+        <h3>TENDERS</h3>
+        <table>${tenderRows || line('No sales', '')}</table>
+        ${movementRows ? `<div class="rule"></div><h3>CASH MOVEMENTS</h3><table>${movementRows}</table>` : ''}
+        <div class="rule"></div>
+        <h3>DRAWER</h3>
+        <table>
+          ${line('Starting Cash', money(z.startingCash))}
+          ${line('Cash Sales (net)', money(z.cashSales))}
+          ${line('Movements (net)', money(z.cashMovementNet))}
+          ${line('Expected', money(z.expectedCash), true)}
+          ${line('Counted', money(z.endingCash))}
+          ${line('Over / Short', money(z.cashDifference), true)}
+        </table>
+        <div class="rule"></div>
+        <p class="center">Printed ${new Date().toLocaleString()}</p>
+        <script>window.onload = function() { window.print(); }</script>
+      </body></html>`;
+
+      const win = window.open('', '_blank', 'width=400,height=700');
+      if (win) {
+        win.document.write(html);
+        win.document.close();
+      } else {
+        toast.error('Popup blocked — allow popups to print the Z-report');
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to load Z-report');
+    }
+  };
+
   const handleClockOut = async () => {
     if (!currentShift) return;
 
@@ -106,10 +212,16 @@ export const Shifts: React.FC = () => {
             Clock In
           </Button>
         ) : (
-          <Button variant="destructive" onClick={() => setShowClockOutModal(true)}>
-            <LogOut className="h-4 w-4 mr-2" />
-            Clock Out
-          </Button>
+          <>
+            <Button variant="outline" onClick={() => setShowMovementModal(true)}>
+              <Banknote className="h-4 w-4 mr-2" />
+              Cash Movement
+            </Button>
+            <Button variant="destructive" onClick={() => setShowClockOutModal(true)}>
+              <LogOut className="h-4 w-4 mr-2" />
+              Clock Out
+            </Button>
+          </>
         )}
       />
 
@@ -146,7 +258,32 @@ export const Shifts: React.FC = () => {
                 <p className="text-sm text-muted-foreground mb-1">Transactions</p>
                 <p className="text-lg font-bold">{currentShift.totalTransactions}</p>
               </div>
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Expected in Drawer</p>
+                <p className="text-lg font-bold text-primary">
+                  {formatCurrency((currentShift as any).expectedDrawer ?? currentShift.startingCash)}
+                </p>
+              </div>
             </div>
+
+            {/* Cash movements this shift */}
+            {((currentShift as any).cashMovements?.length ?? 0) > 0 && (
+              <div className="mt-4 pt-3 border-t">
+                <p className="text-sm font-medium mb-2">Cash movements this shift</p>
+                <div className="space-y-1">
+                  {((currentShift as any).cashMovements as any[]).map((m) => (
+                    <div key={m.id} className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">
+                        {m.type.replace(/_/g, ' ')} — {m.reason}
+                      </span>
+                      <span className={`font-medium tabular-nums ${m.type === 'PAID_IN' ? 'text-success' : 'text-warning'}`}>
+                        {m.type === 'PAID_IN' ? '+' : '-'}{formatCurrency(m.amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -179,6 +316,7 @@ export const Shifts: React.FC = () => {
                 <TableHead>Transactions</TableHead>
                 <TableHead>Cash Diff</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="text-right">Z-Report</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -244,6 +382,16 @@ export const Shifts: React.FC = () => {
                       ) : (
                         <Badge variant="success">Active</Badge>
                       )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handlePrintZReport(shift.id)}
+                        title="Print Z-report"
+                      >
+                        <Printer className="h-4 w-4" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );
@@ -317,10 +465,21 @@ export const Shifts: React.FC = () => {
                   {formatCurrency((currentShift as any).totalCashSales ?? currentShift.totalSales)}
                 </span>
               </div>
+              {((currentShift as any).cashMovementNet ?? 0) !== 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Cash Movements (net):</span>
+                  <span className="font-medium">
+                    {formatCurrency((currentShift as any).cashMovementNet)}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between font-bold pt-2 border-t">
                 <span>Expected Cash in Drawer:</span>
                 <span>
-                  {formatCurrency(currentShift.startingCash + ((currentShift as any).totalCashSales ?? currentShift.totalSales))}
+                  {formatCurrency(
+                    (currentShift as any).expectedDrawer ??
+                      currentShift.startingCash + ((currentShift as any).totalCashSales ?? currentShift.totalSales)
+                  )}
                 </span>
               </div>
             </div>
@@ -334,26 +493,22 @@ export const Shifts: React.FC = () => {
               autoFocus
             />
 
-            {endingCash.trim() !== '' && !isNaN(parseFloat(endingCash)) && (
-              <div className="p-4 bg-primary/10 border border-primary rounded-lg">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium">Cash Difference:</span>
-                  <span
-                    className={`text-xl font-bold ${
-                      Math.abs(parseFloat(endingCash) -
-                        (currentShift.startingCash + ((currentShift as any).totalCashSales ?? currentShift.totalSales))) < 0.01
-                        ? 'text-success'
-                        : 'text-destructive'
-                    }`}
-                  >
-                    {formatCurrency(
-                      parseFloat(endingCash) -
-                        (currentShift.startingCash + ((currentShift as any).totalCashSales ?? currentShift.totalSales))
-                    )}
-                  </span>
+            {endingCash.trim() !== '' && !isNaN(parseFloat(endingCash)) && (() => {
+              const expected =
+                (currentShift as any).expectedDrawer ??
+                currentShift.startingCash + ((currentShift as any).totalCashSales ?? currentShift.totalSales);
+              const diff = parseFloat(endingCash) - expected;
+              return (
+                <div className="p-4 bg-primary/10 border border-primary rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium">Cash Difference:</span>
+                    <span className={`text-xl font-bold ${Math.abs(diff) < 0.01 ? 'text-success' : 'text-destructive'}`}>
+                      {formatCurrency(diff)}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             <div className="flex gap-3">
               <Button
@@ -369,6 +524,66 @@ export const Shifts: React.FC = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Cash Movement Modal */}
+      <Modal
+        isOpen={showMovementModal}
+        onClose={() => setShowMovementModal(false)}
+        title="Cash Movement"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-2">
+            {MOVEMENT_TYPES.map(({ value, label, icon: Icon }) => (
+              <button
+                key={value}
+                onClick={() => setMovementType(value)}
+                className={`p-3 border-2 rounded-lg transition-all ${
+                  movementType === value
+                    ? 'border-primary bg-primary/10'
+                    : 'border-border hover:border-primary/50'
+                }`}
+              >
+                <Icon className="h-5 w-5 mx-auto mb-1" />
+                <p className="font-medium text-xs">{label}</p>
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {MOVEMENT_TYPES.find((t) => t.value === movementType)?.hint}
+          </p>
+
+          <Input
+            type="number"
+            label="Amount"
+            value={movementAmount}
+            onChange={(e) => setMovementAmount(e.target.value)}
+            step="0.01"
+            min="0"
+            placeholder="0.00"
+            autoFocus
+          />
+          <Input
+            label="Reason"
+            value={movementReason}
+            onChange={(e) => setMovementReason(e.target.value)}
+            placeholder={movementType === 'SAFE_DROP' ? 'e.g. Drawer over $200' : 'e.g. Windex from vendor'}
+          />
+
+          <div className="flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={() => setShowMovementModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              className="flex-1"
+              onClick={handleCashMovement}
+              disabled={movementSubmitting || !movementAmount || !movementReason.trim()}
+            >
+              {movementSubmitting ? 'Saving...' : 'Record'}
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Shift Summary Modal */}
@@ -423,6 +638,9 @@ export const Shifts: React.FC = () => {
               <div className="p-3 space-y-1 text-sm">
                 <div className="flex justify-between"><span>Starting Cash</span><span>{formatCurrency(shiftSummary.startingCash)}</span></div>
                 <div className="flex justify-between"><span>Cash Sales (net)</span><span>+{formatCurrency(shiftSummary.cashSales)}</span></div>
+                {(shiftSummary.cashMovementNet ?? 0) !== 0 && (
+                  <div className="flex justify-between"><span>Cash Movements (net)</span><span>{formatCurrency(shiftSummary.cashMovementNet)}</span></div>
+                )}
                 <div className="flex justify-between font-medium border-t pt-1"><span>Expected</span><span>{formatCurrency(shiftSummary.expectedCash)}</span></div>
                 <div className="flex justify-between"><span>Actual Count</span><span>{formatCurrency(shiftSummary.endingCash)}</span></div>
                 <div className="flex justify-between font-bold border-t pt-1">

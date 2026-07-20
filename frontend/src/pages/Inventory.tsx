@@ -20,7 +20,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Plus, Search, Edit, Trash2, AlertTriangle, Package, FolderPlus, RotateCcw, DollarSign, TrendingDown, Camera, Tag, Upload } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, AlertTriangle, Package, FolderPlus, RotateCcw, DollarSign, TrendingDown, Camera, Tag, Upload, Wand2 } from 'lucide-react';
 import { StockAdjustmentModal } from '@/components/inventory/StockAdjustmentModal';
 import { ReceiptScanModal } from '@/components/inventory/ReceiptScanModal';
 import { BarcodeLabelPrint } from '@/components/inventory/BarcodeLabelPrint';
@@ -66,11 +66,80 @@ export const Inventory: React.FC = () => {
     isActive: true,
     trackInventory: true,
     allowBackorder: false,
+    minimumAge: '',
+    ebtEligible: false,
+    priceEmbedded: false,
     categoryId: '',
   });
 
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  // Auto-fill product details from the barcode database and/or a label photo
+  const [identifying, setIdentifying] = useState(false);
+
+  /** Downscale a photo client-side so the upload stays small */
+  const compressImage = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const MAX = 1024;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read image')); };
+      img.src = url;
+    });
+
+  const handleIdentify = async (photoFile?: File) => {
+    if (!formData.barcode && !photoFile) {
+      toast.error('Enter/scan a barcode or take a photo first');
+      return;
+    }
+    setIdentifying(true);
+    try {
+      const payload: { barcode?: string; image?: string } = {};
+      if (formData.barcode) payload.barcode = formData.barcode;
+      if (photoFile) payload.image = await compressImage(photoFile);
+
+      const res = await productService.identify(payload);
+      const info = res.data.data;
+      if (!info.found) {
+        toast(res.data.message || 'Product not recognized', { icon: '🤷' });
+        return;
+      }
+
+      // Match the suggested category against existing ones by name
+      const categoryMatch = info.category
+        ? categories.find(
+            (c: any) =>
+              c.name.toLowerCase() === info.category.toLowerCase() ||
+              c.name.toLowerCase().includes(info.category.toLowerCase()) ||
+              info.category.toLowerCase().includes(c.name.toLowerCase())
+          )
+        : null;
+
+      setFormData((prev) => ({
+        ...prev,
+        name: info.name || prev.name,
+        description: info.description || prev.description,
+        categoryId: categoryMatch?.id || prev.categoryId,
+      }));
+
+      const via = info.source.includes('barcode_db') ? 'product database' : 'photo';
+      toast.success(`Filled from ${via}: ${info.name}${categoryMatch ? ` (${categoryMatch.name})` : ''}`);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Identification failed');
+    } finally {
+      setIdentifying(false);
+    }
+  };
 
   // Debounce search input and reset page
   useEffect(() => {
@@ -172,6 +241,9 @@ export const Inventory: React.FC = () => {
         isActive: formData.isActive,
         trackInventory: formData.trackInventory,
         allowBackorder: formData.allowBackorder,
+        minimumAge: formData.minimumAge ? parseInt(formData.minimumAge) : null,
+        ebtEligible: formData.ebtEligible,
+        priceEmbedded: formData.priceEmbedded,
       };
 
       if (editingProduct) {
@@ -207,6 +279,9 @@ export const Inventory: React.FC = () => {
       isActive: product.isActive,
       trackInventory: product.trackInventory,
       allowBackorder: product.allowBackorder,
+      minimumAge: product.minimumAge?.toString() || '',
+      ebtEligible: product.ebtEligible ?? false,
+      priceEmbedded: product.priceEmbedded ?? false,
       categoryId: product.categoryId || '',
     });
     setShowNewCategoryInput(false);
@@ -244,6 +319,9 @@ export const Inventory: React.FC = () => {
       isActive: true,
       trackInventory: true,
       allowBackorder: false,
+      minimumAge: '',
+      ebtEligible: false,
+      priceEmbedded: false,
       categoryId: '',
     });
     setShowNewCategoryInput(false);
@@ -524,6 +602,41 @@ export const Inventory: React.FC = () => {
             />
           </div>
 
+          {/* Auto-fill: barcode database + AI photo recognition */}
+          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-info/10 border border-info/30">
+            <Wand2 className="h-4 w-4 text-info shrink-0" />
+            <span className="text-xs text-muted-foreground flex-1">
+              Scan the barcode or snap the label — we'll fill in the details
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => handleIdentify()}
+              disabled={identifying || !formData.barcode}
+              title="Look the barcode up in the product database"
+            >
+              {identifying ? 'Looking up...' : 'Auto-fill'}
+            </Button>
+            <label className="cursor-pointer">
+              <span className="inline-flex items-center h-8 px-3 text-sm border border-input rounded-md hover:bg-accent transition-colors">
+                <Camera className="h-3.5 w-3.5 mr-1.5" />
+                Photo
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleIdentify(file);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          </div>
+
           <Input
             label="Product Name"
             value={formData.name}
@@ -688,6 +801,46 @@ export const Inventory: React.FC = () => {
               />
               <span className="text-sm">Allow backorder</span>
             </label>
+            <label className="flex items-center space-x-2" title="SNAP/EBT can pay for this item">
+              <input
+                type="checkbox"
+                checked={formData.ebtEligible}
+                onChange={(e) => setFormData({ ...formData, ebtEligible: e.target.checked })}
+                className="rounded border-input"
+              />
+              <span className="text-sm">EBT / SNAP eligible</span>
+            </label>
+            <label
+              className="flex items-center space-x-2"
+              title='Sold via 2-prefix scale/deli labels — the scanned barcode carries the price'
+            >
+              <input
+                type="checkbox"
+                checked={formData.priceEmbedded}
+                onChange={(e) => setFormData({ ...formData, priceEmbedded: e.target.checked })}
+                className="rounded border-input"
+              />
+              <span className="text-sm">Price-embedded barcode</span>
+            </label>
+          </div>
+
+          {/* Age restriction */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Age restriction</label>
+            <select
+              value={formData.minimumAge}
+              onChange={(e) => setFormData({ ...formData, minimumAge: e.target.value })}
+              className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
+            >
+              <option value="">None</option>
+              <option value="18">18+ (lottery, some tobacco states)</option>
+              <option value="21">21+ (alcohol, tobacco, vape)</option>
+            </select>
+            {formData.minimumAge && (
+              <p className="text-xs text-warning mt-1">
+                Checkout will require a logged ID check whenever this item is in the cart
+              </p>
+            )}
           </div>
 
           <div className="flex gap-3 pt-4">

@@ -57,8 +57,11 @@ export const CartPanel: React.FC<CartPanelProps> = ({
     getTax,
     getTotal,
     getItemCount,
+    getLineBreakdown,
     heldSales,
   } = useCartStore();
+
+  const lineBreakdown = getLineBreakdown();
 
   const { user } = useAuthStore();
   const canOverridePrice = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
@@ -168,6 +171,8 @@ export const CartPanel: React.FC<CartPanelProps> = ({
               onUpdateNotes={updateNotes}
               onUpdatePrice={updatePrice}
               canOverridePrice={canOverridePrice}
+              promoDiscount={lineBreakdown[item.product.id]?.promoDiscount || 0}
+              promoName={lineBreakdown[item.product.id]?.promotionName}
             />
           ))
         )}
@@ -205,23 +210,32 @@ export const CartPanel: React.FC<CartPanelProps> = ({
           </div>
         )}
 
-        {/* Totals — getSubtotal() is already net of item discounts, so show the
-            gross amount and the discount as separate display-only lines */}
+        {/* Totals — getSubtotal() is already net of all discounts, so show the
+            gross amount and the discounts as separate display-only lines */}
         {(() => {
-          const itemDiscounts = Math.round(items.reduce((s, i) => s + i.discount, 0) * 100) / 100;
+          const lines = Object.values(lineBreakdown);
+          const itemDiscounts = Math.round(lines.reduce((s, l) => s + l.manualDiscount, 0) * 100) / 100;
+          const promoSavings = Math.round(lines.reduce((s, l) => s + l.promoDiscount, 0) * 100) / 100;
           const grossSubtotal = Math.round(items.reduce((s, i) => s + i.product.price * i.quantity, 0) * 100) / 100;
+          const anyDiscount = itemDiscounts > 0 || promoSavings > 0;
           return (
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Subtotal</span>
                 <span className="font-medium tabular-nums">
-                  {formatCurrency(itemDiscounts > 0 ? grossSubtotal : getSubtotal())}
+                  {formatCurrency(anyDiscount ? grossSubtotal : getSubtotal())}
                 </span>
               </div>
               {itemDiscounts > 0 && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Item discounts</span>
                   <span className="font-medium text-success tabular-nums">-{formatCurrency(itemDiscounts)}</span>
+                </div>
+              )}
+              {promoSavings > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Promo savings</span>
+                  <span className="font-medium text-success tabular-nums">-{formatCurrency(promoSavings)}</span>
                 </div>
               )}
               <div className="flex justify-between">

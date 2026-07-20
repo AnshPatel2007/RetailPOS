@@ -9,6 +9,7 @@ import {
   Percent,
   StickyNote,
   Pencil,
+  Tag,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -20,6 +21,9 @@ interface CartItemCardProps {
   onUpdateNotes: (productId: string, notes: string) => void;
   onUpdatePrice?: (productId: string, price: number) => void;
   canOverridePrice?: boolean;
+  /** Automatic promotion applied to this line (display only — server recomputes) */
+  promoDiscount?: number;
+  promoName?: string;
 }
 
 export const CartItemCard: React.FC<CartItemCardProps> = ({
@@ -30,6 +34,8 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
   onUpdateNotes,
   onUpdatePrice,
   canOverridePrice,
+  promoDiscount = 0,
+  promoName,
 }) => {
   const [showDiscount, setShowDiscount] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
@@ -40,7 +46,8 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
   const [noteInput, setNoteInput] = useState(item.notes || '');
 
   const lineTotal = item.product.price * item.quantity;
-  const discountedTotal = lineTotal - item.discount;
+  const effectiveDiscount = Math.min(item.discount + promoDiscount, lineTotal);
+  const discountedTotal = Math.round((lineTotal - effectiveDiscount) * 100) / 100;
 
   const handleApplyDiscount = () => {
     const val = parseFloat(discountInput);
@@ -141,7 +148,7 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
           </button>
         </div>
         <div className="text-right">
-          {item.discount > 0 ? (
+          {effectiveDiscount > 0 ? (
             <>
               <p className="text-xs text-muted-foreground line-through">{formatCurrency(lineTotal)}</p>
               <p className="font-bold text-primary">{formatCurrency(discountedTotal)}</p>
@@ -181,6 +188,15 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Automatic promotion badge */}
+      {promoDiscount > 0 && promoName && (
+        <div className="mt-1.5 flex items-center gap-1 text-xs text-success">
+          <Tag className="h-3 w-3 shrink-0" />
+          <span className="truncate">{promoName}</span>
+          <span className="ml-auto font-medium tabular-nums shrink-0">-{formatCurrency(promoDiscount)}</span>
+        </div>
+      )}
 
       {/* Inline discount editor */}
       {showDiscount && (

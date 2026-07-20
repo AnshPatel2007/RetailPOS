@@ -82,4 +82,28 @@ router.get(
   reportController.getExpenseReport
 );
 
+router.get(
+  '/stock-health',
+  authorize('ADMIN', 'MANAGER'),
+  reportController.getStockHealthReport
+);
+
+router.post(
+  '/daily-digest/send',
+  authorize('ADMIN'),
+  reportController.sendDailyDigestNow
+);
+
+router.get(
+  '/age-verifications',
+  authorize('ADMIN', 'MANAGER'),
+  reportController.getAgeVerifications
+);
+
+router.get(
+  '/scan-data/export/csv',
+  authorize('ADMIN', 'MANAGER'),
+  reportController.exportScanDataCSV
+);
+
 export default router;

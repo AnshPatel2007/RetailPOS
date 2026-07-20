@@ -27,12 +27,15 @@ const CycleCount = lazy(() => import('./pages/CycleCount').then(m => ({ default:
 const Lottery = lazy(() => import('./pages/Lottery').then(m => ({ default: m.Lottery })));
 const AuditLog = lazy(() => import('./pages/AuditLog').then(m => ({ default: m.AuditLog })));
 const StoreCredits = lazy(() => import('./pages/StoreCredits').then(m => ({ default: m.StoreCredits })));
+const Promotions = lazy(() => import('./pages/Promotions').then(m => ({ default: m.Promotions })));
+const SuggestedOrders = lazy(() => import('./pages/SuggestedOrders').then(m => ({ default: m.SuggestedOrders })));
+const CustomerDisplay = lazy(() => import('./pages/CustomerDisplay').then(m => ({ default: m.CustomerDisplay })));
+const HouseAccounts = lazy(() => import('./pages/HouseAccounts').then(m => ({ default: m.HouseAccounts })));
+const Developers = lazy(() => import('./pages/Developers').then(m => ({ default: m.Developers })));
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 const StoreManagement = lazy(() => import('./pages/admin/StoreManagement').then(m => ({ default: m.StoreManagement })));
 const UserManagement = lazy(() => import('./pages/admin/UserManagement').then(m => ({ default: m.UserManagement })));
 const AdminReports = lazy(() => import('./pages/admin/AdminReports').then(m => ({ default: m.AdminReports })));
-const AdminSettings = lazy(() => import('./pages/admin/AdminSettings').then(m => ({ default: m.AdminSettings })));
-const EmployeeSales = lazy(() => import('./pages/admin/EmployeeSales').then(m => ({ default: m.EmployeeSales })));
 const ResetPassword = lazy(() => import('./pages/ResetPassword').then(m => ({ default: m.ResetPassword })));
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
@@ -172,14 +175,20 @@ function App() {
         <Route path="/lottery" element={<PageRoute page={<Lottery />} />} />
         <Route path="/audit-log" element={<PageRoute page={<AuditLog />} roles={MANAGER_ROLES} />} />
         <Route path="/store-credits" element={<PageRoute page={<StoreCredits />} roles={MANAGER_ROLES} />} />
+        <Route path="/promotions" element={<PageRoute page={<Promotions />} roles={MANAGER_ROLES} />} />
+        <Route path="/suggested-orders" element={<PageRoute page={<SuggestedOrders />} roles={MANAGER_ROLES} />} />
+        <Route path="/customer-display" element={<PageRoute page={<CustomerDisplay />} />} />
+        <Route path="/house-accounts" element={<PageRoute page={<HouseAccounts />} roles={MANAGER_ROLES} />} />
+        <Route path="/developers" element={<PageRoute page={<Developers />} roles={['SUPER_ADMIN', 'ADMIN']} />} />
 
         {/* Admin routes — SUPER_ADMIN only */}
         <Route path="/admin" element={<PageRoute page={<AdminDashboard />} layout="admin" roles={['SUPER_ADMIN']} />} />
         <Route path="/admin/stores" element={<PageRoute page={<StoreManagement />} layout="admin" roles={['SUPER_ADMIN']} />} />
         <Route path="/admin/users" element={<PageRoute page={<UserManagement />} layout="admin" roles={['SUPER_ADMIN']} />} />
         <Route path="/admin/reports" element={<PageRoute page={<AdminReports />} layout="admin" roles={['SUPER_ADMIN']} />} />
-        <Route path="/admin/settings" element={<PageRoute page={<AdminSettings />} layout="admin" roles={['SUPER_ADMIN']} />} />
-        <Route path="/admin/employee-sales" element={<PageRoute page={<EmployeeSales />} layout="admin" roles={['SUPER_ADMIN', 'ADMIN']} />} />
+        {/* Retired pages — redirect to their consolidated homes */}
+        <Route path="/admin/settings" element={<Navigate to="/settings" replace />} />
+        <Route path="/admin/employee-sales" element={<Navigate to="/reports" replace />} />
 
         <Route path="/" element={<SmartRedirect />} />
         <Route

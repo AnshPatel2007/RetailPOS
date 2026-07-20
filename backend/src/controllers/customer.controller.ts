@@ -138,6 +138,10 @@ export const createCustomer = asyncHandler(async (req: AuthRequest, res: Respons
     data.email = null;
   }
 
+  // birthDate arrives as "yyyy-mm-dd" from the form; Prisma needs a Date
+  if (data.birthDate === '') data.birthDate = null;
+  if (typeof data.birthDate === 'string') data.birthDate = new Date(`${data.birthDate}T00:00:00`);
+
   // Check if email already exists
   if (data.email) {
     const existing = await prisma.customer.findUnique({
@@ -185,6 +189,10 @@ export const updateCustomer = asyncHandler(async (req: AuthRequest, res: Respons
   if (data.email === '') {
     data.email = null;
   }
+
+  // birthDate arrives as "yyyy-mm-dd" from the form; Prisma needs a Date
+  if (data.birthDate === '') data.birthDate = null;
+  if (typeof data.birthDate === 'string') data.birthDate = new Date(`${data.birthDate}T00:00:00`);
 
   const customer = await prisma.customer.findUnique({ where: { id } });
 
@@ -366,4 +374,51 @@ export const searchByPhone = asyncHandler(async (req: Request, res: Response) =>
     success: true,
     data: customer,
   });
+});
+
+/**
+ * Send an email campaign to a customer segment
+ * POST /api/customers/campaign  { segment, subject, message }
+ */
+export const sendCustomerCampaign = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { segment, subject, message } = req.body;
+
+  if (!segment || !subject?.trim() || !message?.trim()) {
+    throw new AppError('Segment, subject, and message are required', 400);
+  }
+
+  const { sendCampaign } = await import('../services/marketing.service');
+  const result = await sendCampaign(String(segment), String(subject).trim(), String(message).trim());
+
+  await prisma.activityLog.create({
+    data: {
+      userId: req.user!.id,
+      action: 'CAMPAIGN',
+      entity: 'CUSTOMER',
+      details: { segment, subject, ...result },
+    },
+  });
+
+  res.json({
+    success: true,
+    data: result,
+    message:
+      result.matched === 0
+        ? 'No opted-in customers matched this segment'
+        : `Sent to ${result.sent} of ${result.matched} matched customer${result.matched !== 1 ? 's' : ''}${result.failed > 0 ? ` (${result.failed} failed)` : ''}`,
+  });
+});
+
+/**
+ * Preview how many customers a campaign segment would reach
+ * GET /api/customers/campaign/preview?segment=...
+ */
+export const previewCampaignSegment = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { segment } = req.query;
+  if (!segment) {
+    throw new AppError('Segment is required', 400);
+  }
+  const { resolveSegment } = await import('../services/marketing.service');
+  const recipients = await resolveSegment(String(segment));
+  res.json({ success: true, data: { matched: recipients.length } });
 });

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as productController from '../controllers/product.controller';
+import { identifyProduct } from '../controllers/productIdentify.controller';
 import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { createProductSchema, updateProductSchema } from '../validators/product.validator';
@@ -29,6 +30,12 @@ router.post(
   '/apply-receipt',
   authorize('ADMIN', 'MANAGER'),
   productController.applyReceipt
+);
+
+router.post(
+  '/identify',
+  authorize('ADMIN', 'MANAGER'),
+  identifyProduct
 );
 
 router.post(

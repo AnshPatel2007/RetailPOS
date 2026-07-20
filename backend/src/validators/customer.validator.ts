@@ -13,6 +13,8 @@ export const createCustomerSchema = z.object({
     country: z.string().optional(),
     emailMarketing: z.boolean().optional(),
     smsMarketing: z.boolean().optional(),
+    tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+    birthDate: z.string().optional().nullable(), // yyyy-mm-dd
     notes: z.string().optional(),
   }),
 });
@@ -30,6 +32,8 @@ export const updateCustomerSchema = z.object({
     country: z.string().optional().nullable(),
     emailMarketing: z.boolean().optional(),
     smsMarketing: z.boolean().optional(),
+    tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+    birthDate: z.string().optional().nullable(), // yyyy-mm-dd
     notes: z.string().optional().nullable(),
     isActive: z.boolean().optional(),
     loyaltyPoints: z.number().int().min(0).optional(),

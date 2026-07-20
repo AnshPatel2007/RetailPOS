@@ -122,11 +122,22 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
                 <span>-${receipt.discount.toFixed(2)}</span>
               </div>
             )}
+            {(receipt.surcharge ?? 0) > 0 && (
+              <div className="flex justify-between">
+                <span>Card Surcharge</span>
+                <span>${(receipt.surcharge as number).toFixed(2)}</span>
+              </div>
+            )}
             <div className="border-t border-gray-800 my-1" />
             <div className="flex justify-between font-bold text-sm">
               <span>TOTAL</span>
               <span>${receipt.total.toFixed(2)}</span>
             </div>
+            {(receipt.savings ?? 0) > 0 && (
+              <div className="text-center font-bold text-[11px] py-0.5">
+                *** You saved ${(receipt.savings as number).toFixed(2)} today! ***
+              </div>
+            )}
             <div className="border-t border-gray-800 my-1" />
             <div className="flex justify-between">
               <span>Paid ({receipt.paymentMethod.replace(/_/g, ' ')})</span>

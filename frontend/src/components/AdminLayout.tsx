@@ -7,10 +7,8 @@ import {
   Store,
   Users,
   BarChart3,
-  Settings,
   LogOut,
   ArrowLeft,
-  TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
@@ -35,19 +33,9 @@ const adminNavItems = [
     icon: Users,
   },
   {
-    label: 'Employee Sales',
-    href: '/admin/employee-sales',
-    icon: TrendingUp,
-  },
-  {
     label: 'Reports',
     href: '/admin/reports',
     icon: BarChart3,
-  },
-  {
-    label: 'Settings',
-    href: '/admin/settings',
-    icon: Settings,
   },
 ];
 

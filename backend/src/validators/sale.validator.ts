@@ -16,19 +16,25 @@ const saleItemSchema = z.object({
 }, { message: 'Discount cannot exceed item total' });
 
 const paymentEntrySchema = z.object({
-  paymentMethod: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'OTHER']),
+  paymentMethod: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'EBT', 'HOUSE_ACCOUNT', 'OTHER']),
   amount: z.number().min(0.01, 'Payment amount must be greater than 0'),
   reference: z.string().optional(),
+});
+
+const ageVerificationSchema = z.object({
+  method: z.enum(['ID_SCAN', 'MANUAL_DOB', 'VISUAL']),
+  birthDate: z.string().optional(), // ISO date; required server-side for ID_SCAN / MANUAL_DOB
 });
 
 export const createSaleSchema = z.object({
   body: z.object({
     customerId: z.string().uuid().optional(),
     items: z.array(saleItemSchema).min(1, 'At least one item is required'),
-    paymentMethod: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'OTHER']),
+    paymentMethod: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'EBT', 'HOUSE_ACCOUNT', 'OTHER']),
     amountPaid: z.number().min(0, 'Amount paid must be 0 or greater'),
     payments: z.array(paymentEntrySchema).optional(), // Split payment support
     pointsRedeemed: z.number().int().min(0).optional(), // Loyalty points to redeem
+    ageVerification: ageVerificationSchema.optional(), // required when cart has age-restricted items
     notes: z.string().optional(),
     receiptEmail: z.string().email().optional(),
     idempotencyKey: z.string().uuid().optional(),
