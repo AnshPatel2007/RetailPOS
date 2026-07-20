@@ -3,7 +3,10 @@ services:
     name: pos-system-api
     runtime: node
     buildCommand: npm install && npm run build
-    startCommand: npm run db:migrate:deploy && npm run start
+    # This project syncs schema with `db push` — the migrations folder is stale.
+    # Running migrate:deploy here left the production DB missing new columns,
+    # which broke every query (including login) after deploys.
+    startCommand: npx prisma db push && npm run start
     envVars:
       - key: NODE_ENV
         value: production
