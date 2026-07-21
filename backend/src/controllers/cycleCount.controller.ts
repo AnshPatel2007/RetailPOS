@@ -3,6 +3,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
+import { assertOwnsRecord, getLocationFilter, isSuperAdmin } from '../utils/locationFilter.util';
 
 /**
  * Get all cycle counts
@@ -12,11 +13,8 @@ export const getCycleCounts = asyncHandler(async (req: AuthRequest, res: Respons
   const { page = '1', limit = '20', status, locationId } = req.query;
   const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
 
-  const where: any = {};
+  const where: any = { ...getLocationFilter(req, locationId as string) };
   if (status) where.status = status;
-  // Location-bound users only see their own location's counts
-  const scopeLocationId = req.user?.locationId || locationId;
-  if (scopeLocationId) where.locationId = scopeLocationId;
 
   const [counts, total] = await Promise.all([
     prisma.cycleCount.findMany({
@@ -42,6 +40,7 @@ export const getCycleCount = asyncHandler(async (req: AuthRequest, res: Response
     include: { items: { include: { product: { select: { id: true, name: true, sku: true } } } } },
   });
   if (!count) throw new AppError('Cycle count not found', 404);
+  assertOwnsRecord(req, count.locationId);
   res.json({ success: true, data: count });
 });
 
@@ -50,7 +49,9 @@ export const getCycleCount = asyncHandler(async (req: AuthRequest, res: Response
  * POST /api/cycle-counts
  */
 export const createCycleCount = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { locationId, type = 'FULL', categoryId, notes } = req.body;
+  const { type = 'FULL', categoryId, notes } = req.body;
+  // Non-SUPER_ADMIN is always forced to their own store, regardless of body
+  const locationId = isSuperAdmin(req) ? req.body.locationId : req.user!.locationId;
 
   if (!locationId) throw new AppError('Location is required', 400);
 
@@ -103,6 +104,7 @@ export const updateCountItems = asyncHandler(async (req: AuthRequest, res: Respo
 
   const count = await prisma.cycleCount.findUnique({ where: { id } });
   if (!count) throw new AppError('Cycle count not found', 404);
+  assertOwnsRecord(req, count.locationId);
   if (count.status !== 'IN_PROGRESS') throw new AppError('Cycle count is not in progress', 400);
 
   if (!items?.length) throw new AppError('Items are required', 400);
@@ -150,6 +152,7 @@ export const submitForReview = asyncHandler(async (req: AuthRequest, res: Respon
     include: { items: true },
   });
   if (!count) throw new AppError('Cycle count not found', 404);
+  assertOwnsRecord(req, count.locationId);
   if (count.status !== 'IN_PROGRESS') throw new AppError('Cycle count is not in progress', 400);
 
   // Check all items have been counted
@@ -179,6 +182,7 @@ export const approveCycleCount = asyncHandler(async (req: AuthRequest, res: Resp
     include: { items: true },
   });
   if (!count) throw new AppError('Cycle count not found', 404);
+  assertOwnsRecord(req, count.locationId);
   if (count.status !== 'REVIEW') throw new AppError('Cycle count is not in review status', 400);
 
   await prisma.$transaction(async (tx) => {
@@ -215,6 +219,7 @@ export const cancelCycleCount = asyncHandler(async (req: AuthRequest, res: Respo
 
   const count = await prisma.cycleCount.findUnique({ where: { id } });
   if (!count) throw new AppError('Cycle count not found', 404);
+  assertOwnsRecord(req, count.locationId);
   if (count.status === 'APPROVED') throw new AppError('Cannot cancel an approved cycle count', 400);
 
   await prisma.cycleCount.update({

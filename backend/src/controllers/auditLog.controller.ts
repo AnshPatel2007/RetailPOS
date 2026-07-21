@@ -3,6 +3,7 @@ import { asyncHandler } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { parseStartDate, parseEndDate } from '../utils/dateFilter.util';
+import { getLocationFilter } from '../utils/locationFilter.util';
 
 /**
  * Get audit logs with filtering, pagination, and search
@@ -17,13 +18,14 @@ export const getAuditLogs = asyncHandler(async (req: AuthRequest, res: Response)
     startDate,
     endDate,
     search,
+    locationId,
   } = req.query as Record<string, string>;
 
   const pageNum = parseInt(page) || 1;
   const limitNum = Math.min(parseInt(limit) || 50, 200);
   const skip = (pageNum - 1) * limitNum;
 
-  const where: any = {};
+  const where: any = { ...getLocationFilter(req, locationId) };
 
   if (action) {
     where.action = action;
@@ -77,8 +79,9 @@ export const getAuditLogs = asyncHandler(async (req: AuthRequest, res: Response)
 /**
  * Get distinct action types for filter dropdown
  */
-export const getAuditActions = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const getAuditActions = asyncHandler(async (req: AuthRequest, res: Response) => {
   const actions = await prisma.activityLog.findMany({
+    where: { ...getLocationFilter(req) },
     select: { action: true },
     distinct: ['action'],
     orderBy: { action: 'asc' },
@@ -93,11 +96,11 @@ export const getAuditActions = asyncHandler(async (_req: AuthRequest, res: Respo
 /**
  * Get distinct entity types for filter dropdown
  */
-export const getAuditEntities = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const getAuditEntities = asyncHandler(async (req: AuthRequest, res: Response) => {
   const entities = await prisma.activityLog.findMany({
     select: { entity: true },
     distinct: ['entity'],
-    where: { entity: { not: null } },
+    where: { entity: { not: null }, ...getLocationFilter(req) },
     orderBy: { entity: 'asc' },
   });
 

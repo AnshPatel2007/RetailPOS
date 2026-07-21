@@ -14,7 +14,11 @@ router.use(authenticate);
 router.get('/batches', lotteryController.getBatches);
 router.get('/batches/:id', lotteryController.getBatchById);
 router.post('/batches', lotteryController.createBatch);
-router.put('/batches/:id', lotteryController.updateBatch);
+router.put(
+  '/batches/:id',
+  authorize('ADMIN', 'MANAGER'),
+  lotteryController.updateBatch
+);
 router.delete(
   '/batches/:id',
   authorize('ADMIN', 'MANAGER'),

@@ -37,6 +37,7 @@ const mockCustomer = {
   totalSpent: 500.0,
   visitCount: 5,
   isActive: true,
+  locationId: 'location-123',
   createdAt: new Date(),
   updatedAt: new Date(),
 };

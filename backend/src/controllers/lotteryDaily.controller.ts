@@ -3,7 +3,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
-import { getLocationFilter } from '../utils/locationFilter.util';
+import { getLocationFilter, assertOwnsRecord } from '../utils/locationFilter.util';
 
 /**
  * LOTTERY TICKET TYPE CONTROLLERS
@@ -76,6 +76,7 @@ export const getTicketTypeById = asyncHandler(async (req: AuthRequest, res: Resp
   if (!ticketType) {
     throw new AppError('Ticket type not found', 404);
   }
+  assertOwnsRecord(req, ticketType.locationId);
 
   res.json({
     success: true,
@@ -153,6 +154,7 @@ export const updateTicketType = asyncHandler(async (req: AuthRequest, res: Respo
   if (!ticketType) {
     throw new AppError('Ticket type not found', 404);
   }
+  assertOwnsRecord(req, ticketType.locationId);
 
   // If updating ticketCode, check for duplicates
   if (updates.ticketCode && updates.ticketCode !== ticketType.ticketCode) {
@@ -222,6 +224,7 @@ export const deleteTicketType = asyncHandler(async (req: AuthRequest, res: Respo
   if (!ticketType) {
     throw new AppError('Ticket type not found', 404);
   }
+  assertOwnsRecord(req, ticketType.locationId);
 
   if (ticketType._count.dailyEntries > 0) {
     throw new AppError('Cannot delete ticket type with existing daily entries. Deactivate instead.', 400);
@@ -466,6 +469,7 @@ export const updateDailyEntry = asyncHandler(async (req: AuthRequest, res: Respo
   if (!entry) {
     throw new AppError('Daily entry not found', 404);
   }
+  assertOwnsRecord(req, entry.locationId);
 
   // Check if day is closed
   const startOfDay = new Date(entry.entryDate);
@@ -580,6 +584,7 @@ export const deleteDailyEntry = asyncHandler(async (req: AuthRequest, res: Respo
   if (!entry) {
     throw new AppError('Daily entry not found', 404);
   }
+  assertOwnsRecord(req, entry.locationId);
 
   // Check if day is closed
   const startOfDay = new Date(entry.entryDate);
@@ -775,6 +780,7 @@ export const updateDayStatusCashout = asyncHandler(async (req: AuthRequest, res:
   if (!dayStatus) {
     throw new AppError('Day status not found', 404);
   }
+  assertOwnsRecord(req, dayStatus.locationId);
 
   if (dayStatus.isClosed) {
     throw new AppError('Cannot update a closed day', 400);
@@ -935,6 +941,7 @@ export const reopenDay = asyncHandler(async (req: AuthRequest, res: Response) =>
   if (!dayStatus) {
     throw new AppError('Day status not found', 404);
   }
+  assertOwnsRecord(req, dayStatus.locationId);
 
   if (!dayStatus.isClosed) {
     throw new AppError('Day is not closed', 400);

@@ -3,17 +3,19 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
+import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
 
 /**
  * Generate unique order number
  */
-const generateOrderNumber = async (): Promise<string> => {
+const generateOrderNumber = async (locationId: string | null): Promise<string> => {
   const date = new Date();
   const prefix = `PO${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}`;
 
   const lastOrder = await prisma.purchaseOrder.findFirst({
     where: {
       orderNumber: { startsWith: prefix },
+      ...(locationId ? { locationId } : {}),
     },
     orderBy: { orderNumber: 'desc' },
   });
@@ -48,7 +50,7 @@ export const getPurchaseOrders = asyncHandler(async (req: AuthRequest, res: Resp
   const skip = (pageNum - 1) * limitNum;
 
   // Build where clause
-  const where: any = {};
+  const where: any = { ...getSharedOrOwnFilter(req, req.query.locationId as string) };
 
   if (status) {
     where.status = status;
@@ -123,6 +125,7 @@ export const getPurchaseOrder = asyncHandler(async (req: AuthRequest, res: Respo
   if (!order) {
     throw new AppError('Purchase order not found', 404);
   }
+  assertCanReadRecord(req, order.locationId, 'Purchase order not found');
 
   res.json({
     success: true,
@@ -136,15 +139,19 @@ export const getPurchaseOrder = asyncHandler(async (req: AuthRequest, res: Respo
  */
 export const createPurchaseOrder = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { supplierId, items, notes, expectedAt } = req.body;
+  // Non-SUPER_ADMIN is always forced to their own store; SUPER_ADMIN may
+  // leave it unset for a chain-wide order
+  const locationId = isSuperAdmin(req) ? (req.body.locationId ?? null) : req.user!.locationId;
 
-  // Verify supplier exists
+  // Verify supplier exists and is usable from this store (shared or own)
   const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
   if (!supplier) {
     throw new AppError('Supplier not found', 404);
   }
+  assertCanReadRecord(req, supplier.locationId, 'Supplier not found');
 
   // Generate order number
-  const orderNumber = await generateOrderNumber();
+  const orderNumber = await generateOrderNumber(locationId);
 
   // Batch-fetch all products to avoid N+1 queries
   const productIds = items.map((item: any) => item.productId);
@@ -184,6 +191,7 @@ export const createPurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
       supplierId,
       totalAmount,
       notes,
+      locationId,
       expectedAt: expectedAt ? new Date(expectedAt) : null,
       items: {
         create: orderItems,
@@ -221,6 +229,7 @@ export const updatePurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
   if (!existing) {
     throw new AppError('Purchase order not found', 404);
   }
+  assertOwnsRecord(req, existing.locationId);
 
   if (existing.status !== 'PENDING') {
     throw new AppError('Can only update pending orders', 400);
@@ -305,6 +314,7 @@ export const updateStatus = asyncHandler(async (req: AuthRequest, res: Response)
   if (!existing) {
     throw new AppError('Purchase order not found', 404);
   }
+  assertOwnsRecord(req, existing.locationId);
 
   const updateData: any = { status };
 
@@ -347,6 +357,7 @@ export const receivePurchaseOrder = asyncHandler(async (req: AuthRequest, res: R
   if (!order) {
     throw new AppError('Purchase order not found', 404);
   }
+  assertOwnsRecord(req, order.locationId);
 
   if (order.status === 'RECEIVED') {
     throw new AppError('Order has already been received', 400);
@@ -444,6 +455,7 @@ export const cancelPurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
   if (!existing) {
     throw new AppError('Purchase order not found', 404);
   }
+  assertOwnsRecord(req, existing.locationId);
 
   if (existing.status === 'RECEIVED') {
     throw new AppError('Cannot cancel a received order', 400);
@@ -474,12 +486,15 @@ export const cancelPurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
  * Auto-generate purchase orders for low stock items
  * POST /api/purchase-orders/auto-generate
  */
-export const autoGeneratePurchaseOrders = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const autoGeneratePurchaseOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationId = isSuperAdmin(req) ? null : req.user!.locationId;
+
   // Find products below reorder point
   const allActiveProducts = await prisma.product.findMany({
     where: {
       isActive: true,
       trackInventory: true,
+      ...(locationId ? { locationId } : {}),
     },
     include: {
       suppliers: {
@@ -536,7 +551,7 @@ export const autoGeneratePurchaseOrders = asyncHandler(async (_req: AuthRequest,
   const createdOrders = [];
 
   for (const [supplierId, items] of supplierOrders) {
-    const orderNumber = await generateOrderNumber();
+    const orderNumber = await generateOrderNumber(locationId);
     const totalAmount = items.reduce((sum, item) => sum + (item.cost * item.quantity), 0);
 
     const order = await prisma.purchaseOrder.create({
@@ -545,6 +560,7 @@ export const autoGeneratePurchaseOrders = asyncHandler(async (_req: AuthRequest,
         supplierId,
         totalAmount,
         notes: 'Auto-generated for low stock items',
+        locationId,
         items: {
           create: items.map(item => ({
             productId: item.productId,
@@ -591,6 +607,7 @@ export const deletePurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
   if (!existing) {
     throw new AppError('Purchase order not found', 404);
   }
+  assertOwnsRecord(req, existing.locationId);
 
   if (existing.status === 'RECEIVED') {
     throw new AppError('Cannot delete a received order', 400);

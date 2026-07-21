@@ -1,9 +1,10 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { businessConfig } from '../config/business.config';
+import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
 
 /**
  * Calculate loyalty tier based on points
@@ -19,7 +20,7 @@ function calculateLoyaltyTier(points: number): string {
  * Get all customers
  * GET /api/customers
  */
-export const getCustomers = asyncHandler(async (req: Request, res: Response) => {
+export const getCustomers = asyncHandler(async (req: AuthRequest, res: Response) => {
   const {
     page = 1,
     limit = 20,
@@ -27,13 +28,14 @@ export const getCustomers = asyncHandler(async (req: Request, res: Response) => 
     hasEmail,
     hasPhone,
     minSpent,
+    locationId,
   } = req.query;
 
   const pageNum = parseInt(page as string);
   const limitNum = parseInt(limit as string);
   const skip = (pageNum - 1) * limitNum;
 
-  const where: any = { isActive: true };
+  const where: any = { isActive: true, ...getSharedOrOwnFilter(req, locationId as string) };
 
   if (search) {
     where.OR = [
@@ -95,7 +97,7 @@ export const getCustomers = asyncHandler(async (req: Request, res: Response) => 
  * Get single customer
  * GET /api/customers/:id
  */
-export const getCustomer = asyncHandler(async (req: Request, res: Response) => {
+export const getCustomer = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
 
   const customer = await prisma.customer.findUnique({
@@ -118,6 +120,7 @@ export const getCustomer = asyncHandler(async (req: Request, res: Response) => {
   if (!customer) {
     throw new AppError('Customer not found', 404);
   }
+  assertCanReadRecord(req, customer.locationId, 'Customer not found');
 
   res.json({
     success: true,
@@ -153,6 +156,9 @@ export const createCustomer = asyncHandler(async (req: AuthRequest, res: Respons
     }
   }
 
+  // Non-SUPER_ADMIN is always forced to their own store, regardless of body
+  data.locationId = isSuperAdmin(req) ? (data.locationId ?? null) : (req.user?.locationId ?? null);
+
   const customer = await prisma.customer.create({
     data,
   });
@@ -165,6 +171,7 @@ export const createCustomer = asyncHandler(async (req: AuthRequest, res: Respons
       entity: 'CUSTOMER',
       entityId: customer.id,
       details: { customerName: `${customer.firstName} ${customer.lastName}` },
+      locationId: customer.locationId,
     },
   });
 
@@ -198,6 +205,11 @@ export const updateCustomer = asyncHandler(async (req: AuthRequest, res: Respons
 
   if (!customer) {
     throw new AppError('Customer not found', 404);
+  }
+  assertOwnsRecord(req, customer.locationId);
+  // Non-SUPER_ADMIN can't reassign a customer to another store or make it chain-wide
+  if (!isSuperAdmin(req)) {
+    data.locationId = customer.locationId;
   }
 
   // Check email uniqueness if changing
@@ -234,6 +246,7 @@ export const updateCustomer = asyncHandler(async (req: AuthRequest, res: Respons
       entity: 'CUSTOMER',
       entityId: id,
       details: { customerName: `${updatedCustomer.firstName} ${updatedCustomer.lastName}` },
+      locationId: updatedCustomer.locationId,
     },
   });
 
@@ -258,6 +271,7 @@ export const deleteCustomer = asyncHandler(async (req: AuthRequest, res: Respons
   if (!customer) {
     throw new AppError('Customer not found', 404);
   }
+  assertOwnsRecord(req, customer.locationId);
 
   // Soft delete
   await prisma.customer.update({
@@ -273,6 +287,7 @@ export const deleteCustomer = asyncHandler(async (req: AuthRequest, res: Respons
       entity: 'CUSTOMER',
       entityId: id,
       details: { customerName: `${customer.firstName} ${customer.lastName}` },
+      locationId: customer.locationId,
     },
   });
 
@@ -288,7 +303,7 @@ export const deleteCustomer = asyncHandler(async (req: AuthRequest, res: Respons
  * Get customer purchase history
  * GET /api/customers/:id/history
  */
-export const getCustomerHistory = asyncHandler(async (req: Request, res: Response) => {
+export const getCustomerHistory = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
 
   const customer = await prisma.customer.findUnique({ where: { id } });
@@ -296,6 +311,7 @@ export const getCustomerHistory = asyncHandler(async (req: Request, res: Respons
   if (!customer) {
     throw new AppError('Customer not found', 404);
   }
+  assertCanReadRecord(req, customer.locationId, 'Customer not found');
 
   const sales = await prisma.sale.findMany({
     where: { customerId: id },
@@ -328,7 +344,7 @@ export const getCustomerHistory = asyncHandler(async (req: Request, res: Respons
  * Search customer by phone number
  * GET /api/customers/search/phone?phone={number}
  */
-export const searchByPhone = asyncHandler(async (req: Request, res: Response) => {
+export const searchByPhone = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { phone } = req.query;
 
   if (!phone || typeof phone !== 'string') {
@@ -345,6 +361,7 @@ export const searchByPhone = asyncHandler(async (req: Request, res: Response) =>
     loyaltyTier: true,
     totalSpent: true,
     visitCount: true,
+    locationId: true,
   } as const;
 
   // Exact match first — fast path using the unique index
@@ -368,6 +385,11 @@ export const searchByPhone = asyncHandler(async (req: Request, res: Response) =>
         select: customerSelect,
       });
     }
+  }
+
+  // A store shouldn't link a checkout to another store's private customer
+  if (customer && !isSuperAdmin(req) && customer.locationId !== null && customer.locationId !== req.user!.locationId) {
+    customer = null;
   }
 
   res.json({
@@ -396,6 +418,7 @@ export const sendCustomerCampaign = asyncHandler(async (req: AuthRequest, res: R
       action: 'CAMPAIGN',
       entity: 'CUSTOMER',
       details: { segment, subject, ...result },
+      locationId: req.user?.locationId ?? null,
     },
   });
 

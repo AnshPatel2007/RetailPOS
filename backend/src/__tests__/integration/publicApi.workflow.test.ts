@@ -12,22 +12,35 @@ import app from '../../server';
 import { seedTestData, TestData } from './setup';
 import { api, loginUser } from './helpers';
 import { signWebhookPayload } from '../../services/webhook.service';
+import { prisma } from './setup';
 
 describe('Public API & Webhooks Integration Tests', () => {
   let testData: TestData;
   let adminToken: string;
   let cashierToken: string;
+  let superAdminToken: string;
 
   beforeEach(async () => {
     testData = await seedTestData();
     adminToken = await loginUser('admin@test.com', 'Admin123!');
     cashierToken = await loginUser('cashier@test.com', 'Admin123!');
+    await prisma.user.create({
+      data: {
+        email: 'superadmin@test.com',
+        password: testData.adminUser.password,
+        firstName: 'Super', lastName: 'Admin',
+        role: 'SUPER_ADMIN', locationId: null, isActive: true,
+      },
+    });
+    superAdminToken = await loginUser('superadmin@test.com', 'Admin123!');
   });
 
+  // API keys/webhooks have no per-location scoping (read/emit chain-wide),
+  // so only the chain owner (SUPER_ADMIN) can create them
   const createKey = async (): Promise<string> => {
     const res = await api
       .post('/api/developer/api-keys')
-      .withAuth(adminToken)
+      .withAuth(superAdminToken)
       .withBody({ name: 'Test integration' })
       .expectStatus(201)
       .execute();
@@ -56,17 +69,23 @@ describe('Public API & Webhooks Integration Tests', () => {
 
     it('should reject revoked keys', async () => {
       const key = await createKey();
-      const list = await api.get('/api/developer/api-keys').withAuth(adminToken).expectStatus(200).execute();
+      const list = await api.get('/api/developer/api-keys').withAuth(superAdminToken).expectStatus(200).execute();
       const id = list.body.data[0].id;
 
-      await api.delete(`/api/developer/api-keys/${id}`).withAuth(adminToken).expectStatus(200).execute();
+      await api.delete(`/api/developer/api-keys/${id}`).withAuth(superAdminToken).expectStatus(200).execute();
       await request(app).get('/api/v1/products').set('X-API-Key', key).expect(401);
     });
 
-    it('should keep key management admin-only', async () => {
+    it('should keep key management super-admin-only (even a store ADMIN is rejected)', async () => {
       await api
         .post('/api/developer/api-keys')
         .withAuth(cashierToken)
+        .withBody({ name: 'Nope' })
+        .expectStatus(403)
+        .execute();
+      await api
+        .post('/api/developer/api-keys')
+        .withAuth(adminToken)
         .withBody({ name: 'Nope' })
         .expectStatus(403)
         .execute();
@@ -85,7 +104,7 @@ describe('Public API & Webhooks Integration Tests', () => {
     it('should create, list, and validate endpoints', async () => {
       const created = await api
         .post('/api/developer/webhooks')
-        .withAuth(adminToken)
+        .withAuth(superAdminToken)
         .withBody({ url: 'https://example.com/hook', events: ['sale.completed'] })
         .expectStatus(201)
         .execute();
@@ -93,13 +112,13 @@ describe('Public API & Webhooks Integration Tests', () => {
 
       const bad = await api
         .post('/api/developer/webhooks')
-        .withAuth(adminToken)
+        .withAuth(superAdminToken)
         .withBody({ url: 'https://example.com/hook', events: ['not.an.event'] })
         .expectStatus(400)
         .execute();
       expect(bad.body.success).toBe(false);
 
-      const list = await api.get('/api/developer/webhooks').withAuth(adminToken).expectStatus(200).execute();
+      const list = await api.get('/api/developer/webhooks').withAuth(superAdminToken).expectStatus(200).execute();
       expect(list.body.data).toHaveLength(1);
       // Secrets are never returned after creation
       expect(list.body.data[0].secret).toBeUndefined();
@@ -121,7 +140,7 @@ describe('Public API & Webhooks Integration Tests', () => {
       // Dead endpoint on a closed local port
       await api
         .post('/api/developer/webhooks')
-        .withAuth(adminToken)
+        .withAuth(superAdminToken)
         .withBody({ url: 'http://127.0.0.1:59999/hook', events: ['sale.completed'] })
         .expectStatus(201)
         .execute();

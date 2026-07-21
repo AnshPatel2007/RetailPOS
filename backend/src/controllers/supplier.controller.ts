@@ -3,6 +3,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
+import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
 
 /**
  * Get all suppliers
@@ -23,7 +24,7 @@ export const getSuppliers = asyncHandler(async (req: AuthRequest, res: Response)
   const skip = (pageNum - 1) * limitNum;
 
   // Build where clause
-  const where: any = {};
+  const where: any = { ...getSharedOrOwnFilter(req, req.query.locationId as string) };
 
   if (search) {
     where.OR = [
@@ -105,6 +106,7 @@ export const getSupplier = asyncHandler(async (req: AuthRequest, res: Response) 
   if (!supplier) {
     throw new AppError('Supplier not found', 404);
   }
+  assertCanReadRecord(req, supplier.locationId, 'Supplier not found');
 
   res.json({
     success: true,
@@ -118,6 +120,8 @@ export const getSupplier = asyncHandler(async (req: AuthRequest, res: Response) 
  */
 export const createSupplier = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { name, contactName, email, phone, address, notes, paymentTerms, leadTimeDays, minimumOrder } = req.body;
+  // Non-SUPER_ADMIN is always forced to their own store
+  const locationId = isSuperAdmin(req) ? (req.body.locationId ?? null) : (req.user!.locationId ?? null);
 
   const supplier = await prisma.supplier.create({
     data: {
@@ -130,6 +134,7 @@ export const createSupplier = asyncHandler(async (req: AuthRequest, res: Respons
       paymentTerms,
       leadTimeDays,
       minimumOrder,
+      locationId,
     },
   });
 
@@ -154,6 +159,7 @@ export const updateSupplier = asyncHandler(async (req: AuthRequest, res: Respons
   if (!existing) {
     throw new AppError('Supplier not found', 404);
   }
+  assertOwnsRecord(req, existing.locationId);
 
   const supplier = await prisma.supplier.update({
     where: { id },
@@ -201,6 +207,7 @@ export const deleteSupplier = asyncHandler(async (req: AuthRequest, res: Respons
   if (!existing) {
     throw new AppError('Supplier not found', 404);
   }
+  assertOwnsRecord(req, existing.locationId);
 
   // Check for active purchase orders
   if (existing._count.purchaseOrders > 0) {
@@ -233,6 +240,7 @@ export const linkProduct = asyncHandler(async (req: AuthRequest, res: Response) 
   if (!supplier) {
     throw new AppError('Supplier not found', 404);
   }
+  assertOwnsRecord(req, supplier.locationId);
 
   // Verify product exists
   const product = await prisma.product.findUnique({ where: { id: productId } });
@@ -288,6 +296,12 @@ export const linkProduct = asyncHandler(async (req: AuthRequest, res: Response) 
 export const unlinkProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id, productId } = req.params;
 
+  const supplier = await prisma.supplier.findUnique({ where: { id } });
+  if (!supplier) {
+    throw new AppError('Supplier not found', 404);
+  }
+  assertOwnsRecord(req, supplier.locationId);
+
   const existing = await prisma.productSupplier.findUnique({
     where: {
       productId_supplierId: {
@@ -323,6 +337,12 @@ export const unlinkProduct = asyncHandler(async (req: AuthRequest, res: Response
 export const updateProductLink = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id, productId } = req.params;
   const { supplierSku, cost, leadTime, minOrder } = req.body;
+
+  const supplier = await prisma.supplier.findUnique({ where: { id } });
+  if (!supplier) {
+    throw new AppError('Supplier not found', 404);
+  }
+  assertOwnsRecord(req, supplier.locationId);
 
   const existing = await prisma.productSupplier.findUnique({
     where: {
@@ -379,6 +399,7 @@ export const getSupplierPerformance = asyncHandler(async (req: AuthRequest, res:
   if (!supplier) {
     throw new AppError('Supplier not found', 404);
   }
+  assertCanReadRecord(req, supplier.locationId, 'Supplier not found');
 
   // Get purchase order statistics
   const orders = await prisma.purchaseOrder.findMany({

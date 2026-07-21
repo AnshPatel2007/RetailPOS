@@ -3,6 +3,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
+import { assertOwnsRecord, getLocationFilter } from '../utils/locationFilter.util';
 
 /**
  * Get all exchanges
@@ -12,7 +13,7 @@ export const getExchanges = asyncHandler(async (req: AuthRequest, res: Response)
   const { page = '1', limit = '20', status } = req.query;
   const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
 
-  const where: any = {};
+  const where: any = { ...getLocationFilter(req, req.query.locationId as string) };
   if (status) where.status = status;
 
   const [exchanges, total] = await Promise.all([
@@ -35,6 +36,7 @@ export const getExchanges = asyncHandler(async (req: AuthRequest, res: Response)
 export const getExchange = asyncHandler(async (req: AuthRequest, res: Response) => {
   const exchange = await prisma.exchange.findUnique({ where: { id: req.params.id } });
   if (!exchange) throw new AppError('Exchange not found', 404);
+  assertOwnsRecord(req, exchange.locationId);
   res.json({ success: true, data: exchange });
 });
 
@@ -55,6 +57,7 @@ export const createExchange = asyncHandler(async (req: AuthRequest, res: Respons
     include: { items: true },
   });
   if (!sale) throw new AppError('Original sale not found', 404);
+  assertOwnsRecord(req, sale.locationId);
   if (sale.status === 'REFUNDED') throw new AppError('Sale already fully refunded', 400);
 
   const exchangeNumber = `EX-${Date.now()}`;
@@ -71,6 +74,7 @@ export const createExchange = asyncHandler(async (req: AuthRequest, res: Respons
         returnedItems,
         notes,
         processedBy: req.user!.id,
+        locationId: sale.locationId,
       },
     });
 

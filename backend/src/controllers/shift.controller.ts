@@ -1,9 +1,10 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { createDateFilter } from '../utils/dateFilter.util';
+import { assertOwnsRecord, getLocationFilter } from '../utils/locationFilter.util';
 
 const CASH_MOVEMENT_TYPES = ['SAFE_DROP', 'PAID_IN', 'PAID_OUT'] as const;
 
@@ -211,6 +212,8 @@ export const closeShift = asyncHandler(async (req: AuthRequest, res: Response) =
     throw new AppError('Shift not found', 404);
   }
 
+  assertOwnsRecord(req, shift.locationId);
+
   if (shift.isClosed) {
     throw new AppError('Shift already closed', 400);
   }
@@ -247,14 +250,14 @@ export const closeShift = asyncHandler(async (req: AuthRequest, res: Response) =
  * Get all shifts
  * GET /api/shifts
  */
-export const getShifts = asyncHandler(async (req: Request, res: Response) => {
-  const { page = 1, limit = 20, userId, startDate, endDate } = req.query;
+export const getShifts = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { page = 1, limit = 20, userId, startDate, endDate, locationId } = req.query;
 
   const pageNum = parseInt(page as string);
   const limitNum = parseInt(limit as string);
   const skip = (pageNum - 1) * limitNum;
 
-  const where: any = {};
+  const where: any = { ...getLocationFilter(req, locationId as string) };
 
   if (userId) where.userId = userId;
 
@@ -414,6 +417,7 @@ export const recordCashMovement = asyncHandler(async (req: AuthRequest, res: Res
       entity: 'SHIFT',
       entityId: openShift.id,
       details: { type, amount: value, reason: movement.reason },
+      locationId: req.user.locationId,
     },
   });
 
@@ -460,6 +464,8 @@ export const getShiftZReport = asyncHandler(async (req: AuthRequest, res: Respon
   if (req.user?.role === 'CASHIER' && shift.userId !== req.user.id) {
     throw new AppError('Shift not found', 404);
   }
+  // MANAGER/ADMIN are confined to their own store's shifts
+  assertOwnsRecord(req, shift.locationId);
 
   // Tender breakdown (split payments counted per tender)
   const tenderBreakdown: Record<string, { count: number; total: number }> = {};
@@ -525,20 +531,19 @@ export const getShiftZReport = asyncHandler(async (req: AuthRequest, res: Respon
  * Get employee performance metrics
  * GET /api/shifts/employee-performance
  */
-export const getEmployeePerformance = asyncHandler(async (req: Request, res: Response) => {
+export const getEmployeePerformance = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { startDate, endDate, userId, locationId } = req.query;
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
+  const locationFilter = getLocationFilter(req, locationId as string);
 
-  const shiftWhere: any = {};
+  const shiftWhere: any = { ...locationFilter };
   if (dateFilter) shiftWhere.clockInAt = dateFilter;
   if (userId) shiftWhere.userId = userId;
-  if (locationId) shiftWhere.locationId = locationId;
 
-  const saleWhere: any = { status: 'COMPLETED' };
+  const saleWhere: any = { status: 'COMPLETED', ...locationFilter };
   if (dateFilter) saleWhere.createdAt = dateFilter;
   if (userId) saleWhere.userId = userId;
-  if (locationId) saleWhere.locationId = locationId;
 
   // Get shifts data
   const shifts = await prisma.shift.findMany({

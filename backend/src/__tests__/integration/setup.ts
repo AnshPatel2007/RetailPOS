@@ -103,6 +103,7 @@ export async function seedTestData(): Promise<TestData> {
       id: 'test-category-1',
       name: 'Test Category',
       description: 'Category for testing',
+      locationId: location.id,
     },
   });
 
@@ -114,6 +115,7 @@ export async function seedTestData(): Promise<TestData> {
       email: 'supplier@test.com',
       phone: '555-0002',
       address: '456 Supplier St',
+      locationId: location.id,
     },
   });
 
@@ -124,6 +126,7 @@ export async function seedTestData(): Promise<TestData> {
       firstName: 'Test',
       lastName: 'Customer',
       phone: '555-0003',
+      locationId: location.id,
     },
   });
 

@@ -40,6 +40,7 @@ const mockSupplier = {
   phone: '555-0456',
   address: '123 Supplier St',
   isActive: true,
+  locationId: 'location-123',
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -380,6 +381,7 @@ describe('Supplier Controller', () => {
         params: { id: 'supplier-123', productId: 'product-123' },
       });
 
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(mockSupplier);
       (prisma.productSupplier.findUnique as jest.Mock).mockResolvedValue({ id: 'link-1' });
       (prisma.productSupplier.delete as jest.Mock).mockResolvedValue({});
 
@@ -407,6 +409,7 @@ describe('Supplier Controller', () => {
         params: { id: 'supplier-123', productId: 'product-999' },
       });
 
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(mockSupplier);
       (prisma.productSupplier.findUnique as jest.Mock).mockResolvedValue(null);
 
       await supplierController.unlinkProduct(

@@ -1,15 +1,17 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { asyncHandler } from '../utils/errorHandler';
+import { AuthRequest } from '../types';
 import prisma from '../config/database';
+import { assertOwnsRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
 
 /**
  * Get all categories
  * GET /api/categories
  */
-export const getCategories = asyncHandler(async (req: Request, res: Response) => {
-  const { search } = req.query;
+export const getCategories = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { search, locationId } = req.query;
 
-  const where: any = {};
+  const where: any = { ...getSharedOrOwnFilter(req, locationId as string) };
 
   if (search) {
     where.name = {
@@ -42,7 +44,7 @@ export const getCategories = asyncHandler(async (req: Request, res: Response) =>
  * Get single category
  * GET /api/categories/:id
  */
-export const getCategory = asyncHandler(async (req: Request, res: Response) => {
+export const getCategory = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
 
   const category = await prisma.category.findUnique({
@@ -62,6 +64,13 @@ export const getCategory = asyncHandler(async (req: Request, res: Response) => {
     });
     return;
   }
+  if (!isSuperAdmin(req) && category.locationId !== null && category.locationId !== req.user!.locationId) {
+    res.status(404).json({
+      success: false,
+      error: 'Category not found',
+    });
+    return;
+  }
 
   res.json({
     success: true,
@@ -73,7 +82,7 @@ export const getCategory = asyncHandler(async (req: Request, res: Response) => {
  * Create category
  * POST /api/categories
  */
-export const createCategory = asyncHandler(async (req: Request, res: Response) => {
+export const createCategory = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { name, description, color, icon, parentId } = req.body;
 
   if (!name) {
@@ -84,13 +93,18 @@ export const createCategory = asyncHandler(async (req: Request, res: Response) =
     return;
   }
 
-  // Check if category with same name exists
+  // Non-SUPER_ADMIN is always forced to their own store; SUPER_ADMIN may
+  // leave it unset for a chain-wide category
+  const locationId = isSuperAdmin(req) ? (req.body.locationId ?? null) : (req.user!.locationId ?? null);
+
+  // Check if category with same name exists in the same scope (shared or this store)
   const existing = await prisma.category.findFirst({
     where: {
       name: {
         equals: name,
         mode: 'insensitive',
       },
+      OR: [{ locationId: null }, { locationId }],
     },
   });
 
@@ -109,6 +123,7 @@ export const createCategory = asyncHandler(async (req: Request, res: Response) =
       color,
       icon,
       parentId,
+      locationId,
     },
   });
 
@@ -122,7 +137,7 @@ export const createCategory = asyncHandler(async (req: Request, res: Response) =
  * Update category
  * PUT /api/categories/:id
  */
-export const updateCategory = asyncHandler(async (req: Request, res: Response) => {
+export const updateCategory = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { name, description, color, icon, parentId } = req.body;
 
@@ -137,8 +152,9 @@ export const updateCategory = asyncHandler(async (req: Request, res: Response) =
     });
     return;
   }
+  assertOwnsRecord(req, category.locationId);
 
-  // Check if new name conflicts with existing category
+  // Check if new name conflicts with existing category in the same scope
   if (name && name !== category.name) {
     const existing = await prisma.category.findFirst({
       where: {
@@ -146,6 +162,7 @@ export const updateCategory = asyncHandler(async (req: Request, res: Response) =
           equals: name,
           mode: 'insensitive',
         },
+        OR: [{ locationId: null }, { locationId: category.locationId }],
         id: { not: id },
       },
     });
@@ -180,7 +197,7 @@ export const updateCategory = asyncHandler(async (req: Request, res: Response) =
  * Delete category
  * DELETE /api/categories/:id
  */
-export const deleteCategory = asyncHandler(async (req: Request, res: Response) => {
+export const deleteCategory = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
 
   const category = await prisma.category.findUnique({
@@ -199,6 +216,7 @@ export const deleteCategory = asyncHandler(async (req: Request, res: Response) =
     });
     return;
   }
+  assertOwnsRecord(req, category.locationId);
 
   // Check if category has products
   if (category._count.products > 0) {

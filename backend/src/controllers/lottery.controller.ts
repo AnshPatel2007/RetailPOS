@@ -4,7 +4,7 @@ import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { LotteryBatchStatus, LotteryTransactionStatus } from '@prisma/client';
-import { getLocationFilter } from '../utils/locationFilter.util';
+import { getLocationFilter, assertOwnsRecord } from '../utils/locationFilter.util';
 
 /**
  * LOTTERY BATCH CONTROLLERS
@@ -120,6 +120,7 @@ export const getBatchById = asyncHandler(async (req: AuthRequest, res: Response)
   if (!batch) {
     throw new AppError('Batch not found', 404);
   }
+  assertOwnsRecord(req, batch.locationId);
 
   res.json({
     success: true,
@@ -215,6 +216,7 @@ export const updateBatch = asyncHandler(async (req: AuthRequest, res: Response) 
   if (!batch) {
     throw new AppError('Batch not found', 404);
   }
+  assertOwnsRecord(req, batch.locationId);
 
   // Check if status is changing to DEPLETED
   if (updateData.status === LotteryBatchStatus.DEPLETED && batch.status !== LotteryBatchStatus.DEPLETED) {
@@ -283,6 +285,7 @@ export const deleteBatch = asyncHandler(async (req: AuthRequest, res: Response) 
   if (!batch) {
     throw new AppError('Batch not found', 404);
   }
+  assertOwnsRecord(req, batch.locationId);
 
   if (batch._count.scans > 0) {
     throw new AppError('Cannot delete batch with scanned tickets', 400);
@@ -436,6 +439,7 @@ export const getTransactionById = asyncHandler(async (req: AuthRequest, res: Res
   if (!transaction) {
     throw new AppError('Transaction not found', 404);
   }
+  assertOwnsRecord(req, transaction.locationId);
 
   res.json({
     success: true,
@@ -553,6 +557,7 @@ export const closeTransaction = asyncHandler(async (req: AuthRequest, res: Respo
   if (!transaction) {
     throw new AppError('Transaction not found', 404);
   }
+  assertOwnsRecord(req, transaction.locationId);
 
   if (transaction.status !== LotteryTransactionStatus.OPEN) {
     throw new AppError('Transaction is already closed', 400);
@@ -675,6 +680,12 @@ export const scanTicket = asyncHandler(async (req: AuthRequest, res: Response) =
 
   // Update batch remaining tickets if batch is specified
   if (batchId) {
+    const targetBatch = await prisma.lotteryBatch.findUnique({ where: { id: batchId } });
+    if (!targetBatch) {
+      throw new AppError('Batch not found', 404);
+    }
+    assertOwnsRecord(req, targetBatch.locationId);
+
     await prisma.lotteryBatch.update({
       where: { id: batchId },
       data: {

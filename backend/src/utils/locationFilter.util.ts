@@ -69,3 +69,67 @@ export const validateLocationAccess = (
 export const isSuperAdmin = (req: AuthRequest): boolean => {
   return req.user?.role === 'SUPER_ADMIN';
 };
+
+/**
+ * Assert the caller owns (belongs to the same location as) a fetched record,
+ * before allowing a read-one/update/delete to proceed. SUPER_ADMIN always
+ * passes. A record with locationId === null (shared/chain-wide) is only
+ * mutable by SUPER_ADMIN — non-SUPER_ADMIN callers must match exactly.
+ * @throws AppError (403) if the caller doesn't own the record
+ */
+export const assertOwnsRecord = (req: AuthRequest, recordLocationId: string | null): void => {
+  if (isSuperAdmin(req)) return;
+  if (recordLocationId !== req.user!.locationId) {
+    throw new AppError('You do not have access to this record', 403);
+  }
+};
+
+/**
+ * Read-access check for "shared-by-default" entities (Customer, GiftCard,
+ * StoreCreditAccount, HouseAccount, Supplier, PurchaseOrder, Category) whose
+ * locationId null means "chain-wide, visible to every store" — unlike
+ * assertOwnsRecord, a null-location record is READABLE by anyone (only its
+ * mutation is SUPER_ADMIN-only, via assertOwnsRecord in the update/delete
+ * handler). Uses 404 rather than 403 to avoid revealing another store's
+ * private record exists.
+ * @throws AppError (404) if the caller can't read this record
+ */
+export const assertCanReadRecord = (
+  req: AuthRequest,
+  recordLocationId: string | null,
+  notFoundMessage = 'Record not found'
+): void => {
+  if (isSuperAdmin(req)) return;
+  if (recordLocationId !== null && recordLocationId !== req.user!.locationId) {
+    throw new AppError(notFoundMessage, 404);
+  }
+};
+
+/**
+ * List-query filter for "shared-by-default" entities — visible if the record
+ * is chain-wide (locationId null) OR belongs to the caller's own store.
+ * SUPER_ADMIN sees everything by default, or one store via locationIdParam.
+ */
+export const getSharedOrOwnFilter = (req: AuthRequest, locationIdParam?: string): any => {
+  if (isSuperAdmin(req)) {
+    if (locationIdParam) return { OR: [{ locationId: null }, { locationId: locationIdParam }] };
+    return {};
+  }
+  return { OR: [{ locationId: null }, { locationId: req.user!.locationId ?? null }] };
+};
+
+/**
+ * Two-sided variant of assertOwnsRecord for records tied to two locations
+ * (e.g. an inventory transfer's from/to store) — passes if the caller's own
+ * location matches either one. SUPER_ADMIN always passes.
+ * @throws AppError (403) if the caller doesn't own either location
+ */
+export const assertOwnsOneOfLocations = (
+  req: AuthRequest,
+  locationIds: (string | null)[]
+): void => {
+  if (isSuperAdmin(req)) return;
+  if (!locationIds.includes(req.user!.locationId ?? null)) {
+    throw new AppError('You do not have access to this record', 403);
+  }
+};

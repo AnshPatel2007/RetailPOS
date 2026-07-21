@@ -714,6 +714,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       entity: 'SALE',
       entityId: sale.id,
       details: { saleNumber: sale.saleNumber, total: sale.total },
+      locationId: sale.locationId,
     },
   });
 
@@ -1153,6 +1154,7 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
       entity: 'SALE',
       entityId: id,
       details: { saleNumber: sale.saleNumber, refundAmount, refundMethod: refundMethod || 'CASH' },
+      locationId: sale.locationId,
     },
   });
 
@@ -1295,6 +1297,7 @@ export const voidSale = asyncHandler(async (req: AuthRequest, res: Response) => 
       entity: 'SALE',
       entityId: id,
       details: { saleNumber: sale.saleNumber, total: sale.total },
+      locationId: sale.locationId,
     },
   });
 

@@ -3,6 +3,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
+import { assertOwnsOneOfLocations, isSuperAdmin } from '../utils/locationFilter.util';
 
 /**
  * Get all transfers
@@ -44,6 +45,7 @@ export const getTransfer = asyncHandler(async (req: AuthRequest, res: Response) 
     include: { items: { include: { product: { select: { id: true, name: true, sku: true } } } } },
   });
   if (!transfer) throw new AppError('Transfer not found', 404);
+  assertOwnsOneOfLocations(req, [transfer.fromLocationId, transfer.toLocationId]);
   res.json({ success: true, data: transfer });
 });
 
@@ -59,6 +61,10 @@ export const createTransfer = asyncHandler(async (req: AuthRequest, res: Respons
   }
   if (fromLocationId === toLocationId) {
     throw new AppError('Source and destination must be different', 400);
+  }
+  // A store can only initiate a transfer that involves its own location
+  if (!isSuperAdmin(req) && req.user!.locationId !== fromLocationId && req.user!.locationId !== toLocationId) {
+    throw new AppError('You can only create transfers involving your own location', 403);
   }
 
   const transferNumber = `TRF-${Date.now()}`;
@@ -101,6 +107,7 @@ export const shipTransfer = asyncHandler(async (req: AuthRequest, res: Response)
     include: { items: true },
   });
   if (!transfer) throw new AppError('Transfer not found', 404);
+  assertOwnsOneOfLocations(req, [transfer.fromLocationId, transfer.toLocationId]);
   if (transfer.status !== 'PENDING') throw new AppError('Transfer is not in PENDING status', 400);
 
   // Validate stock before shipping
@@ -149,6 +156,7 @@ export const receiveTransfer = asyncHandler(async (req: AuthRequest, res: Respon
     include: { items: true },
   });
   if (!transfer) throw new AppError('Transfer not found', 404);
+  assertOwnsOneOfLocations(req, [transfer.fromLocationId, transfer.toLocationId]);
   if (transfer.status !== 'IN_TRANSIT') throw new AppError('Transfer is not in transit', 400);
 
   await prisma.$transaction(async (tx) => {
@@ -191,6 +199,7 @@ export const cancelTransfer = asyncHandler(async (req: AuthRequest, res: Respons
     include: { items: true },
   });
   if (!transfer) throw new AppError('Transfer not found', 404);
+  assertOwnsOneOfLocations(req, [transfer.fromLocationId, transfer.toLocationId]);
   if (transfer.status === 'RECEIVED') throw new AppError('Cannot cancel a received transfer', 400);
   if (transfer.status === 'CANCELLED') throw new AppError('Transfer is already cancelled', 400);
 

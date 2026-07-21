@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import prisma from '../config/database';
 import { createDateFilter } from '../utils/dateFilter.util';
 import { parseListFilter } from '../utils/queryFilter.util';
+import { assertOwnsRecord, getLocationFilter, isSuperAdmin } from '../utils/locationFilter.util';
 
 /**
  * Get all expenses
@@ -13,7 +14,7 @@ import { parseListFilter } from '../utils/queryFilter.util';
 export const getAllExpenses = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { category, status, startDate, endDate, locationId, limit = 50, offset = 0 } = req.query;
 
-  const where: any = {};
+  const where: any = { ...getLocationFilter(req, locationId as string) };
 
   if (category) {
     where.category = category;
@@ -21,10 +22,6 @@ export const getAllExpenses = asyncHandler(async (req: AuthRequest, res: Respons
 
   if (status) {
     where.status = status;
-  }
-
-  if (locationId) {
-    where.locationId = locationId;
   }
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
@@ -100,6 +97,7 @@ export const getExpenseById = asyncHandler(async (req: AuthRequest, res: Respons
   if (!expense) {
     throw new AppError('Expense not found', 404);
   }
+  assertOwnsRecord(req, expense.locationId);
 
   res.json({
     success: true,
@@ -128,6 +126,9 @@ export const createExpense = asyncHandler(async (req: AuthRequest, res: Response
     throw new AppError('User not authenticated', 401);
   }
 
+  // Non-SUPER_ADMIN is always forced to their own store, regardless of body
+  const resolvedLocationId = isSuperAdmin(req) ? (locationId ?? req.user.locationId) : req.user.locationId;
+
   // Collision-safe expense number (count()+1 raced under concurrent creates)
   const expenseNumber = `EXP-${Date.now()}-${Math.floor(Math.random() * 1000)
     .toString()
@@ -145,7 +146,7 @@ export const createExpense = asyncHandler(async (req: AuthRequest, res: Response
       expenseDate: expenseDate ? new Date(expenseDate) : new Date(),
       dueDate: dueDate ? new Date(dueDate) : null,
       userId: req.user.id,
-      locationId: locationId || req.user.locationId,
+      locationId: resolvedLocationId,
     },
     include: {
       user: {
@@ -198,6 +199,7 @@ export const updateExpense = asyncHandler(async (req: AuthRequest, res: Response
   if (!existingExpense) {
     throw new AppError('Expense not found', 404);
   }
+  assertOwnsRecord(req, existingExpense.locationId);
 
   const expense = await prisma.expense.update({
     where: { id },
@@ -252,6 +254,7 @@ export const deleteExpense = asyncHandler(async (req: AuthRequest, res: Response
   if (!expense) {
     throw new AppError('Expense not found', 404);
   }
+  assertOwnsRecord(req, expense.locationId);
 
   await prisma.expense.delete({
     where: { id },
@@ -283,6 +286,7 @@ export const approveExpense = asyncHandler(async (req: AuthRequest, res: Respons
   if (!existingExpense) {
     throw new AppError('Expense not found', 404);
   }
+  assertOwnsRecord(req, existingExpense.locationId);
 
   if (existingExpense.status !== 'PENDING') {
     throw new AppError('Only pending expenses can be approved', 400);
@@ -332,6 +336,7 @@ export const rejectExpense = asyncHandler(async (req: AuthRequest, res: Response
   if (!existingExpense) {
     throw new AppError('Expense not found', 404);
   }
+  assertOwnsRecord(req, existingExpense.locationId);
 
   if (existingExpense.status !== 'PENDING') {
     throw new AppError('Only pending expenses can be rejected', 400);
@@ -402,6 +407,16 @@ export const bulkApproveExpenses = asyncHandler(async (req: AuthRequest, res: Re
     throw new AppError('No expense IDs provided', 400);
   }
 
+  if (!isSuperAdmin(req)) {
+    const targets = await prisma.expense.findMany({
+      where: { id: { in: expenseIds } },
+      select: { id: true, locationId: true },
+    });
+    for (const t of targets) {
+      assertOwnsRecord(req, t.locationId);
+    }
+  }
+
   // Update all pending expenses
   const result = await prisma.expense.updateMany({
     where: {
@@ -438,6 +453,16 @@ export const bulkRejectExpenses = asyncHandler(async (req: AuthRequest, res: Res
     throw new AppError('No expense IDs provided', 400);
   }
 
+  if (!isSuperAdmin(req)) {
+    const targets = await prisma.expense.findMany({
+      where: { id: { in: expenseIds } },
+      select: { id: true, locationId: true },
+    });
+    for (const t of targets) {
+      assertOwnsRecord(req, t.locationId);
+    }
+  }
+
   // Update all pending expenses
   const result = await prisma.expense.updateMany({
     where: {
@@ -467,13 +492,12 @@ export const exportExpensesCSV = asyncHandler(async (req: AuthRequest, res: Resp
   const { Parser } = require('json2csv');
   const { category, status, startDate, endDate, locationId } = req.query;
 
-  const where: any = {};
+  const where: any = { ...getLocationFilter(req, locationId as string) };
 
   const categoryFilter = parseListFilter(category);
   if (categoryFilter) where.category = categoryFilter;
   const statusFilter = parseListFilter(status);
   if (statusFilter) where.status = statusFilter;
-  if (locationId) where.locationId = locationId;
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
   if (dateFilter) {
@@ -521,13 +545,12 @@ export const exportExpensesPDF = asyncHandler(async (req: AuthRequest, res: Resp
   const PDFDocument = require('pdfkit');
   const { category, status, startDate, endDate, locationId } = req.query;
 
-  const where: any = {};
+  const where: any = { ...getLocationFilter(req, locationId as string) };
 
   const categoryFilter = parseListFilter(category);
   if (categoryFilter) where.category = categoryFilter;
   const statusFilter = parseListFilter(status);
   if (statusFilter) where.status = statusFilter;
-  if (locationId) where.locationId = locationId;
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
   if (dateFilter) {

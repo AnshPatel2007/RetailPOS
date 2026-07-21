@@ -2,6 +2,7 @@ import { Response } from 'express';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
 import { asyncHandler, AppError } from '../utils/errorHandler';
+import { validateLocationAccess } from '../utils/locationFilter.util';
 
 // Get store settings for the current user's location (or specified location for SUPER_ADMIN)
 export const getMyStoreSettings = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -171,6 +172,8 @@ export const getAllLocations = asyncHandler(async (_req: AuthRequest, res: Respo
 // Get location by ID
 export const getLocationById = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
+
+  validateLocationAccess(req, id);
 
   const location = await prisma.location.findUnique({
     where: { id },

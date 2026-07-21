@@ -4,6 +4,7 @@ import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import crypto from 'crypto';
+import { assertOwnsRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
 
 /**
  * Generate unique gift card code
@@ -20,7 +21,7 @@ export const getGiftCards = asyncHandler(async (req: AuthRequest, res: Response)
   const { search, isActive, page = '1', limit = '20' } = req.query;
   const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
 
-  const where: any = {};
+  const where: any = { ...getSharedOrOwnFilter(req, req.query.locationId as string) };
   if (isActive !== undefined) where.isActive = isActive === 'true';
   if (search) {
     where.OR = [
@@ -58,6 +59,9 @@ export const getGiftCard = asyncHandler(async (req: AuthRequest, res: Response) 
   });
 
   if (!card) throw new AppError('Gift card not found', 404);
+  if (!isSuperAdmin(req) && card.locationId !== null && card.locationId !== req.user!.locationId) {
+    throw new AppError('Gift card not found', 404);
+  }
   res.json({ success: true, data: card });
 });
 
@@ -98,6 +102,9 @@ export const issueGiftCard = asyncHandler(async (req: AuthRequest, res: Response
   if (!amount || amount <= 0) throw new AppError('Amount must be positive', 400);
 
   const code = generateCode();
+  // Non-SUPER_ADMIN is always forced to their own store; SUPER_ADMIN may
+  // leave it unset to issue a chain-wide card
+  const locationId = isSuperAdmin(req) ? (req.body.locationId ?? null) : (req.user!.locationId ?? null);
 
   const card = await prisma.giftCard.create({
     data: {
@@ -106,6 +113,7 @@ export const issueGiftCard = asyncHandler(async (req: AuthRequest, res: Response
       currentBalance: amount,
       customerId: customerId || null,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
+      locationId,
       transactions: {
         create: {
           type: 'ISSUE',
@@ -134,6 +142,7 @@ export const reloadGiftCard = asyncHandler(async (req: AuthRequest, res: Respons
 
   const card = await prisma.giftCard.findUnique({ where: { id } });
   if (!card) throw new AppError('Gift card not found', 404);
+  assertOwnsRecord(req, card.locationId);
   if (!card.isActive) throw new AppError('Gift card is deactivated', 400);
 
   const updated = await prisma.giftCard.update({
@@ -172,6 +181,9 @@ export const redeemGiftCard = asyncHandler(async (req: AuthRequest, res: Respons
     });
 
     if (!card) throw new AppError('Gift card not found', 404);
+    if (!isSuperAdmin(req) && card.locationId !== null && card.locationId !== req.user!.locationId) {
+      throw new AppError('This gift card is not valid at this location', 400);
+    }
     if (!card.isActive) throw new AppError('Gift card is deactivated', 400);
     if (card.expiresAt && card.expiresAt < new Date()) throw new AppError('Gift card has expired', 400);
     if (card.currentBalance < amount) throw new AppError(`Insufficient balance. Available: $${card.currentBalance.toFixed(2)}`, 400);
@@ -206,6 +218,10 @@ export const redeemGiftCard = asyncHandler(async (req: AuthRequest, res: Respons
 export const deactivateGiftCard = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
 
+  const existing = await prisma.giftCard.findUnique({ where: { id } });
+  if (!existing) throw new AppError('Gift card not found', 404);
+  assertOwnsRecord(req, existing.locationId);
+
   const card = await prisma.giftCard.update({
     where: { id },
     data: { isActive: false },
@@ -224,6 +240,9 @@ export const checkBalance = asyncHandler(async (req: AuthRequest, res: Response)
 
   const card = await prisma.giftCard.findUnique({ where: { code } });
   if (!card) throw new AppError('Gift card not found', 404);
+  if (!isSuperAdmin(req) && card.locationId !== null && card.locationId !== req.user!.locationId) {
+    throw new AppError('This gift card is not valid at this location', 400);
+  }
 
   res.json({
     success: true,

@@ -4,8 +4,9 @@ import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { isPromotionActiveNow } from '../utils/promotionEngine';
+import { assertOwnsRecord, assertCanReadRecord, isSuperAdmin } from '../utils/locationFilter.util';
 
-const promotionData = (body: any) => ({
+const promotionData = (body: any, locationId: string | null) => ({
   name: body.name,
   description: body.description ?? null,
   type: body.type,
@@ -22,9 +23,13 @@ const promotionData = (body: any) => ({
   daysOfWeek: body.daysOfWeek ?? [],
   startTime: body.startTime ?? null,
   endTime: body.endTime ?? null,
-  locationId: body.locationId ?? null,
+  locationId,
   priority: body.priority ?? 0,
 });
+
+/** Non-SUPER_ADMIN is always forced to their own store; SUPER_ADMIN may set any value (including null for chain-wide) */
+const resolveLocationId = (req: AuthRequest, body: any): string | null =>
+  isSuperAdmin(req) ? (body.locationId ?? null) : (req.user!.locationId ?? null);
 
 /**
  * List promotions (back office)
@@ -101,6 +106,7 @@ export const getPromotion = asyncHandler(async (req: AuthRequest, res: Response)
   if (!promotion) {
     throw new AppError('Promotion not found', 404);
   }
+  assertCanReadRecord(req, promotion.locationId, 'Promotion not found');
   res.json({ success: true, data: promotion });
 });
 
@@ -109,7 +115,9 @@ export const getPromotion = asyncHandler(async (req: AuthRequest, res: Response)
  * POST /api/promotions
  */
 export const createPromotion = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const promotion = await prisma.promotion.create({ data: promotionData(req.body) });
+  const promotion = await prisma.promotion.create({
+    data: promotionData(req.body, resolveLocationId(req, req.body)),
+  });
 
   await prisma.activityLog.create({
     data: {
@@ -118,6 +126,7 @@ export const createPromotion = asyncHandler(async (req: AuthRequest, res: Respon
       entity: 'PROMOTION',
       entityId: promotion.id,
       details: { name: promotion.name, type: promotion.type },
+      locationId: promotion.locationId,
     },
   });
 
@@ -134,10 +143,11 @@ export const updatePromotion = asyncHandler(async (req: AuthRequest, res: Respon
   if (!existing) {
     throw new AppError('Promotion not found', 404);
   }
+  assertOwnsRecord(req, existing.locationId);
 
   const promotion = await prisma.promotion.update({
     where: { id: req.params.id },
-    data: promotionData(req.body),
+    data: promotionData(req.body, resolveLocationId(req, req.body)),
   });
 
   await prisma.activityLog.create({
@@ -147,6 +157,7 @@ export const updatePromotion = asyncHandler(async (req: AuthRequest, res: Respon
       entity: 'PROMOTION',
       entityId: promotion.id,
       details: { name: promotion.name, type: promotion.type },
+      locationId: promotion.locationId,
     },
   });
 
@@ -162,6 +173,7 @@ export const togglePromotion = asyncHandler(async (req: AuthRequest, res: Respon
   if (!existing) {
     throw new AppError('Promotion not found', 404);
   }
+  assertOwnsRecord(req, existing.locationId);
 
   const promotion = await prisma.promotion.update({
     where: { id: req.params.id },
@@ -184,6 +196,7 @@ export const deletePromotion = asyncHandler(async (req: AuthRequest, res: Respon
   if (!existing) {
     throw new AppError('Promotion not found', 404);
   }
+  assertOwnsRecord(req, existing.locationId);
 
   await prisma.promotion.delete({ where: { id: req.params.id } });
 
@@ -194,6 +207,7 @@ export const deletePromotion = asyncHandler(async (req: AuthRequest, res: Respon
       entity: 'PROMOTION',
       entityId: req.params.id,
       details: { name: existing.name },
+      locationId: existing.locationId,
     },
   });
 

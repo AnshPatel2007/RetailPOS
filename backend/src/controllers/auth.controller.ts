@@ -175,6 +175,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
       entityId: user.id,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
+      locationId: user.locationId,
     },
   });
 
@@ -392,6 +393,7 @@ export const logout = asyncHandler(async (req: AuthRequest, res: Response) => {
         action: 'LOGOUT',
         entity: 'USER',
         entityId: req.user.id,
+        locationId: req.user.locationId,
       },
     });
   }
@@ -426,6 +428,7 @@ export const logoutAll = asyncHandler(async (req: AuthRequest, res: Response) =>
       action: 'LOGOUT_ALL_DEVICES',
       entity: 'USER',
       entityId: req.user.id,
+      locationId: req.user.locationId,
     },
   });
 
@@ -641,6 +644,7 @@ export const resetPassword = asyncHandler(async (req: Request, res: Response) =>
       action: 'PASSWORD_RESET',
       entity: 'USER',
       entityId: user.id,
+      locationId: user.locationId,
     },
   });
 
@@ -724,6 +728,7 @@ export const changePassword = asyncHandler(async (req: AuthRequest, res: Respons
       action: 'PASSWORD_CHANGED',
       entity: 'USER',
       entityId: user.id,
+      locationId: user.locationId,
     },
   });
 

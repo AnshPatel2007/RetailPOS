@@ -43,11 +43,18 @@ const mockOrder = {
   status: 'PENDING',
   totalAmount: 100.0,
   notes: null,
+  locationId: 'location-123',
   orderedAt: null,
   expectedAt: null,
   receivedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
+};
+
+const mockSupplier = {
+  id: 'supplier-123',
+  name: 'Test Supplier',
+  locationId: 'location-123',
 };
 
 describe('Purchase Order Controller', () => {
@@ -156,7 +163,7 @@ describe('Purchase Order Controller', () => {
     it('should create a purchase order with computed totals', async () => {
       const mockRequest = createMockAuthRequest({ body: orderBody });
 
-      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue({ id: 'supplier-123' });
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(mockSupplier);
       (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(null); // order number gen
       (prisma.product.findMany as jest.Mock).mockResolvedValue([
         { id: 'product-1', sku: 'SKU001', name: 'Product 1' },
@@ -215,7 +222,7 @@ describe('Purchase Order Controller', () => {
     it('should error when a product does not exist', async () => {
       const mockRequest = createMockAuthRequest({ body: orderBody });
 
-      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue({ id: 'supplier-123' });
+      (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(mockSupplier);
       (prisma.purchaseOrder.findFirst as jest.Mock).mockResolvedValue(null);
       (prisma.product.findMany as jest.Mock).mockResolvedValue([]); // none found
 

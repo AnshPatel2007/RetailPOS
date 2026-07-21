@@ -151,6 +151,7 @@ export const verify2FA = asyncHandler(async (req: AuthRequest, res: Response) =>
       action: '2FA_ENABLED',
       entity: 'USER',
       entityId: user.id,
+      locationId: req.user.locationId,
     },
   });
 
@@ -234,6 +235,7 @@ export const disable2FA = asyncHandler(async (req: AuthRequest, res: Response) =
       action: '2FA_DISABLED',
       entity: 'USER',
       entityId: user.id,
+      locationId: user.locationId,
     },
   });
 
@@ -331,6 +333,7 @@ export const regenerateBackupCodes = asyncHandler(async (req: AuthRequest, res: 
       action: '2FA_BACKUP_CODES_REGENERATED',
       entity: 'USER',
       entityId: user.id,
+      locationId: user.locationId,
     },
   });
 

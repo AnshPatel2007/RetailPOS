@@ -11,6 +11,7 @@ import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { sendEmail } from '../utils/email';
 import { config } from '../config';
+import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
 
 const rc = (n: number) => Math.round(n * 100) / 100;
 
@@ -23,7 +24,7 @@ export const getHouseAccounts = asyncHandler(async (req: AuthRequest, res: Respo
   const pageNum = parseInt(page as string);
   const limitNum = parseInt(limit as string);
 
-  const where: any = {};
+  const where: any = { ...getSharedOrOwnFilter(req, req.query.locationId as string) };
   if (search) {
     where.customer = {
       OR: [
@@ -76,8 +77,11 @@ export const createHouseAccount = asyncHandler(async (req: AuthRequest, res: Res
   const existing = await prisma.houseAccount.findUnique({ where: { customerId } });
   if (existing) throw new AppError('This customer already has a house account', 400);
 
+  // Non-SUPER_ADMIN is always forced to their own store
+  const locationId = isSuperAdmin(req) ? (req.body.locationId ?? null) : (req.user!.locationId ?? null);
+
   const account = await prisma.houseAccount.create({
-    data: { customerId, creditLimit: limit },
+    data: { customerId, creditLimit: limit, locationId },
     include: { customer: { select: { firstName: true, lastName: true } } },
   });
 
@@ -88,6 +92,7 @@ export const createHouseAccount = asyncHandler(async (req: AuthRequest, res: Res
       entity: 'HOUSE_ACCOUNT',
       entityId: account.id,
       details: { customer: `${account.customer.firstName} ${account.customer.lastName}`, creditLimit: limit },
+      locationId,
     },
   });
 
@@ -104,6 +109,7 @@ export const updateHouseAccount = asyncHandler(async (req: AuthRequest, res: Res
 
   const existing = await prisma.houseAccount.findUnique({ where: { id: req.params.id } });
   if (!existing) throw new AppError('House account not found', 404);
+  assertOwnsRecord(req, existing.locationId);
 
   const data: any = {};
   if (creditLimit !== undefined) {
@@ -138,6 +144,7 @@ export const recordHousePayment = asyncHandler(async (req: AuthRequest, res: Res
   const updated = await prisma.$transaction(async (tx) => {
     const account = await tx.houseAccount.findUnique({ where: { id: req.params.id } });
     if (!account) throw new AppError('House account not found', 404);
+    assertOwnsRecord(req, account.locationId);
 
     return tx.houseAccount.update({
       where: { id: account.id },
@@ -173,6 +180,7 @@ export const recordHousePayment = asyncHandler(async (req: AuthRequest, res: Res
 export const getHouseTransactions = asyncHandler(async (req: AuthRequest, res: Response) => {
   const account = await prisma.houseAccount.findUnique({ where: { id: req.params.id } });
   if (!account) throw new AppError('House account not found', 404);
+  assertCanReadRecord(req, account.locationId, 'House account not found');
 
   const transactions = await prisma.houseAccountTransaction.findMany({
     where: { accountId: account.id },
@@ -193,6 +201,7 @@ export const emailHouseStatement = asyncHandler(async (req: AuthRequest, res: Re
     include: { customer: true },
   });
   if (!account) throw new AppError('House account not found', 404);
+  assertCanReadRecord(req, account.locationId, 'House account not found');
   if (!account.customer.email) {
     throw new AppError('This customer has no email address on file', 400);
   }

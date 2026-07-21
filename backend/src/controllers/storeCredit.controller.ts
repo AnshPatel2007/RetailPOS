@@ -3,6 +3,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
+import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter } from '../utils/locationFilter.util';
 
 /**
  * List all store credit accounts with balances
@@ -14,7 +15,7 @@ export const listAccounts = asyncHandler(async (req: AuthRequest, res: Response)
   const limitNum = Math.min(parseInt(limit) || 25, 100);
   const skip = (pageNum - 1) * limitNum;
 
-  const where: any = {};
+  const where: any = { ...getSharedOrOwnFilter(req, req.query.locationId as string) };
   if (search) {
     where.customer = {
       OR: [
@@ -62,6 +63,7 @@ export const getTransactions = asyncHandler(async (req: AuthRequest, res: Respon
     res.json({ success: true, data: [], pagination: { page: 1, limit: limitNum, total: 0, totalPages: 0 } });
     return;
   }
+  assertCanReadRecord(req, account.locationId, 'Store credit account not found');
 
   const [transactions, total] = await Promise.all([
     prisma.storeCreditTransaction.findMany({
@@ -100,6 +102,7 @@ export const getBalance = asyncHandler(async (req: AuthRequest, res: Response) =
     res.json({ success: true, data: { customerId, balance: 0, transactions: [] } });
     return;
   }
+  assertCanReadRecord(req, account.locationId, 'Store credit account not found');
 
   res.json({ success: true, data: account });
 });
@@ -114,18 +117,21 @@ export const addCredit = asyncHandler(async (req: AuthRequest, res: Response) =>
 
   if (!amount || amount <= 0) throw new AppError('Amount must be positive', 400);
 
-  // Ensure customer exists
+  // Ensure customer exists and is usable from this store
   const customer = await prisma.customer.findUnique({ where: { id: customerId } });
   if (!customer) throw new AppError('Customer not found', 404);
+  assertCanReadRecord(req, customer.locationId, 'Customer not found');
 
   const result = await prisma.$transaction(async (tx) => {
-    // Get or create account
+    // Get or create account — inherits the customer's own store scope
     let account = await tx.storeCreditAccount.findUnique({ where: { customerId } });
 
     if (!account) {
       account = await tx.storeCreditAccount.create({
-        data: { customerId, balance: 0 },
+        data: { customerId, balance: 0, locationId: customer.locationId },
       });
+    } else {
+      assertOwnsRecord(req, account.locationId);
     }
 
     // Add credit
@@ -167,6 +173,7 @@ export const debitCredit = asyncHandler(async (req: AuthRequest, res: Response) 
   const updated = await prisma.$transaction(async (tx) => {
     const account = await tx.storeCreditAccount.findUnique({ where: { customerId } });
     if (!account) throw new AppError('No store credit account found', 404);
+    assertOwnsRecord(req, account.locationId);
     if (account.balance < amount) throw new AppError(`Insufficient store credit. Available: $${account.balance.toFixed(2)}`, 400);
 
     const result = await tx.storeCreditAccount.update({

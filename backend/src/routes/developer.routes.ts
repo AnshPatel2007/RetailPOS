@@ -5,7 +5,10 @@ import * as developerController from '../controllers/developer.controller';
 const router = Router();
 
 router.use(authenticate);
-router.use(authorize('ADMIN')); // developer settings are admin-only
+// API keys/webhooks have no per-location scoping and read/emit chain-wide
+// data (see publicApi.controller.ts) — restricted to the chain owner only,
+// not per-store admins.
+router.use(authorize('SUPER_ADMIN'));
 
 // API keys
 router.get('/api-keys', developerController.listApiKeys);

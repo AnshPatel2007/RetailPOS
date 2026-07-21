@@ -222,6 +222,7 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
       entity: 'PRODUCT',
       entityId: product.id,
       details: { productName: product.name },
+      locationId: req.user?.locationId ?? null,
     },
   });
 
@@ -317,6 +318,7 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
       entity: 'PRODUCT',
       entityId: id,
       details: { productName: updatedProduct.name, sku: updatedProduct.sku, changes },
+      locationId: req.user?.locationId ?? null,
     },
   });
 
@@ -357,6 +359,7 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
       entity: 'PRODUCT',
       entityId: id,
       details: { productName: product.name },
+      locationId: req.user?.locationId ?? null,
     },
   });
 
