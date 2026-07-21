@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { asyncHandler } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
+import { getLocationFilter } from '../utils/locationFilter.util';
 
 /** Round a number to 2 decimal places (currency precision) */
 const rc = (n: number) => Math.round(n * 100) / 100;
@@ -10,7 +11,8 @@ const rc = (n: number) => Math.round(n * 100) / 100;
  * Get comparison analytics (YoY, MoM, WoW)
  * GET /api/analytics/comparison
  */
-export const getComparisonAnalytics = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const getComparisonAnalytics = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
   const now = new Date();
 
   // Current periods
@@ -45,6 +47,7 @@ export const getComparisonAnalytics = asyncHandler(async (_req: AuthRequest, res
     const saleWhere = {
       createdAt: { gte: start, lt: end },
       status: { in: ['COMPLETED', 'REFUNDED'] as any },
+      ...locationFilter,
     };
 
     const [sales, refunds, items] = await Promise.all([
@@ -54,7 +57,10 @@ export const getComparisonAnalytics = asyncHandler(async (_req: AuthRequest, res
         _count: { id: true },
       }),
       prisma.refund.aggregate({
-        where: { createdAt: { gte: start, lt: end } },
+        where: {
+          createdAt: { gte: start, lt: end },
+          ...(locationFilter.locationId ? { sale: { locationId: locationFilter.locationId } } : {}),
+        },
         _sum: { amount: true },
       }),
       prisma.saleItem.findMany({
@@ -148,6 +154,7 @@ export const getABCAnalysis = asyncHandler(async (req: AuthRequest, res: Respons
   const daysNum = parseInt(days as string);
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - daysNum);
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
 
   // Get product sales data
   const productSales = await prisma.saleItem.groupBy({
@@ -156,6 +163,7 @@ export const getABCAnalysis = asyncHandler(async (req: AuthRequest, res: Respons
       sale: {
         createdAt: { gte: startDate },
         status: 'COMPLETED',
+        ...locationFilter,
       },
     },
     _sum: {
@@ -169,6 +177,7 @@ export const getABCAnalysis = asyncHandler(async (req: AuthRequest, res: Respons
   const products = await prisma.product.findMany({
     where: {
       id: { in: productSales.map(ps => ps.productId) },
+      ...locationFilter,
     },
     select: {
       id: true,
@@ -276,6 +285,7 @@ export const getProductPerformanceMatrix = asyncHandler(async (req: AuthRequest,
   const daysNum = parseInt(days as string);
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - daysNum);
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
 
   // Get sales data by product
   const salesData = await prisma.saleItem.groupBy({
@@ -284,6 +294,7 @@ export const getProductPerformanceMatrix = asyncHandler(async (req: AuthRequest,
       sale: {
         createdAt: { gte: startDate },
         status: 'COMPLETED',
+        ...locationFilter,
       },
     },
     _sum: {
@@ -296,7 +307,7 @@ export const getProductPerformanceMatrix = asyncHandler(async (req: AuthRequest,
   // Get product details
   const productIds = salesData.map(s => s.productId);
   const products = await prisma.product.findMany({
-    where: { id: { in: productIds } },
+    where: { id: { in: productIds }, ...locationFilter },
     include: { category: { select: { name: true } } },
   });
 
@@ -406,6 +417,7 @@ export const getProductPerformanceMatrix = asyncHandler(async (req: AuthRequest,
 export const getSalesForecast = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { forecastDays = '30' } = req.query;
   const forecastDaysNum = parseInt(forecastDays as string);
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
 
   // Get historical daily sales for the past 90 days
   const historicalDays = 90;
@@ -417,6 +429,7 @@ export const getSalesForecast = asyncHandler(async (req: AuthRequest, res: Respo
     where: {
       createdAt: { gte: startDate },
       status: 'COMPLETED',
+      ...locationFilter,
     },
     select: {
       createdAt: true,
@@ -555,7 +568,8 @@ export const getSalesForecast = asyncHandler(async (req: AuthRequest, res: Respo
  * Get customer insights
  * GET /api/analytics/customer-insights
  */
-export const getCustomerInsights = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
@@ -563,11 +577,12 @@ export const getCustomerInsights = asyncHandler(async (_req: AuthRequest, res: R
   // Get customer segments by recency
   const [activeCustomers, atRiskCustomers, lostCustomers] = await Promise.all([
     prisma.customer.count({
-      where: { lastVisitAt: { gte: thirtyDaysAgo } },
+      where: { lastVisitAt: { gte: thirtyDaysAgo }, ...locationFilter },
     }),
     prisma.customer.count({
       where: {
         lastVisitAt: { gte: sixtyDaysAgo, lt: thirtyDaysAgo },
+        ...locationFilter,
       },
     }),
     prisma.customer.count({
@@ -576,12 +591,14 @@ export const getCustomerInsights = asyncHandler(async (_req: AuthRequest, res: R
           { lastVisitAt: { lt: sixtyDaysAgo } },
           { lastVisitAt: null },
         ],
+        ...locationFilter,
       },
     }),
   ]);
 
   // Get customer value segments
   const customers = await prisma.customer.findMany({
+    where: { ...locationFilter },
     select: {
       id: true,
       firstName: true,
@@ -608,7 +625,7 @@ export const getCustomerInsights = asyncHandler(async (_req: AuthRequest, res: R
 
   // New vs returning analysis (last 30 days)
   const newCustomersCount = await prisma.customer.count({
-    where: { createdAt: { gte: thirtyDaysAgo } },
+    where: { createdAt: { gte: thirtyDaysAgo }, ...locationFilter },
   });
 
   const returningCustomerSales = await prisma.sale.count({
@@ -618,6 +635,7 @@ export const getCustomerInsights = asyncHandler(async (_req: AuthRequest, res: R
       customer: {
         createdAt: { lt: thirtyDaysAgo },
       },
+      ...locationFilter,
     },
   });
 
@@ -628,6 +646,7 @@ export const getCustomerInsights = asyncHandler(async (_req: AuthRequest, res: R
       customer: {
         createdAt: { gte: thirtyDaysAgo },
       },
+      ...locationFilter,
     },
   });
 
@@ -639,6 +658,7 @@ export const getCustomerInsights = asyncHandler(async (_req: AuthRequest, res: R
     where: {
       status: 'COMPLETED',
       customerId: { not: null },
+      ...locationFilter,
     },
     _avg: { total: true },
   });
@@ -712,7 +732,8 @@ export const getCustomerInsights = asyncHandler(async (_req: AuthRequest, res: R
  * Get inventory predictions and reorder suggestions
  * GET /api/analytics/inventory-predictions
  */
-export const getInventoryPredictions = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const getInventoryPredictions = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
@@ -722,6 +743,7 @@ export const getInventoryPredictions = asyncHandler(async (_req: AuthRequest, re
     where: {
       isActive: true,
       trackInventory: true,
+      ...locationFilter,
     },
     include: {
       category: { select: { name: true } },
@@ -740,6 +762,7 @@ export const getInventoryPredictions = asyncHandler(async (_req: AuthRequest, re
       sale: {
         createdAt: { gte: thirtyDaysAgo },
         status: 'COMPLETED',
+        ...locationFilter,
       },
     },
     _sum: { quantity: true },
@@ -823,6 +846,7 @@ export const getInventoryPredictions = asyncHandler(async (_req: AuthRequest, re
       sale: {
         createdAt: { gte: sixtyDaysAgo },
         status: 'COMPLETED',
+        ...locationFilter,
       },
     },
   });
@@ -868,7 +892,8 @@ export const getInventoryPredictions = asyncHandler(async (_req: AuthRequest, re
  * Get sales anomaly detection
  * GET /api/analytics/anomalies
  */
-export const getSalesAnomalies = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const getSalesAnomalies = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
@@ -877,6 +902,7 @@ export const getSalesAnomalies = asyncHandler(async (_req: AuthRequest, res: Res
     where: {
       createdAt: { gte: thirtyDaysAgo },
       status: 'COMPLETED',
+      ...locationFilter,
     },
     select: {
       id: true,
@@ -936,7 +962,7 @@ export const getSalesAnomalies = asyncHandler(async (_req: AuthRequest, res: Res
   // Get product names
   const productIds = Array.from(productSales.keys());
   const products = await prisma.product.findMany({
-    where: { id: { in: productIds } },
+    where: { id: { in: productIds }, ...locationFilter },
     select: { id: true, name: true },
   });
   const productMap = new Map(products.map(p => [p.id, p.name]));
@@ -1025,7 +1051,8 @@ export const getSalesAnomalies = asyncHandler(async (_req: AuthRequest, res: Res
  * Get bundle recommendations
  * GET /api/analytics/bundle-recommendations
  */
-export const getBundleRecommendations = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const getBundleRecommendations = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -1034,6 +1061,7 @@ export const getBundleRecommendations = asyncHandler(async (_req: AuthRequest, r
     where: {
       createdAt: { gte: thirtyDaysAgo },
       status: 'COMPLETED',
+      ...locationFilter,
     },
     select: {
       id: true,
@@ -1074,7 +1102,7 @@ export const getBundleRecommendations = asyncHandler(async (_req: AuthRequest, r
   // Get product details
   const productIds = Array.from(productFrequency.keys());
   const products = await prisma.product.findMany({
-    where: { id: { in: productIds } },
+    where: { id: { in: productIds }, ...locationFilter },
     select: { id: true, name: true, price: true, cost: true },
   });
   const productMap = new Map(products.map(p => [p.id, p]));
@@ -1162,10 +1190,11 @@ export const getEmployeePerformance = asyncHandler(async (req: AuthRequest, res:
   const daysNum = parseInt(days as string);
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - daysNum);
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
 
   // Get all employees
   const employees = await prisma.user.findMany({
-    where: { role: { in: ['CASHIER', 'MANAGER', 'ADMIN'] } },
+    where: { role: { in: ['CASHIER', 'MANAGER', 'ADMIN'] }, ...locationFilter },
     select: { id: true, firstName: true, lastName: true, role: true },
   });
 
@@ -1309,7 +1338,8 @@ export const getEmployeePerformance = asyncHandler(async (req: AuthRequest, res:
  * Get business health dashboard
  * GET /api/analytics/business-health
  */
-export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const getBusinessHealth = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -1328,13 +1358,13 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
   ] = await Promise.all([
     // Today
     prisma.sale.aggregate({
-      where: { createdAt: { gte: todayStart }, status: 'COMPLETED' },
+      where: { createdAt: { gte: todayStart }, status: 'COMPLETED', ...locationFilter },
       _sum: { total: true, tax: true },
       _count: { id: true },
     }),
     // This month
     prisma.sale.aggregate({
-      where: { createdAt: { gte: monthStart }, status: 'COMPLETED' },
+      where: { createdAt: { gte: monthStart }, status: 'COMPLETED', ...locationFilter },
       _sum: { total: true, tax: true },
       _count: { id: true },
     }),
@@ -1342,20 +1372,21 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
     prisma.sale.aggregate({
       where: {
         createdAt: { gte: lastMonthStart, lt: monthStart },
-        status: 'COMPLETED'
+        status: 'COMPLETED',
+        ...locationFilter,
       },
       _sum: { total: true },
       _count: { id: true },
     }),
     // Year to date
     prisma.sale.aggregate({
-      where: { createdAt: { gte: yearStart }, status: 'COMPLETED' },
+      where: { createdAt: { gte: yearStart }, status: 'COMPLETED', ...locationFilter },
       _sum: { total: true, tax: true },
       _count: { id: true },
     }),
     // Inventory units
     prisma.product.aggregate({
-      where: { isActive: true },
+      where: { isActive: true, ...locationFilter },
       _sum: { stockQuantity: true },
     }),
     // Expenses this month
@@ -1363,25 +1394,28 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
       where: {
         expenseDate: { gte: monthStart },
         status: 'APPROVED',
+        ...locationFilter,
       },
       _sum: { amount: true },
     }),
     // Customer stats
     prisma.customer.aggregate({
+      where: { ...locationFilter },
       _count: { id: true },
       _sum: { totalSpent: true },
     }),
   ]);
 
   // Refunds issued per period (Refund table — includes partial refunds)
+  const refundSaleFilter = locationFilter.locationId ? { sale: { locationId: locationFilter.locationId } } : {};
   const [todayRefunds, monthRefunds, lastMonthRefunds, yearRefunds] = await Promise.all([
-    prisma.refund.aggregate({ where: { createdAt: { gte: todayStart } }, _sum: { amount: true } }),
-    prisma.refund.aggregate({ where: { createdAt: { gte: monthStart } }, _sum: { amount: true } }),
+    prisma.refund.aggregate({ where: { createdAt: { gte: todayStart }, ...refundSaleFilter }, _sum: { amount: true } }),
+    prisma.refund.aggregate({ where: { createdAt: { gte: monthStart }, ...refundSaleFilter }, _sum: { amount: true } }),
     prisma.refund.aggregate({
-      where: { createdAt: { gte: lastMonthStart, lt: monthStart } },
+      where: { createdAt: { gte: lastMonthStart, lt: monthStart }, ...refundSaleFilter },
       _sum: { amount: true },
     }),
-    prisma.refund.aggregate({ where: { createdAt: { gte: yearStart } }, _sum: { amount: true } }),
+    prisma.refund.aggregate({ where: { createdAt: { gte: yearStart }, ...refundSaleFilter }, _sum: { amount: true } }),
   ]);
 
   const todayRevenueNet = rc((todaySales._sum.total || 0) - (todayRefunds._sum.amount || 0));
@@ -1389,7 +1423,7 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
 
   // Calculate inventory value (need separate query for cost)
   const productsWithCost = await prisma.product.findMany({
-    where: { isActive: true },
+    where: { isActive: true, ...locationFilter },
     select: { stockQuantity: true, cost: true, price: true },
   });
 
@@ -1485,14 +1519,15 @@ export const getBusinessHealth = asyncHandler(async (_req: AuthRequest, res: Res
  * POST /api/analytics/what-if
  */
 export const getWhatIfAnalysis = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { priceChange, costChange, volumeChange } = req.body;
+  const { priceChange, costChange, volumeChange, locationId } = req.body;
+  const locationFilter = getLocationFilter(req, locationId as string);
 
   const monthStart = new Date();
   monthStart.setDate(1);
 
   // Get current month data
   const currentSales = await prisma.sale.aggregate({
-    where: { createdAt: { gte: monthStart }, status: 'COMPLETED' },
+    where: { createdAt: { gte: monthStart }, status: 'COMPLETED', ...locationFilter },
     _sum: { total: true },
     _count: { id: true },
   });
@@ -1594,7 +1629,8 @@ export const getWhatIfAnalysis = asyncHandler(async (req: AuthRequest, res: Resp
  * Get real-time metrics
  * GET /api/analytics/realtime
  */
-export const getRealtimeMetrics = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const getRealtimeMetrics = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
@@ -1612,13 +1648,17 @@ export const getRealtimeMetrics = asyncHandler(async (_req: AuthRequest, res: Re
       where: {
         createdAt: { gte: todayStart },
         status: 'COMPLETED',
+        ...locationFilter,
       },
       _sum: { total: true },
       _count: { id: true },
     }),
     // Today's refunds (Refund table — includes partial refunds)
     prisma.refund.aggregate({
-      where: { createdAt: { gte: todayStart } },
+      where: {
+        createdAt: { gte: todayStart },
+        ...(locationFilter.locationId ? { sale: { locationId: locationFilter.locationId } } : {}),
+      },
       _sum: { amount: true },
     }),
     // Last hour
@@ -1626,23 +1666,24 @@ export const getRealtimeMetrics = asyncHandler(async (_req: AuthRequest, res: Re
       where: {
         createdAt: { gte: oneHourAgo },
         status: 'COMPLETED',
+        ...locationFilter,
       },
       _sum: { total: true },
       _count: { id: true },
     }),
     // Pending sales
     prisma.sale.count({
-      where: { status: 'PENDING' },
+      where: { status: 'PENDING', ...locationFilter },
     }),
     // Active shifts
     prisma.shift.count({
-      where: { clockOutAt: null },
+      where: { clockOutAt: null, ...locationFilter },
     }),
     // Recent transactions
     prisma.sale.findMany({
       take: 5,
       orderBy: { createdAt: 'desc' },
-      where: { status: 'COMPLETED' },
+      where: { status: 'COMPLETED', ...locationFilter },
       select: {
         id: true,
         saleNumber: true,
@@ -1659,6 +1700,7 @@ export const getRealtimeMetrics = asyncHandler(async (_req: AuthRequest, res: Re
     where: {
       isActive: true,
       trackInventory: true,
+      ...locationFilter,
     },
     select: {
       stockQuantity: true,
