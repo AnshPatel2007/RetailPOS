@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { User } from '../types';
 import { authService } from '../services/api';
-import { useStoreSettingsStore } from './storeSettingsStore';
+import { clearSessionState } from '../services/session';
 
 interface AuthState {
   user: User | null;
@@ -83,7 +83,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       // Always clear local state
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      useStoreSettingsStore.getState().reset();
+      await clearSessionState();
       set({
         user: null,
         token: null,

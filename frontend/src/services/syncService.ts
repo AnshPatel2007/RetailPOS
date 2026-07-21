@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { offlineDb, PendingSale, PendingSaleItem } from './offlineDb';
 import { saleService, productService, customerService } from './api';
+import { useAuthStore } from '../store/authStore';
 
 type SyncStatus = 'idle' | 'syncing' | 'success' | 'error';
 type ConnectionStatus = 'online' | 'offline';
@@ -195,6 +196,7 @@ class SyncService {
 
     const pendingSale: Omit<PendingSale, 'id'> = {
       localId: uuidv4(),
+      locationId: useAuthStore.getState().user?.locationId ?? null,
       customerId: saleData.customerId,
       items,
       subtotal,
@@ -228,6 +230,19 @@ class SyncService {
   // Sync single sale
   private async syncSale(sale: PendingSale): Promise<boolean> {
     if (!sale.id) return false;
+
+    // Defense-in-depth: don't silently sync a sale that was rung up under a
+    // different store's login than the one currently authenticated — the
+    // backend stamps locationId from the current JWT, so syncing here would
+    // misattribute the sale to the wrong store. Flag it and leave it queued
+    // for whoever logs back in as the right store instead.
+    const currentLocationId = useAuthStore.getState().user?.locationId ?? null;
+    if (sale.locationId && sale.locationId !== currentLocationId) {
+      const errorMessage = 'Queued under a different store login — sign in as that store to sync';
+      await offlineDb.markSaleSyncFailed(sale.id, errorMessage);
+      console.warn(`Skipping sale ${sale.localId}: ${errorMessage}`);
+      return false;
+    }
 
     try {
       // Transform to API format. The localId doubles as the idempotency key so

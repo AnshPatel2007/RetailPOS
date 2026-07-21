@@ -5,6 +5,7 @@ interface FavoritesState {
   favoriteIds: string[];
   toggleFavorite: (productId: string) => void;
   isFavorite: (productId: string) => boolean;
+  reset: () => void;
 }
 
 export const useFavoritesStore = create<FavoritesState>()(
@@ -24,6 +25,8 @@ export const useFavoritesStore = create<FavoritesState>()(
       isFavorite: (productId: string) => {
         return get().favoriteIds.includes(productId);
       },
+
+      reset: () => set({ favoriteIds: [] }),
     }),
     { name: 'pos-favorites' }
   )

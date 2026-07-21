@@ -80,9 +80,16 @@ api.interceptors.response.use(
         isRefreshing = false;
       }
 
-      // Refresh failed — log out
+      // Refresh failed — log out. Dynamic import avoids a circular
+      // dependency (session.ts's stores import this file for API calls).
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      try {
+        const { clearSessionState } = await import('./session');
+        await clearSessionState();
+      } catch {
+        // Best-effort — still redirect to login even if this fails
+      }
       if (!window.location.pathname.includes('/login')) {
         window.location.href = '/login';
       }

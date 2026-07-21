@@ -34,6 +34,7 @@ export interface OfflineCustomer {
 export interface PendingSale {
   id?: number;  // Auto-incremented
   localId: string;  // UUID for tracking
+  locationId?: string | null; // store this sale was rung up at, tagged at queue-time
   customerId?: string;
   items: PendingSaleItem[];
   subtotal: number;
@@ -330,6 +331,18 @@ export const offlineDb = {
       db.settings.clear(),
     ]);
     console.log('All offline data cleared');
+  },
+
+  // Logout-safe variant: clears the cached product/customer catalog (so a
+  // different cashier logging into a different store never sees stale
+  // pricing/inventory) but deliberately leaves pendingSales untouched —
+  // wiping unsynced sales would permanently lose revenue records.
+  async clearCachesForLogout(): Promise<void> {
+    await Promise.all([
+      db.products.clear(),
+      db.customers.clear(),
+      db.settings.clear(),
+    ]);
   },
 
   async exportData(): Promise<{

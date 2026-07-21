@@ -41,6 +41,7 @@ interface CartState {
   setCardSurchargePercent: (rate: number) => void;
   setPromotions: (promotions: Promotion[]) => void;
   clearCart: () => void;
+  resetForLogout: () => void;
 
   // Hold sales
   holdSale: () => void;
@@ -184,6 +185,20 @@ export const useCartStore = create<CartState>()(
           items: [],
           customer: null,
           notes: '',
+        });
+      },
+
+      // Unlike clearCart (used mid-session after checkout), this also drops
+      // held sales and location-specific settings so a different cashier
+      // logging into a different store never sees the previous session's data
+      resetForLogout: () => {
+        set({
+          items: [],
+          customer: null,
+          notes: '',
+          heldSales: [],
+          taxRate: 0,
+          cardSurchargePercent: 0,
         });
       },
 
