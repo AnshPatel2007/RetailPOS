@@ -3,6 +3,7 @@ import { asyncHandler } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { parseEndDate } from '../utils/dateFilter.util';
+import { getLocationFilter } from '../utils/locationFilter.util';
 
 /** Round a number to 2 decimal places (currency precision) */
 const rc = (n: number) => Math.round(n * 100) / 100;
@@ -16,10 +17,9 @@ const rc = (n: number) => Math.round(n * 100) / 100;
 export const getBudgets = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { category, period, locationId, isActive } = req.query;
 
-  const where: any = {};
+  const where: any = { ...getLocationFilter(req, locationId as string) };
   if (category) where.category = category;
   if (period) where.period = period;
-  if (locationId) where.locationId = locationId;
   if (isActive !== undefined) where.isActive = isActive === 'true';
 
   const budgets = await prisma.budget.findMany({
@@ -143,9 +143,10 @@ export const deleteBudget = asyncHandler(async (req: AuthRequest, res: Response)
  * Get budget summary by category
  * GET /api/financial/budgets/summary
  */
-export const getBudgetSummary = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const getBudgetSummary = asyncHandler(async (req: AuthRequest, res: Response) => {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
 
   // Get all active monthly budgets
   const budgets = await prisma.budget.findMany({
@@ -157,6 +158,7 @@ export const getBudgetSummary = asyncHandler(async (_req: AuthRequest, res: Resp
         { endDate: null },
         { endDate: { gte: now } },
       ],
+      ...locationFilter,
     },
   });
 
@@ -166,6 +168,7 @@ export const getBudgetSummary = asyncHandler(async (_req: AuthRequest, res: Resp
     where: {
       expenseDate: { gte: monthStart },
       status: { in: ['APPROVED', 'PAID'] },
+      ...locationFilter,
     },
     _sum: { amount: true },
   });
@@ -431,11 +434,13 @@ export const exportSales = asyncHandler(async (req: AuthRequest, res: Response) 
 
   const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1));
   const end = endDate ? parseEndDate(endDate as string) : new Date();
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
 
   const sales = await prisma.sale.findMany({
     where: {
       createdAt: { gte: start, lte: end },
       status: 'COMPLETED',
+      ...locationFilter,
     },
     include: {
       items: true,
@@ -447,7 +452,10 @@ export const exportSales = asyncHandler(async (req: AuthRequest, res: Response) 
 
   // Refunds issued in the period (includes partial refunds on COMPLETED sales)
   const refunds = await prisma.refund.findMany({
-    where: { createdAt: { gte: start, lte: end } },
+    where: {
+      createdAt: { gte: start, lte: end },
+      ...(locationFilter.locationId ? { sale: { locationId: locationFilter.locationId } } : {}),
+    },
     include: { sale: { select: { saleNumber: true } } },
     orderBy: { createdAt: 'asc' },
   });
@@ -512,11 +520,13 @@ export const exportExpenses = asyncHandler(async (req: AuthRequest, res: Respons
 
   const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1));
   const end = endDate ? parseEndDate(endDate as string) : new Date();
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
 
   const expenses = await prisma.expense.findMany({
     where: {
       expenseDate: { gte: start, lte: end },
       status: { in: ['APPROVED', 'PAID'] },
+      ...locationFilter,
     },
     include: {
       user: { select: { firstName: true, lastName: true } },
@@ -576,12 +586,14 @@ export const getProfitAndLoss = asyncHandler(async (req: AuthRequest, res: Respo
 
   const start = startDate ? new Date(startDate as string) : new Date(new Date().getFullYear(), 0, 1);
   const end = endDate ? parseEndDate(endDate as string) : new Date();
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
 
   // Get revenue
   const salesData = await prisma.sale.aggregate({
     where: {
       createdAt: { gte: start, lte: end },
       status: 'COMPLETED',
+      ...locationFilter,
     },
     _sum: { total: true, tax: true },
     _count: { id: true },
@@ -591,6 +603,7 @@ export const getProfitAndLoss = asyncHandler(async (req: AuthRequest, res: Respo
   const refundsData = await prisma.refund.aggregate({
     where: {
       createdAt: { gte: start, lte: end },
+      ...(locationFilter.locationId ? { sale: { locationId: locationFilter.locationId } } : {}),
     },
     _sum: { amount: true },
   });
@@ -601,6 +614,7 @@ export const getProfitAndLoss = asyncHandler(async (req: AuthRequest, res: Respo
     where: {
       expenseDate: { gte: start, lte: end },
       status: { in: ['APPROVED', 'PAID'] },
+      ...locationFilter,
     },
     _sum: { amount: true },
   });

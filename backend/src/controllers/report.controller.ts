@@ -5,6 +5,7 @@ import { SaleStatus, ExpenseStatus } from '@prisma/client';
 import { AuthRequest } from '../types';
 import { createDateFilter } from '../utils/dateFilter.util';
 import { parseListFilter } from '../utils/queryFilter.util';
+import { getLocationFilter } from '../utils/locationFilter.util';
 
 /** Round a number to 2 decimal places (currency precision) */
 const rc = (n: number) => Math.round(n * 100) / 100;
@@ -15,10 +16,14 @@ const rc = (n: number) => Math.round(n * 100) / 100;
  * so report revenue must subtract these amounts explicitly.
  */
 const getRefundTotals = async (
-  dateFilter?: { gte?: Date; lt?: Date; lte?: Date }
+  dateFilter?: { gte?: Date; lt?: Date; lte?: Date },
+  locationId?: string
 ): Promise<{ amount: number; count: number }> => {
   const result = await prisma.refund.aggregate({
-    where: dateFilter ? { createdAt: dateFilter } : {},
+    where: {
+      ...(dateFilter ? { createdAt: dateFilter } : {}),
+      ...(locationId ? { sale: { locationId } } : {}),
+    },
     _sum: { amount: true },
     _count: true,
   });
@@ -29,7 +34,8 @@ const getRefundTotals = async (
  * Get overall business report - comprehensive metrics for small-mid size businesses
  * GET /api/reports/overall
  */
-export const getOverallReport = asyncHandler(async (_req: Request, res: Response) => {
+export const getOverallReport = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationFilter = getLocationFilter(req, req.query.locationId as string);
   // Date boundaries
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -64,6 +70,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: today, lte: endOfToday },
       status: revenueStatuses,
+      ...locationFilter,
     },
     _sum: { total: true, tax: true, discount: true, subtotal: true },
     _count: true,
@@ -74,6 +81,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: weekAgo },
       status: revenueStatuses,
+      ...locationFilter,
     },
     _sum: { total: true, tax: true, discount: true },
     _count: true,
@@ -84,6 +92,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: previousWeek, lt: weekAgo },
       status: revenueStatuses,
+      ...locationFilter,
     },
     _sum: { total: true },
     _count: true,
@@ -94,6 +103,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: monthAgo },
       status: revenueStatuses,
+      ...locationFilter,
     },
     _sum: { total: true, tax: true, discount: true },
     _count: true,
@@ -104,6 +114,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: previousMonth, lt: monthAgo },
       status: revenueStatuses,
+      ...locationFilter,
     },
     _sum: { total: true },
     _count: true,
@@ -114,6 +125,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: yearAgo },
       status: revenueStatuses,
+      ...locationFilter,
     },
     _sum: { total: true, tax: true, discount: true },
     _count: true,
@@ -122,12 +134,12 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
   // Refunds issued per period (partial + full)
   const [todayRefunds, weekRefunds, prevWeekRefunds, monthRefunds, prevMonthRefunds, yearRefunds] =
     await Promise.all([
-      getRefundTotals({ gte: today, lte: endOfToday }),
-      getRefundTotals({ gte: weekAgo }),
-      getRefundTotals({ gte: previousWeek, lt: weekAgo }),
-      getRefundTotals({ gte: monthAgo }),
-      getRefundTotals({ gte: previousMonth, lt: monthAgo }),
-      getRefundTotals({ gte: yearAgo }),
+      getRefundTotals({ gte: today, lte: endOfToday }, locationFilter.locationId),
+      getRefundTotals({ gte: weekAgo }, locationFilter.locationId),
+      getRefundTotals({ gte: previousWeek, lt: weekAgo }, locationFilter.locationId),
+      getRefundTotals({ gte: monthAgo }, locationFilter.locationId),
+      getRefundTotals({ gte: previousMonth, lt: monthAgo }, locationFilter.locationId),
+      getRefundTotals({ gte: yearAgo }, locationFilter.locationId),
     ]);
 
   const todayNet = rc((todaySales._sum.total || 0) - todayRefunds.amount);
@@ -153,6 +165,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: monthAgo },
       status: SaleStatus.COMPLETED,
+      ...locationFilter,
     },
     select: {
       total: true,
@@ -187,6 +200,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       expenseDate: { gte: monthAgo },
       status: { notIn: [ExpenseStatus.REJECTED] },
+      ...locationFilter,
     },
     _sum: { amount: true },
     _count: true,
@@ -199,7 +213,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
 
   // Total customers
   const totalCustomers = await prisma.customer.count({
-    where: { isActive: true },
+    where: { isActive: true, ...locationFilter },
   });
 
   // New customers this month
@@ -207,6 +221,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: monthAgo },
       isActive: true,
+      ...locationFilter,
     },
   });
 
@@ -215,12 +230,13 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       visitCount: { gt: 1 },
       isActive: true,
+      ...locationFilter,
     },
   });
 
   // Top customers by spend
   const topCustomers = await prisma.customer.findMany({
-    where: { isActive: true },
+    where: { isActive: true, ...locationFilter },
     select: {
       id: true,
       firstName: true,
@@ -239,6 +255,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       isActive: true,
       totalSpent: { gt: 0 },
+      ...locationFilter,
     },
     _avg: { totalSpent: true },
   });
@@ -247,7 +264,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
 
   // All products summary
   const allProducts = await prisma.product.findMany({
-    where: { isActive: true },
+    where: { isActive: true, ...locationFilter },
     select: {
       id: true,
       name: true,
@@ -280,6 +297,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
       sale: {
         createdAt: { gte: monthAgo },
         status: SaleStatus.COMPLETED,
+        ...locationFilter,
       },
     },
     _sum: { quantity: true },
@@ -300,6 +318,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
       sale: {
         createdAt: { gte: monthAgo },
         status: SaleStatus.COMPLETED,
+        ...locationFilter,
       },
     },
     _sum: {
@@ -321,6 +340,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
       sale: {
         createdAt: { gte: monthAgo },
         status: SaleStatus.COMPLETED,
+        ...locationFilter,
       },
     },
     select: {
@@ -359,6 +379,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: monthAgo },
       status: SaleStatus.COMPLETED,
+      ...locationFilter,
     },
     _sum: { total: true },
     _count: true,
@@ -380,6 +401,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: monthAgo },
       status: SaleStatus.COMPLETED,
+      ...locationFilter,
     },
     _sum: { total: true },
     _count: true,
@@ -409,6 +431,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       expenseDate: { gte: monthAgo },
       status: { notIn: [ExpenseStatus.REJECTED] },
+      ...locationFilter,
     },
     _sum: { amount: true },
     _count: true,
@@ -429,6 +452,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: monthAgo },
       status: SaleStatus.COMPLETED,
+      ...locationFilter,
     },
     select: {
       total: true,
@@ -460,6 +484,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: today, lte: endOfToday },
       status: SaleStatus.COMPLETED,
+      ...locationFilter,
     },
     select: {
       total: true,
@@ -498,6 +523,7 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
     where: {
       createdAt: { gte: monthAgo },
       status: SaleStatus.VOIDED,
+      ...locationFilter,
     },
     _sum: { total: true },
     _count: true,
@@ -636,11 +662,10 @@ export const getOverallReport = asyncHandler(async (_req: Request, res: Response
 export const getDashboardMetrics = asyncHandler(async (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
 
-  // Build base filter for role-based sales visibility
-  const baseWhere: any = { status: SaleStatus.COMPLETED };
-  if (authReq.user?.locationId) {
-    baseWhere.locationId = authReq.user.locationId;
-  }
+  // Build base filter for role-based sales visibility. SUPER_ADMIN may pass
+  // ?locationId= to drill into one store; everyone else is forced to their own.
+  const locationFilter = getLocationFilter(authReq, authReq.query.locationId as string);
+  const baseWhere: any = { status: SaleStatus.COMPLETED, ...locationFilter };
   // Cashiers only see their own sales
   if (authReq.user?.role === 'CASHIER') {
     baseWhere.userId = authReq.user.id;
@@ -699,18 +724,24 @@ export const getDashboardMetrics = asyncHandler(async (req: Request, res: Respon
     }),
     // Today's refunds (from Refund table, includes partial refunds)
     prisma.refund.aggregate({
-      where: { createdAt: { gte: today }, ...(authReq.user?.role === 'CASHIER' ? { sale: { userId: authReq.user.id } } : {}) },
+      where: {
+        createdAt: { gte: today },
+        sale: {
+          ...(locationFilter.locationId ? { locationId: locationFilter.locationId } : {}),
+          ...(authReq.user?.role === 'CASHIER' ? { userId: authReq.user.id } : {}),
+        },
+      },
       _sum: { amount: true },
       _count: true,
     }),
     // Low stock products (with names)
     prisma.product.findMany({
-      where: { trackInventory: true, isActive: true, ...(authReq.user?.locationId ? { locationId: authReq.user.locationId } : {}) },
+      where: { trackInventory: true, isActive: true, ...locationFilter },
       select: { id: true, name: true, sku: true, stockQuantity: true, lowStockAlert: true },
     }),
-    prisma.product.count({ where: { isActive: true, ...(authReq.user?.locationId ? { locationId: authReq.user.locationId } : {}) } }),
-    prisma.customer.count({ where: { isActive: true } }),
-    prisma.shift.count({ where: { isClosed: false, ...(authReq.user?.locationId ? { locationId: authReq.user.locationId } : {}) } }),
+    prisma.product.count({ where: { isActive: true, ...locationFilter } }),
+    prisma.customer.count({ where: { isActive: true, ...locationFilter } }),
+    prisma.shift.count({ where: { isClosed: false, ...locationFilter } }),
     // Recent 5 sales
     prisma.sale.findMany({
       where: baseWhere,
@@ -797,13 +828,13 @@ export const getDashboardMetrics = asyncHandler(async (req: Request, res: Respon
  */
 export const getDashboardHourly = asyncHandler(async (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
-  const locationId = authReq.user?.locationId;
 
   const now = new Date();
   const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
-  const locationFilter = locationId ? { locationId } : {};
+  // SUPER_ADMIN may pass ?locationId= to drill into one store
+  const locationFilter = getLocationFilter(authReq, authReq.query.locationId as string);
   // Cashiers only see their own sales
   const userFilter = authReq.user?.role === 'CASHIER' ? { userId: authReq.user.id } : {};
 
