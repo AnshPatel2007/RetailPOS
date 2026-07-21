@@ -59,6 +59,7 @@ import { ExportsTab } from '@/components/reports/ExportsTab';
 import { Badge } from '@/components/ui/Badge';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
+import { StoreFilterSelect } from '@/components/common/StoreFilterSelect';
 import { useAuthStore } from '@/store/authStore';
 
 const EmployeeSalesTab: React.FC = () => {
@@ -216,6 +217,7 @@ export const Reports: React.FC = () => {
   const [salesData, setSalesData] = useState<SalesReportData | null>(null);
   const [inventoryData, setInventoryData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [locationId, setLocationId] = useState('');
 
   // Sales-specific state
   const [showSaleDetails, setShowSaleDetails] = useState(false);
@@ -258,13 +260,13 @@ export const Reports: React.FC = () => {
 
   useEffect(() => {
     loadReports();
-  }, [activeTab, salesFilters.startDate, salesFilters.endDate, salesFilters.paymentMethod, salesFilters.status, inventoryFilters.startDate, inventoryFilters.endDate]);
+  }, [activeTab, salesFilters.startDate, salesFilters.endDate, salesFilters.paymentMethod, salesFilters.status, inventoryFilters.startDate, inventoryFilters.endDate, locationId]);
 
   const loadReports = async () => {
     setIsLoading(true);
     try {
       if (activeTab === 'overall') {
-        const response = await reportService.getOverall();
+        const response = await reportService.getOverall({ locationId: locationId || undefined });
         setOverallData(response.data.data);
       } else if (activeTab === 'sales') {
         const response = await reportService.getSales({
@@ -272,10 +274,11 @@ export const Reports: React.FC = () => {
           endDate: salesFilters.endDate,
           paymentMethod: salesFilters.paymentMethod.join(',') || undefined,
           status: salesFilters.status.join(',') || undefined,
+          locationId: locationId || undefined,
         });
         setSalesData(response.data.data);
       } else if (activeTab === 'inventory') {
-        const response = await reportService.getInventory();
+        const response = await reportService.getInventory({ locationId: locationId || undefined });
         setInventoryData(response.data.data);
       }
     } catch (error) {
@@ -295,6 +298,7 @@ export const Reports: React.FC = () => {
         paymentMethod: salesFilters.paymentMethod.join(','),
         status: salesFilters.status.join(','),
         userId: employeeId.join(','),
+        locationId: locationId || undefined,
       };
 
       const response =
@@ -410,6 +414,7 @@ export const Reports: React.FC = () => {
         ...inventoryFilters,
         category: inventoryFilters.category.join(','),
         stockStatus: inventoryFilters.stockStatus.join(','),
+        locationId: locationId || undefined,
       };
 
       const response =
@@ -604,20 +609,23 @@ export const Reports: React.FC = () => {
       />
 
       {/* Tabs */}
-      <div className="flex space-x-1 mb-6">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              activeTab === tab.id
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-accent'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex space-x-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                activeTab === tab.id
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-accent'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <StoreFilterSelect value={locationId} onChange={setLocationId} />
       </div>
 
       {/* Overall Report */}

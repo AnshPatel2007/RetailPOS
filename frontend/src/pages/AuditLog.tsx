@@ -12,6 +12,7 @@ import toast from 'react-hot-toast';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
+import { StoreFilterSelect } from '@/components/common/StoreFilterSelect';
 
 interface AuditEntry {
   id: string;
@@ -44,6 +45,7 @@ export const AuditLog: React.FC = () => {
   const [entityFilter, setEntityFilter] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [locationId, setLocationId] = useState('');
   const [actions, setActions] = useState<string[]>([]);
   const [entities, setEntities] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
@@ -58,6 +60,7 @@ export const AuditLog: React.FC = () => {
       if (entityFilter) params.entity = entityFilter;
       if (startDate) params.startDate = startDate;
       if (endDate) params.endDate = endDate;
+      if (locationId) params.locationId = locationId;
 
       const res = await auditLogService.getAll(params);
       setLogs(res.data.data);
@@ -68,7 +71,7 @@ export const AuditLog: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, debouncedSearch, actionFilter, entityFilter, startDate, endDate]);
+  }, [page, debouncedSearch, actionFilter, entityFilter, startDate, endDate, locationId]);
 
   // Debounce search input so we don't fetch on every keystroke
   useEffect(() => {
@@ -136,6 +139,7 @@ export const AuditLog: React.FC = () => {
         icon={Shield}
         actions={
           <>
+            <StoreFilterSelect value={locationId} onChange={(v) => { setLocationId(v); setPage(1); }} />
             <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
               <Filter className="h-4 w-4 mr-1" />
               Filters

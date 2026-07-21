@@ -33,6 +33,7 @@ import { financialService, expenseService, reportService } from '@/services/api'
 import { formatDate } from '@/lib/utils';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
+import { StoreFilterSelect } from '@/components/common/StoreFilterSelect';
 import toast from 'react-hot-toast';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import type { ExpenseReportData, Expense } from '@/types';
@@ -86,10 +87,11 @@ export const Financial: React.FC = () => {
   const [showRecurringModal, setShowRecurringModal] = useState(false);
   const [editingBudget, setEditingBudget] = useState<any>(null);
   const [editingRecurring, setEditingRecurring] = useState<any>(null);
+  const [locationId, setLocationId] = useState('');
 
   useEffect(() => {
     fetchData();
-  }, [activeTab, expenseFilters.startDate, expenseFilters.endDate]);
+  }, [activeTab, expenseFilters.startDate, expenseFilters.endDate, locationId]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -99,13 +101,14 @@ export const Financial: React.FC = () => {
           const expRes = await reportService.getExpenses({
             startDate: expenseFilters.startDate,
             endDate: expenseFilters.endDate,
+            locationId: locationId || undefined,
           });
           setExpenseData(expRes.data.data);
           break;
         case 'budgets':
           const [budgetsRes, summaryRes] = await Promise.all([
-            financialService.getBudgets(),
-            financialService.getBudgetSummary(),
+            financialService.getBudgets({ locationId: locationId || undefined }),
+            financialService.getBudgetSummary({ locationId: locationId || undefined }),
           ]);
           setBudgets(budgetsRes.data.data || []);
           setBudgetSummary(summaryRes.data.data);
@@ -115,7 +118,7 @@ export const Financial: React.FC = () => {
           setRecurringExpenses(recRes.data.data || []);
           break;
         case 'pnl':
-          const pnlRes = await financialService.getProfitAndLoss();
+          const pnlRes = await financialService.getProfitAndLoss({ locationId: locationId || undefined });
           setPnlData(pnlRes.data.data);
           break;
       }
@@ -134,6 +137,7 @@ export const Financial: React.FC = () => {
         ...expenseFilters,
         category: expenseFilters.category.join(','),
         status: expenseFilters.status.join(','),
+        locationId: locationId || undefined,
       };
 
       const response =
@@ -274,39 +278,42 @@ export const Financial: React.FC = () => {
       />
 
       {/* Tab Navigation */}
-      <div className="flex gap-2 mb-6">
-        <Button
-          variant={activeTab === 'expenses' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('expenses')}
-          size="sm"
-        >
-          <DollarSign className="w-4 h-4 mr-2" />
-          Expenses
-        </Button>
-        <Button
-          variant={activeTab === 'budgets' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('budgets')}
-          size="sm"
-        >
-          <PiggyBank className="w-4 h-4 mr-2" />
-          Budgets
-        </Button>
-        <Button
-          variant={activeTab === 'recurring' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('recurring')}
-          size="sm"
-        >
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Recurring
-        </Button>
-        <Button
-          variant={activeTab === 'pnl' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('pnl')}
-          size="sm"
-        >
-          <FileText className="w-4 h-4 mr-2" />
-          P&L Report
-        </Button>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex gap-2">
+          <Button
+            variant={activeTab === 'expenses' ? 'primary' : 'outline'}
+            onClick={() => setActiveTab('expenses')}
+            size="sm"
+          >
+            <DollarSign className="w-4 h-4 mr-2" />
+            Expenses
+          </Button>
+          <Button
+            variant={activeTab === 'budgets' ? 'primary' : 'outline'}
+            onClick={() => setActiveTab('budgets')}
+            size="sm"
+          >
+            <PiggyBank className="w-4 h-4 mr-2" />
+            Budgets
+          </Button>
+          <Button
+            variant={activeTab === 'recurring' ? 'primary' : 'outline'}
+            onClick={() => setActiveTab('recurring')}
+            size="sm"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Recurring
+          </Button>
+          <Button
+            variant={activeTab === 'pnl' ? 'primary' : 'outline'}
+            onClick={() => setActiveTab('pnl')}
+            size="sm"
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            P&L Report
+          </Button>
+        </div>
+        <StoreFilterSelect value={locationId} onChange={setLocationId} />
       </div>
 
       {loading ? (

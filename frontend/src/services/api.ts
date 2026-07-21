@@ -430,7 +430,7 @@ export const purchaseOrderService = {
  * Analytics service
  */
 export const analyticsService = {
-  getComparison: () => api.get('/analytics/comparison'),
+  getComparison: (params?: any) => api.get('/analytics/comparison', { params }),
 
   getABCAnalysis: (params?: any) => api.get('/analytics/abc-analysis', { params }),
 
@@ -438,22 +438,22 @@ export const analyticsService = {
 
   getForecast: (params?: any) => api.get('/analytics/forecast', { params }),
 
-  getCustomerInsights: () => api.get('/analytics/customer-insights'),
+  getCustomerInsights: (params?: any) => api.get('/analytics/customer-insights', { params }),
 
-  getRealtime: () => api.get('/analytics/realtime'),
+  getRealtime: (params?: any) => api.get('/analytics/realtime', { params }),
 
   // New AI Analytics endpoints
-  getInventoryPredictions: () => api.get('/analytics/inventory-predictions'),
+  getInventoryPredictions: (params?: any) => api.get('/analytics/inventory-predictions', { params }),
 
-  getAnomalies: () => api.get('/analytics/anomalies'),
+  getAnomalies: (params?: any) => api.get('/analytics/anomalies', { params }),
 
-  getBundleRecommendations: () => api.get('/analytics/bundle-recommendations'),
+  getBundleRecommendations: (params?: any) => api.get('/analytics/bundle-recommendations', { params }),
 
   getEmployeePerformance: (params?: any) => api.get('/analytics/employee-performance', { params }),
 
-  getBusinessHealth: () => api.get('/analytics/business-health'),
+  getBusinessHealth: (params?: any) => api.get('/analytics/business-health', { params }),
 
-  getWhatIfAnalysis: (data: { priceChange?: number; costChange?: number; volumeChange?: number }) =>
+  getWhatIfAnalysis: (data: { priceChange?: number; costChange?: number; volumeChange?: number; locationId?: string }) =>
     api.post('/analytics/what-if', data),
 
   chat: (data: { question: string; history?: { role: string; content: string }[] }) =>
@@ -466,7 +466,7 @@ export const analyticsService = {
 export const financialService = {
   // Budgets
   getBudgets: (params?: any) => api.get('/financial/budgets', { params }),
-  getBudgetSummary: () => api.get('/financial/budgets/summary'),
+  getBudgetSummary: (params?: any) => api.get('/financial/budgets/summary', { params }),
   createBudget: (data: any) => api.post('/financial/budgets', data),
   updateBudget: (id: string, data: any) => api.put(`/financial/budgets/${id}`, data),
   deleteBudget: (id: string) => api.delete(`/financial/budgets/${id}`),

@@ -43,6 +43,7 @@ import {
 import { analyticsService } from '../services/api';
 import toast from 'react-hot-toast';
 import { PageHeader } from '@/components/common/PageHeader';
+import { StoreFilterSelect } from '@/components/common/StoreFilterSelect';
 import { AnalyticsChat } from '@/components/analytics/AnalyticsChat';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -74,12 +75,13 @@ export const Analytics: React.FC = () => {
   const [abcDays, setAbcDays] = useState('90');
   const [forecastDays, setForecastDays] = useState('30');
   const [employeeDays, setEmployeeDays] = useState('30');
+  const [locationId, setLocationId] = useState('');
 
   useEffect(() => {
     fetchAllData();
     const interval = setInterval(fetchRealtime, 30000); // Refresh realtime every 30s
     return () => clearInterval(interval);
-  }, []);
+  }, [locationId]);
 
   const fetchAllData = async () => {
     setLoading(true);
@@ -106,7 +108,7 @@ export const Analytics: React.FC = () => {
 
   const fetchComparison = async () => {
     try {
-      const response = await analyticsService.getComparison();
+      const response = await analyticsService.getComparison({ locationId: locationId || undefined });
       setComparisonData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch comparison:', error);
@@ -115,7 +117,7 @@ export const Analytics: React.FC = () => {
 
   const fetchABC = async (days: string = abcDays) => {
     try {
-      const response = await analyticsService.getABCAnalysis({ days });
+      const response = await analyticsService.getABCAnalysis({ days, locationId: locationId || undefined });
       setAbcData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch ABC analysis:', error);
@@ -124,7 +126,7 @@ export const Analytics: React.FC = () => {
 
   const fetchMatrix = async () => {
     try {
-      const response = await analyticsService.getProductMatrix({ days: 30 });
+      const response = await analyticsService.getProductMatrix({ days: 30, locationId: locationId || undefined });
       setMatrixData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch product matrix:', error);
@@ -133,7 +135,7 @@ export const Analytics: React.FC = () => {
 
   const fetchForecast = async (days: string = forecastDays) => {
     try {
-      const response = await analyticsService.getForecast({ forecastDays: days });
+      const response = await analyticsService.getForecast({ forecastDays: days, locationId: locationId || undefined });
       setForecastData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch forecast:', error);
@@ -142,7 +144,7 @@ export const Analytics: React.FC = () => {
 
   const fetchRealtime = async () => {
     try {
-      const response = await analyticsService.getRealtime();
+      const response = await analyticsService.getRealtime({ locationId: locationId || undefined });
       setRealtimeData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch realtime:', error);
@@ -151,7 +153,7 @@ export const Analytics: React.FC = () => {
 
   const fetchInventoryPredictions = async () => {
     try {
-      const response = await analyticsService.getInventoryPredictions();
+      const response = await analyticsService.getInventoryPredictions({ locationId: locationId || undefined });
       setInventoryPredictions(response.data.data);
     } catch (error) {
       console.error('Failed to fetch inventory predictions:', error);
@@ -160,7 +162,7 @@ export const Analytics: React.FC = () => {
 
   const fetchAnomalies = async () => {
     try {
-      const response = await analyticsService.getAnomalies();
+      const response = await analyticsService.getAnomalies({ locationId: locationId || undefined });
       setAnomaliesData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch anomalies:', error);
@@ -169,7 +171,7 @@ export const Analytics: React.FC = () => {
 
   const fetchBundles = async () => {
     try {
-      const response = await analyticsService.getBundleRecommendations();
+      const response = await analyticsService.getBundleRecommendations({ locationId: locationId || undefined });
       setBundlesData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch bundle recommendations:', error);
@@ -178,7 +180,7 @@ export const Analytics: React.FC = () => {
 
   const fetchEmployeePerformance = async (days: string = employeeDays) => {
     try {
-      const response = await analyticsService.getEmployeePerformance({ days });
+      const response = await analyticsService.getEmployeePerformance({ days, locationId: locationId || undefined });
       setEmployeeData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch employee performance:', error);
@@ -187,7 +189,7 @@ export const Analytics: React.FC = () => {
 
   const fetchBusinessHealth = async () => {
     try {
-      const response = await analyticsService.getBusinessHealth();
+      const response = await analyticsService.getBusinessHealth({ locationId: locationId || undefined });
       setHealthData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch business health:', error);
@@ -196,7 +198,7 @@ export const Analytics: React.FC = () => {
 
   const fetchWhatIfAnalysis = async () => {
     try {
-      const response = await analyticsService.getWhatIfAnalysis(whatIfInputs);
+      const response = await analyticsService.getWhatIfAnalysis({ ...whatIfInputs, locationId: locationId || undefined });
       setWhatIfData(response.data.data);
     } catch (error) {
       console.error('Failed to fetch what-if analysis:', error);
@@ -249,10 +251,13 @@ export const Analytics: React.FC = () => {
         title="Analytics"
         subtitle="Deep insights into your business performance"
         actions={
-          <Button variant="outline" onClick={fetchAllData}>
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
+          <>
+            <StoreFilterSelect value={locationId} onChange={setLocationId} />
+            <Button variant="outline" onClick={fetchAllData}>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh
+            </Button>
+          </>
         }
       />
 
