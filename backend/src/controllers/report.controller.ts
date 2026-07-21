@@ -940,7 +940,7 @@ export const getDashboardHourly = asyncHandler(async (req: Request, res: Respons
  * Get sales report
  * GET /api/reports/sales
  */
-export const getSalesReport = asyncHandler(async (_req: Request, res: Response) => {
+export const getSalesReport = asyncHandler(async (req: AuthRequest, res: Response) => {
   const {
     startDate,
     endDate,
@@ -951,10 +951,11 @@ export const getSalesReport = asyncHandler(async (_req: Request, res: Response) 
     status,
     minAmount,
     maxAmount,
-  } = _req.query;
+  } = req.query;
 
   const where: any = {
     status: parseListFilter(status) ?? SaleStatus.COMPLETED,
+    ...getLocationFilter(req, locationId as string),
   };
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
@@ -962,7 +963,6 @@ export const getSalesReport = asyncHandler(async (_req: Request, res: Response) 
     where.createdAt = dateFilter;
   }
 
-  if (locationId) where.locationId = locationId;
   const userFilter = parseListFilter(userId);
   if (userFilter) where.userId = userFilter;
   const paymentMethodFilter = parseListFilter(paymentMethod);
@@ -1073,10 +1073,10 @@ export const getSalesReport = asyncHandler(async (_req: Request, res: Response) 
  * Get inventory report
  * GET /api/reports/inventory
  */
-export const getInventoryReport = asyncHandler(async (req: Request, res: Response) => {
-  const { categoryId, lowStock } = req.query;
+export const getInventoryReport = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { categoryId, lowStock, locationId } = req.query;
 
-  const where: any = { isActive: true };
+  const where: any = { isActive: true, ...getLocationFilter(req, locationId as string) };
 
   if (categoryId) where.categoryId = categoryId;
 
@@ -1150,11 +1150,12 @@ export const getInventoryReport = asyncHandler(async (req: Request, res: Respons
  * Get employee performance report
  * GET /api/reports/employees
  */
-export const getEmployeeReport = asyncHandler(async (req: Request, res: Response) => {
-  const { startDate, endDate } = req.query;
+export const getEmployeeReport = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { startDate, endDate, locationId } = req.query;
 
   const where: any = {
     status: SaleStatus.COMPLETED,
+    ...getLocationFilter(req, locationId as string),
   };
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
@@ -1214,12 +1215,13 @@ export const getEmployeeReport = asyncHandler(async (req: Request, res: Response
  * Get product sales report
  * GET /api/reports/products
  */
-export const getProductSalesReport = asyncHandler(async (req: Request, res: Response) => {
-  const { startDate, endDate, limit = 20 } = req.query;
+export const getProductSalesReport = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { startDate, endDate, limit = 20, locationId } = req.query;
 
   const where: any = {
     sale: {
       status: SaleStatus.COMPLETED,
+      ...getLocationFilter(req, locationId as string),
     },
   };
 
@@ -1292,7 +1294,7 @@ export const getProductSalesReport = asyncHandler(async (req: Request, res: Resp
 export const getExpenseReport = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { startDate, endDate, category, status, locationId } = req.query;
 
-  const where: any = {};
+  const where: any = { ...getLocationFilter(req, locationId as string) };
 
   if (category) {
     where.category = parseListFilter(category);
@@ -1303,10 +1305,6 @@ export const getExpenseReport = asyncHandler(async (req: AuthRequest, res: Respo
   } else {
     // Consistent with the overall report: rejected expenses aren't real spend
     where.status = { not: ExpenseStatus.REJECTED };
-  }
-
-  if (locationId) {
-    where.locationId = locationId;
   }
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
@@ -1399,7 +1397,7 @@ export const getExpenseReport = asyncHandler(async (req: AuthRequest, res: Respo
  * Export sales report to CSV
  * GET /api/reports/sales/export/csv
  */
-export const exportSalesCSV = asyncHandler(async (req: Request, res: Response) => {
+export const exportSalesCSV = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { Parser } = require('json2csv');
   const {
     startDate,
@@ -1413,6 +1411,7 @@ export const exportSalesCSV = asyncHandler(async (req: Request, res: Response) =
 
   const where: any = {
     status: parseListFilter(status) ?? SaleStatus.COMPLETED,
+    ...getLocationFilter(req, locationId as string),
   };
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
@@ -1420,7 +1419,6 @@ export const exportSalesCSV = asyncHandler(async (req: Request, res: Response) =
     where.createdAt = dateFilter;
   }
 
-  if (locationId) where.locationId = locationId;
   const userFilter = parseListFilter(userId);
   if (userFilter) where.userId = userFilter;
   const paymentMethodFilter = parseListFilter(paymentMethod);
@@ -1556,7 +1554,7 @@ function drawFooter(doc: any) {
  * Export sales report to PDF
  * GET /api/reports/sales/export/pdf
  */
-export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) => {
+export const exportSalesPDF = asyncHandler(async (req: AuthRequest, res: Response) => {
   const PDFDocument = require('pdfkit');
   const {
     startDate,
@@ -1570,6 +1568,7 @@ export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) =
 
   const where: any = {
     status: parseListFilter(status) ?? SaleStatus.COMPLETED,
+    ...getLocationFilter(req, locationId as string),
   };
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
@@ -1577,7 +1576,6 @@ export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) =
     where.createdAt = dateFilter;
   }
 
-  if (locationId) where.locationId = locationId;
   const userFilter = parseListFilter(userId);
   if (userFilter) where.userId = userFilter;
   const paymentMethodFilter = parseListFilter(paymentMethod);
@@ -1717,11 +1715,11 @@ export const exportSalesPDF = asyncHandler(async (req: Request, res: Response) =
  * Export inventory report to CSV
  * GET /api/reports/inventory/export/csv
  */
-export const exportInventoryCSV = asyncHandler(async (req: Request, res: Response) => {
+export const exportInventoryCSV = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { Parser } = require('json2csv');
-  const { categoryId, lowStock, minPrice, maxPrice } = req.query;
+  const { categoryId, lowStock, minPrice, maxPrice, locationId } = req.query;
 
-  const where: any = { isActive: true };
+  const where: any = { isActive: true, ...getLocationFilter(req, locationId as string) };
 
   if (categoryId) where.categoryId = categoryId;
 
@@ -1772,11 +1770,11 @@ export const exportInventoryCSV = asyncHandler(async (req: Request, res: Respons
  * Export inventory report to PDF
  * GET /api/reports/inventory/export/pdf
  */
-export const exportInventoryPDF = asyncHandler(async (req: Request, res: Response) => {
+export const exportInventoryPDF = asyncHandler(async (req: AuthRequest, res: Response) => {
   const PDFDocument = require('pdfkit');
-  const { categoryId, lowStock, minPrice, maxPrice } = req.query;
+  const { categoryId, lowStock, minPrice, maxPrice, locationId } = req.query;
 
-  const where: any = { isActive: true };
+  const where: any = { isActive: true, ...getLocationFilter(req, locationId as string) };
 
   if (categoryId) where.categoryId = categoryId;
 
