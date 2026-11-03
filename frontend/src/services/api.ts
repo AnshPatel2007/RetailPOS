@@ -208,6 +208,10 @@ export const productService = {
   updateBaseUnitName: (id: string, baseUnitName: string) => api.patch(`/products/${id}/selling-units`, { baseUnitName }),
   updatePackaging: (id: string, unitId: string, data: { action: 'count' | 'open'; quantity: number; expectedVersion: number; expectedStockVersion: number; requestKey: string; reason?: string }) =>
     api.post(`/products/${id}/selling-units/${unitId}/packaging`, data),
+  // Variety packs: what a pack contains, and opening packs into their contents.
+  getBundle: (id: string, signal?: AbortSignal) => api.get(`/products/${id}/bundle`, { signal }),
+  setBundle: (id: string, components: { productId: string; quantity: number; costShare?: number | null }[]) => api.put(`/products/${id}/bundle`, { components }),
+  openBundle: (id: string, data: { quantity: number; idempotencyKey: string }) => api.post(`/products/${id}/open-bundle`, data),
 
   create: (data: any) => api.post('/products', data),
 

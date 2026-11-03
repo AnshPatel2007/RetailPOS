@@ -85,7 +85,7 @@ export async function getFinancialMetrics(scope: Scope, range?: MetricRange, db:
         AND ${scope.userId || scope.criteria ? Prisma.sql`FALSE` : Prisma.sql`TRUE`}
         AND (e.kind IN ('ADJUSTMENT','COUNT','CYCLE_COUNT','STOCK_LOSS','IMPORT','TRANSFER_LOSS','COST_CORRECTION','SKU_CORRECTION','UNMATCHED_TRUE_UP','UNRECORDED_SALE')
           -- Receipts into negative stock true up provisional sale costs in their own period.
-          OR (e.kind IN ('PURCHASE','TRANSFER_IN','TRANSFER_RETURN','STOCK_RECLASS') AND e."cogsAmount" <> 0))
+          OR (e.kind IN ('PURCHASE','TRANSFER_IN','TRANSFER_RETURN','STOCK_RECLASS','BUNDLE_OPEN') AND e."cogsAmount" <> 0))
         AND ${dateCondition(Prisma.sql`e."createdAt"`, range)}
       UNION ALL SELECT -e."valueChange" - r."creditAmount" FROM supplier_returns r
         JOIN reported_inventory_values e ON e."sourceKey" = 'supplier-return:' || r."idempotencyKey"

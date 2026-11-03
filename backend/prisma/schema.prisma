@@ -280,6 +280,9 @@ model Category {
 model Product {
   baseUnitName    String            @default("unit")
   sellingUnits    ProductSellingUnit[]
+  // Variety packs: what this pack contains, and the packs this product comes in.
+  bundleComponents  ProductBundleComponent[] @relation("BundleContents")
+  bundleMemberships ProductBundleComponent[] @relation("BundleMembership")
   verifiedUnitCost Decimal? @db.Decimal(24, 8)
   // Owner-authorized fallback cost for sales beyond recorded stock when no
   // receipt or average cost exists yet.
@@ -1991,4 +1994,40 @@ model UnmatchedCostMatch {
   createdAt DateTime @default(now())
   @@index([locationId, createdAt])
   @@map("unmatched_cost_matches")
+}
+
+/// Contents of a variety pack. The pack is its own product (bought and sold
+/// whole); opening one moves its units and value into the component products.
+model ProductBundleComponent {
+  id String @id @default(uuid())
+  bundleProductId String
+  componentProductId String
+  locationId String
+  quantity Int
+  // Share of the pack's cost (0-1). Either every component has one or none do.
+  costShare Decimal? @db.Decimal(7, 6)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  bundle Product @relation("BundleContents", fields: [bundleProductId], references: [id], onDelete: Cascade)
+  component Product @relation("BundleMembership", fields: [componentProductId], references: [id], onDelete: Restrict)
+  @@unique([bundleProductId, componentProductId])
+  @@index([componentProductId])
+  @@map("product_bundle_components")
+}
+
+/// One opening of variety packs: the value that left the pack and where it went.
+model BundleOpening {
+  id String @id @default(uuid())
+  locationId String
+  bundleProductId String
+  quantity Int
+  bundleEntryId String
+  value Decimal? @db.Decimal(24, 8)
+  allocation Json
+  userId String
+  idempotencyKey String
+  createdAt DateTime @default(now())
+  @@unique([locationId, idempotencyKey])
+  @@index([bundleProductId, createdAt])
+  @@map("bundle_openings")
 }

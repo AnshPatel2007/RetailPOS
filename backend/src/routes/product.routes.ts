@@ -10,6 +10,7 @@ import { validate } from '../middleware/validate';
 import { createProductSchema, updateProductSchema } from '../validators/product.validator';
 import { upload } from '../middleware/upload';
 import * as sellingUnitController from '../controllers/sellingUnit.controller';
+import * as bundleController from '../controllers/productBundle.controller';
 
 const router = Router();
 
@@ -104,6 +105,10 @@ router.post('/:id/selling-units', authorize('ADMIN', 'MANAGER'), sellingUnitCont
 router.patch('/:id/selling-units', authorize('ADMIN', 'MANAGER'), sellingUnitController.updateBaseUnitName);
 router.put('/:id/selling-units/:unitId', authorize('ADMIN', 'MANAGER'), sellingUnitController.updateSellingUnit);
 router.post('/:id/selling-units/:unitId/packaging', authorize('ADMIN', 'MANAGER'), sellingUnitController.changePackaging);
+// Variety packs: contents, and opening packs into them.
+router.get('/:id/bundle', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), bundleController.getBundleContents);
+router.put('/:id/bundle', authorize('ADMIN', 'MANAGER'), bundleController.updateBundleContents);
+router.post('/:id/open-bundle', authorize('ADMIN', 'MANAGER'), bundleController.openBundlePacks);
 
 router.post(
   '/:id/adjust-inventory',

@@ -388,6 +388,7 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
   await prisma.$transaction(async tx => {
     await lockInventory(tx, [id]);
     if (await tx.inventoryValueEntry.count({ where: { productId: id } })) throw new AppError('This product has inventory cost history. Archive it to preserve its records.', 409);
+    if (await tx.productBundleComponent.count({ where: { componentProductId: id } })) throw new AppError('This product is inside a variety pack. Remove it from the pack first.', 409);
     await tx.product.delete({ where: { id } });
   });
 

@@ -1,0 +1,94 @@
+/**
+ * Variety packs (spec section 10, acceptance test 8): a mixed pack is its own
+ * product; opening one moves its units and cost into the products inside.
+ */
+import request from 'supertest';
+import { randomUUID } from 'crypto';
+import app from '../../server';
+import { prisma, seedTestData, TestData } from './setup';
+import { createTestToken } from './helpers';
+import { getFinancialMetrics } from '../../services/financialMetrics.service';
+import { allocateValue } from '../../services/productBundle.service';
+import { decimal } from '../../services/inventoryCost.service';
+
+describe('Variety packs', () => {
+  let data: TestData, owner: string;
+  const post = (path: string, body: object) => request(app).post(path).set('Authorization', 'Bearer ' + owner).send(body);
+  const put = (path: string, body: object) => request(app).put(path).set('Authorization', 'Bearer ' + owner).send(body);
+
+  beforeEach(async () => {
+    data = await seedTestData();
+    owner = await createTestToken(data.adminUser.id, 'ADMIN');
+    await prisma.shift.create({ data: { userId: data.adminUser.id, locationId: data.location.id, clockInAt: new Date() } });
+  });
+
+  const make = (name: string, cost: number, price: number, extra: object = {}) => prisma.product.create({ data: { name, sku: randomUUID(), cost, price,
+    stockQuantity: 0, isTaxable: false, locationId: data.location.id, categoryId: data.category.id, ...extra } });
+  const opening = async (productId: string, quantity: number, value: number) => {
+    const current = await prisma.product.findUniqueOrThrow({ where: { id: productId } });
+    await post('/api/financial/inventory-costs/opening', { idempotencyKey: randomUUID(), notes: 'Verified physical count and supplier invoice',
+      items: [{ productId, quantity, value, expectedVersion: current.stockVersion }] }).expect(200);
+  };
+  const value = async (productId: string) => {
+    const balance = await prisma.inventoryValuation.findUnique({ where: { productId } });
+    return { quantity: balance?.quantity ?? 0, value: balance?.value == null ? null : Number(balance.value) };
+  };
+
+  describe('variety packs', () => {
+    it('8. opening a pack moves its units and cost into the contents, once', async () => {
+      const orange = await make('Gatorade Orange', 1, 2.49), lemon = await make('Gatorade Lemon', 2, 2.49);
+      const pack = await make('Gatorade Variety 12-pack', 9, 14.99);
+      await opening(pack.id, 2, 18);
+      const contents = (await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 6 }, { productId: lemon.id, quantity: 6 }] }).expect(200)).body.data;
+      // Split by each product's cost: 6 x $1 and 6 x $2 of a $9 pack.
+      expect(contents.allocationBasis).toBe('UNIT_COST');
+      expect(contents.components.map((c: { estimatedValuePerPack: number }) => c.estimatedValuePerPack)).toEqual([3, 6]);
+
+      const key = randomUUID();
+      await post(`/api/products/${pack.id}/open-bundle`, { quantity: 1, idempotencyKey: key }).expect(200);
+      const replay = (await post(`/api/products/${pack.id}/open-bundle`, { quantity: 1, idempotencyKey: key }).expect(200)).body.data;
+      expect(replay.replayed).toBe(true);
+      expect(await value(pack.id)).toEqual({ quantity: 1, value: 9 });
+      expect(await value(orange.id)).toEqual({ quantity: 6, value: 3 });
+      expect(await value(lemon.id)).toEqual({ quantity: 6, value: 6 });
+      // Nothing is gained or lost by opening a pack.
+      expect((await getFinancialMetrics({ locationId: data.location.id })).costOfGoodsSold ?? 0).toBe(0);
+    });
+
+    it('uses set cost shares, and corrects the cost of units sold before the pack was opened', async () => {
+      const orange = await make('Orange', 1, 2.49), lemon = await make('Lemon', 2, 2.49);
+      const pack = await make('Variety 12-pack', 9, 14.99);
+      await opening(pack.id, 1, 9);
+      await opening(orange.id, 0, 0);
+      // Two oranges were sold from the open pack before anyone recorded opening it.
+      await post('/api/sales', { items: [{ productId: orange.id, quantity: 2, price: 2.49 }], paymentMethod: 'CASH', amountPaid: 6, idempotencyKey: randomUUID() }).expect(201);
+      expect((await getFinancialMetrics({ locationId: data.location.id })).costOfGoodsSold).toBe(2); // estimated at $1.00
+      await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 6, costShare: 0.5 }, { productId: lemon.id, quantity: 6, costShare: 0.5 }] }).expect(200);
+      await post(`/api/products/${pack.id}/open-bundle`, { quantity: 1, idempotencyKey: randomUUID() }).expect(200);
+      expect(await value(orange.id)).toEqual({ quantity: 4, value: 3 }); // 6 at $0.75, 2 already sold
+      expect(await value(lemon.id)).toEqual({ quantity: 6, value: 4.5 });
+      // The two sold oranges now carry their real cost ($0.75 each).
+      expect((await getFinancialMetrics({ locationId: data.location.id })).costOfGoodsSold).toBe(1.5);
+    });
+
+    it('rejects packs inside packs, uneven cost shares, and opening packs not on record', async () => {
+      const orange = await make('Orange', 1, 2.49), lemon = await make('Lemon', 2, 2.49);
+      const pack = await make('Variety pack', 9, 14.99), outer = await make('Party box', 20, 30);
+      await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 6, costShare: 0.6 }, { productId: lemon.id, quantity: 6, costShare: 0.3 }] }).expect(400);
+      await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: pack.id, quantity: 2 }] }).expect(400);
+      await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 6 }, { productId: lemon.id, quantity: 6 }] }).expect(200);
+      await put(`/api/products/${outer.id}/bundle`, { components: [{ productId: pack.id, quantity: 2 }] }).expect(400);
+      await post(`/api/products/${pack.id}/open-bundle`, { quantity: 1, idempotencyKey: randomUUID() }).expect(400);
+      expect(await prisma.bundleOpening.count()).toBe(0);
+      // A product inside a pack cannot be deleted out from under it.
+      await request(app).delete(`/api/products/${orange.id}`).set('Authorization', 'Bearer ' + owner).expect(409);
+    });
+
+    it('splits value exactly, with largest remainders', () => {
+      const parts = allocateValue(decimal(10), [decimal(1), decimal(1), decimal(1)]);
+      expect(parts.map(Number)).toEqual([3.33333334, 3.33333333, 3.33333333]);
+      expect(parts.reduce((sum, part) => sum.plus(part), decimal(0)).toNumber()).toBe(10);
+    });
+  });
+
+});

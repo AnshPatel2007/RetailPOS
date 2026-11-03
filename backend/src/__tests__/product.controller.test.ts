@@ -24,6 +24,7 @@ jest.mock('../config/database', () => ({
     inventoryValueEntry: { count: jest.fn() },
     // Packs (e.g. a 12-pack) share barcodes and SKUs with products.
     productSellingUnit: { findFirst: jest.fn().mockResolvedValue(null) },
+    productBundleComponent: { count: jest.fn().mockResolvedValue(0) },
     activityLog: {
       create: jest.fn(),
     },
