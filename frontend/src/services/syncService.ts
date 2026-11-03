@@ -132,11 +132,12 @@ class SyncService {
     try {
       const products: any[] = [];
       for (let page = 1; ; page++) {
-        const response = await productService.getAll({ limit: 100, page, isActive: true });
+        const response = await productService.getAll({ limit: 100, page, isActive: true, includeSellingUnits: true });
         if (!context.isCurrent()) return;
         const batch = response.data.data;
         products.push(...batch);
-        if (batch.length < 100) break;
+        // Pack rows are appended to each page; only base products count toward the page size.
+        if (batch.filter((p: { sellingUnitId?: string | null }) => !p.sellingUnitId).length < 100) break;
       }
       await offlineDb.cacheProducts(products, context.scope, context.isCurrent);
       console.log(`Cached ${products.length} products`);

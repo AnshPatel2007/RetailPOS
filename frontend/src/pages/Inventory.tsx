@@ -1,3 +1,4 @@
+import { PackagingEditor } from '@/components/inventory/PackagingEditor';
 import { ADJUSTMENT_REASONS } from '@/components/inventory/StockAdjustmentModal';
 import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useRef, useCallback, useId } from 'react';
@@ -518,6 +519,10 @@ export const Inventory: React.FC = () => {
               </div>
             </FormSection>
 
+            <FormSection title="Packaging" description="Sell this item as single units and packs (e.g. a 12-pack), and buy it in supplier cases. Everything shares one stock of single units.">
+              {editingProduct && formData.trackInventory ? <PackagingEditor product={editingProduct} onChanged={() => productUpdates.refresh()} />
+                : <p className="text-sm text-muted-foreground">{formData.trackInventory ? 'Save the product first, then add packs and supplier cases here.' : 'Packs need stock tracking turned on.'}</p>}
+            </FormSection>
             <FormSection title="Sale settings">
               <div className="space-y-4">
                 <div className="product-choice-grid">

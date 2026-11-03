@@ -132,7 +132,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
 
   const [orderForm, setOrderForm] = useState({
     supplierId: '',
-    items: [{ productId: '', quantity: 1, cost: 0, productName: '' }],
+    items: [{ productId: '', quantity: 1, cost: 0, productName: '', packSize: 1, packQuantity: 1, packCost: 0 }],
     notes: '',
     expectedAt: '',
   });
@@ -258,6 +258,12 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
     }
   };
 
+  /** A line ordered in supplier cases: units = cases x units per case. */
+  type OrderLine = { productId: string; quantity: number; cost: number; productName: string; packSize: number; packQuantity: number; packCost: number };
+  const lineUnits = (item: OrderLine) => item.packSize > 1 ? item.packQuantity * item.packSize : item.quantity;
+  const lineUnitCost = (item: OrderLine) => item.packSize > 1 ? Math.round(item.packCost / item.packSize * 10000) / 10000 : item.cost;
+  const lineTotal = (item: OrderLine) => item.packSize > 1 ? item.packCost * item.packQuantity : item.cost * item.quantity;
+
   const handleCreateOrder = async () => {
     try {
       const validItems = orderForm.items.filter(item => item.productId);
@@ -270,8 +276,9 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
         supplierId: orderForm.supplierId,
         items: validItems.map(item => ({
           productId: item.productId,
-          quantity: item.quantity,
-          cost: item.cost,
+          quantity: lineUnits(item),
+          cost: lineUnitCost(item),
+          ...(item.packSize > 1 ? { packSize: item.packSize, packQuantity: item.packQuantity, packCost: item.packCost } : {}),
         })),
         notes: orderForm.notes || undefined,
         expectedAt: orderForm.expectedAt || undefined,
@@ -359,6 +366,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
         quantity: newItems[newProductIndex].quantity,
         cost: newProduct.cost,
         productName: newProduct.name,
+        packSize: 1, packQuantity: 1, packCost: newProduct.cost,
       };
       setOrderForm({ ...orderForm, items: newItems });
 
@@ -419,8 +427,25 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
       quantity: newItems[index].quantity,
       cost: product.cost,
       productName: product.name,
+      packSize: 1, packQuantity: 1, packCost: product.cost,
     };
     setOrderForm({ ...orderForm, items: newItems });
+    // Default to how this supplier sells it (e.g. a case of 24) when a case is set up.
+    const supplierId = orderForm.supplierId;
+    productService.getSellingUnits(product.id).then(res => {
+      const supplierCase = (res.data.data.suppliers || []).find((s: { supplierId: string }) => s.supplierId === supplierId);
+      if (!supplierCase) return;
+      setOrderForm(current => {
+        const items = [...current.items];
+        const line = items[index];
+        if (!line || line.productId !== product.id) return current;
+        const packSize = Number(supplierCase.packSize) || 1;
+        const unitCost = supplierCase.cost != null ? Number(supplierCase.cost) : line.cost;
+        items[index] = { ...line, cost: unitCost, packSize, packQuantity: 1,
+          packCost: supplierCase.packCost != null ? Number(supplierCase.packCost) : Math.round(unitCost * packSize * 100) / 100 };
+        return { ...current, items };
+      });
+    }).catch(() => { /* no case information: order in single units */ });
 
     const newSearches = [...productSearches];
     newSearches[index] = product.name;
@@ -453,7 +478,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
     setChosenSupplier(null);
     setOrderForm({
       supplierId: '',
-      items: [{ productId: '', quantity: 1, cost: 0, productName: '' }],
+      items: [{ productId: '', quantity: 1, cost: 0, productName: '', packSize: 1, packQuantity: 1, packCost: 0 }],
       notes: '',
       expectedAt: '',
     });
@@ -501,8 +526,11 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
         items: orderData.items.map((item: any) => ({
           productId: item.productId,
           quantity: item.quantity,
-          cost: item.cost,
+          cost: Number(item.cost),
           productName: item.productName,
+          packSize: item.packSize || 1,
+          packQuantity: item.packQuantity || item.quantity,
+          packCost: item.packCost != null ? Number(item.packCost) : Number(item.cost) * (item.packSize || 1),
         })),
         notes: orderData.notes || '',
         expectedAt: orderData.expectedAt ? orderData.expectedAt.split('T')[0] : '',
@@ -518,7 +546,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
   const addOrderItem = () => {
     setOrderForm({
       ...orderForm,
-      items: [...orderForm.items, { productId: '', quantity: 1, cost: 0, productName: '' }],
+      items: [...orderForm.items, { productId: '', quantity: 1, cost: 0, productName: '', packSize: 1, packQuantity: 1, packCost: 0 }],
     });
     setProductSearches([...productSearches, '']);
   };
@@ -880,16 +908,17 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
 
               {/* Column Headers */}
               <div className="grid grid-cols-12 gap-2 mb-2 text-xs font-medium text-muted-foreground">
-                <div className="col-span-6">Product (Barcode / SKU / Name)</div>
-                <div className="col-span-2">Quantity</div>
-                <div className="col-span-3">Unit Cost ($)</div>
+                <div className="col-span-5">Product (Barcode / SKU / Name)</div>
+                <div className="col-span-2">Qty / cases</div>
+                <div className="col-span-2">Cost ($ per unit / case)</div>
+                <div className="col-span-2">Units per case</div>
                 <div className="col-span-1"></div>
               </div>
 
               <div className="space-y-3">
                 {orderForm.items.map((item, index) => (
                   <div key={index} className="grid grid-cols-12 gap-2 items-start">
-                    <div className="col-span-6 relative">
+                    <div className="col-span-5 relative">
                       <Input
                         ref={(el) => { searchRefs.current[index] = el; }}
                         type="text"
@@ -918,11 +947,31 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                       )}
                     </div>
                     <div className="col-span-2">
-                      <Input type="number" value={item.quantity} onChange={(e) => updateOrderItem(index, 'quantity', parseInt(e.target.value) || 1)} min="1" placeholder="0" className="w-full" />
+                      {item.packSize > 1
+                        ? <Input type="number" aria-label={`Cases for item ${index + 1}`} value={item.packQuantity} onChange={(e) => updateOrderItem(index, 'packQuantity', Math.max(1, parseInt(e.target.value) || 1))} min="1" className="w-full" />
+                        : <Input type="number" aria-label={`Quantity for item ${index + 1}`} value={item.quantity} onChange={(e) => updateOrderItem(index, 'quantity', parseInt(e.target.value) || 1)} min="1" placeholder="0" className="w-full" />}
                     </div>
-                    <div className="col-span-3">
-                      <Input type="number" value={item.cost} onChange={(e) => updateOrderItem(index, 'cost', parseFloat(e.target.value) || 0)} min="0" step="0.01" placeholder="0.00" className="w-full" />
+                    <div className="col-span-2">
+                      {item.packSize > 1
+                        ? <Input type="number" aria-label={`Case cost for item ${index + 1}`} value={item.packCost} onChange={(e) => updateOrderItem(index, 'packCost', parseFloat(e.target.value) || 0)} min="0" step="0.01" className="w-full" />
+                        : <Input type="number" aria-label={`Unit cost for item ${index + 1}`} value={item.cost} onChange={(e) => updateOrderItem(index, 'cost', parseFloat(e.target.value) || 0)} min="0" step="0.01" placeholder="0.00" className="w-full" />}
                     </div>
+                    <div className="col-span-2">
+                      <Input type="number" aria-label={`Units per case for item ${index + 1}`} value={item.packSize} min="1" step="1" className="w-full"
+                        onChange={(e) => {
+                          const packSize = Math.max(1, parseInt(e.target.value) || 1);
+                          const newItems = [...orderForm.items];
+                          const line = newItems[index];
+                          newItems[index] = packSize > 1
+                            ? { ...line, packSize, packQuantity: line.packSize > 1 ? line.packQuantity : 1, packCost: line.packSize > 1 ? line.packCost / line.packSize * packSize : line.cost * packSize }
+                            : { ...line, packSize: 1, quantity: lineUnits(line), cost: lineUnitCost(line) };
+                          setOrderForm({ ...orderForm, items: newItems });
+                        }} />
+                    </div>
+                    {item.productId && <p className="col-span-12 -mt-1 text-xs text-muted-foreground">
+                      {item.packSize > 1 ? `${item.packQuantity} case${item.packQuantity === 1 ? '' : 's'} × ${item.packSize} = ${lineUnits(item)} units · ` : `${item.quantity} units · `}
+                      {formatCurrency(lineUnitCost(item))} per unit · line {formatCurrency(lineTotal(item))}
+                    </p>}
                     <div className="col-span-1 flex justify-center">
                       {orderForm.items.length > 1 && (
                         <Button variant="ghost" size="sm" aria-label={`Remove order item ${index + 1}`} onClick={() => removeOrderItem(index)} className="text-destructive"><Trash2 className="w-4 h-4" /></Button>
@@ -947,7 +996,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
             <div className="pt-4 border-t">
               <div className="flex justify-between text-lg font-bold">
                 <span>Total:</span>
-                <span>{formatCurrency(orderForm.items.reduce((sum, item) => sum + (item.cost * item.quantity), 0))}</span>
+                <span>{formatCurrency(orderForm.items.reduce((sum, item) => sum + lineTotal(item), 0))}</span>
               </div>
             </div>
           </div>

@@ -226,9 +226,18 @@ export const deleteSupplier = asyncHandler(async (req: AuthRequest, res: Respons
  * Link product to supplier
  * POST /api/suppliers/:id/products
  */
+/** A case price sets the per-unit cost (case of 24 for $36.00 = $1.50 a unit). */
+function supplierCase(body: { cost?: number | null; packSize?: number; packCost?: number | null; packBarcode?: string | null }) {
+  const packSize = body.packSize ?? (body.packCost != null ? 1 : undefined);
+  const packCost = packSize !== undefined && packSize > 1 ? body.packCost ?? null : packSize === 1 ? null : undefined;
+  const cost = packCost != null && packSize ? Math.round(packCost / packSize * 10000) / 10000 : body.cost;
+  return { cost, packSize, packCost, packBarcode: body.packBarcode === undefined ? undefined : body.packBarcode || null };
+}
+
 export const linkProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const { productId, supplierSku, cost, leadTime, minOrder } = req.body;
+  const { productId, supplierSku, leadTime, minOrder } = req.body;
+  const { cost, packSize, packCost, packBarcode } = supplierCase(req.body);
 
   // Verify supplier exists
   const supplier = await prisma.supplier.findUnique({ where: { id } });
@@ -242,6 +251,8 @@ export const linkProduct = asyncHandler(async (req: AuthRequest, res: Response) 
   if (!product) {
     throw new AppError('Product not found', 404);
   }
+  assertOwnsRecord(req, product.locationId);
+  if (supplier.locationId && product.locationId !== supplier.locationId) throw new AppError('This supplier belongs to another store', 400);
 
   // Check if link already exists
   const existing = await prisma.productSupplier.findUnique({
@@ -265,6 +276,9 @@ export const linkProduct = asyncHandler(async (req: AuthRequest, res: Response) 
       cost,
       leadTime,
       minOrder,
+      packSize,
+      packCost,
+      packBarcode,
     },
     include: {
       product: {
@@ -331,7 +345,8 @@ export const unlinkProduct = asyncHandler(async (req: AuthRequest, res: Response
  */
 export const updateProductLink = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id, productId } = req.params;
-  const { supplierSku, cost, leadTime, minOrder } = req.body;
+  const { supplierSku, leadTime, minOrder } = req.body;
+  const { cost, packSize, packCost, packBarcode } = supplierCase(req.body);
 
   const supplier = await prisma.supplier.findUnique({ where: { id } });
   if (!supplier) {
@@ -364,6 +379,9 @@ export const updateProductLink = asyncHandler(async (req: AuthRequest, res: Resp
       cost,
       leadTime,
       minOrder,
+      packSize,
+      packCost,
+      packBarcode,
     },
     include: {
       product: {

@@ -15,7 +15,9 @@ export function packagingSummary(product: ProductWithSellingUnits) {
 /** A selling format has its own identity/price, but inherits all eligibility and inventory from its product. */
 export function projectSellingUnit(product: ProductWithSellingUnits, unit: ProductSellingUnit) {
   return { ...packagingSummary(product), id: unit.id, inventoryProductId: product.id, sellingUnitId: unit.id,
-    name: unit.name, sku: unit.sku || unit.barcode, barcode: unit.barcode, price: unit.price,
+    // "Coca-Cola Can (12-pack)" on tiles and receipts, unless the pack name already says it.
+    name: unit.name.toLowerCase().includes(product.name.toLowerCase()) ? unit.name : `${product.name} (${unit.name})`,
+    packageName: unit.name, sku: unit.sku || unit.barcode, barcode: unit.barcode, price: unit.price,
     compareAtPrice: null, isActive: product.isActive && unit.isActive, unitsPerPackage: unit.unitsPerPackage,
     stockQuantity: unit.sealedQuantity, sealedQuantity: unit.sealedQuantity,
     cost: new Prisma.Decimal(product.cost).mul(unit.unitsPerPackage),
@@ -112,6 +114,38 @@ async function changeSealedPackages(tx: Prisma.TransactionClient, input: Package
 export const consumeSealedPackages = (tx: Prisma.TransactionClient, input: PackageChange) => changeSealedPackages(tx, input, -1);
 /** Call after the matching base-unit stock addition, in the same transaction. */
 export const receiveSealedPackages = (tx: Prisma.TransactionClient, input: PackageChange) => changeSealedPackages(tx, input, 1);
+
+/**
+ * A pack sale uses unopened packs when the records have them. Selling more
+ * packs than recorded is allowed (the customer is holding one) and logged for
+ * reconciliation. Call before the base-unit deduction, in the same transaction.
+ */
+export async function sellPackages(tx: Prisma.TransactionClient, input: PackageChange) {
+  const product = await lockPackagingProduct(tx, input.productId, input.locationId);
+  const unit = product.sellingUnits.find(candidate => candidate.id === input.sellingUnitId);
+  if (!unit) return;
+  const sealed = Math.min(unit.sealedQuantity, input.quantity);
+  if (sealed > 0) await recordPackageChange(tx, unit, { ...input, quantity: sealed }, -sealed, 'SOLD_OR_REMOVED');
+  if (sealed < input.quantity) await tx.productPackagingEvent.create({ data: { productId: input.productId, locationId: input.locationId,
+    sellingUnitId: unit.id, userId: input.userId, kind: 'SOLD_BEYOND_SEALED', quantity: 0, previousQuantity: unit.sealedQuantity - sealed,
+    newQuantity: unit.sealedQuantity - sealed, sourceId: input.sourceId, notes: `Sold ${input.quantity} ${unit.name}; ${sealed} were recorded unopened` } });
+}
+
+/**
+ * Put returned or voided packs back as unopened, after the base units are
+ * back in stock. Never fails a refund: when the recorded stock cannot hold
+ * them all (for example it is still negative), only what fits is marked unopened.
+ */
+export async function restoreSealedPackages(tx: Prisma.TransactionClient, input: Omit<PackageChange, 'quantity'> & { wanted: number }) {
+  if (input.wanted <= 0) return 0;
+  const product = await lockPackagingProduct(tx, input.productId, input.locationId);
+  const unit = product.sellingUnits.find(candidate => candidate.id === input.sellingUnitId);
+  if (!unit) return 0;
+  const sealedUnits = product.sellingUnits.reduce((sum, candidate) => sum + candidate.sealedQuantity * candidate.unitsPerPackage, 0);
+  const quantity = Math.max(0, Math.min(input.wanted, Math.floor((product.stockQuantity - sealedUnits) / unit.unitsPerPackage)));
+  if (quantity > 0) await receiveSealedPackages(tx, { ...input, quantity });
+  return quantity;
+}
 
 /** Calculate the fewest containers to open to keep sealed units within a reduced stock total. */
 export function packagesToOpen(units: Pick<ProductSellingUnit, 'id' | 'unitsPerPackage' | 'sealedQuantity'>[], stockQuantity: number) {

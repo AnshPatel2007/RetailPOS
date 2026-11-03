@@ -17,8 +17,13 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
   });
   const [lines, setLines] = useState(() => (order.items || []).map(item => {
     const saved = pending?.receivedItems.find(line => line.purchaseOrderItemId === item.id);
+    // Prefill from how it was ordered: case size and the price of one case.
+    const packSize = saved?.packSize ?? item.packSize ?? 1;
+    const casePrice = item.packCost != null ? Number(item.packCost) : Math.round(Number(item.cost) * packSize * 10000) / 10000;
+    const sealedUnit = (item.sellingUnits || []).find(unit => unit.unitsPerPackage === packSize);
     return { purchaseOrderItemId: item.id, quantity: String(saved?.quantity ?? outstandingQuantity(item)), damagedQty: String(saved?.damagedQty ?? 0), rejectedQty: String(saved?.rejectedQty ?? 0),
-      unitCost: String(saved?.unitCost ?? item.cost), packSize: String(saved?.packSize ?? 1), lineDiscount: String(saved?.lineDiscount ?? 0), zeroCostConfirmed: saved?.zeroCostConfirmed ?? false };
+      unitCost: String(saved?.unitCost ?? casePrice), packSize: String(packSize), lineDiscount: String(saved?.lineDiscount ?? 0), zeroCostConfirmed: saved?.zeroCostConfirmed ?? false,
+      sealedUnitId: saved ? saved.sellingUnitId ?? '' : sealedUnit?.id ?? '' };
   }));
   const [invoiceNumber, setInvoiceNumber] = useState(pending?.invoiceNumber || ''), [invoiceDate, setInvoiceDate] = useState(pending?.invoiceDate?.slice(0, 10) || '');
   const [charges, setCharges] = useState({ freight: String(pending?.freight || 0), acquisitionTax: String(pending?.acquisitionTax || 0), invoiceDiscount: String(pending?.invoiceDiscount || 0) });
@@ -36,8 +41,14 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
     setError('');
     let payload = pending;
     if (!payload) {
-      const receivedItems = lines.map(line => ({ purchaseOrderItemId: line.purchaseOrderItemId, quantity: Number(line.quantity), damagedQty: Number(line.damagedQty), rejectedQty: Number(line.rejectedQty),
-        unitCost: Number(line.unitCost), packSize: Number(line.packSize), lineDiscount: Number(line.lineDiscount), zeroCostConfirmed: line.zeroCostConfirmed }));
+      const receivedItems = lines.map(line => {
+        const packSize = Number(line.packSize), quantity = Number(line.quantity);
+        // Unopened cases that match a store pack are received as sealed packs.
+        const sealed = line.sealedUnitId && packSize > 1 && quantity > 0 && quantity % packSize === 0;
+        return { purchaseOrderItemId: line.purchaseOrderItemId, quantity, damagedQty: Number(line.damagedQty), rejectedQty: Number(line.rejectedQty),
+          unitCost: Number(line.unitCost), packSize, lineDiscount: Number(line.lineDiscount), zeroCostConfirmed: line.zeroCostConfirmed,
+          ...(sealed ? { sellingUnitId: line.sealedUnitId, packQuantity: quantity / packSize } : {}) };
+      });
       if (receivedItems.some((line, index) => [line.quantity, line.damagedQty, line.rejectedQty].some(n => !Number.isSafeInteger(n) || n < 0) || line.quantity + line.damagedQty + line.rejectedQty > outstandingQuantity(order.items![index]))) {
         setError('Use whole, non-negative quantities that do not exceed the remaining units for each item.'); return;
       }
@@ -87,7 +98,14 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
               aria-label={`${item.productName} ${field}`} type="number" min={field === 'packSize' ? 1 : 0} step={field === 'packSize' ? 1 : '0.0001'} value={lines[index][field]}
               onChange={e => setLines(previous => previous.map((line, i) => i === index ? { ...line, [field]: e.target.value } : line))} />)}
           </div>
-          <p className="text-xs text-muted-foreground">Accepted quantity is sellable units. {lines[index].packSize} units per pack at {lines[index].unitCost} per pack.</p>
+          <p className="text-xs text-muted-foreground">Accepted quantity is single units. {Number(lines[index].packSize) > 1
+            ? `${Number(lines[index].quantity) / Number(lines[index].packSize)} case(s) of ${lines[index].packSize} at ${lines[index].unitCost} per case = ${(Number(lines[index].unitCost) / Number(lines[index].packSize)).toFixed(4)} per unit.`
+            : `${lines[index].unitCost} per unit.`}</p>
+          {(item.sellingUnits || []).some(unit => unit.unitsPerPackage === Number(lines[index].packSize)) && <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input type="checkbox" checked={!!lines[index].sealedUnitId} onChange={e => setLines(previous => previous.map((line, i) => i === index
+              ? { ...line, sealedUnitId: e.target.checked ? item.sellingUnits!.find(unit => unit.unitsPerPackage === Number(line.packSize))!.id : '' } : line))} />
+            Cases arrived unopened — count them as sealed {item.sellingUnits!.find(unit => unit.unitsPerPackage === Number(lines[index].packSize))!.name} packs
+          </label>}
           {Number(lines[index].unitCost) === 0 && <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={lines[index].zeroCostConfirmed} onChange={e => setLines(previous => previous.map((line, i) => i === index ? { ...line, zeroCostConfirmed: e.target.checked } : line))} />These goods are confirmed free</label>}
         </div>)}
         <div className="grid gap-3 sm:grid-cols-3">{(['freight','acquisitionTax','invoiceDiscount'] as const).map((field, index) => <Input key={field} label={['Freight','Nonrecoverable acquisition tax','Invoice discount'][index]} type="number" min={0} step="0.01" value={charges[field]} onChange={e => setCharges(old => ({ ...old, [field]: e.target.value }))} />)}</div>

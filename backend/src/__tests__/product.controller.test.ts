@@ -22,6 +22,8 @@ jest.mock('../config/database', () => ({
     category: { findUnique: jest.fn() },
     inventoryValuation: { findMany: jest.fn() },
     inventoryValueEntry: { count: jest.fn() },
+    // Packs (e.g. a 12-pack) share barcodes and SKUs with products.
+    productSellingUnit: { findFirst: jest.fn().mockResolvedValue(null) },
     activityLog: {
       create: jest.fn(),
     },
@@ -102,7 +104,8 @@ describe('Product Controller', () => {
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: true,
-          data: mockProducts.map(product => ({ ...product, inventoryValue: null, averageCost: null })),
+          // Each product is listed once, with its packs nested and its loose stock.
+          data: mockProducts.map(product => expect.objectContaining({ ...product, inventoryValue: null, averageCost: null, sellingUnits: [], looseStockQuantity: product.stockQuantity })),
           pagination: expect.objectContaining({
             total: 2,
           }),

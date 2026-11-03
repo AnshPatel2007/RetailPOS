@@ -9,12 +9,18 @@ export interface PurchaseOrderItem {
   receivedQty: number;
   damagedQty: number;
   rejectedQty: number;
+  /** Ordered in supplier cases (quantity stays in single units). */
+  packSize?: number;
+  packQuantity?: number | null;
+  packCost?: number | null;
+  /** Store packs of this product that match a case size (received sealed). */
+  sellingUnits?: { id: string; name: string; unitsPerPackage: number }[];
 }
 
 export interface PurchaseReceiptRequest {
   invoiceNumber?: string; invoiceDate?: string; freight?: number; acquisitionTax?: number; invoiceDiscount?: number;
   idempotencyKey: string;
-  receivedItems: Array<{ purchaseOrderItemId: string; quantity: number; damagedQty: number; rejectedQty: number; unitCost?: number; packSize?: number; lineDiscount?: number; zeroCostConfirmed?: boolean }>;
+  receivedItems: Array<{ purchaseOrderItemId: string; quantity: number; damagedQty: number; rejectedQty: number; unitCost?: number; packSize?: number; lineDiscount?: number; zeroCostConfirmed?: boolean; sellingUnitId?: string; packQuantity?: number }>;
   notes: string;
   finalDelivery: boolean;
 }

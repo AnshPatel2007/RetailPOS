@@ -1,5 +1,6 @@
 import { ADJUSTMENT_REASONS } from './inventoryAdjustment.controller';
 import { costKindForReason } from '../services/stockReasons';
+import { assertSellingIdentifiersAvailable, packagingSummary, projectSellingUnit } from '../services/productSellingUnit.service';
 import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
@@ -35,7 +36,12 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
     lowStock,
     trackInventory,
     ids,
+    includeSellingUnits,
   } = req.query;
+  // The register asks for packs too (a 12-pack is its own tile and barcode);
+  // inventory screens list each product once with its packs nested.
+  const withPacks = includeSellingUnits === 'true';
+  const requestedIds = ids ? String(ids).split(',').filter(Boolean) : null;
 
   const pageNum = Math.max(1, parseInt(page as string) || 1);
   const limitNum = Math.min(1000, Math.max(1, parseInt(limit as string) || 20));
@@ -49,6 +55,12 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
       { name: { contains: search as string, mode: 'insensitive' } },
       { sku: { contains: search as string, mode: 'insensitive' } },
       { barcode: { contains: search as string, mode: 'insensitive' } },
+      // Scanning a pack barcode finds the product it belongs to.
+      { sellingUnits: { some: { OR: [
+        { barcode: { contains: search as string, mode: 'insensitive' } },
+        { sku: { contains: search as string, mode: 'insensitive' } },
+        { name: { contains: search as string, mode: 'insensitive' } },
+      ] } } },
     ];
   }
 
@@ -57,8 +69,9 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
   }
 
   // Fetch a specific set of products (comma-separated ids)
-  if (ids) {
-    where.id = { in: String(ids).split(',').filter(Boolean) };
+  if (requestedIds) {
+    // An id may be a pack's id; it resolves to the product it belongs to.
+    where.AND = [{ OR: [{ id: { in: requestedIds } }, { sellingUnits: { some: { id: { in: requestedIds } } } }] }];
   }
 
   if (isActive !== undefined) {
@@ -100,6 +113,7 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
             name: true,
           },
         },
+        sellingUnits: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -125,6 +139,7 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
               name: true,
             },
           },
+          sellingUnits: true,
         },
         skip,
         take: limitNum,
@@ -134,9 +149,19 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
     ]);
   }
 
+  const valued = await valueProducts(prisma, products);
+  const rows = valued.flatMap(product => {
+    const base = packagingSummary(product);
+    const units = withPacks ? product.sellingUnits.filter(unit => unit.isActive || requestedIds?.includes(unit.id)) : [];
+    return [
+      ...(!requestedIds || requestedIds.includes(product.id) ? [base] : []),
+      ...units.filter(unit => !requestedIds || requestedIds.includes(unit.id)).map(unit => projectSellingUnit(product, unit)),
+    ];
+  });
+
   res.json({
     success: true,
-    data: await valueProducts(prisma, products),
+    data: rows,
     pagination: {
       page: pageNum,
       limit: limitNum,
@@ -216,6 +241,8 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
       throw new AppError('Product with this barcode already exists', 400);
     }
   }
+  // A pack (e.g. a 12-pack) may already use this barcode or SKU.
+  await assertSellingIdentifiersAvailable(prisma, { locationId: targetLocationId, barcode: data.barcode || null, sku: data.sku || null });
 
   const product = await prisma.product.create({
     data,
@@ -286,6 +313,9 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
       throw new AppError('Product with this barcode already exists', 400);
     }
   }
+  // A pack (e.g. a 12-pack) may already use this barcode or SKU.
+  await assertSellingIdentifiersAvailable(prisma, { locationId: product.locationId,
+    barcode: data.barcode && data.barcode !== product.barcode ? data.barcode : null, sku: data.sku && data.sku !== product.sku ? data.sku : null });
 
   const updateFields = { ...data };
   delete updateFields.stockQuantity;

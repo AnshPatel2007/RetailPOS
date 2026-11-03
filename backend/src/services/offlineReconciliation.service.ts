@@ -6,6 +6,7 @@ import { AppError } from '../utils/errorHandler';
 import { recordOperation } from './operationReceipt.service';
 import { cents, lockDrawer, postDrawerEntry } from './drawer.service';
 import { lockInventory, moveInventory } from './inventory.service';
+import { resolveSellableProducts, sellPackages } from './productSellingUnit.service';
 import { postNonstockCost } from './inventoryCost.service';
 import { generateSaleNumber } from '../utils/saleNumber';
 import { nextDocumentSequence } from './documentNumber.service';
@@ -75,9 +76,12 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
         || cents(receipt.amountPaid) - cents(receipt.changeDue) !== total || receipt.amountPaid < input.total) throw new AppError('Receipt totals, tax, discounts and cash change must reconcile exactly', 400);
       if (!input.customerId && receipt.pointsEarned) throw new AppError('Verified earned points require the original customer', 400);
       if (receipt.items.reduce((sum, item) => sum + item.pointsEarned, 0) !== receipt.pointsEarned) throw new AppError('Verified line points must equal the receipt points', 400);
-      await lockInventory(tx, receipt.items.map(item => item.productId));
-      const products = await tx.product.findMany({ where: { id: { in: receipt.items.map(item => item.productId) }, locationId: req.user!.locationId! } });
-      if (products.length !== receipt.items.length) throw new AppError('Every receipt product must be identified at the original store', 400);
+      // A line may be a pack (a 12-pack); its stock is the product's base units.
+      const products = await resolveSellableProducts(tx, { locationId: req.user!.locationId!, ids: receipt.items.map(item => item.productId), includeInactive: true });
+      const sellable = new Map(products.map(product => [product.id, product]));
+      if (receipt.items.some(item => !sellable.has(item.productId))) throw new AppError('Every receipt product must be identified at the original store', 400);
+      await lockInventory(tx, products.map(product => product.inventoryProductId));
+      const baseUnits = (productId: string) => { const product = sellable.get(productId)!; return product.sellingUnitId ? product.unitsPerPackage : 1; };
       if (products.some(product => product.minimumAge && product.minimumAge > 0) && !receipt.ageVerified) throw new AppError('Verify original age-check evidence before booking restricted merchandise', 400);
       if (input.customerId) {
         await tx.$queryRaw`SELECT id FROM customers WHERE id = ${input.customerId} FOR UPDATE`;
@@ -86,10 +90,13 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
       const offlineSaleId = randomUUID();
       const costEntries = new Map<string, { id: string; cogsAmount: Prisma.Decimal | null; costStatus: CostStatus }>();
       const lowStockProducts: { name: string; sku: string; stock: number; threshold: number }[] = [];
-      for (const product of products.sort((a, b) => a.id.localeCompare(b.id))) if (product.trackInventory) {
-        const updated = await moveInventory(tx, { productId: product.id, locationId: req.user!.locationId!, userId: input.cashierId,
+      for (const product of [...products].sort((a, b) => a.inventoryProductId.localeCompare(b.inventoryProductId) || a.id.localeCompare(b.id))) if (product.trackInventory) {
+        const sold = receipt.items.find(item => item.productId === product.id)!.quantity;
+        if (product.sellingUnitId) await sellPackages(tx, { productId: product.inventoryProductId, locationId: req.user!.locationId!, sellingUnitId: product.sellingUnitId,
+          quantity: sold, userId: input.cashierId, sourceId: offlineSaleId });
+        const updated = await moveInventory(tx, { productId: product.inventoryProductId, locationId: req.user!.locationId!, userId: input.cashierId,
           type: 'SALE', sourceId: offlineSaleId, sourceKey: 'offline-sale:' + input.localId + ':' + product.id, forceUnknown: true, allowNegative: true,
-          quantity: -receipt.items.find(item => item.productId === product.id)!.quantity, notes: 'Offline receipt reviewed by ' + req.user!.id });
+          quantity: -sold * baseUnits(product.id), notes: 'Offline receipt reviewed by ' + req.user!.id });
         costEntries.set(product.id, updated.inventoryEntry);
         if (updated.stockQuantity <= product.lowStockAlert) lowStockProducts.push({ name: product.name, sku: product.sku, stock: updated.stockQuantity, threshold: product.lowStockAlert });
         } else {
@@ -105,7 +112,8 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
         subtotal: receipt.subtotal, discount: receipt.discount, tax: receipt.tax, total: input.total, amountPaid: receipt.amountPaid, changeDue: receipt.changeDue,
         notes: 'Manager-booked original offline receipt: ' + input.reference,
         payments: { create: { paymentMethod: 'CASH', amount: receipt.amountPaid } },
-        items: { create: receipt.items.map(item => { const cost = costEntries.get(item.productId)!; return { ...item,
+        items: { create: receipt.items.map(item => { const cost = costEntries.get(item.productId)!; const sold = sellable.get(item.productId)!; return { ...item,
+          productId: sold.inventoryProductId, sellingUnitId: sold.sellingUnitId, unitsPerPackage: baseUnits(item.productId), inventoryQuantity: item.quantity * baseUnits(item.productId),
           // Today's average estimates the original receipt's cost; it is flagged, not verified.
           unitCost: cost.cogsAmount === null ? null : cost.cogsAmount.div(item.quantity).toDecimalPlaces(4), costAmount: cost.cogsAmount,
           costStatus: cost.costStatus, inventoryEntryId: cost.id, taxRate: null, taxTreatment: 'VERIFIED_OFFLINE_RECEIPT',

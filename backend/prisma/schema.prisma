@@ -430,6 +430,11 @@ model ProductSupplier {
   cost        Decimal? @db.Decimal(14, 4)
   leadTime    Int?
   minOrder    Int?
+  // How the supplier sells it: a case of `packSize` base units for `packCost`.
+  // `cost` stays the per-unit cost (packCost / packSize when a case is set).
+  packSize    Int      @default(1)
+  packCost    Decimal? @db.Decimal(14, 4)
+  packBarcode String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -473,6 +478,11 @@ model PurchaseOrderItem {
   rejectedQty     Int           @default(0)
   cost            Decimal @db.Decimal(14, 4)
   total           Decimal @db.Decimal(14, 2)
+  // Ordered in supplier cases: quantity (base units) = packQuantity x packSize;
+  // cost stays per base unit, packCost is the price of one case.
+  packSize        Int           @default(1)
+  packQuantity    Int?
+  packCost        Decimal? @db.Decimal(14, 4)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)

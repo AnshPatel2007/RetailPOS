@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { lockDrawer, postDrawerEntry, saleTenderAmounts, dollars } from '../services/drawer.service';
 import { allocateSale } from '../services/saleAllocation.service';
 import { priceSaleItems } from '../services/salePricing.service';
+import { resolveSellableProducts, sellPackages } from '../services/productSellingUnit.service';
 import { checkoutTotals } from '../services/checkoutTotals.service';
 import { assertCheckoutTendersAvailable, assertConfiguredTenders } from '../services/tenderAvailability.service';
 import { publicStoreSettings } from '../validators/storeSettings.validator';
@@ -89,14 +90,12 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
   // Batch-fetch all real products at once (avoids N+1 queries) — scoped to the
   // cashier's own store so a cart can't reference (and corrupt the stock of)
   // another store's product
+  // A line may name a pack (e.g. a 12-pack barcode); it resolves to its
+  // product, and stock moves in that product's base units.
   const productIds = regularItems.map((item: any) => item.productId);
-  const products = await prisma.product.findMany({
-    where: {
-      id: { in: productIds },
-      ...(req.user.locationId ? { locationId: req.user.locationId } : {}),
-    },
-  });
-  const productMap = new Map(products.map(p => [p.id, p]));
+  const products = await resolveSellableProducts(prisma, { locationId: req.user.locationId!, ids: productIds, includeInactive: true });
+  const productMap = new Map<string, any>(products.map(p => [p.id, p]));
+  const inventoryProductIds = regularItems.map((item: any) => productMap.get(item.productId)?.inventoryProductId ?? item.productId);
 
   // Find or create a MISC product for ad-hoc items — one per store, since
   // Product.sku is now only unique per-location
@@ -254,7 +253,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     if (offlineCreatedAt && (saleTime < lockedShift.clockInAt || (lockedShift.clockOutAt && saleTime > lockedShift.clockOutAt))) throw new AppError('Checkout time is outside the original shift', 400);
     // Use one lock order for sales and reversals: drawer, products, customer, tenders.
     // Price/stock/loyalty checks below must use facts protected until commit.
-    await lockInventory(tx, regularItems.map((item: any) => item.productId));
+    await lockInventory(tx, inventoryProductIds);
     if (customerId) {
       await tx.$queryRaw`SELECT id FROM customers WHERE id = ${customerId} FOR UPDATE`;
       const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { locationId: true, isActive: true } });
@@ -265,14 +264,9 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     // Re-fetch all products INSIDE transaction for accurate stock — scoped to
     // the cashier's own store, same as the pre-check fetch above
     const freshProducts = regularItems.length > 0
-      ? await tx.product.findMany({
-          where: {
-            id: { in: productIds },
-            ...(req.user!.locationId ? { locationId: req.user!.locationId } : {}),
-          },
-        })
+      ? await resolveSellableProducts(tx, { locationId: req.user!.locationId!, ids: productIds, includeInactive: true })
       : [];
-    const freshProductMap = new Map(freshProducts.map(p => [p.id, p]));
+    const freshProductMap = new Map<string, any>(freshProducts.map(p => [p.id, p]));
 
     // Evaluate permission against the same product facts used for pricing.
     const needsApproval = items.some((item: any) => item.discount > 0 || (item.priceOverride && !freshProductMap.get(item.productId)?.priceEmbedded && !item.productId.startsWith('misc-')));
@@ -342,8 +336,10 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       const product = await tx.product.findUnique({ where: { id: line.productId } });
       if (!product) throw new AppError('Product is unavailable', 409);
       if (product.trackInventory) {
+        // A pack sale uses an unopened pack when the records have one.
+        if (line.sellingUnitId) await sellPackages(tx, { productId: product.id, locationId: req.user!.locationId!, sellingUnitId: line.sellingUnitId, quantity: line.quantity, userId: req.user!.id, sourceId: saleId });
         const updated = await moveInventory(tx, { productId: product.id, locationId: req.user!.locationId!, userId: req.user!.id,
-          type: 'SALE', sourceId: saleId, sourceKey: 'sale-line:' + line.id, quantity: -line.quantity, forceUnknown: !!offlineCreatedAt, allowNegative: true });
+          type: 'SALE', sourceId: saleId, sourceKey: 'sale-line:' + line.id, quantity: -(line.inventoryQuantity ?? line.quantity), forceUnknown: !!offlineCreatedAt, allowNegative: true });
         line.inventoryEntryId = updated.inventoryEntry.id;
         line.costAmount = updated.inventoryEntry.cogsAmount;
         line.costStatus = updated.inventoryEntry.costStatus;
@@ -913,7 +909,7 @@ export const quoteSale = asyncHandler(async (req: AuthRequest, res: Response) =>
   const { items, customerId } = req.body;
   const [location, products, promotions, customer] = await prisma.$transaction(async tx => Promise.all([
     tx.location.findUnique({ where: { id: locationId } }),
-    tx.product.findMany({ where: { locationId, id: { in: items.filter((i: any) => !i.productId.startsWith('misc-')).map((i: any) => i.productId) } } }),
+    resolveSellableProducts(tx, { locationId, ids: items.filter((i: any) => !i.productId.startsWith('misc-')).map((i: any) => i.productId), includeInactive: true }),
     tx.promotion.findMany({ where: { isActive: true, locationId } }),
     customerId ? tx.customer.findFirst({ where: { id: customerId, locationId, isActive: true }, select: { loyaltyPoints: true } }) : Promise.resolve(null),
   ]), { isolationLevel: 'RepeatableRead' });
@@ -922,7 +918,7 @@ export const quoteSale = asyncHandler(async (req: AuthRequest, res: Response) =>
   const activePromotions = promotions.filter(p => isPromotionActiveNow(p, new Date()));
   // A preview may show a proposed override. Committing it requires a manager
   // capability or exact, single-use approval inside the sale transaction.
-  const pricing = priceSaleItems(items, new Map(products.map(p => [p.id, p])), { id: 'misc', isTaxable: true, trackInventory: false }, activePromotions, Number(location.taxRate), true);
+  const pricing = priceSaleItems(items, new Map<string, any>(products.map(p => [p.id, p])), { id: 'misc', isTaxable: true, trackInventory: false }, activePromotions, Number(location.taxRate), true);
   const settlement = checkoutTotals(pricing, req.body, customer?.loyaltyPoints ?? null, Number(location.cardSurchargePercent));
   // The initial catalog quote has no selected tender yet.
   if (req.body.paymentMethod || req.body.payments?.length) assertConfiguredTenders(req.body, location.settings, settlement.total);

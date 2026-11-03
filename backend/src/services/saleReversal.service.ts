@@ -12,6 +12,10 @@ import { assertReversalTendersAvailable } from './tenderAvailability.service';
 import { queueWebhook } from './webhook.service';
 import { planRefundTenders, creditRefundTenders } from './refundTenders.service';
 import { effectiveEntry, portion, postNonstockCost, decimal } from './inventoryCost.service';
+import { restoreSealedPackages } from './productSellingUnit.service';
+
+/** Base units per sold unit: a 12-pack line moves 12 units of stock per pack. */
+const baseUnits = (item: { sellingUnitId: string | null; unitsPerPackage: number }) => item.sellingUnitId ? item.unitsPerPackage : 1;
 
 const tierForPoints = (points: number) => points >= businessConfig.customer.loyaltyTiers.GOLD.min ? 'GOLD' : points >= businessConfig.customer.loyaltyTiers.SILVER.min ? 'SILVER' : 'BRONZE';
 
@@ -148,6 +152,9 @@ export const refundSaleInTransaction = async (req: AuthRequest, tx: Prisma.Trans
 
   // Update sale, credit the refund tender, and restore inventory
   // Create refund record (with item lines when this is an item-level refund)
+  // Pack lines the cashier marked as returned unopened go back as packs.
+  const returnedSealed = (saleItemId: string) => restock !== false && !!sale.items.find(item => item.id === saleItemId)?.sellingUnitId
+    && !!(items as { saleItemId: string; restockAsSealed?: boolean }[] | undefined)?.find(item => item.saleItemId === saleItemId)?.restockAsSealed;
   const pointsRestored = sale.pricingVersion ? refundLines.reduce((n, line) => n + (line.pointsRestored || 0), 0) : null;
   const pointsReversed = sale.pricingVersion ? refundLines.reduce((n, line) => n + (line.pointsReversed || 0), 0) : null;
   const refund = await tx.refund.create({
@@ -171,6 +178,7 @@ export const refundSaleInTransaction = async (req: AuthRequest, tx: Prisma.Trans
               quantity: line.quantity,
               amount: line.amount,
               restocked: restock !== false && line.quantity > 0,
+              restockedAsSealed: line.quantity > 0 && returnedSealed(line.saleItemId),
               pointsRestored: line.pointsRestored, pointsReversed: line.pointsReversed, taxAmount: line.taxAmount, costReturned: line.costReturned,
             })),
           }
@@ -204,15 +212,20 @@ export const refundSaleInTransaction = async (req: AuthRequest, tx: Prisma.Trans
     // Item-level refund: restock exactly the returned units
     for (const line of refundLines.filter(line => line.quantity > 0).sort((a, b) => a.productId.localeCompare(b.productId))) {
       const product = await tx.product.findUnique({ where: { id: line.productId } });
+      const original = sale.items.find(item => item.id === line.saleItemId)!;
+      const perUnit = baseUnits(original);
       if (product?.trackInventory) {
         await moveInventory(tx, {
           productId: line.productId, locationId: sale.locationId!, userId: req.user.id,
-          type: 'RETURN', sourceId: refund.id, sourceKey: 'refund-line:' + refund.id + ':' + line.saleItemId, quantity: line.quantity,
-          valueMode: sale.items.find(item => item.id === line.saleItemId)?.inventoryEntryId ? 'REFERENCE' : 'FIXED', valueInput: line.costReturned ?? null,
-          referenceEntryId: sale.items.find(item => item.id === line.saleItemId)?.inventoryEntryId,
-          referenceQuantity: line.quantity, referenceOffset: refundedQtyByItem.get(line.saleItemId) || 0,
+          type: 'RETURN', sourceId: refund.id, sourceKey: 'refund-line:' + refund.id + ':' + line.saleItemId, quantity: line.quantity * perUnit,
+          valueMode: original.inventoryEntryId ? 'REFERENCE' : 'FIXED', valueInput: line.costReturned ?? null,
+          referenceEntryId: original.inventoryEntryId,
+          referenceQuantity: line.quantity * perUnit, referenceOffset: (refundedQtyByItem.get(line.saleItemId) || 0) * perUnit,
           notes: `Refund for sale ${sale.saleNumber}`,
         });
+        // An unopened pack goes back on the shelf as a pack.
+        if (original.sellingUnitId && returnedSealed(line.saleItemId)) await restoreSealedPackages(tx, { productId: line.productId, locationId: sale.locationId!,
+          sellingUnitId: original.sellingUnitId, wanted: line.quantity, userId: req.user.id, sourceId: refund.id, notes: `Returned unopened, sale ${sale.saleNumber}` });
       } else if (product && sale.items.find(item => item.id === line.saleItemId)?.inventoryEntryId) {
         await postNonstockCost(tx, { productId: line.productId, locationId: sale.locationId!, userId: req.user.id,
           sourceId: refund.id, sourceKey: 'refund-line:' + refund.id + ':' + line.saleItemId, kind: 'RETURN', quantity: line.quantity,
@@ -230,7 +243,7 @@ export const refundSaleInTransaction = async (req: AuthRequest, tx: Prisma.Trans
       if (product?.trackInventory) {
         await moveInventory(tx, {
           productId: item.productId, locationId: sale.locationId!, userId: req.user.id,
-          type: 'RETURN', sourceId: refund.id, sourceKey: 'refund-line:' + refund.id + ':' + item.id, quantity: toRestore,
+          type: 'RETURN', sourceId: refund.id, sourceKey: 'refund-line:' + refund.id + ':' + item.id, quantity: toRestore * baseUnits(item),
           valueMode: 'FIXED', valueInput: item.unitCost === null ? null : item.unitCost.mul(toRestore),
           notes: `Refund for sale ${sale.saleNumber}`,
         });
@@ -244,7 +257,7 @@ export const refundSaleInTransaction = async (req: AuthRequest, tx: Prisma.Trans
     if (product?.trackInventory) await moveInventory(tx, { productId: line.productId, locationId: sale.locationId!, userId: req.user.id,
       type: 'RETURN_LOSS', sourceId: refund.id, sourceKey: 'return-loss:' + refund.id + ':' + line.saleItemId, quantity: 0,
       valueMode: original.inventoryEntryId ? 'REFERENCE' : 'FIXED', referenceEntryId: original.inventoryEntryId,
-      referenceQuantity: line.quantity, referenceOffset: refundedQtyByItem.get(line.saleItemId) || 0,
+      referenceQuantity: line.quantity * baseUnits(original), referenceOffset: (refundedQtyByItem.get(line.saleItemId) || 0) * baseUnits(original),
       valueInput: portion(original.costAmount ?? (original.unitCost?.mul(original.quantity) ?? null), original.quantity, refundedQtyByItem.get(line.saleItemId) || 0, line.quantity),
       notes: 'Unsellable returned goods; original sale cost retained, no second expense. ' + reason });
   }
@@ -345,9 +358,15 @@ export const voidSaleInTransaction = async (req: AuthRequest, tx: Prisma.Transac
       continue;
     }
     await moveInventory(tx, { productId: item.productId, locationId: sale.locationId!, userId: req.user!.id, type: 'RETURN', costKind: 'VOID_RETURN', sourceId: sale.id,
-      sourceKey: 'void-line:' + item.id, quantity: item.quantity, valueMode: item.inventoryEntryId ? 'REFERENCE' : 'FIXED',
-      referenceEntryId: item.inventoryEntryId, referenceQuantity: item.quantity,
+      sourceKey: 'void-line:' + item.id, quantity: item.quantity * baseUnits(item), valueMode: item.inventoryEntryId ? 'REFERENCE' : 'FIXED',
+      referenceEntryId: item.inventoryEntryId, referenceQuantity: item.quantity * baseUnits(item),
       valueInput: item.costAmount ?? (item.inventoryEntryId || item.unitCost === null ? null : item.unitCost.mul(item.quantity)), notes: 'Voided sale ' + sale.saleNumber });
+    // A voided sale never happened: the unopened packs it used go back unopened.
+    if (item.sellingUnitId) {
+      const used = await tx.productPackagingEvent.aggregate({ where: { sourceId: sale.id, sellingUnitId: item.sellingUnitId, kind: 'SOLD_OR_REMOVED' }, _sum: { quantity: true } });
+      await restoreSealedPackages(tx, { productId: item.productId, locationId: sale.locationId!, sellingUnitId: item.sellingUnitId,
+        wanted: Math.min(item.quantity, -(used._sum.quantity ?? 0)), userId: req.user!.id, sourceId: sale.id, notes: 'Voided sale ' + sale.saleNumber });
+    }
   }
   if (sale.customerId) {
     await tx.$queryRaw`SELECT id FROM customers WHERE id = ${sale.customerId} FOR UPDATE`;

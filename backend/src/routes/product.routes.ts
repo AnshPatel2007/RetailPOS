@@ -9,6 +9,7 @@ import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { createProductSchema, updateProductSchema } from '../validators/product.validator';
 import { upload } from '../middleware/upload';
+import * as sellingUnitController from '../controllers/sellingUnit.controller';
 
 const router = Router();
 
@@ -96,6 +97,13 @@ router.delete(
   authorize('ADMIN', 'MANAGER'),
   productController.deleteProduct
 );
+
+// Connected packaging: packs (e.g. a 12-pack) that share this product's stock.
+router.get('/:id/selling-units', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), sellingUnitController.getPackaging);
+router.post('/:id/selling-units', authorize('ADMIN', 'MANAGER'), sellingUnitController.createSellingUnit);
+router.patch('/:id/selling-units', authorize('ADMIN', 'MANAGER'), sellingUnitController.updateBaseUnitName);
+router.put('/:id/selling-units/:unitId', authorize('ADMIN', 'MANAGER'), sellingUnitController.updateSellingUnit);
+router.post('/:id/selling-units/:unitId/packaging', authorize('ADMIN', 'MANAGER'), sellingUnitController.changePackaging);
 
 router.post(
   '/:id/adjust-inventory',

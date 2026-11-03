@@ -358,11 +358,15 @@ export const POS: React.FC = () => {
 
       toast.loading(`Searching for barcode: ${barcode}`, { id: 'barcode-search' });
       try {
-        const response = await productService.getAll({ search: barcode, isActive: true, limit: 10 });
-        const found = response.data.data;
-        if (found.length === 1) {
-          if (!addItem(found[0])) { toast.error(saleHoldMessage(found[0]), { id: 'barcode-search' }); return; }
-          toast.success(`Added: ${found[0].name}`, { id: 'barcode-search' });
+        const response = await productService.getAll({ search: barcode, isActive: true, limit: 10, includeSellingUnits: true });
+        const found: Product[] = response.data.data;
+        // A single can and its 12-pack share stock but have their own barcodes:
+        // an exact barcode match decides which one was scanned.
+        const exact = found.filter(p => p.barcode === barcode);
+        const scanned = exact.length === 1 ? exact[0] : found.length === 1 ? found[0] : null;
+        if (scanned) {
+          if (!addItem(scanned)) { toast.error(saleHoldMessage(scanned), { id: 'barcode-search' }); return; }
+          toast.success(`Added: ${scanned.name}`, { id: 'barcode-search' });
         } else if (found.length > 1) {
           setSearch(barcode);
           toast.success(`Found ${found.length} products`, { id: 'barcode-search' });
@@ -433,6 +437,7 @@ export const POS: React.FC = () => {
         categoryId: isFavoritesTab ? undefined : (selectedCategoryId || undefined),
         isActive: true,
         limit: 50,
+        includeSellingUnits: true,
       }, signal);
       if (signal.aborted) return;
       let result = response.data.data;

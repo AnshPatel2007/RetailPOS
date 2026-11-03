@@ -32,6 +32,9 @@ interface SuggestedItem {
   suggestedQty: number;
   cost: number;
   urgent: boolean;
+  /** Supplier case (e.g. 24): suggestions are rounded up to whole cases. */
+  packSize?: number;
+  packCost?: number | null;
 }
 
 interface SupplierGroup {
@@ -98,11 +101,13 @@ export const SuggestedOrders: React.FC = () => {
 
   const handleCreatePO = async (g: SupplierGroup) => {
     if (!canManage || !g.supplierId || creatingFor) return;
-    const items = activeItems(g).map((i) => ({
-      productId: i.productId,
-      quantity: qtyFor(i),
-      cost: i.cost,
-    }));
+    const items = activeItems(g).map((i) => {
+      const packSize = i.packSize || 1;
+      const cases = packSize > 1 ? Math.ceil(qtyFor(i) / packSize) : 0;
+      return packSize > 1
+        ? { productId: i.productId, quantity: cases * packSize, cost: i.cost, packSize, packQuantity: cases, packCost: i.packCost ?? Math.round(i.cost * packSize * 100) / 100 }
+        : { productId: i.productId, quantity: qtyFor(i), cost: i.cost };
+    });
     if (items.length === 0) {
       toast.error('No items selected for this supplier');
       return;
@@ -245,7 +250,23 @@ export const SuggestedOrders: React.FC = () => {
                                 {item.daysOfCover === null ? '—' : item.daysOfCover}
                               </TableCell>
                               <TableCell className="text-right">
-                                <input
+                                {(item.packSize || 1) > 1 ? <>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    aria-label={`Cases of ${item.name}`}
+                                    value={Math.ceil(qtyFor(item) / item.packSize!)}
+                                    onChange={(e) =>
+                                      setQtyOverrides((prev) => ({
+                                        ...prev,
+                                        [item.productId]: Math.max(0, parseInt(e.target.value) || 0) * item.packSize!,
+                                      }))
+                                    }
+                                    disabled={isExcluded}
+                                    className="w-16 text-right px-2 py-1 border border-input rounded bg-background text-sm tabular-nums"
+                                  />
+                                  <span className="block text-xs text-muted-foreground">cases of {item.packSize} = {Math.ceil(qtyFor(item) / item.packSize!) * item.packSize!}</span>
+                                </> : <input
                                   type="number"
                                   min="0"
                                   value={qtyFor(item)}
@@ -257,7 +278,7 @@ export const SuggestedOrders: React.FC = () => {
                                   }
                                   disabled={isExcluded}
                                   className="w-20 text-right px-2 py-1 border border-input rounded bg-background text-sm tabular-nums"
-                                />
+                                />}
                               </TableCell>
                               <TableCell className="text-right tabular-nums">
                                 {formatCurrency(item.cost * qtyFor(item))}

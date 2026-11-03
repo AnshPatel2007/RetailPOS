@@ -4,6 +4,7 @@ import { AuthRequest } from '../types';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { lockPurchaseOrder, receiveOrder } from '../services/purchaseReceiving.service';
 import { updatePurchaseOrderSchema } from '../validators/supplier.validator';
+import { orderLine } from '../services/purchaseOrderLines';
 
 export const receivePurchaseOrder = asyncHandler(async (req: AuthRequest, res: Response) => {
   const data = await prisma.$transaction(tx => receiveOrder(tx, req), { timeout: 30_000 });
@@ -30,7 +31,7 @@ export const updatePurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
       if (ids.some(id => !productMap.has(id))) throw new AppError('An ordered product is unavailable at this store', 404);
       const items = body.items.map(item => ({ purchaseOrderId: existing.id, productId: item.productId,
         sku: productMap.get(item.productId)!.sku, productName: productMap.get(item.productId)!.name,
-        quantity: item.quantity, cost: item.cost, total: Math.round(item.cost * item.quantity * 100) / 100 }));
+        ...orderLine(item) }));
       // Validation, replacement and totals all commit together.
       await tx.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: existing.id } });
       await tx.purchaseOrderItem.createMany({ data: items });

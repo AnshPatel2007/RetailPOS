@@ -45,6 +45,17 @@ describe('manager reconciliation of saved register payments', () => {
     await post({ ...input, idempotencyKey: randomUUID() }).expect(409);
   });
 
+  it('books an offline 12-pack sale as 12 units of its product', async () => {
+    const before = (await prisma.product.findUniqueOrThrow({ where: { id: data.product.id } })).stockQuantity;
+    const pack = await prisma.productSellingUnit.create({ data: { productId: data.product.id, locationId: data.location.id, name: '12-pack',
+      barcode: 'OFFLINE-PACK-12', unitsPerPackage: 12, price: 10 } });
+    const input = { ...body('BOOK_CASH'), receipt: { ...receipt(), items: [{ ...receipt().items[0], productId: pack.id, productName: 'Original 12-pack' }] } };
+    await post(input).expect(200);
+    const sale = await prisma.sale.findUniqueOrThrow({ where: { idempotencyKey: input.localId }, include: { items: true } });
+    expect(sale.items[0]).toMatchObject({ productId: data.product.id, sellingUnitId: pack.id, unitsPerPackage: 12, inventoryQuantity: 12, quantity: 1 });
+    expect((await prisma.product.findUniqueOrThrow({ where: { id: data.product.id } })).stockQuantity).toBe(before - 12);
+  });
+
   it('rejects incomplete or inconsistent receipt facts and rolls all effects back', async () => {
     const input = { ...body('BOOK_CASH'), receipt: receipt() };
     await post({ ...input, receipt: { ...input.receipt, tax: 2 } }).expect(400);

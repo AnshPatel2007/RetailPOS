@@ -21,6 +21,10 @@ export interface OfflineProduct {
   minimumAge?: number;
   ebtEligible?: boolean;
   priceEmbedded?: boolean;
+  /** Packs (e.g. a 12-pack) share their base product's stock. */
+  inventoryProductId?: string;
+  sellingUnitId?: string;
+  unitsPerPackage?: number;
   syncedAt: number;
 }
 
@@ -159,6 +163,9 @@ export const offlineDb = {
       minimumAge: p.minimumAge,
       ebtEligible: p.ebtEligible,
       priceEmbedded: p.priceEmbedded,
+      inventoryProductId: p.inventoryProductId,
+      sellingUnitId: p.sellingUnitId ?? undefined,
+      unitsPerPackage: p.unitsPerPackage,
       syncedAt: Date.now(),
     }));
 
@@ -204,6 +211,12 @@ export const offlineDb = {
   },
 
   async updateProductStock(productId: string, quantityChange: number): Promise<void> {
+    const sold = await db.products.get(productId);
+    // A pack sale draws base units from its product; the pack row tracks sealed packs.
+    if (sold?.sellingUnitId && sold.inventoryProductId) {
+      await db.products.where('id').equals(sold.inventoryProductId)
+        .modify(product => { product.stockQuantity = product.stockQuantity + quantityChange * (sold.unitsPerPackage || 1); });
+    }
     await db.products
       .where('id')
       .equals(productId)

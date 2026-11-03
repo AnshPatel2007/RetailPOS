@@ -8,6 +8,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
+import { orderLine, roundToCases } from '../services/purchaseOrderLines';
 import { assertCanReadRecord, getSharedOrOwnFilter, resolveWriteLocation } from '../utils/locationFilter.util';
 
 /**
@@ -100,9 +101,13 @@ export const getPurchaseOrder = asyncHandler(async (req: AuthRequest, res: Respo
   }
   assertCanReadRecord(req, order.locationId, 'Purchase order not found');
 
+  // Store packs let a delivered case be counted as unopened packs on receipt.
+  const units = await prisma.productSellingUnit.findMany({ where: { productId: { in: order.items.map(item => item.productId) }, isActive: true },
+    select: { id: true, productId: true, name: true, unitsPerPackage: true } });
   res.json({
     success: true,
-    data: order,
+    data: { ...order, items: order.items.map(item => ({ ...item,
+      sellingUnits: units.filter(unit => unit.productId === item.productId).map(({ productId: _productId, ...unit }) => unit) })) },
   });
 });
 
@@ -145,15 +150,13 @@ export const createPurchaseOrder = asyncHandler(async (req: AuthRequest, res: Re
   let totalAmount = 0;
   const orderItems = items.map((item: any) => {
     const product = productMap.get(item.productId)!;
-    const itemTotal = Math.round(item.cost * item.quantity * 100) / 100;
-    totalAmount += itemTotal;
+    const line = orderLine(item);
+    totalAmount += line.total;
     return {
       productId: item.productId,
       sku: product.sku,
       productName: product.name,
-      quantity: item.quantity,
-      cost: item.cost,
-      total: itemTotal,
+      ...line,
     };
   });
 
@@ -244,18 +247,16 @@ export const autoGeneratePurchaseOrders = asyncHandler(async (req: AuthRequest, 
       supplierOrders.set(supplierId, []);
     }
 
-    // Calculate order quantity (restock to 2x low stock alert)
-    const orderQty = Math.max(
-      preferredSupplier.minOrder || 1,
-      (product.lowStockAlert * 2) - product.stockQuantity
-    );
+    // Restock to 2x the low stock alert, in whole supplier cases
+    const orderQty = roundToCases((product.lowStockAlert * 2) - product.stockQuantity, preferredSupplier.packSize, preferredSupplier.minOrder);
+    const unitCost = Number(preferredSupplier.cost ?? product.cost);
 
     supplierOrders.get(supplierId)!.push({
       productId: product.id,
       sku: product.sku,
       productName: product.name,
-      quantity: orderQty,
-      cost: preferredSupplier.cost || product.cost,
+      ...orderLine({ quantity: orderQty, cost: unitCost, packSize: preferredSupplier.packSize,
+        packCost: preferredSupplier.packCost == null ? null : Number(preferredSupplier.packCost) }),
     });
   }
 
@@ -264,7 +265,7 @@ export const autoGeneratePurchaseOrders = asyncHandler(async (req: AuthRequest, 
 
   for (const [supplierId, items] of supplierOrders) {
     const orderNumber = await generateOrderNumber(locationId);
-    const totalAmount = items.reduce((sum, item) => sum + (item.cost * item.quantity), 0);
+    const totalAmount = Math.round(items.reduce((sum, item) => sum + item.total, 0) * 100) / 100;
 
     const order = await prisma.purchaseOrder.create({
       data: {
@@ -274,14 +275,7 @@ export const autoGeneratePurchaseOrders = asyncHandler(async (req: AuthRequest, 
         notes: 'Auto-generated for low stock items',
         locationId,
         items: {
-          create: items.map(item => ({
-            productId: item.productId,
-            sku: item.sku,
-            productName: item.productName,
-            quantity: item.quantity,
-            cost: item.cost,
-            total: item.cost * item.quantity,
-          })),
+          create: items,
         },
       },
       include: {
@@ -349,13 +343,17 @@ export const getSuggestedOrders = asyncHandler(async (req: AuthRequest, res: Res
           select: {
             cost: true,
             leadTime: true,
+            minOrder: true,
+            packSize: true,
+            packCost: true,
             supplier: { select: { id: true, name: true, leadTimeDays: true } },
           },
         },
       },
     }),
+    // A 12-pack sold counts as 12 units of demand.
     prisma.saleItem.groupBy({
-      by: ['productId'],
+      by: ['productId', 'sellingUnitId'],
       where: {
         createdAt: { gte: cutoff },
         sale: {
@@ -363,11 +361,13 @@ export const getSuggestedOrders = asyncHandler(async (req: AuthRequest, res: Res
           ...locationFilter,
         },
       },
-      _sum: { quantity: true },
+      _sum: { quantity: true, inventoryQuantity: true },
     }),
   ]);
 
-  const soldMap = new Map(soldRows.map((r) => [r.productId, r._sum.quantity || 0]));
+  const soldMap = new Map<string, number>();
+  for (const row of soldRows) soldMap.set(row.productId, (soldMap.get(row.productId) || 0)
+    + (row.sellingUnitId ? row._sum.inventoryQuantity || 0 : row._sum.quantity || 0));
 
   interface SuggestedItem {
     productId: string;
@@ -379,6 +379,8 @@ export const getSuggestedOrders = asyncHandler(async (req: AuthRequest, res: Res
     daysOfCover: number | null;
     suggestedQty: number;
     cost: number;
+    packSize: number;
+    packCost: number | null;
     urgent: boolean;
   }
 
@@ -399,9 +401,9 @@ export const getSuggestedOrders = asyncHandler(async (req: AuthRequest, res: Res
     // Enough for two weeks of selling, or back above 2× the alert threshold
     const coverQty = Math.ceil(velocity * COVER_TARGET_DAYS) - p.stockQuantity;
     const thresholdQty = p.lowStockAlert > 0 ? p.lowStockAlert * 2 - p.stockQuantity : 0;
-    const suggestedQty = Math.max(coverQty, thresholdQty, 1);
-
     const link = p.suppliers[0];
+    // Suppliers sell in cases: round up to whole cases and their minimum order.
+    const suggestedQty = roundToCases(Math.max(coverQty, thresholdQty, 1), link?.packSize, link?.minOrder);
     const supplierId = link?.supplier.id ?? null;
     const key = supplierId ?? 'unassigned';
     if (!groups.has(key)) {
@@ -422,6 +424,8 @@ export const getSuggestedOrders = asyncHandler(async (req: AuthRequest, res: Res
       daysOfCover,
       suggestedQty,
       cost: Number(link?.cost ?? p.cost),
+      packSize: link?.packSize ?? 1,
+      packCost: link?.packCost == null ? null : Number(link.packCost),
       urgent: p.stockQuantity === 0 || runningOut,
     });
   }
@@ -431,7 +435,7 @@ export const getSuggestedOrders = asyncHandler(async (req: AuthRequest, res: Res
       ...g,
       items: g.items.sort((a, b) => (a.daysOfCover ?? 999) - (b.daysOfCover ?? 999)),
       estimatedTotal:
-        Math.round(g.items.reduce((s, i) => s + i.cost * i.suggestedQty, 0) * 100) / 100,
+        Math.round(g.items.reduce((s, i) => s + (i.packSize > 1 && i.packCost !== null ? i.packCost * (i.suggestedQty / i.packSize) : i.cost * i.suggestedQty), 0) * 100) / 100,
     }))
     // Real suppliers first, unassigned last
     .sort((a, b) => (a.supplierId === null ? 1 : 0) - (b.supplierId === null ? 1 : 0));

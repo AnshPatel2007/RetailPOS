@@ -25,6 +25,8 @@ jest.mock('../config/database', () => ({
     },
     purchaseReceipt: { findUnique: jest.fn(), create: jest.fn(), count: jest.fn() },
     purchaseReceiptItem: { update: jest.fn() },
+    // Store packs matching a case size, offered when receiving.
+    productSellingUnit: { findMany: jest.fn().mockResolvedValue([]) },
     inventoryValuation: { findUnique: jest.fn(), update: jest.fn() },
     inventoryValueEntry: { create: jest.fn() },
     activityLog: { create: jest.fn() },

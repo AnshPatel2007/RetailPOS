@@ -36,6 +36,10 @@ export const linkProductSchema = z.object({
     cost: z.number().min(0, 'Cost must be non-negative').optional().nullable(),
     leadTime: z.number().int().min(0).optional().nullable(),
     minOrder: z.number().int().min(1).optional().nullable(),
+    // How the supplier sells it, e.g. a case of 24 for $36.00.
+    packSize: z.number().int().min(1).max(100000).optional(),
+    packCost: z.number().min(0).optional().nullable(),
+    packBarcode: z.string().trim().max(100).optional().nullable(),
   }),
 });
 
@@ -45,6 +49,10 @@ export const updateProductLinkSchema = z.object({
     cost: z.number().min(0, 'Cost must be non-negative').optional().nullable(),
     leadTime: z.number().int().min(0).optional().nullable(),
     minOrder: z.number().int().min(1).optional().nullable(),
+    // How the supplier sells it, e.g. a case of 24 for $36.00.
+    packSize: z.number().int().min(1).max(100000).optional(),
+    packCost: z.number().min(0).optional().nullable(),
+    packBarcode: z.string().trim().max(100).optional().nullable(),
   }),
 });
 
@@ -55,6 +63,10 @@ export const createPurchaseOrderSchema = z.object({
       productId: z.string().uuid('Invalid product ID'),
       quantity: z.number().int().min(1, 'Quantity must be at least 1'),
       cost: z.number().min(0, 'Cost must be non-negative'),
+      // Ordered in supplier cases: quantity = packQuantity x packSize (units).
+      packSize: z.number().int().min(1).max(100000).optional(),
+      packQuantity: z.number().int().min(1).optional().nullable(),
+      packCost: z.number().min(0).optional().nullable(),
     })).min(1, 'At least one item is required'),
     notes: z.string().optional().nullable(),
     expectedAt: z.string().optional().nullable(),
@@ -69,6 +81,10 @@ export const updatePurchaseOrderSchema = z.object({
       productId: z.string().uuid('Invalid product ID'),
       quantity: z.number().int().min(1, 'Quantity must be at least 1'),
       cost: z.number().min(0, 'Cost must be non-negative'),
+      // Ordered in supplier cases: quantity = packQuantity x packSize (units).
+      packSize: z.number().int().min(1).max(100000).optional(),
+      packQuantity: z.number().int().min(1).optional().nullable(),
+      packCost: z.number().min(0).optional().nullable(),
     })).optional(),
   }),
 });

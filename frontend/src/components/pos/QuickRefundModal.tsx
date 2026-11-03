@@ -28,6 +28,8 @@ interface SaleItem {
   tax: number;
   total: number;
   product: { name: string; sku: string };
+  /** Set when the line was a pack (e.g. a 12-pack) of the product. */
+  sellingUnitId?: string | null;
 }
 
 interface RefundItemRecord {
@@ -94,6 +96,8 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
   const [mode, setMode] = useState<RefundMode>('items');
   const [refundQtys, setRefundQtys] = useState<Record<string, number>>({});
   const [restock, setRestock] = useState(true);
+  // Pack lines whose packs came back opened (default: returned unopened).
+  const [openedPacks, setOpenedPacks] = useState<Record<string, boolean>>({});
   const [tenderEdits, setTenderEdits] = useState<RefundTenderEdits>({});
   const user = useAuthStore(state => state.user);
   const pendingKey = cashOperationKey('refund', user?.id, user?.locationId);
@@ -174,6 +178,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
     setRefundQtys({});
     setMode('items');
     setRestock(true);
+    setOpenedPacks({});
     setTenderEdits({});
     try {
       let saleId = id;
@@ -284,7 +289,8 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
       if (mode === 'items') {
         payload.items = Object.entries(refundQtys)
           .filter(([, qty]) => qty > 0)
-          .map(([saleItemId, quantity]) => ({ saleItemId, quantity }));
+          .map(([saleItemId, quantity]) => ({ saleItemId, quantity,
+            ...(restock && sale.items.find(item => item.id === saleItemId)?.sellingUnitId ? { restockAsSealed: !openedPacks[saleItemId] } : {}) }));
         payload.restock = restock;
       } else {
         payload.amount = effectiveAmount;
@@ -302,6 +308,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
     setRefundQtys({});
     setMode('items');
     setRestock(true);
+    setOpenedPacks({});
     setTenderEdits({});
   };
 
@@ -432,7 +439,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
                         return (
                           <div
                             key={item.id}
-                            className={`flex items-center justify-between gap-2 p-2 rounded-lg border ${
+                            className={`flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg border ${
                               qty > 0 ? 'border-primary bg-primary/5' : 'border-border'
                             }`}
                           >
@@ -464,6 +471,13 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
                               </div>
                             ) : (
                               <span className="text-xs text-muted-foreground shrink-0">Refunded</span>
+                            )}
+                            {item.sellingUnitId && qty > 0 && restock && (
+                              <label className="flex w-full items-center gap-2 text-xs cursor-pointer">
+                                <input type="checkbox" checked={!openedPacks[item.id]} className="h-4 w-4 rounded border-border accent-primary"
+                                  onChange={(e) => setOpenedPacks(current => ({ ...current, [item.id]: !e.target.checked }))} />
+                                Returned unopened (back on the shelf as a pack)
+                              </label>
                             )}
                           </div>
                         );
