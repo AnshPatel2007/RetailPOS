@@ -9,7 +9,7 @@ import { Layout } from './components/Layout';
 import { LegacyInsightsRedirect } from './pages/InsightsWorkspace';
 import { ManagerApprovalDialog } from './components/ManagerApprovalDialog';
 import { GlobalAssistant } from './components/assistant/GlobalAssistant';
-import { WorkflowNavigation, PreserveRedirect, stockControlViews, purchasingViews, accountViews, TeamNavigation, ShiftRedirect } from './components/common/WorkflowNavigation';
+import { WorkflowNavigation, PreserveRedirect, StockControlNavigation, purchasingViews, accountViews, TeamNavigation, ShiftRedirect } from './components/common/WorkflowNavigation';
 import { changeSessionGeneration } from './services/sessionGeneration';
 
 // Eager-load Login (needed immediately) and AdminLayout (small)
@@ -220,7 +220,7 @@ function App() {
         <Route path="/inventory-transfers" element={<PreserveRedirect to="/inventory/stock-control/transfers" />} />
         <Route path="/cycle-counts" element={<PreserveRedirect to="/inventory/stock-control/counts" />} />
         <Route path="/inventory/stock-control" element={<PreserveRedirect to="/inventory/stock-control/transfers" />} />
-        {[["transfers", <InventoryTransfers />], ["counts", <CycleCount />], ["exceptions", <InventoryExceptions />], ["movements", <InventoryMovements />]].map(([view, page]) => <Route key={String(view)} path={'/inventory/stock-control/' + view} element={<PageRoute roles={MANAGER_ROLES} page={<WorkflowNavigation label="Inventory / Stock Control" views={stockControlViews}>{page}</WorkflowNavigation>} />} />)}
+        {[["transfers", <InventoryTransfers />], ["counts", <CycleCount />], ["exceptions", <InventoryExceptions />], ["movements", <InventoryMovements />]].map(([view, page]) => <Route key={String(view)} path={'/inventory/stock-control/' + view} element={<PageRoute roles={MANAGER_ROLES} page={<StockControlNavigation>{page}</StockControlNavigation>} />} />)}
         <Route path="/lottery" element={<PageRoute page={<Lottery />} />} />
         <Route path="/audit-log" element={<PageRoute page={<AuditLog />} roles={MANAGER_ROLES} />} />
         <Route path="/store-credits" element={<PreserveRedirect to="/customers/accounts/store-credits" />} />

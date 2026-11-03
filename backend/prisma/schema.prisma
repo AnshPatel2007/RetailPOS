@@ -37,6 +37,9 @@ model InventoryValueEntry {
   valueAfter Decimal? @db.Decimal(24, 8)
   cogsAmount Decimal? @db.Decimal(24, 8)
   costStatus CostStatus @default(VERIFIED)
+  // Value of units added without a delivery record (filled a negative balance
+  // or a delivery that was never entered). Listed for supplier-invoice matching.
+  unmatchedValue Decimal? @db.Decimal(24, 8)
   referenceEntryId String?
   referenceQuantity Int?
   referenceOffset Int @default(0)
@@ -1934,4 +1937,48 @@ model SaleItemCorrection {
   @@index([saleItemId])
   @@index([locationId, createdAt])
   @@map("sale_item_corrections")
+}
+
+/// Units moved from one product to another because the wrong product was sold,
+/// received or returned. The source loses units at its own cost; the target
+/// gains them with that value, so a sale ends up carrying the cost of what
+/// actually left the store. Revenue is never changed.
+model StockReclass {
+  id String @id @default(uuid())
+  locationId String
+  fromProductId String
+  toProductId String
+  quantity Int
+  reason String // SOLD_AS_OTHER | RECEIVED_AS_OTHER | RETURNED_AS_OTHER
+  exceptionId String?
+  saleId String?
+  saleItemId String?
+  fromEntryId String
+  toEntryId String
+  cogsChange Decimal? @db.Decimal(24, 8)
+  priceDifference Decimal? @db.Decimal(14, 2)
+  notes String?
+  userId String
+  idempotencyKey String @unique
+  createdAt DateTime @default(now())
+  @@index([locationId, createdAt])
+  @@index([fromProductId])
+  @@index([toProductId])
+  @@map("stock_reclasses")
+}
+
+/// The actual supplier cost entered for stock that was added without an invoice.
+/// The difference from the estimate posts once, in the period it is entered.
+model UnmatchedCostMatch {
+  id String @id @default(uuid())
+  entryId String @unique
+  locationId String
+  productId String
+  actualUnitCost Decimal @db.Decimal(14, 4)
+  trueUpEntryId String
+  notes String?
+  userId String
+  createdAt DateTime @default(now())
+  @@index([locationId, createdAt])
+  @@map("unmatched_cost_matches")
 }

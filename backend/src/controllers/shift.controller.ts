@@ -247,8 +247,13 @@ export const getShiftZReport = asyncHandler(async (req: AuthRequest, res: Respon
     prisma.inventoryException.count({ where: { locationId: shift.locationId, createdAt: { gte: shift.clockInAt, lte: shiftEnd } } }),
     prisma.inventoryException.count({ where: { locationId: shift.locationId, status: { in: ['OPEN', 'RECOUNT_REQUESTED'] } } }),
   ]) : [0, 0];
+  // Wrong-product corrections attributed to this shift's sales (cashier mis-rings).
+  const corrections = await prisma.stockReclass.findMany({ where: { locationId: shift.locationId ?? undefined, saleId: { not: null }, reason: 'SOLD_AS_OTHER' }, select: { saleId: true, priceDifference: true } });
+  const shiftSales = corrections.length ? new Set((await prisma.sale.findMany({ where: { shiftId: shift.id, id: { in: corrections.map(c => c.saleId!) } }, select: { id: true } })).map(s => s.id)) : new Set<string>();
+  const mine = corrections.filter(c => shiftSales.has(c.saleId!));
+  const mis = { misRingCorrections: mine.length, misRingUndercharged: Math.round(mine.reduce((sum, c) => sum + Math.max(0, Number(c.priceDifference ?? 0)), 0) * 100) / 100 };
   res.json({ success: true, data: {
-    ...summarizeDrawer(shift), shiftId: shift.id, inventoryExceptionsRaised, inventoryExceptionsOpen, cashier: shift.user.firstName + ' ' + shift.user.lastName,
+    ...summarizeDrawer(shift), shiftId: shift.id, inventoryExceptionsRaised, inventoryExceptionsOpen, ...mis, cashier: shift.user.firstName + ' ' + shift.user.lastName,
     location: shift.location?.name || null, clockInAt: shift.clockInAt, clockOutAt: shift.clockOutAt, isClosed: shift.isClosed,
     cashMovements: shift.cashMovements, drawerEntries: shift.drawerEntries.map(entry => ({ ...entry, amount: Number(entry.amount) })),
   } });

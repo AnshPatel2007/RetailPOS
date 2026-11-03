@@ -37,12 +37,15 @@ test('a zero-stock item sells without a stock prompt and raises an exception for
   await row.click();
   const detail = page.getByRole('dialog', { name: new RegExp('Inventory discrepancy') });
   await expect(detail).toContainText('1 more unit was sold than the system currently accounts for');
-  await detail.getByRole('button', { name: 'Record physical count', exact: true }).click();
-  const count = page.getByRole('dialog', { name: 'Record physical count', exact: true });
-  await count.getByLabel(new RegExp('Units of ' + name)).fill('4');
-  await expect(count).toContainText('adjustment of +5');
-  await count.getByRole('button', { name: 'Save count and resolve', exact: true }).click();
+  await detail.getByRole('button', { name: 'Resolve discrepancy', exact: true }).click();
+  const resolve = page.getByRole('dialog', { name: 'Resolve discrepancy: ' + name, exact: true });
+  await resolve.getByText("I counted it / I'm not sure why", { exact: true }).click();
+  await resolve.getByLabel(new RegExp('How many ' + name)).fill('0');
+  // The sold unit keeps its cost: counting it back never creates profit.
+  await expect(resolve.getByRole('region', { name: 'Effect of this change' })).toContainText(name + ': -1 → 0');
+  await expect(resolve.getByRole('region', { name: 'Effect of this change' })).toContainText('Cost of goods: no change (the sale keeps its cost)');
+  await resolve.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('row').filter({ hasText: name })).toHaveCount(0);
   const resolved = (await (await page.request.get('/api/products/' + product.id, { headers: await auth(page) })).json()).data;
-  expect(resolved.stockQuantity).toBe(4);
+  expect(resolved.stockQuantity).toBe(0);
 });

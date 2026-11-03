@@ -18,6 +18,8 @@ export const ADJUSTMENT_REASONS = [
   { value: 'MANUAL_COUNT', label: 'Manual Count / Cycle Count' },
   { value: 'WRONG_SKU_SOLD', label: 'Similar product sold under this item' },
   { value: 'MISSING_RECEIPT', label: 'Delivery not received in system' },
+  { value: 'TRANSFER_NOT_RECORDED', label: 'Transfer from another store not recorded' },
+  { value: 'SOLD_WITHOUT_SCANNING', label: 'Sold without scanning (misc key)' },
   { value: 'MISCOUNT', label: 'Earlier count was wrong' },
   { value: 'DAMAGED', label: 'Damaged Goods' },
   { value: 'LOST', label: 'Lost / Missing' },

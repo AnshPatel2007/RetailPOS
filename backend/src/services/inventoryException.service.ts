@@ -11,7 +11,8 @@ import { AppError } from '../utils/errorHandler';
  * than creating new alerts.
  */
 
-export const RESOLUTION_REASONS = ['WRONG_SKU_SOLD', 'MISSING_RECEIPT', 'MISCOUNT', 'DAMAGED', 'THEFT', 'EXPIRED', 'TRANSFER_NOT_RECORDED', 'NO_CHANGE_NEEDED', 'OTHER'] as const;
+export const RESOLUTION_REASONS = ['WRONG_SKU_SOLD', 'RECEIVED_AS_OTHER', 'RETURNED_AS_OTHER', 'MISSING_RECEIPT', 'TRANSFER_NOT_RECORDED', 'MISCOUNT',
+  'SOLD_WITHOUT_SCANNING', 'DAMAGED', 'THEFT', 'EXPIRED', 'NO_CHANGE_NEEDED', 'OTHER'] as const;
 export type ResolutionReason = typeof RESOLUTION_REASONS[number];
 
 /** Call after the stock row is updated, inside the movement's transaction (product row is locked). */

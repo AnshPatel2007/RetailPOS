@@ -670,6 +670,13 @@ export const inventoryExceptionService = {
   recordCount: (id: string, data: { countedQuantity: number; resolution: string; notes?: string; expectedVersion: number; idempotencyKey: string }) =>
     api.post(`/inventory-exceptions/${id}/count`, data),
   resolve: (id: string, data: { resolution: string; notes?: string }) => api.post(`/inventory-exceptions/${id}/resolve`, data),
+  preview: (id: string, data: { action: 'count'; countedQuantity: number; resolution: string } | { action: 'reclass'; fromProductId: string; quantity: number }) =>
+    api.post(`/inventory-exceptions/${id}/preview`, data),
+  reclass: (id: string, data: { fromProductId: string; quantity: number; reason: 'SOLD_AS_OTHER' | 'RECEIVED_AS_OTHER' | 'RETURNED_AS_OTHER'; saleItemId?: string; notes?: string; idempotencyKey: string }) =>
+    api.post(`/inventory-exceptions/${id}/reclass`, data),
+  corrections: (params?: { locationId?: string }, signal?: AbortSignal) => api.get('/inventory-exceptions/corrections', { params, signal }),
+  unmatched: (params?: { status?: 'open' | 'matched' | 'all'; locationId?: string }, signal?: AbortSignal) => api.get('/inventory-exceptions/unmatched', { params, signal }),
+  matchUnmatched: (entryId: string, data: { actualUnitCost: number; notes?: string }) => api.post(`/inventory-exceptions/unmatched/${entryId}/match`, data),
   correctSaleLine: (saleId: string, itemId: string, data: { toProductId: string; quantity: number; reason: string; idempotencyKey: string }) =>
     api.post(`/sales/${saleId}/items/${itemId}/correct-product`, data),
 };

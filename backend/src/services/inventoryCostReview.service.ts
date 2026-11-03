@@ -38,8 +38,14 @@ export async function confirmOpening(tx: Prisma.TransactionClient, locationId: s
 export type CorrectionInput = { entryId: string; value: number; reason: string };
 /** Re-derive the provisional unit cost a shortfall originally used: the corrected
  * average when crossing zero from stock, else the cost the posting recorded. */
-function replayProvisional(before: { quantity: number; value: Prisma.Decimal | null }, row: { quantity: number; quantityBefore: number; valueChange: Prisma.Decimal | null }) {
-  if (row.quantity >= 0 || before.quantity + row.quantity >= 0) return null;
+function replayProvisional(before: { quantity: number; value: Prisma.Decimal | null }, row: { kind: string; quantity: number; quantityBefore: number; valueChange: Prisma.Decimal | null; unmatchedValue?: Prisma.Decimal | null }) {
+  // An addition valued at a provisional cost keeps the unit cost it recorded.
+  if (row.quantity > 0) {
+    if (!row.unmatchedValue) return null;
+    const units = row.kind !== 'UNMATCHED_RECEIPT' && row.quantityBefore < 0 ? Math.min(row.quantity, -row.quantityBefore) : row.quantity;
+    return units ? row.unmatchedValue.div(units) : null;
+  }
+  if (before.quantity + row.quantity >= 0) return null;
   if (before.quantity > 0 && before.value !== null) return before.value.div(before.quantity);
   if (row.quantityBefore <= 0 && row.valueChange !== null) return row.valueChange.negated().div(-row.quantity);
   return null;
@@ -68,6 +74,12 @@ export async function previewCostCorrection(tx: Prisma.TransactionClient, locati
     // Current-period correction entries summarize revisions already present in
     // the replayed facts; replaying them again would count the change twice.
     if (row.kind === 'COST_CORRECTION') continue;
+    // An invoice true-up revalues on-hand stock by a fixed amount; carry it.
+    if (row.kind === 'UNMATCHED_TRUE_UP') {
+      const prior = states.get(row.productId);
+      if (prior) states.set(row.productId, { quantity: prior.quantity, value: prior.value === null || row.valueChange === null ? null : prior.value.plus(row.valueChange) });
+      continue;
+    }
     const reference = row.referenceEntryId ? calculated.get(row.referenceEntryId) : undefined;
     if (row.id !== source.id && !states.has(row.productId) && !reference) continue;
     const before = states.get(row.productId) || { quantity: row.quantityBefore, value: row.valueBefore };

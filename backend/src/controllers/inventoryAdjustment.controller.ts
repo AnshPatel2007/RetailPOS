@@ -5,11 +5,11 @@ import { AuthRequest } from '../types';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { resolveWriteLocation } from '../utils/locationFilter.util';
 import { lockInventory, moveInventory } from '../services/inventory.service';
+import { costKindForReason } from '../services/stockReasons';
 
 /** Every manual stock change records why it happened. OTHER requires a note. */
-export const ADJUSTMENT_REASONS = ['MANUAL_COUNT', 'MISCOUNT', 'WRONG_SKU_SOLD', 'MISSING_RECEIPT', 'RECEIVED', 'RETURNED',
+export const ADJUSTMENT_REASONS = ['MANUAL_COUNT', 'MISCOUNT', 'WRONG_SKU_SOLD', 'MISSING_RECEIPT', 'TRANSFER_NOT_RECORDED', 'SOLD_WITHOUT_SCANNING', 'RECEIVED', 'RETURNED',
   'DAMAGED', 'LOST', 'THEFT', 'EXPIRED', 'WASTE', 'CORRECTION', 'OTHER'] as const;
-const LOSS_REASONS = ['DAMAGED', 'LOST', 'THEFT', 'EXPIRED', 'WASTE', 'OTHER'];
 const reason = z.enum(ADJUSTMENT_REASONS, { errorMap: () => ({ message: 'Select a reason for this stock change' }) });
 const idempotencyKey = z.string().trim().min(8).max(100).optional();
 const adjustment = z.object({
@@ -37,7 +37,7 @@ export const adjustInventory = asyncHandler(async (req: AuthRequest, res: Respon
     }
     return moveInventory(tx, {
       productId: req.params.id, locationId, userId: req.user!.id,
-      type: body.type, costKind: body.quantity < 0 && LOSS_REASONS.includes(body.type) ? 'STOCK_LOSS' : 'ADJUSTMENT',
+      type: body.type, costKind: costKindForReason(body.type, body.quantity, 'ADJUSTMENT'),
       quantity: body.quantity, notes: body.notes, expectedVersion: body.expectedVersion,
       ...(body.idempotencyKey ? { sourceId: body.idempotencyKey, sourceKey: sourceKey(body.idempotencyKey, req.params.id) } : {}),
     });
@@ -67,7 +67,9 @@ export const bulkUpdateStock = asyncHandler(async (req: AuthRequest, res: Respon
     const result = [];
     for (const item of [...updates].sort((a, b) => a.productId.localeCompare(b.productId))) {
       if (item.type === 'set' && item.expectedVersion === undefined) throw new AppError('Refresh product stock before setting an absolute quantity', 409);
-      result.push(await moveInventory(tx, { productId: item.productId, locationId, userId: req.user!.id, type: bulkReason, costKind: 'ADJUSTMENT',
+      const current = await tx.product.findUnique({ where: { id: item.productId }, select: { stockQuantity: true } });
+      const change = item.type === 'set' ? item.quantity - (current?.stockQuantity ?? 0) : item.quantity;
+      result.push(await moveInventory(tx, { productId: item.productId, locationId, userId: req.user!.id, type: bulkReason, costKind: costKindForReason(bulkReason, change, 'ADJUSTMENT'),
         quantity: item.type === 'set' ? undefined : item.quantity, setQuantity: item.type === 'set' ? item.quantity : undefined,
         expectedVersion: item.type === 'set' ? item.expectedVersion : undefined, notes: item.notes || notes || 'Bulk stock adjustment' }));
     }

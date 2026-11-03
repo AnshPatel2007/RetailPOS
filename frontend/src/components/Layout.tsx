@@ -56,6 +56,7 @@ interface NavGroup {
 type NavEntry = NavItem | NavGroup;
 
 const isGroup = (entry: NavEntry): entry is NavGroup => 'children' in entry;
+const STOCK_CONTROL = '/inventory/stock-control';
 
 const navigation: NavEntry[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
@@ -188,6 +189,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     );
   }
 
+  const exceptionBadge = (className: string) => exceptionCount > 0 ? (
+    <span className={cn('rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-5 text-destructive-foreground tabular-nums', className)}
+      title={`${exceptionCount} inventory exception${exceptionCount === 1 ? '' : 's'} need review`} aria-label={`${exceptionCount} inventory exceptions need review`}>{exceptionCount}</span>
+  ) : null;
+
   const renderNavItem = (item: NavItem, nested = false) => {
     if (!hasRole(item.roles)) return null;
     const isActive = isPathActive(location.pathname, item.href);
@@ -206,12 +212,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
         )}
       >
-        <Icon className={cn('h-5 w-5 shrink-0', !isSidebarCollapsed && 'mr-3', nested && !isSidebarCollapsed && 'h-4 w-4')} />
+        <span className="relative shrink-0">
+          <Icon className={cn('h-5 w-5', !isSidebarCollapsed && 'mr-3', nested && !isSidebarCollapsed && 'h-4 w-4')} />
+          {/* Collapsed sidebar: a dot on the icon stands in for the count. */}
+          {isSidebarCollapsed && item.href === STOCK_CONTROL && exceptionCount > 0 && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-card" aria-hidden="true" />}
+        </span>
         {!isSidebarCollapsed && <span className="truncate">{item.name}</span>}
-        {item.href === '/inventory/stock-control' && exceptionCount > 0 && (
-          <span className={cn('rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-5 text-destructive-foreground tabular-nums', isSidebarCollapsed ? 'sr-only' : 'ml-auto')}
-            title={`${exceptionCount} inventory exception${exceptionCount === 1 ? '' : 's'} need review`} aria-label={`${exceptionCount} inventory exceptions need review`}>{exceptionCount}</span>
-        )}
+        {item.href === STOCK_CONTROL && exceptionBadge(isSidebarCollapsed ? 'sr-only' : 'ml-auto')}
       </Link>
     );
   };
@@ -243,6 +250,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         >
           <Icon className="h-5 w-5 shrink-0 mr-3" />
           <span className="truncate flex-1 text-left">{group.name}</span>
+          {/* While the group is closed its exception count shows here; open, it moves to Stock Control. */}
+          {!isExpanded && group.children.some(child => child.href === STOCK_CONTROL) && exceptionBadge('mr-2')}
           <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', isExpanded && 'rotate-180')} />
         </button>
         {isExpanded && (

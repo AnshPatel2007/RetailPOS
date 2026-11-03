@@ -255,6 +255,139 @@ describe('Retail inventory acceptance', () => {
     expect((await getFinancialMetrics({ locationId: data.location.id })).costOfGoodsSold).toBe(6.4);
   });
 
+  describe('corrections never create artificial profit', () => {
+    const metrics = () => getFinancialMetrics({ locationId: data.location.id });
+    const makeProduct = (name: string, cost: number, price: number, extra: object = {}) => prisma.product.create({ data: {
+      name, sku: randomUUID(), price, cost, stockQuantity: 0, locationId: data.location.id, isTaxable: false, categoryId: data.category.id, ...extra } });
+    const count = async (countedQuantity: number, resolution: string, productId = data.product.id) => {
+      const exception = (await openException(productId))!;
+      const current = await prisma.product.findUniqueOrThrow({ where: { id: productId } });
+      const body = { countedQuantity, resolution, expectedVersion: current.stockVersion, idempotencyKey: randomUUID(), notes: 'Counted shelf' };
+      const preview = (await post(`/api/inventory-exceptions/${exception.id}/preview`, { action: 'count', countedQuantity, resolution }).expect(200)).body.data;
+      await post(`/api/inventory-exceptions/${exception.id}/count`, body).expect(200);
+      return preview;
+    };
+
+    it("user's case: sold beyond stock, counted to 0, keeps the sale cost (no 100% margin)", async () => {
+      await opening(0, 0);
+      await sell(1).expect(201); // estimated at $1.50
+      const preview = await count(0, 'MISCOUNT');
+      expect(Number(preview.cogsChange)).toBe(0);
+      expect(Number(preview.unmatchedValue)).toBe(1.5);
+      const after = await metrics();
+      expect(after.costOfGoodsSold).toBe(1.5);
+      expect(after.grossProfit).toBe(0.99);
+      expect(Number((await balance()).value)).toBe(0);
+      const unmatched = (await get('/api/inventory-exceptions/unmatched').expect(200)).body.data;
+      expect(unmatched).toHaveLength(1); expect(unmatched[0]).toMatchObject({ units: 1, soldUnits: 1 });
+    });
+
+    it('a count above zero keeps the shortfall cost and treats only the extra units as found stock', async () => {
+      await opening(0, 0);
+      await sell(3).expect(201); // 3 x $1.50 estimated = $4.50
+      await count(5, 'MISCOUNT');
+      const after = await metrics();
+      expect(after.costOfGoodsSold).toBe(-3); // 4.50 sold cost - 7.50 found-stock gain (5 x 1.50)
+      expect(Number((await balance()).value)).toBe(7.5);
+    });
+
+    it('a delivery that was never entered is an acquisition, then the real invoice cost trues up once', async () => {
+      await opening(0, 0);
+      await sell(2).expect(201); // $3.00 estimated
+      await count(4, 'MISSING_RECEIPT'); // +6: 2 fill the shortfall, 4 on hand, none of it a gain
+      expect((await metrics()).costOfGoodsSold).toBe(3);
+      const [row] = (await get('/api/inventory-exceptions/unmatched').expect(200)).body.data;
+      expect(row).toMatchObject({ units: 6, soldUnits: 2 }); expect(Number(row.estimatedUnitCost)).toBe(1.5);
+      await post(`/api/inventory-exceptions/unmatched/${row.entryId}/match`, { actualUnitCost: 1.75 }).expect(200);
+      await post(`/api/inventory-exceptions/unmatched/${row.entryId}/match`, { actualUnitCost: 1.75 }).expect(200); // retry-safe
+      expect((await metrics()).costOfGoodsSold).toBe(3.5); // 2 sold units x $0.25
+      expect(Number((await balance()).value)).toBe(7); // 4 on hand at $1.75
+      expect((await get('/api/inventory-exceptions/unmatched').expect(200)).body.data).toHaveLength(0);
+    });
+
+    it('wrong product, same cost: stock moves, cost of goods unchanged', async () => {
+      const tea = await makeProduct('Tea', 1.5, 2.49);
+      await opening(0, 0); await opening(5, 7.5, tea.id);
+      await sell(1).expect(201);
+      const exception = (await openException())!;
+      const preview = (await post(`/api/inventory-exceptions/${exception.id}/preview`, { action: 'reclass', fromProductId: tea.id, quantity: 1 }).expect(200)).body.data;
+      expect(Number(preview.cogsChange)).toBe(0);
+      await post(`/api/inventory-exceptions/${exception.id}/reclass`, { fromProductId: tea.id, quantity: 1, reason: 'SOLD_AS_OTHER', idempotencyKey: randomUUID() }).expect(200);
+      expect((await product()).stockQuantity).toBe(0);
+      expect((await prisma.product.findUniqueOrThrow({ where: { id: tea.id } })).stockQuantity).toBe(4);
+      expect((await metrics()).costOfGoodsSold).toBe(1.5);
+      expect((await prisma.inventoryException.findUniqueOrThrow({ where: { id: exception.id } })).status).toBe('RESOLVED');
+    });
+
+    it('wrong product that cost more: the sale carries the real cost and the under-charge is reported', async () => {
+      await prisma.product.update({ where: { id: data.product.id }, data: { cost: 6, price: 12 } });
+      const headphones = await makeProduct('Headphones', 50, 99.99);
+      await opening(0, 0); await opening(2, 100, headphones.id);
+      const sale = (await sell(1, data.product.id, 12).expect(201)).body.data; // cashier rang Coffee
+      const exception = (await openException())!;
+      const preview = (await post(`/api/inventory-exceptions/${exception.id}/preview`, { action: 'reclass', fromProductId: headphones.id, quantity: 1 }).expect(200)).body.data;
+      expect(Number(preview.cogsChange)).toBe(44); expect(Number(preview.priceDifference)).toBe(87.99);
+      await post(`/api/inventory-exceptions/${exception.id}/reclass`, { fromProductId: headphones.id, quantity: 1, reason: 'SOLD_AS_OTHER',
+        saleItemId: sale.items[0].id, idempotencyKey: randomUUID() }).expect(200);
+      const after = await metrics();
+      expect(after.netSales).toBe(12); expect(after.costOfGoodsSold).toBe(50); expect(after.grossProfit).toBe(-38);
+      const [correction] = (await get('/api/inventory-exceptions/corrections').expect(200)).body.data;
+      expect(correction).toMatchObject({ reason: 'SOLD_AS_OTHER', quantity: 1 });
+      expect(correction.recordedAs.name).toBe(data.product.name); expect(correction.actually.name).toBe('Headphones');
+      expect(Number(correction.priceDifference)).toBe(87.99); expect(correction.sale.saleNumber).toBe(sale.saleNumber);
+      const shift = await prisma.shift.findFirstOrThrow({ where: { userId: data.adminUser.id } });
+      const z = (await get(`/api/shifts/${shift.id}/z-report`).expect(200)).body.data;
+      expect(z).toMatchObject({ misRingCorrections: 1, misRingUndercharged: 87.99 });
+    });
+
+    it('wrong product that cost less lowers cost of goods and shows the customer was over-charged', async () => {
+      await prisma.product.update({ where: { id: data.product.id }, data: { cost: 6, price: 12 } });
+      const gum = await makeProduct('Gum', 0.5, 1.29);
+      await opening(0, 0); await opening(10, 5, gum.id);
+      await sell(1, data.product.id, 12).expect(201);
+      const exception = (await openException())!;
+      await post(`/api/inventory-exceptions/${exception.id}/reclass`, { fromProductId: gum.id, quantity: 1, reason: 'SOLD_AS_OTHER', idempotencyKey: randomUUID() }).expect(200);
+      expect((await metrics()).costOfGoodsSold).toBe(0.5);
+      const [correction] = (await get('/api/inventory-exceptions/corrections').expect(200)).body.data;
+      expect(Number(correction.priceDifference)).toBe(-10.71);
+    });
+
+    it('a delivery entered under another product moves its real received cost to what was sold', async () => {
+      const cola = await makeProduct('Cola', 1.5, 2.49);
+      await opening(0, 0); await opening(0, 0, cola.id);
+      await sell(2).expect(201); // estimated 2 x $1.50
+      await receive(6, 1.8, cola.id); // the delivery was really this product's
+      const exception = (await openException())!;
+      await post(`/api/inventory-exceptions/${exception.id}/reclass`, { fromProductId: cola.id, quantity: 2, reason: 'RECEIVED_AS_OTHER', idempotencyKey: randomUUID() }).expect(200);
+      expect((await metrics()).costOfGoodsSold).toBe(3.6); // 2 x $1.80 actual
+      expect((await prisma.product.findUniqueOrThrow({ where: { id: cola.id } })).stockQuantity).toBe(4);
+    });
+
+    it('units sold without scanning are cost of sales, not shrink', async () => {
+      await opening(5, 7.5);
+      await post(`/api/products/${data.product.id}/adjust-inventory`, { quantity: -2, type: 'SOLD_WITHOUT_SCANNING' }).expect(200);
+      const entry = await prisma.inventoryValueEntry.findFirstOrThrow({ where: { productId: data.product.id, kind: 'UNRECORDED_SALE' } });
+      expect(Number(entry.cogsAmount)).toBe(3);
+      expect((await metrics()).costOfGoodsSold).toBe(3);
+    });
+
+    it('a manual "received" addition is valued at the average and listed for its invoice, not left unknown', async () => {
+      await opening(4, 6);
+      await post(`/api/products/${data.product.id}/adjust-inventory`, { quantity: 2, type: 'RECEIVED' }).expect(200);
+      expect(Number((await balance()).value)).toBe(9);
+      expect((await metrics()).costCompleteness.complete).toBe(true);
+      expect((await get('/api/inventory-exceptions/unmatched').expect(200)).body.data).toHaveLength(1);
+    });
+
+    it('a manual gain into a negative balance keeps the sale cost even without a reason that implies a delivery', async () => {
+      await opening(0, 0);
+      await sell(2).expect(201);
+      await post(`/api/products/${data.product.id}/adjust-inventory`, { quantity: 2, type: 'CORRECTION' }).expect(200);
+      const after = await metrics();
+      expect(after.costOfGoodsSold).toBe(3); expect(after.costCompleteness.complete).toBe(true);
+    });
+  });
+
   describe('valueMovement math', () => {
     const d = (n: number) => decimal(n);
     it('values a shortfall at the provisional unit cost and a negative position at its own unit cost', () => {

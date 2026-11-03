@@ -1,5 +1,4 @@
 import { Response } from 'express';
-import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
@@ -7,6 +6,8 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { assertOwnsRecord, resolveWriteLocation } from '../utils/locationFilter.util';
 import { lockInventory, moveInventory } from '../services/inventory.service';
 import { exceptionDetail, RESOLUTION_REASONS, resolveException } from '../services/inventoryException.service';
+import { costKindForReason } from '../services/stockReasons';
+import { correctSaleLine, listCorrections, listUnmatched, matchUnmatchedCost, previewResolution, reclassStock, RECLASS_REASONS } from '../services/stockCorrection.service';
 
 /** Store scope for reads: a store user sees their store; a platform admin may pick one. */
 function readLocation(req: AuthRequest): string | null {
@@ -85,7 +86,9 @@ export const recordCount = asyncHandler(async (req: AuthRequest, res: Response) 
     const product = await tx.product.findUniqueOrThrow({ where: { id: exception.productId } });
     let adjustmentEntryId: string | null = null;
     if (product.stockQuantity !== body.countedQuantity) {
-      const moved = await moveInventory(tx, { productId: product.id, locationId, userId: req.user!.id, type: 'EXCEPTION_COUNT', costKind: 'COUNT',
+      // Why it was short decides the cost treatment (acquisition, unrecorded sale, loss or count).
+      const costKind = costKindForReason(body.resolution, body.countedQuantity - product.stockQuantity, 'COUNT');
+      const moved = await moveInventory(tx, { productId: product.id, locationId, userId: req.user!.id, type: 'EXCEPTION_COUNT', costKind,
         sourceId: exception.id, sourceKey: key, setQuantity: body.countedQuantity, expectedVersion: body.expectedVersion,
         notes: `Exception count (${body.resolution})${body.notes ? ': ' + body.notes : ''}` });
       adjustmentEntryId = moved.inventoryEntry.id;
@@ -114,50 +117,80 @@ const correctionBody = z.object({
   idempotencyKey: z.string().trim().min(8).max(100),
 });
 
-/**
- * Wrong-SKU correction: the cashier rang up product A but the customer bought B.
- * The sale, its receipt and revenue stay exactly as recorded. Stock and cost move:
- * A gets the units back at the original line's cost, B is depleted at its own
- * average (or provisional) cost. The COGS difference lands in the current period.
- */
+/** Wrong product on a known sale line (see correctSaleLine). The receipt is unchanged. */
 export const correctSaleItemProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   const body = correctionBody.parse(req.body);
   const locationId = resolveWriteLocation(req);
-  const correction = await prisma.$transaction(async tx => {
-    const previous = await tx.saleItemCorrection.findUnique({ where: { idempotencyKey: body.idempotencyKey } });
-    if (previous) {
-      if (previous.saleItemId !== req.params.itemId || previous.toProductId !== body.toProductId || previous.quantity !== body.quantity) throw new AppError('This retry key belongs to a different correction', 409);
-      return previous;
-    }
-    const sale = await tx.sale.findUnique({ where: { id: req.params.id }, include: { items: true, refunds: { include: { items: true } } } });
-    if (!sale) throw new AppError('Sale not found', 404);
-    assertOwnsRecord(req, sale.locationId);
-    if (sale.locationId !== locationId) throw new AppError('Sale not found', 404);
-    if (sale.status !== 'COMPLETED') throw new AppError('Only completed sales can be corrected', 400);
-    const line = sale.items.find(item => item.id === req.params.itemId);
-    if (!line) throw new AppError('Sale line not found', 404);
-    if (line.sellingUnitId) throw new AppError('Package lines cannot be corrected here yet', 400);
-    if (body.toProductId === line.productId) throw new AppError('Choose the product the customer actually bought', 400);
-    const refunded = sale.refunds.flatMap(refund => refund.items).filter(item => item.saleItemId === line.id).reduce((sum, item) => sum + item.quantity, 0);
-    const corrected = (await tx.saleItemCorrection.aggregate({ where: { saleItemId: line.id }, _sum: { quantity: true } }))._sum.quantity || 0;
-    if (refunded) throw new AppError('This line has refunds; correct stock with a count instead', 409);
-    if (body.quantity + corrected > line.quantity) throw new AppError(`Only ${line.quantity - corrected} unit(s) on this line can still be corrected`, 400);
-    await lockInventory(tx, [line.productId, body.toProductId]);
-    const [from, to] = await Promise.all([tx.product.findUnique({ where: { id: line.productId } }), tx.product.findUnique({ where: { id: body.toProductId } })]);
-    if (!from || !to || to.locationId !== sale.locationId || from.locationId !== sale.locationId) throw new AppError('Both products must belong to this store', 400);
-    if (!from.trackInventory || !to.trackInventory) throw new AppError('Both products must track inventory', 400);
-    const id = randomUUID();
-    const notes = `Sale ${sale.saleNumber}: ${from.name} corrected to ${to.name}. ${body.reason}`;
-    const reverse = await moveInventory(tx, { productId: from.id, locationId: sale.locationId!, userId: req.user!.id, type: 'SKU_CORRECTION',
-      sourceId: id, sourceKey: `sku-correction:${id}:from`, quantity: body.quantity,
-      valueMode: line.inventoryEntryId ? 'REFERENCE' : 'FIXED', referenceEntryId: line.inventoryEntryId,
-      referenceQuantity: body.quantity, referenceOffset: corrected,
-      valueInput: line.inventoryEntryId ? undefined : line.unitCost === null ? null : line.unitCost.mul(body.quantity), notes });
-    const apply = await moveInventory(tx, { productId: to.id, locationId: sale.locationId!, userId: req.user!.id, type: 'SKU_CORRECTION',
-      sourceId: id, sourceKey: `sku-correction:${id}:to`, quantity: -body.quantity, notes, allowNegative: true });
-    return tx.saleItemCorrection.create({ data: { id, saleId: sale.id, saleItemId: line.id, locationId: sale.locationId!, fromProductId: from.id,
-      toProductId: to.id, quantity: body.quantity, reason: body.reason, userId: req.user!.id,
-      reverseEntryId: reverse.inventoryEntry.id, applyEntryId: apply.inventoryEntry.id, idempotencyKey: body.idempotencyKey } });
-  });
+  const sale = await prisma.sale.findUnique({ where: { id: req.params.id }, select: { locationId: true } });
+  if (!sale) throw new AppError('Sale not found', 404);
+  assertOwnsRecord(req, sale.locationId);
+  const { correction } = await prisma.$transaction(tx => correctSaleLine(tx, { locationId, userId: req.user!.id, saleId: req.params.id,
+    saleItemId: req.params.itemId, actualProductId: body.toProductId, quantity: body.quantity, reason: body.reason, idempotencyKey: body.idempotencyKey }));
   res.json({ success: true, data: correction, message: 'Sale line product corrected; the receipt is unchanged' });
+});
+
+const reclassBody = z.object({
+  fromProductId: z.string().uuid(),
+  quantity: z.number().int().min(1).max(100000),
+  reason: z.enum(RECLASS_REASONS),
+  saleItemId: z.string().uuid().optional(),
+  notes: z.string().trim().max(2000).optional(),
+  idempotencyKey: z.string().trim().min(8).max(100),
+});
+
+/**
+ * Another product left (or arrived) instead of the exception's product. Moves the
+ * units from that product to this one; with a sale line, it is attributed to it.
+ */
+export const reclass = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const body = reclassBody.parse(req.body);
+  const locationId = resolveWriteLocation(req);
+  const result = await prisma.$transaction(async tx => {
+    const exception = await tx.inventoryException.findUnique({ where: { id: req.params.id } });
+    if (!exception || exception.locationId !== locationId) throw new AppError('Inventory exception not found', 404);
+    if (body.saleItemId) {
+      if (body.reason !== 'SOLD_AS_OTHER') throw new AppError('Only a sold item can be attributed to a sale line', 400);
+      const line = await tx.saleItem.findUnique({ where: { id: body.saleItemId } });
+      if (!line || line.productId !== exception.productId) throw new AppError('Choose a sale line for this product', 400);
+      return correctSaleLine(tx, { locationId, userId: req.user!.id, saleId: line.saleId, saleItemId: line.id, actualProductId: body.fromProductId,
+        quantity: body.quantity, reason: body.notes || 'Corrected from inventory exception', idempotencyKey: body.idempotencyKey, exceptionId: exception.id });
+    }
+    return reclassStock(tx, { locationId, userId: req.user!.id, fromProductId: body.fromProductId, toProductId: exception.productId,
+      quantity: body.quantity, reason: body.reason, exceptionId: exception.id, notes: body.notes, idempotencyKey: body.idempotencyKey });
+  });
+  res.json({ success: true, data: result, message: 'Stock moved between products; sale amounts are unchanged' });
+});
+
+const previewBody = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('count'), countedQuantity: z.number().int().min(0).max(2147483647), resolution: z.enum(RESOLUTION_REASONS) }),
+  z.object({ action: z.literal('reclass'), fromProductId: z.string().uuid(), quantity: z.number().int().min(1).max(100000) }),
+]);
+
+/** Shows the stock and cost-of-goods effect of a resolution before it is saved. */
+export const preview = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const body = previewBody.parse(req.body);
+  const locationId = resolveWriteLocation(req);
+  const exception = await prisma.inventoryException.findUnique({ where: { id: req.params.id } });
+  if (!exception || exception.locationId !== locationId) throw new AppError('Inventory exception not found', 404);
+  const data = await prisma.$transaction(tx => previewResolution(tx, { ...body, productId: exception.productId, locationId, userId: req.user!.id }),
+    { isolationLevel: 'RepeatableRead' });
+  res.json({ success: true, data });
+});
+
+export const listUnmatchedAdditions = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const status = z.enum(['open', 'matched', 'all']).default('open').parse(req.query.status);
+  res.json({ success: true, data: await listUnmatched(prisma, readLocation(req), status) });
+});
+
+const matchBody = z.object({ actualUnitCost: z.number().min(0).max(1_000_000), notes: z.string().trim().max(2000).optional() });
+export const matchUnmatchedAddition = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const body = matchBody.parse(req.body);
+  const locationId = resolveWriteLocation(req);
+  const result = await prisma.$transaction(tx => matchUnmatchedCost(tx, { entryId: req.params.entryId, locationId, userId: req.user!.id,
+    actualUnitCost: body.actualUnitCost, notes: body.notes }));
+  res.json({ success: true, data: result.match, replayed: result.replayed, message: 'Supplier cost recorded' });
+});
+
+export const listStockCorrections = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: await listCorrections(prisma, readLocation(req)) });
 });

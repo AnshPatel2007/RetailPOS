@@ -12,8 +12,12 @@ export type CostState = { quantity: number; value: Prisma.Decimal | null };
  * units the records did not hold. UNKNOWN: no cost source exists at all. */
 export type CostStatus = 'VERIFIED' | 'ESTIMATED' | 'UNKNOWN';
 export type CostInput = { quantity: number; mode: string; inputValue?: Prisma.Decimal | null; kind: string; provisionalUnitCost?: Prisma.Decimal | null };
-export type CostResult = { quantity: number; value: Prisma.Decimal | null; change: Prisma.Decimal | null; cogs: Prisma.Decimal | null; costStatus: CostStatus };
-const cogsKinds = ['SALE', 'RETURN', 'VOID_RETURN', 'ADJUSTMENT', 'COUNT', 'CYCLE_COUNT', 'STOCK_LOSS', 'IMPORT', 'SKU_CORRECTION'];
+/** `unmatched`: value of units added without a delivery record; listed for invoice matching. */
+export type CostResult = { quantity: number; value: Prisma.Decimal | null; change: Prisma.Decimal | null; cogs: Prisma.Decimal | null; costStatus: CostStatus; unmatched?: Prisma.Decimal | null };
+const cogsKinds = ['SALE', 'RETURN', 'VOID_RETURN', 'ADJUSTMENT', 'COUNT', 'CYCLE_COUNT', 'STOCK_LOSS', 'IMPORT', 'SKU_CORRECTION', 'UNRECORDED_SALE'];
+/** Goods acquired without an invoice (delivery or transfer never entered): valued
+ * at the best known unit cost, never a gain, always listed for matching. */
+export const UNMATCHED_RECEIPT = 'UNMATCHED_RECEIPT';
 const sum = (a: Prisma.Decimal | null, b: Prisma.Decimal | null) => a === null || b === null ? null : precision(a.plus(b));
 
 /**
@@ -29,6 +33,12 @@ const sum = (a: Prisma.Decimal | null, b: Prisma.Decimal | null) => a === null |
  * current-period cost true-up (returned as `cogs` for non-sale kinds); the
  * remaining units carry the inflow's own cost. The average is never rebuilt
  * from a negative base.
+ *
+ * A correction without a cost (a count or manual gain) that brings a negative
+ * balance back up never cancels the cost of the sales that took it negative:
+ * those units physically existed. The filled units keep their sale cost (no
+ * COGS) and are recorded as added without an invoice; only units counted above
+ * zero are found stock.
  */
 export function valueMovement(before: CostState, input: CostInput): CostResult {
   const quantity = before.quantity + input.quantity;
@@ -59,6 +69,34 @@ export function valueMovement(before: CostState, input: CostInput): CostResult {
     const value = sum(initial, change);
     return { quantity, value, change, cogs: isCogsKind ? change?.negated() ?? null : decimal(0),
       costStatus: change === null ? 'UNKNOWN' : 'ESTIMATED' };
+  }
+
+  const unmatchedKind = input.kind === UNMATCHED_RECEIPT;
+  // Upward correction of a negative balance: count, manual gain or a delivery never entered.
+  if (input.quantity > 0 && before.quantity < 0 && input.mode === 'AVERAGE') {
+    const hole = -before.quantity;
+    const filled = Math.min(input.quantity, hole);
+    const above = input.quantity - filled;
+    const unitCost = before.value !== null ? before.value.div(before.quantity) : input.provisionalUnitCost ?? null;
+    if (unitCost === null) return { quantity, value: null, change: null, cogs: null, costStatus: 'UNKNOWN', unmatched: null };
+    const filledValue = filled === hole && before.value !== null ? before.value.negated() : precision(unitCost.mul(filled));
+    const aboveValue = precision(unitCost.mul(above));
+    const value = quantity === 0 ? decimal(0) : before.value !== null ? precision(before.value.plus(filledValue).plus(aboveValue))
+      : quantity > 0 ? aboveValue : null;
+    const change = before.value === null || value === null ? null : precision(value.minus(before.value));
+    // Filled units already carry their sale cost. Units above zero are found
+    // stock, unless they were goods acquired without an invoice.
+    const cogs = isCogsKind && !unmatchedKind ? aboveValue.negated() : decimal(0);
+    return { quantity, value, change, cogs, costStatus: 'ESTIMATED', unmatched: unmatchedKind ? precision(filledValue.plus(aboveValue)) : filledValue };
+  }
+
+  // Goods acquired without an invoice into zero or positive stock.
+  if (unmatchedKind && input.quantity > 0) {
+    const unitCost = before.quantity > 0 && before.value !== null ? before.value.div(before.quantity) : input.provisionalUnitCost ?? null;
+    if (unitCost === null) return { quantity, value: null, change: null, cogs: null, costStatus: 'UNKNOWN', unmatched: null };
+    const added = precision(unitCost.mul(input.quantity));
+    const initial = before.quantity === 0 ? decimal(0) : before.value;
+    return { quantity, value: sum(initial, added), change: added, cogs: decimal(0), costStatus: 'ESTIMATED', unmatched: added };
   }
 
   // Inflow into a negative position: fill the shortfall first.
@@ -126,6 +164,40 @@ export type ValuePosting = {
   costKind?: string;
 };
 
+/** Decide how a movement is valued, without writing anything. Shared by posting
+ * and by previews, so a preview always matches what would be booked. */
+export async function planInventoryValue(tx: Prisma.TransactionClient, posting: ValuePosting,
+  balance: { quantity: number; value: Prisma.Decimal | null; lastUnitCost: Prisma.Decimal | null }, previousQty: number, newQty: number) {
+  const quantity = newQty - previousQty;
+  // A cost-less correction that brings a negative balance back up is valued at
+  // the shortfall's own cost (AVERAGE), never left unknown.
+  const correctingNegative = quantity > 0 && previousQty < 0 && (posting.valueInput === undefined || posting.valueInput === null)
+    && ['ADJUSTMENT', 'IMPORT'].includes(posting.type);
+  const mode = posting.valueMode ?? (quantity <= 0 ? 'AVERAGE'
+    : ['COUNT', 'CYCLE_COUNT', UNMATCHED_RECEIPT].includes(posting.type) || correctingNegative ? 'AVERAGE' : 'FIXED');
+  let inputValue = posting.valueInput === undefined || posting.valueInput === null ? null : precision(decimal(posting.valueInput));
+  if (mode === 'REFERENCE') {
+    if (!posting.referenceEntryId) throw new AppError('The original cost reference is required', 409);
+    const source = await effectiveEntry(tx, posting.referenceEntryId);
+    const referenceValue = ['SALE', 'OFFLINE_SALE'].includes(source.kind) ? source.cogsAmount : source.valueChange?.abs() ?? null;
+    inputValue = portion(referenceValue, Math.abs(source.quantity) || source.referenceQuantity || 0, posting.referenceOffset ?? 0, posting.referenceQuantity ?? Math.abs(quantity));
+    if (quantity < 0) inputValue = inputValue?.negated() ?? null;
+  }
+  // An outflow beyond recorded stock, a cost-less inflow into an unvalued
+  // shortfall, or goods without an invoice need a provisional unit cost.
+  let provisional: Prisma.Decimal | null = null;
+  const needsProvisional = (quantity < 0 && newQty < 0 && !(previousQty < 0 && balance.value !== null))
+    || (quantity > 0 && mode === 'AVERAGE' && ((previousQty < 0 && balance.value === null) || (posting.type === UNMATCHED_RECEIPT && !(previousQty > 0 && balance.value !== null))));
+  if (needsProvisional) {
+    const product = await tx.product.findUnique({ where: { id: posting.productId }, select: { cost: true, provisionalUnitCost: true } });
+    // Crossing zero from a valued positive balance uses that balance's average.
+    const average = previousQty > 0 && balance.value !== null ? balance.value.div(previousQty) : null;
+    provisional = provisionalUnitCost({ lastUnitCost: average ?? balance.lastUnitCost, provisionalUnitCost: product?.provisionalUnitCost, catalogCost: product?.cost });
+  }
+  const result = valueMovement({ quantity: previousQty, value: balance.value }, { quantity, mode, inputValue, kind: posting.type, provisionalUnitCost: provisional });
+  return { quantity, mode, inputValue, result };
+}
+
 /** Caller holds the product lock and owns the enclosing business transaction. */
 export async function postInventoryValue(tx: Prisma.TransactionClient, posting: ValuePosting, previousQty: number, newQty: number) {
   let balance = await tx.inventoryValuation.findUnique({ where: { productId: posting.productId } });
@@ -141,25 +213,7 @@ export async function postInventoryValue(tx: Prisma.TransactionClient, posting: 
       quantity: previousQty, value: previousQty ? null : 0, lastEntryId: baseline.id } });
   }
   if (balance.quantity !== previousQty) throw new AppError('Inventory quantities need reconciliation before this operation', 409);
-  const quantity = newQty - previousQty;
-  const mode = posting.valueMode ?? (quantity <= 0 ? 'AVERAGE' : ['COUNT', 'CYCLE_COUNT'].includes(posting.type) ? 'AVERAGE' : 'FIXED');
-  let inputValue = posting.valueInput === undefined || posting.valueInput === null ? null : precision(decimal(posting.valueInput));
-  if (mode === 'REFERENCE') {
-    if (!posting.referenceEntryId) throw new AppError('The original cost reference is required', 409);
-    const source = await effectiveEntry(tx, posting.referenceEntryId);
-    const referenceValue = ['SALE', 'OFFLINE_SALE'].includes(source.kind) ? source.cogsAmount : source.valueChange?.abs() ?? null;
-    inputValue = portion(referenceValue, Math.abs(source.quantity) || source.referenceQuantity || 0, posting.referenceOffset ?? 0, posting.referenceQuantity ?? Math.abs(quantity));
-    if (quantity < 0) inputValue = inputValue?.negated() ?? null;
-  }
-  // Only an outflow beyond recorded stock needs a provisional unit cost.
-  let provisional: Prisma.Decimal | null = null;
-  if (quantity < 0 && newQty < 0 && !(previousQty < 0 && balance.value !== null)) {
-    const product = await tx.product.findUnique({ where: { id: posting.productId }, select: { cost: true, provisionalUnitCost: true } });
-    // Crossing zero from a valued positive balance uses that balance's average.
-    const average = previousQty > 0 && balance.value !== null ? balance.value.div(previousQty) : null;
-    provisional = provisionalUnitCost({ lastUnitCost: average ?? balance.lastUnitCost, provisionalUnitCost: product?.provisionalUnitCost, catalogCost: product?.cost });
-  }
-  const result = valueMovement({ quantity: previousQty, value: balance.value }, { quantity, mode, inputValue, kind: posting.type, provisionalUnitCost: provisional });
+  const { quantity, mode, inputValue, result } = await planInventoryValue(tx, posting, balance, previousQty, newQty);
   // An offline sale consumes today's stock; today's cost is only an estimate of
   // its cost at the earlier sale time, so it is booked and flagged ESTIMATED.
   const costStatus: CostStatus = posting.forceUnknown ? (result.cogs === null ? 'UNKNOWN' : 'ESTIMATED') : result.costStatus;
@@ -169,6 +223,7 @@ export async function postInventoryValue(tx: Prisma.TransactionClient, posting: 
     sourceKey: posting.sourceKey || `${posting.type}:${posting.sourceId || randomUUID()}:${posting.productId}`,
     quantity, quantityBefore: previousQty, quantityAfter: newQty, inputValue, valueBefore: balance.value,
     valueChange: result.change, valueAfter: result.value, cogsAmount: result.cogs, costStatus,
+    unmatchedValue: result.unmatched && result.unmatched.greaterThan(0) ? result.unmatched : null,
     referenceEntryId: posting.referenceEntryId, referenceQuantity: posting.referenceQuantity, referenceOffset: posting.referenceOffset ?? 0,
     notes: posting.notes,
   } });
@@ -178,6 +233,13 @@ export async function postInventoryValue(tx: Prisma.TransactionClient, posting: 
   await tx.inventoryValuation.update({ where: { productId: posting.productId }, data: { quantity: newQty, value: result.value,
     lastEntryId: entry.id, lastUnitCost, ...(mode === 'OPENING' && result.value !== null ? { verifiedAt: new Date() } : {}) } });
   return entry;
+}
+
+/** Read-only valuation of a hypothetical movement (for previews). */
+export async function previewInventoryValue(tx: Prisma.TransactionClient, posting: ValuePosting, previousQty: number, newQty: number) {
+  const stored = await tx.inventoryValuation.findUnique({ where: { productId: posting.productId } });
+  const balance = stored ?? { quantity: previousQty, value: previousQty ? null : decimal(0), lastUnitCost: null };
+  return (await planInventoryValue(tx, posting, balance, previousQty, newQty)).result;
 }
 
 /** A read-only quote used only while the checkout transaction holds product locks. */
