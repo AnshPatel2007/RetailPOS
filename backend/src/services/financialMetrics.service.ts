@@ -59,8 +59,10 @@ export async function getFinancialMetrics(scope: Scope, range?: MetricRange, db:
       -- for every sale, even when the selected period contains many sales.
       SELECT i."saleId", SUM(CASE WHEN i."inventoryEntryId" IS NOT NULL THEN v."cogsAmount" ELSE COALESCE(i."costAmount", i."unitCost" * i.quantity) END) AS cost,
         SUM(COALESCE(i."costAmount", i."unitCost" * i.quantity, 0)) AS "bookedCost",
+        -- Provisional cost for units sold beyond recorded stock (never zero cost).
+        SUM(CASE WHEN i."costStatus" = 'ESTIMATED' THEN COALESCE(CASE WHEN i."inventoryEntryId" IS NOT NULL THEN v."cogsAmount" END, i."costAmount", 0) ELSE 0 END) AS "estimatedCost",
         BOOL_OR(CASE WHEN i."inventoryEntryId" IS NOT NULL THEN v."cogsAmount" IS NULL ELSE i."costAmount" IS NULL AND i."unitCost" IS NULL END) AS "missingCost"
-      FROM sale_items i JOIN sold s ON s.id = i."saleId" LEFT JOIN effective_inventory_values v ON v.id = i."inventoryEntryId" GROUP BY i."saleId"
+      FROM sale_items i JOIN sold s ON s.id = i."saleId" LEFT JOIN reported_inventory_values v ON v.id = i."inventoryEntryId" GROUP BY i."saleId"
     ), returned AS (
       SELECT r.* FROM refunds r JOIN sales s ON s.id = r."saleId"
       WHERE s.status IN ('COMPLETED', 'REFUNDED') AND ${saleScope(scope)}
@@ -71,24 +73,26 @@ export async function getFinancialMetrics(scope: Scope, range?: MetricRange, db:
     ), returned_costs AS (
       SELECT r.id, CASE WHEN e.id IS NOT NULL THEN -e."cogsAmount" ELSE i."costReturned" END AS cost
       FROM returned r LEFT JOIN refund_items i ON i."refundId" = r.id
-      LEFT JOIN effective_inventory_values e ON e."sourceKey" = 'refund-line:' || r.id || ':' || i."saleItemId"
+      LEFT JOIN reported_inventory_values e ON e."sourceKey" = 'refund-line:' || r.id || ':' || i."saleItemId"
     ), void_costs AS (
-      SELECT v.id, CASE WHEN EXISTS (SELECT 1 FROM effective_inventory_values e WHERE e."sourceKey" = 'void-line:' || i.id)
-        THEN (SELECT -e."cogsAmount" FROM effective_inventory_values e WHERE e."sourceKey" = 'void-line:' || i.id)
+      SELECT v.id, CASE WHEN EXISTS (SELECT 1 FROM reported_inventory_values e WHERE e."sourceKey" = 'void-line:' || i.id)
+        THEN (SELECT -e."cogsAmount" FROM reported_inventory_values e WHERE e."sourceKey" = 'void-line:' || i.id)
         ELSE COALESCE(i."costAmount", i."unitCost" * i.quantity) END AS cost
       FROM voided v LEFT JOIN sale_items i ON i."saleId" = v."saleId"
     ), inventory_adjustments AS (
-      SELECT e."cogsAmount" AS amount FROM effective_inventory_values e
+      SELECT e."cogsAmount" AS amount FROM reported_inventory_values e
       WHERE ${scope.locationId ? Prisma.sql`e."locationId" = ${scope.locationId}` : Prisma.sql`TRUE`}
         AND ${scope.userId || scope.criteria ? Prisma.sql`FALSE` : Prisma.sql`TRUE`}
-        AND e.kind IN ('ADJUSTMENT','COUNT','CYCLE_COUNT','STOCK_LOSS','IMPORT','TRANSFER_LOSS')
+        AND (e.kind IN ('ADJUSTMENT','COUNT','CYCLE_COUNT','STOCK_LOSS','IMPORT','TRANSFER_LOSS','COST_CORRECTION','SKU_CORRECTION')
+          -- Receipts into negative stock true up provisional sale costs in their own period.
+          OR (e.kind IN ('PURCHASE','TRANSFER_IN','TRANSFER_RETURN') AND e."cogsAmount" <> 0))
         AND ${dateCondition(Prisma.sql`e."createdAt"`, range)}
       UNION ALL SELECT -e."valueChange" - r."creditAmount" FROM supplier_returns r
-        JOIN effective_inventory_values e ON e."sourceKey" = 'supplier-return:' || r."idempotencyKey"
+        JOIN reported_inventory_values e ON e."sourceKey" = 'supplier-return:' || r."idempotencyKey"
       WHERE ${scope.locationId ? Prisma.sql`r."locationId" = ${scope.locationId}` : Prisma.sql`TRUE`}
         AND ${scope.userId || scope.criteria ? Prisma.sql`FALSE` : Prisma.sql`TRUE`}
         AND ${dateCondition(Prisma.sql`r."createdAt"`, range)}
-      UNION ALL SELECT -e."valueChange" - e."cogsAmount" FROM effective_inventory_values e
+      UNION ALL SELECT -e."valueChange" - e."cogsAmount" FROM reported_inventory_values e
       WHERE e.kind = 'OFFLINE_SALE' AND e.mode <> 'NONSTOCK' AND ${scope.locationId ? Prisma.sql`e."locationId" = ${scope.locationId}` : Prisma.sql`TRUE`}
         AND ${scope.userId || scope.criteria ? Prisma.sql`FALSE` : Prisma.sql`TRUE`}
         AND ${dateCondition(Prisma.sql`e."createdAt"`, range)}
@@ -120,9 +124,10 @@ export async function getFinancialMetrics(scope: Scope, range?: MetricRange, db:
           AND t."periodStart" <= d."businessDate" AND t."periodEnd" >= d."businessDate")) AS "missingLotteryDays",
       (SELECT COALESCE(SUM(cost), 0) FROM sold_lines) AS cost,
       (SELECT COALESCE(SUM("bookedCost"), 0) FROM sold_lines) AS "bookedSaleCosts",
+      (SELECT COALESCE(SUM("estimatedCost"), 0) FROM sold_lines) AS "estimatedSaleCosts",
       (SELECT COALESCE(SUM(amount), 0) FROM inventory_adjustments) AS "inventoryCostAdjustments",
       (SELECT COUNT(*) FROM inventory_adjustments WHERE amount IS NULL) AS "missingInventoryCosts",
-      (SELECT COALESCE(SUM(e."valueChange"),0) FROM effective_inventory_values e WHERE e.kind = 'PURCHASE'
+      (SELECT COALESCE(SUM(COALESCE(e."inputValue", e."valueChange")),0) FROM reported_inventory_values e WHERE e.kind = 'PURCHASE'
         AND ${scope.locationId ? Prisma.sql`e."locationId" = ${scope.locationId}` : Prisma.sql`TRUE`}
         AND ${dateCondition(Prisma.sql`e."createdAt"`, range)}) AS "receivedInventoryPurchases",
       (SELECT COUNT(*) FROM sold s LEFT JOIN sold_lines i ON i."saleId" = s.id
@@ -166,6 +171,8 @@ export function summarizeFinancialMetrics(row: Record<string, unknown>) {
   const recordedSaleCosts = money(value(row.cost) - value(row.returnedCost) - value(row.voidCost));
   const costIncomplete = missingCosts + value(row.missingInventoryCosts);
   const costOfGoodsSold = costIncomplete ? null : money(recordedSaleCosts + inventoryCostAdjustments);
+  const estimatedSaleCosts = money(value(row.estimatedSaleCosts));
+  const costEstimated = !costIncomplete && estimatedSaleCosts !== 0;
   const grossProfit = legacyVoids || netSales === null || costOfGoodsSold === null ? null : money(netSales - costOfGoodsSold);
   const expenses = money(value(row.expenses));
   const inventoryPurchases = money(value(row.inventoryPurchases));
@@ -183,13 +190,15 @@ export function summarizeFinancialMetrics(row: Record<string, unknown>) {
     refundCount: value(row.refundCount), costOfGoodsSold,
     recordedSaleCosts: missingCosts ? null : recordedSaleCosts, inventoryCostAdjustments: value(row.missingInventoryCosts) ? null : inventoryCostAdjustments,
     saleCostCorrections: money(value(row.cost) - value(row.bookedSaleCosts)), receivedInventoryPurchases: money(value(row.receivedInventoryPurchases)),
-    costCompleteness: { complete: !costIncomplete, missingRecords: costIncomplete, label: costIncomplete ? 'Cost information incomplete' : 'Recorded costs', reviewPath: '/financial?tab=inventory&costTab=missing' },
+    estimatedSaleCosts,
+    costCompleteness: { complete: !costIncomplete, missingRecords: costIncomplete, estimated: costEstimated, estimatedAmount: estimatedSaleCosts,
+      label: costIncomplete ? 'Cost information incomplete' : costEstimated ? 'Includes estimated costs' : 'Recorded costs', reviewPath: '/financial?tab=inventory&costTab=missing' },
     grossProfit, expenses, operatingExpenses: expenses, inventoryPurchases, recordedExpenses: money(expenses + inventoryPurchases),
     operatingProfit, otherIncome, lotteryEarnings,
     earningsCompleteness: { complete: !missingLotteryDays, pendingDays: missingLotteryDays, reviewPath: '/lottery?tab=reports', label: missingLotteryDays ? 'Lottery earnings pending' : 'Confirmed earnings' },
     netProfit: operatingProfit === null || missingLotteryDays ? null : money(operatingProfit + otherIncome),
     grossMargin: margin(grossProfit), operatingMargin: margin(operatingProfit),
-    costBasis: costIncomplete || legacyVoids ? 'UNAVAILABLE' : 'HISTORICAL',
+    costBasis: costIncomplete || legacyVoids ? 'UNAVAILABLE' : costEstimated ? 'ESTIMATED' : 'HISTORICAL',
     unavailableReason: legacyVoids ? 'Older voids have no recorded reversal date; historical profit requires review.' : taxUnavailable ? 'Original refund tax allocations are unavailable.'
       : costIncomplete ? 'Cost information incomplete. Review missing inventory and sale costs.' : missingLotteryDays ? 'Lottery earnings pending. Reconcile commissions in Lottery reports.' : null,
   };
@@ -264,7 +273,7 @@ export async function getProductFinancialMetrics(scope: Scope, range?: MetricRan
         i.tax::numeric AS tax, CASE WHEN i."inventoryEntryId" IS NOT NULL THEN c."cogsAmount" ELSE COALESCE(i."costAmount", i."unitCost" * i.quantity) END AS cost,
         CASE WHEN i."inventoryEntryId" IS NOT NULL THEN c."cogsAmount" IS NULL ELSE i."costAmount" IS NULL AND i."unitCost" IS NULL END AS missing
       FROM sale_items i JOIN sales s ON s.id = i."saleId"
-      LEFT JOIN effective_inventory_values c ON c.id = i."inventoryEntryId"
+      LEFT JOIN reported_inventory_values c ON c.id = i."inventoryEntryId"
       WHERE ${recordedSaleSql} AND ${saleScope(scope)} AND ${dateCondition(Prisma.sql`s."createdAt"`, range)}
       UNION ALL
       SELECT i."productId", i."productName", i.sku, -ri.quantity, -ri.amount::numeric,
@@ -272,14 +281,14 @@ export async function getProductFinancialMetrics(scope: Scope, range?: MetricRan
         (CASE WHEN c.id IS NOT NULL THEN c."cogsAmount" IS NULL ELSE ri."costReturned" IS NULL END) OR ri."taxAmount" IS NULL
       FROM refund_items ri JOIN refunds r ON r.id = ri."refundId"
       JOIN sale_items i ON i.id = ri."saleItemId" JOIN sales s ON s.id = r."saleId"
-      LEFT JOIN effective_inventory_values c ON c."sourceKey" = 'refund-line:' || r.id || ':' || i.id
+      LEFT JOIN reported_inventory_values c ON c."sourceKey" = 'refund-line:' || r.id || ':' || i.id
       WHERE s.status IN ('COMPLETED', 'REFUNDED') AND ${saleScope(scope)} AND ${dateCondition(Prisma.sql`r."createdAt"`, range)}
       UNION ALL
       SELECT i->>'productId', i->>'productName', i->>'sku', -(i->>'quantity')::int, -(i->>'amount')::numeric,
         -(i->>'taxAmount')::numeric, CASE WHEN c.id IS NOT NULL THEN c."cogsAmount" ELSE -(i->>'costReversed')::numeric END,
         CASE WHEN c.id IS NOT NULL THEN c."cogsAmount" IS NULL ELSE (i->>'costReversed') IS NULL END
       FROM sale_voids v JOIN sales s ON s.id = v."saleId" CROSS JOIN LATERAL jsonb_array_elements(v.items) i
-      LEFT JOIN effective_inventory_values c ON c."sourceKey" = 'void-line:' || (i->>'saleItemId')
+      LEFT JOIN reported_inventory_values c ON c."sourceKey" = 'void-line:' || (i->>'saleItemId')
       WHERE ${saleScope(scope)} AND ${dateCondition(Prisma.sql`v."createdAt"`, range)}
     ), unknown_returns AS (
       SELECT COUNT(*) AS count FROM refunds r JOIN sales s ON s.id = r."saleId"

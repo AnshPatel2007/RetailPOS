@@ -4,7 +4,7 @@ import fs from 'fs';
 
 test('a void with a lost response survives reload and retries without a second payout or restock', async ({ page }) => {
   await login(page, 'voids@example.test'); await page.goto('/pos');
-  await page.getByRole('button', { name: /Fixture Void.*20 in stock/ }).click();
+  await page.getByRole('button', { name: /^Fixture Void/ }).click();
   await page.getByRole('button', { name: 'Change quantity for Fixture Void', exact: true }).click();
   const pad = page.getByRole('dialog', { name: 'Quantity for Fixture Void' });
   await pad.getByRole('button', { name: '2', exact: true }).click();

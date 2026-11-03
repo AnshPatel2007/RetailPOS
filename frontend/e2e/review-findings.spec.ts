@@ -24,18 +24,19 @@ for (const tender of ['cash', 'split']) test(`immediate product taps and scans r
   await page.goto('/pos');
   const search = page.getByPlaceholder('Search products... (/ or F3)', { exact: true });
   await search.fill(item.name);
-  const card = page.getByRole('button', { name: new RegExp(item.name + '.*3 left') });
+  const card = page.getByRole('button', { name: new RegExp('^' + item.name) });
+  await expect(card).not.toContainText(/in stock|left/i);
   await card.click();
   const quantity = page.getByRole('button', { name: 'Change quantity for ' + item.name, exact: true });
   await expect(quantity).toHaveText('1');
   await expect(page.getByRole('dialog', { name: /^Quantity for/ })).toHaveCount(0);
   await scan(page, item.barcode); await expect(quantity).toHaveText('2');
   await card.click(); await expect(quantity).toHaveText('3');
-  await card.click(); await expect(quantity).toHaveText('3');
   await search.fill(empty.name);
-  await expect(page.getByRole('button', { name: new RegExp(empty.name + '.*Out of stock') })).toBeDisabled();
-  await scan(page, empty.barcode);
-  await expect(page.getByText('Only 0 in stock', { exact: true })).toBeVisible();
+  // A zero-stock item stays sellable and shows no stock count at the register.
+  const emptyCard = page.getByRole('button', { name: new RegExp('^' + empty.name) });
+  await expect(emptyCard).toBeEnabled();
+  await expect(emptyCard).not.toContainText(/stock/i);
   await expect(page.getByRole('button', { name: 'Change quantity for ' + empty.name, exact: true })).toHaveCount(0);
   await expect(page.getByText('Quick ten percent ' + tender, { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Charge $27.00', exact: true }).click();
@@ -67,7 +68,7 @@ test('age-restricted quick add still requires a valid DOB before payment', async
   await login(page, 'owner@example.test');
   const item = await product(page, 'Quick age restricted', 3, { minimumAge: 21 });
   await page.goto('/pos'); await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).fill(item.name);
-  await page.getByRole('button', { name: /Quick age restricted.*3 left/ }).click();
+  await page.getByRole('button', { name: /^Quick age restricted/ }).click();
   await page.getByRole('button', { name: 'Charge $10.00', exact: true }).click();
   const age = page.getByRole('dialog', { name: 'Age Verification Required', exact: true });
   await expect(age).toBeVisible(); await expect(page.getByRole('dialog', { name: 'Payment', exact: true })).toHaveCount(0);
@@ -91,7 +92,7 @@ test('staff roster keeps wages in Payroll and masks the account password', async
 test('phone cart quantity editor stays above the cart and confirms the selected quantity', async ({ page }, info) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await login(page, 'cashier@example.test'); await page.goto('/pos');
-  await page.getByRole('button', { name: /Fixture Coffee.*in stock/ }).click();
+  await page.getByRole('button', { name: /^Fixture Coffee/ }).click();
   await expect(page.getByRole('dialog', { name: /^Quantity for/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Open sale cart', exact: true }).click();
   const quantity = page.getByRole('button', { name: 'Change quantity for Fixture Coffee', exact: true }).filter({ visible: true });

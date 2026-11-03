@@ -4,7 +4,7 @@ import { login, logout } from './utils/auth-helper';
 async function terminalPayment(page: Page, reference: string) {
   await login(page, 'loyalty@example.test');
   await page.goto('/pos');
-  await page.getByRole('button', { name: /Fixture Loyalty.*in stock/ }).click();
+  await page.getByRole('button', { name: /^Fixture Loyalty/ }).click();
   await page.getByRole('button', { name: 'Charge $1.10', exact: true }).click();
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
@@ -41,7 +41,7 @@ test('a lost terminal sale response survives reload and retries the same transac
   await expect(recovery).toHaveCount(0);
   await expect(page.getByRole('dialog', { name: /Receipt/ })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('button', { name: /Fixture Loyalty.*in stock/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Fixture Loyalty/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review payment' })).toHaveCount(0);
 });
 
@@ -58,7 +58,7 @@ test('an unsaved terminal payment stays with its cashier through logout and can 
   await logout(page);
   await login(page, 'owner@example.test');
   await page.goto('/pos');
-  await expect(page.getByRole('button', { name: /Fixture.*in stock|Fixture.*left/ }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Fixture/ }).first()).toBeVisible();
   await expect(page.getByText('RECOVERY-NOT-SAVED')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Review payment' })).toHaveCount(0);
   await logout(page);

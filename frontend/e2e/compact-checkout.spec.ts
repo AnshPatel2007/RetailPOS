@@ -16,7 +16,7 @@ test('photo catalog and text-only cart keep six item rows visible on a laptop', 
   } })).status()).toBe(201);
   await page.goto('/pos');
   await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).fill('Compact item');
-  for (let index = 1; index <= 6; index++) await page.getByRole('button', { name: new RegExp('Compact item ' + index + '.*10 left') }).click();
+  for (let index = 1; index <= 6; index++) await page.getByRole('button', { name: new RegExp('^Compact item ' + index + ' \\$') }).click();
   const cart = page.locator('[data-sale-cart]').filter({ visible: true });
   await expect(cart.getByRole('button', { name: 'Recent Transactions', exact: true })).toHaveCount(0);
   await expect(cart.getByText('Link Customer', { exact: true })).toHaveCount(0);
@@ -59,7 +59,7 @@ test('short receipts print a barcode and Quick Refund supports recent, typed and
   expect((await page.request.post('/api/products', { headers, data: { name: 'Receipt barcode item', sku: 'RECEIPT-CODE-ITEM', price: 10, cost: 5, stockQuantity: 20, trackInventory: true, isTaxable: true } })).status()).toBe(201);
   await page.goto('/pos');
   await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).fill('Receipt barcode item');
-  await page.getByRole('button', { name: /Receipt barcode item.*in stock/ }).click();
+  await page.getByRole('button', { name: /^Receipt barcode item/ }).click();
   await page.getByRole('button', { name: 'Charge $11.00', exact: true }).click();
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });

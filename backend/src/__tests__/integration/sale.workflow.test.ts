@@ -100,8 +100,9 @@ describe('Sale Workflow Integration Tests', () => {
       expect(log!.quantity).toBe(-2);
     });
 
-    it('should reject a sale exceeding available stock', async () => {
-      const res = await api
+    it('should complete a sale exceeding recorded stock and open an inventory exception', async () => {
+      // The customer is holding the item: recorded stock never blocks checkout.
+      await api
         .post('/api/sales')
         .withAuth(cashierToken)
         .withBody({
@@ -109,14 +110,13 @@ describe('Sale Workflow Integration Tests', () => {
           paymentMethod: 'CASH',
           amountPaid: 5000,
         })
-        .expectStatus(400)
+        .expectStatus(201)
         .execute();
 
-      assertResponse.error(res, 'Insufficient stock');
-
-      // No stock touched
       const product = await prisma.product.findUnique({ where: { id: testData.product.id } });
-      expect(product!.stockQuantity).toBe(100);
+      expect(product!.stockQuantity).toBe(-1);
+      const exception = await prisma.inventoryException.findUnique({ where: { openProductId: testData.product.id } });
+      expect(exception).toMatchObject({ status: 'OPEN', latestQuantity: -1 });
     });
 
     it('should reject insufficient payment', async () => {

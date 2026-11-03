@@ -3,7 +3,6 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { CartItem, Product, Customer, Promotion } from '../types';
 import { applyPromotions, isPromotionActiveNow } from '../lib/promotionEngine';
-import { maxCartQuantity } from '../lib/sellingUnits';
 
 interface HeldSale {
   id: string;
@@ -88,8 +87,8 @@ export const useCartStore = create<CartState>()(
       addItem: (product: Product, quantity = 1) => {
         const items = get().items;
         const existingItem = items.find((item) => item.product.id === product.id);
-        const nextQuantity = (existingItem?.quantity || 0) + quantity;
-        if (!Number.isSafeInteger(quantity) || quantity <= 0 || (product.trackInventory && nextQuantity > maxCartQuantity(product, items))) return false;
+        // Recorded stock never limits the cart; only recalls/prohibited items do.
+        if (!Number.isSafeInteger(quantity) || quantity <= 0 || product.saleBlockedReason) return false;
 
         if (existingItem) {
           set({
@@ -118,7 +117,7 @@ export const useCartStore = create<CartState>()(
 
       updateQuantity: (productId: string, quantity: number) => {
         const item = get().items.find(line => line.product.id === productId);
-        if (!Number.isSafeInteger(quantity) || !item || (item.product.trackInventory && quantity > maxCartQuantity(item.product, get().items))) return;
+        if (!Number.isSafeInteger(quantity) || !item) return;
         if (quantity <= 0) {
           get().removeItem(productId);
           return;

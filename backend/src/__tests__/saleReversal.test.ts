@@ -24,6 +24,8 @@ function fixture(overrides: any = {}) {
     inventoryValuation: { findUnique: jest.fn().mockResolvedValue({ quantity: 8, value: null }), update: jest.fn() },
     inventoryValueEntry: { create: jest.fn().mockImplementation(async ({ data }) => ({ id: 'value-entry', ...data })) },
     giftCard: { findFirst: jest.fn().mockResolvedValue({ id: 'card', locationId: 'store-a', currentBalance: 0 }), update: jest.fn() },
+    saleItemCorrection: { count: jest.fn().mockResolvedValue(0) },
+    inventoryException: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn(), update: jest.fn() },
   };
   return { sale, tx };
 }

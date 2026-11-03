@@ -11,6 +11,7 @@ import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
 import { Button } from '@/components/ui/Button';
 import { can } from '@/lib/capabilities';
 import { formatCurrency } from '@/lib/utils';
+import { useInventoryExceptionCount } from '@/hooks/useInventoryExceptionCount';
 import {
   BarChart,
   Bar,
@@ -105,6 +106,7 @@ const DashboardContent: React.FC = () => {
   const canReports = user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const query = useScopedQuery<DashboardMetrics>(['dashboard'], async signal => (await reportService.getDashboard(signal)).data.data);
   const metrics = query.data;
+  const exceptionCount = useInventoryExceptionCount(canInventory && user?.role !== 'SUPER_ADMIN');
 
   if (query.loading) {
     return (
@@ -292,6 +294,23 @@ const DashboardContent: React.FC = () => {
                 <div>
                   <p className="text-xs text-muted-foreground">Stock Alerts</p>
                   <p className="text-lg font-bold">{metrics?.lowStockCount || 0}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </button>)}
+
+        {canInventory && exceptionCount > 0 && (<button onClick={() => navigate('/inventory/stock-control/exceptions')} className="text-left">
+          <Card className="hover:border-primary transition-colors h-full">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-destructive/10">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Inventory exceptions</p>
+                  <p className="text-lg font-bold">{exceptionCount}</p>
+                  <p className="text-xs text-muted-foreground">Sold below recorded stock</p>
                 </div>
               </div>
             </CardContent>

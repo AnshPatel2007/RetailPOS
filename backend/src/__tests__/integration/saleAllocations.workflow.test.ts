@@ -128,12 +128,14 @@ describe('Original sale facts and exact loyalty returns', () => {
     expect((await getAdminDashboard('max')).totals.totalProfit).toBeNull();
   });
 
-  it('does not invent a historical cost when replaying an offline checkout', async () => {
+  it('estimates and flags the cost of a replayed offline checkout instead of treating it as free', async () => {
     const shift = await prisma.shift.findFirstOrThrow({ where: { userId: data.adminUser.id, isClosed: false } });
     const originalTime = new Date().toISOString();
     await prisma.product.update({ where: { id: data.product.id }, data: { cost: 99 } });
     const sale = await sell(1, 0, { offlineCreatedAt: originalTime, offlineShiftId: shift.id, expectedTotal: 1.1 });
-    expect(sale.items[0].unitCost).toBeNull();
-    expect((await getAdminDashboard('max')).totals.totalProfit).toBeNull();
+    // Today's average stands in for the earlier sale's cost and is marked ESTIMATED,
+    // never the catalog price and never zero.
+    expect(sale.items[0].unitCost).not.toBeNull(); expect(sale.items[0].unitCost).not.toBe(99);
+    expect((await prisma.saleItem.findUniqueOrThrow({ where: { id: sale.items[0].id } })).costStatus).toBe('ESTIMATED');
   });
 });

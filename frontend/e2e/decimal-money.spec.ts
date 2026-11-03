@@ -8,7 +8,7 @@ test('fractional unit prices use the same rounded line and tax in cart, quote, p
   const created = await page.request.post('/api/products', { headers, data: { name: 'Precision Unit', sku: 'PRECISION-UNIT', price: 1.005, cost: 0.1234, stockQuantity: 10, isTaxable: true } });
   expect(created.status()).toBe(201);
   await page.goto('/pos');
-  await page.getByRole('button', { name: /Precision Unit.*10 left/ }).click();
+  await page.getByRole('button', { name: /^Precision Unit/ }).click();
   await page.getByRole('button', { name: 'Change quantity for Precision Unit', exact: true }).click();
   const pad = page.getByRole('dialog', { name: 'Quantity for Precision Unit' });
   await pad.getByRole('button', { name: '3', exact: true }).click();

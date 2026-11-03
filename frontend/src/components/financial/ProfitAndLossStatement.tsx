@@ -23,6 +23,8 @@ export function ProfitAndLossStatement({ report, month, onReviewCosts }: { repor
   const date = new Intl.DateTimeFormat(undefined, { timeZone: report.period.timezone, month: 'short', day: 'numeric', year: 'numeric' });
   const period = `${date.format(new Date(report.period.start))} – ${date.format(new Date(new Date(report.period.end).getTime() - Number(report.period.endExclusive)))}`;
   const hasIncompleteCosts = report.costCompleteness?.complete === false;
+  // Units sold beyond recorded stock carry a provisional cost, flagged rather than treated as free.
+  const estimatedCost = !hasIncompleteCosts && report.costCompleteness?.estimated ? report.costCompleteness.estimatedAmount ?? null : null;
   const hasPendingEarnings = report.earningsCompleteness?.complete === false;
   return <div className="financial-statement-view">
     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -31,7 +33,7 @@ export function ProfitAndLossStatement({ report, month, onReviewCosts }: { repor
     </div>
     <SummaryStrip emphasis items={[
       { label: 'Net sales', value: money(report.revenue.netSales), detail: 'Excluding sales tax' },
-      { label: 'COGS', value: money(report.costOfGoodsSold), detail: hasIncompleteCosts ? 'Cost information incomplete' : 'Recorded inventory costs' },
+      { label: 'COGS', value: money(report.costOfGoodsSold), detail: hasIncompleteCosts ? 'Cost information incomplete' : estimatedCost !== null ? `Includes ${money(estimatedCost)} estimated cost` : 'Recorded inventory costs' },
       { label: 'Gross profit', value: money(report.grossProfit), detail: margin(report.margins.gross) },
       { label: 'Net income', value: money(report.netIncome), detail: margin(report.margins.net), tone: report.netIncome != null && report.netIncome < 0 ? 'danger' : 'default' },
     ]} />

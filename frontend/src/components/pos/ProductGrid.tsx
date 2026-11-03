@@ -30,23 +30,17 @@ interface ProductGridProps {
   searchInputRef: React.RefObject<HTMLInputElement>;
 }
 
-const StockLine = ({ product }: { product: Product }) => {
-  if (!product.trackInventory) return <div className="h-4" />;
-  const qty = product.stockQuantity;
-  if (qty <= 0) {
-    return <p className="h-4 text-xs font-medium text-destructive">Out of stock</p>;
-  }
-  if (qty <= product.lowStockAlert) {
-    return <p className="h-4 text-xs font-medium text-warning">{qty} left</p>;
-  }
-  return <p className="h-4 text-xs text-muted-foreground">{qty} in stock</p>;
-};
+// Stock counts are deliberately not shown at the register: recorded stock never
+// blocks a sale. Only a recall/prohibited-sale hold is surfaced.
+const SaleHoldLine = ({ product }: { product: Product }) => product.saleBlockedReason
+  ? <p className="h-4 text-xs font-medium text-destructive truncate">Not for sale</p>
+  : <div className="h-4" />;
 
 interface ProductCardProps {
   product: Product;
   qty: number;
   favorite: boolean;
-  outOfStock: boolean;
+  saleBlocked: boolean;
   onClick: () => void;
   onToggleFavorite: () => void;
 }
@@ -55,7 +49,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
   product,
   qty,
   favorite,
-  outOfStock,
+  saleBlocked,
   onClick,
   onToggleFavorite,
 }) => {
@@ -66,11 +60,11 @@ const ProductCard: React.FC<ProductCardProps> = ({
     <div className="pos-product-tile relative group">
       <button
         onClick={onClick}
-        disabled={outOfStock}
+        disabled={saleBlocked}
         type="button"
         title={product.name}
         className={`pos-product-button w-full text-left border border-border rounded-lg bg-card transition-colors ${
-          outOfStock
+          saleBlocked
             ? 'opacity-50 cursor-not-allowed'
             : 'hover:border-primary/50 hover:bg-accent/30'
         }`}
@@ -92,7 +86,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
         <p className="pos-product-price tabular-nums">
           {formatCurrency(product.price)}
         </p>
-        <StockLine product={product} />
+        <SaleHoldLine product={product} />
       </button>
 
       {/* In-cart quantity badge (non-interactive, sibling of the card button) */}
@@ -135,7 +129,6 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
   toggleFavorite,
   searchInputRef,
 }) => {
-  const isOutOfStock = (product: Product) => product.trackInventory && product.stockQuantity <= 0;
 
   return (
     <div className="pos-catalog">
@@ -209,7 +202,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
                 product={product}
                 qty={getCartQty(product.id)}
                 favorite={isFavorite(product.id)}
-                outOfStock={isOutOfStock(product)}
+                saleBlocked={!!product.saleBlockedReason}
                 onClick={() => onProductClick(product)}
                 onToggleFavorite={() => toggleFavorite(product.id)}
               />

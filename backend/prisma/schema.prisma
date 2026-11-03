@@ -8,6 +8,9 @@ model InventoryValuation {
   locationId String
   quantity Int
   value Decimal? @db.Decimal(24, 8)
+  // Last trustworthy average or receipt unit cost; values shortfalls when
+  // recorded stock runs out (provisional COGS, flagged ESTIMATED).
+  lastUnitCost Decimal? @db.Decimal(24, 8)
   lastEntryId String?
   verifiedAt DateTime?
   updatedAt DateTime @updatedAt
@@ -33,6 +36,7 @@ model InventoryValueEntry {
   valueChange Decimal? @db.Decimal(24, 8)
   valueAfter Decimal? @db.Decimal(24, 8)
   cogsAmount Decimal? @db.Decimal(24, 8)
+  costStatus CostStatus @default(VERIFIED)
   referenceEntryId String?
   referenceQuantity Int?
   referenceOffset Int @default(0)
@@ -56,6 +60,10 @@ model InventoryCostCorrection {
   idempotencyKey String @unique
   requestHash String
   preview Json
+  // RESTATED: fills a missing cost in its original period (never finalized).
+  // CURRENT_PERIOD: changes an already-booked cost; the difference posts as a
+  // COST_CORRECTION entry when confirmed and past reports stay unchanged.
+  recognition String @default("RESTATED")
   createdAt DateTime @default(now())
   @@index([locationId, createdAt])
   @@map("inventory_cost_corrections")
@@ -270,6 +278,17 @@ model Product {
   baseUnitName    String            @default("unit")
   sellingUnits    ProductSellingUnit[]
   verifiedUnitCost Decimal? @db.Decimal(24, 8)
+  // Owner-authorized fallback cost for sales beyond recorded stock when no
+  // receipt or average cost exists yet.
+  provisionalUnitCost Decimal? @db.Decimal(14, 4)
+  // Recall / prohibited-sale hold. Recorded stock never blocks a sale; this does.
+  saleBlockedReason String?
+  // Structured attributes used to suggest related SKUs when stock goes negative.
+  brand String?
+  productFamily String?
+  variant String?
+  size String?
+  inventoryExceptions InventoryException[]
   id              String            @id @default(uuid())
   sku             String
   name            String
@@ -310,6 +329,8 @@ model Product {
   @@index([barcode])
   @@index([categoryId])
   @@index([locationId])
+  @@index([locationId, productFamily])
+  @@index([locationId, brand])
   @@map("products")
 }
 
@@ -618,6 +639,7 @@ model SaleItem {
   unitsPerPackage Int @default(1)
   inventoryQuantity Int?
   costAmount Decimal? @db.Decimal(24, 8)
+  costStatus CostStatus @default(VERIFIED)
   inventoryEntryId String? @unique
   unitCost Decimal? @db.Decimal(14, 4)
   taxRate Decimal? @db.Decimal(9, 4)
@@ -1450,6 +1472,12 @@ model ManagerApproval {
   @@map("manager_approvals")
 }
 
+enum CostStatus {
+  VERIFIED
+  ESTIMATED
+  UNKNOWN
+}
+
 enum UserRole {
   SUPER_ADMIN
   ADMIN
@@ -1851,4 +1879,59 @@ model PayrollEntry {
   @@unique([shiftId, periodStart])
   @@index([locationId, periodEnd])
   @@map("payroll_entries")
+}
+
+/// A recorded quantity below zero that needs investigation. One unresolved
+/// exception per product: openProductId is set while unresolved and cleared on
+/// resolution, so the unique index allows exactly one open record.
+model InventoryException {
+  id String @id @default(uuid())
+  productId String
+  locationId String
+  openProductId String? @unique
+  status String @default("OPEN") // OPEN | RECOUNT_REQUESTED | RESOLVED
+  firstNegativeAt DateTime @default(now())
+  lastNegativeAt DateTime @default(now())
+  triggerSaleId String?
+  triggerEntryId String?
+  lowestQuantity Int
+  latestQuantity Int
+  occurrenceCount Int @default(1)
+  assignedToId String?
+  recountRequestedAt DateTime?
+  recountRequestedById String?
+  countedQuantity Int?
+  adjustmentEntryId String?
+  resolution String?
+  resolutionNotes String?
+  resolvedById String?
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  @@index([locationId, status, lastNegativeAt])
+  @@index([productId, createdAt])
+  @@map("inventory_exceptions")
+}
+
+/// Manager correction of a sale line rung up under the wrong SKU. The sale and
+/// its line stay unchanged; stock and cost move from one SKU to the other.
+model SaleItemCorrection {
+  id String @id @default(uuid())
+  saleId String
+  saleItemId String
+  locationId String
+  fromProductId String
+  toProductId String
+  quantity Int
+  reason String
+  notes String?
+  userId String
+  reverseEntryId String?
+  applyEntryId String?
+  idempotencyKey String @unique
+  createdAt DateTime @default(now())
+  @@index([saleItemId])
+  @@index([locationId, createdAt])
+  @@map("sale_item_corrections")
 }

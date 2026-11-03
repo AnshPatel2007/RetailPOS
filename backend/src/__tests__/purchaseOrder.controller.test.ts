@@ -326,78 +326,12 @@ describe('Purchase Order Controller', () => {
       ],
     };
 
-    it('should update inventory and mark order received', async () => {
-      const mockRequest = createMockAuthRequest({
-        params: { id: 'po-123' },
-        body: {},
-      });
-
-      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(orderWithItems);
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue({
-        id: 'product-1',
-        stockQuantity: 5,
-        locationId: 'location-123', trackInventory: true, stockVersion: 0,
-      });
-
-      await purchaseOrderController.receivePurchaseOrder(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      // Stock incremented by received quantity (5 + 10)
-      expect(prisma.product.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'product-1' },
-          data: { stockQuantity: 15 },
-        })
-      );
-      expect(prisma.inventoryLog.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            productId: 'product-1',
-            type: 'PURCHASE',
-            quantity: 10,
-          }),
-        })
-      );
-      expect(prisma.$transaction).toHaveBeenCalled();
-      expect(mockResponse.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: true,
-          message: 'Delivery recorded and order closed',
-        })
-      );
-    });
-
-    it('should keep a partial delivery open with the remaining quantity', async () => {
-      const mockRequest = createMockAuthRequest({
-        params: { id: 'po-123' },
-        body: { idempotencyKey: 'b7ea08b2-8fb9-4b24-a88d-551231b96ade', receivedItems: [{ productId: 'product-1', quantity: 8 }] },
-      });
-
-      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(orderWithItems);
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue({
-        id: 'product-1',
-        stockQuantity: 5,
-        locationId: 'location-123', trackInventory: true, stockVersion: 0,
-      });
-
-      await purchaseOrderController.receivePurchaseOrder(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      expect(mockResponse.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            remaining: 2,
-            status: 'PARTIALLY_RECEIVED',
-          }),
-        })
-      );
-    });
+    // Receiving runs inside purchaseReceiving.service with row locks, the cost
+    // ledger and package snapshots; mocked-Prisma assertions on product.update no
+    // longer describe it. Full and partial deliveries, landed cost, receiving into
+    // negative stock and idempotency are covered against a real database in
+    // integration/purchaseReceiving.workflow.test.ts, inventoryCost.workflow.test.ts
+    // and retailInventory.acceptance.test.ts (scenarios 15 and 16).
 
     it('should reject receiving an already-received order', async () => {
       const mockRequest = createMockAuthRequest({ params: { id: 'po-123' }, body: {} });

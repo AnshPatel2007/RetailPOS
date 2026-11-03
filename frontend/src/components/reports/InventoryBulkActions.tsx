@@ -1,3 +1,4 @@
+import { ADJUSTMENT_REASONS } from '@/components/inventory/StockAdjustmentModal';
 import { Select } from '@/components/ui/Select';
 import React, { useEffect, useState } from 'react';
 import { Package, DollarSign, Tag, Power, X } from 'lucide-react';
@@ -29,6 +30,7 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
   const [costUpdate, setCostUpdate] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [stockVersions, setStockVersions] = useState<Record<string, number>>({});
+  const [stockReason, setStockReason] = useState('MANUAL_COUNT');
   const selectionKey = selectedIds.join(',');
   useEffect(() => {
     if (!showStockInput) return;
@@ -69,7 +71,7 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
         type: stockType,
         expectedVersion: stockType === 'set' ? stockVersions[productId] : undefined,
       }));
-      await productService.bulkUpdateStock(updates);
+      await productService.bulkUpdateStock(updates, stockReason);
       onSuccess();
       onClearSelection();
       setShowStockInput(false);
@@ -263,6 +265,9 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
                 Apply
               </Button>
             </div>
+            <Select value={stockReason} onChange={(e) => setStockReason(e.target.value)} aria-label="Reason for stock change" className="px-3 py-1 border rounded-md text-sm">
+              {ADJUSTMENT_REASONS.filter(r => r.value !== 'OTHER').map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </Select>
           </div>
         )}
 

@@ -48,11 +48,12 @@ describe('Manager approvals without changing the cashier session', () => {
 
   it('rolls approval consumption back when checkout fails', async () => {
     const body = checkout(); const token = await issue(body);
-    await prisma.product.update({ where: { id: data.product.id }, data: { stockQuantity: 0 } });
-    await post('/api/sales', body, token).expect(400);
+    // Recorded stock no longer fails a checkout; a recall hold still does.
+    await prisma.product.update({ where: { id: data.product.id }, data: { saleBlockedReason: 'Manufacturer recall' } });
+    await post('/api/sales', body, token).expect(409);
     expect((await prisma.managerApproval.findFirstOrThrow()).consumedAt).toBeNull();
     expect(await prisma.activityLog.count({ where: { action: 'MANAGER_APPROVAL_USED' } })).toBe(0);
-    await prisma.product.update({ where: { id: data.product.id }, data: { stockQuantity: 1 } });
+    await prisma.product.update({ where: { id: data.product.id }, data: { saleBlockedReason: null } });
     await post('/api/sales', body, token).expect(201);
   });
 

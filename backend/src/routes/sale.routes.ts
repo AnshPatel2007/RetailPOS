@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as saleController from '../controllers/sale.controller';
-import { authenticate, authorize } from '../middleware/auth';
+import { authenticate, authorize, requireCapability } from '../middleware/auth';
+import { correctSaleItemProduct } from '../controllers/inventoryException.controller';
 import { validate } from '../middleware/validate';
 import { createSaleSchema, refundSaleSchema, quoteSaleSchema } from '../validators/sale.validator';
 
@@ -42,6 +43,9 @@ router.post(
   validate(refundSaleSchema),
   saleController.refundSale
 );
+
+// Manager correction of a line rung up under the wrong SKU (receipt unchanged).
+router.post('/:id/items/:itemId/correct-product', requireCapability('sale.reverse'), correctSaleItemProduct);
 
 router.post(
   '/:id/void',

@@ -15,7 +15,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
-import { PaymentMethod, SaleStatus, Prisma } from '@prisma/client';
+import { PaymentMethod, SaleStatus, Prisma, CostStatus } from '@prisma/client';
 import { refundSaleInTransaction, voidSaleInTransaction } from '../services/saleReversal.service';
 import { bulkVoid } from '../services/bulkVoid.service';
 import { bulkRefund, previewBulkRefund } from '../services/bulkRefund.service';
@@ -295,7 +295,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
         // A queued offline sale has no trusted historical cost quote. Today's
         // cost cannot establish its cost at the earlier sale time.
         id: randomUUID(), unitCost: null as number | null,
-        costAmount: null as Prisma.Decimal | null, inventoryEntryId: null as string | null,
+        costAmount: null as Prisma.Decimal | null, inventoryEntryId: null as string | null, costStatus: 'UNKNOWN' as CostStatus,
         discount: Math.round((line.discount + line.loyaltyDiscount) * 100) / 100,
       }));
     if (typeof expectedTotal === 'number' && Math.abs(total - expectedTotal) > 0.005) {
@@ -343,9 +343,10 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       if (!product) throw new AppError('Product is unavailable', 409);
       if (product.trackInventory) {
         const updated = await moveInventory(tx, { productId: product.id, locationId: req.user!.locationId!, userId: req.user!.id,
-          type: 'SALE', sourceId: saleId, sourceKey: 'sale-line:' + line.id, quantity: -line.quantity, forceUnknown: !!offlineCreatedAt });
+          type: 'SALE', sourceId: saleId, sourceKey: 'sale-line:' + line.id, quantity: -line.quantity, forceUnknown: !!offlineCreatedAt, allowNegative: true });
         line.inventoryEntryId = updated.inventoryEntry.id;
         line.costAmount = updated.inventoryEntry.cogsAmount;
+        line.costStatus = updated.inventoryEntry.costStatus;
         if (updated.stockQuantity <= product.lowStockAlert && product.stockQuantity > product.lowStockAlert)
           lowStockProducts.push({ name: product.name, sku: product.sku, stock: updated.stockQuantity, threshold: product.lowStockAlert });
       } else {
@@ -353,6 +354,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
         const entry = await postNonstockCost(tx, { productId: product.id, locationId: req.user!.locationId!, userId: req.user!.id,
           sourceId: saleId, sourceKey: 'sale-line:' + line.id, kind: 'SALE', quantity: line.quantity, cost: line.costAmount });
         line.inventoryEntryId = entry.id;
+        line.costStatus = line.costAmount === null ? 'UNKNOWN' : 'VERIFIED';
       }
       line.unitCost = line.costAmount === null ? null : line.costAmount.div(line.quantity).toDecimalPlaces(4).toNumber();
     }

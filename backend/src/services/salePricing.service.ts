@@ -25,11 +25,10 @@ export function priceSaleItems(items: any[], freshProductMap: Map<string, any>, 
         throw new AppError(`Product not found: ${item.productId}. It may have been deleted.`, 404);
       }
 
-      if (!isMisc && product.trackInventory && product.stockQuantity < item.quantity) {
-        throw new AppError(
-          `Insufficient stock for "${product.name}": requested ${item.quantity}, only ${product.stockQuantity} available`,
-          400
-        );
+      // Recorded stock never blocks a sale: the customer is holding the item.
+      // Legal and safety holds (recalls, prohibited items) still do.
+      if (!isMisc && product.saleBlockedReason) {
+        throw new AppError(`"${product.name}" cannot be sold: ${product.saleBlockedReason}`, 409);
       }
 
       // Use the ACTUAL product price from DB, not the frontend-supplied price
@@ -45,19 +44,12 @@ export function priceSaleItems(items: any[], freshProductMap: Map<string, any>, 
     });
 
     // A pack and its carton are separate sale lines backed by the same stock.
-    // Validate their combined base-unit demand before accepting any payment.
-    const inventoryDemand = new Map<string, { quantity: number; available: number; name: string }>();
+    // Their combined base-unit demand may exceed recorded stock; only reject
+    // quantities that cannot be represented.
     for (const { item, product, isMisc } of pricedItems) {
       if (isMisc || !product.trackInventory) continue;
-      const baseId = product.inventoryProductId || product.id;
       const quantity = item.quantity * (product.sellingUnitId ? product.unitsPerPackage : 1);
       if (!Number.isSafeInteger(quantity) || quantity > 2147483647) throw new AppError('Invalid inventory quantity', 400);
-      const prior = inventoryDemand.get(baseId);
-      const available = product.baseStockQuantity ?? product.stockQuantity;
-      inventoryDemand.set(baseId, { quantity: (prior?.quantity || 0) + quantity, available: Math.min(prior?.available ?? available, available), name: product.name });
-    }
-    for (const demand of inventoryDemand.values()) if (demand.quantity > demand.available) {
-      throw new AppError(`Insufficient shared stock for "${demand.name}": the selected packs and cartons require ${demand.quantity} base units, only ${demand.available} available`, 400);
     }
 
     // Promotions apply to real catalog items only (misc lines have no identity)

@@ -225,8 +225,8 @@ export const productService = {
   identify: (data: { barcode?: string; image?: string; mediaType?: string }, signal?: AbortSignal) =>
     api.post('/products/identify', data, { timeout: 60000, signal }),
 
-  bulkUpdateStock: (updates: any[]) =>
-    api.post('/products/bulk-update-stock', { updates }),
+  bulkUpdateStock: (updates: any[], reason: string, notes?: string) =>
+    api.post('/products/bulk-update-stock', { updates, reason, notes }),
 
   bulkUpdatePrice: (productIds: string[], priceUpdate?: number, costUpdate?: number) =>
     api.post('/products/bulk-update-price', { productIds, priceUpdate, costUpdate }),
@@ -656,6 +656,22 @@ export const cycleCountService = {
   refresh: (id: string) => api.post(`/cycle-counts/${id}/refresh`),
   approve: (id: string) => api.post(`/cycle-counts/${id}/approve`),
   cancel: (id: string) => api.post(`/cycle-counts/${id}/cancel`),
+};
+
+/**
+ * Inventory exceptions: negative-stock discrepancy alerts
+ */
+export const inventoryExceptionService = {
+  getAll: (params?: { status?: 'open' | 'resolved' | 'all'; page?: number; limit?: number; locationId?: string }, signal?: AbortSignal) =>
+    api.get('/inventory-exceptions', { params, signal }),
+  summary: (params?: { locationId?: string }, signal?: AbortSignal) => api.get('/inventory-exceptions/summary', { params, signal }),
+  getById: (id: string, params?: { locationId?: string }) => api.get(`/inventory-exceptions/${id}`, { params }),
+  requestRecount: (id: string, assignedToId?: string | null) => api.post(`/inventory-exceptions/${id}/recount`, { assignedToId }),
+  recordCount: (id: string, data: { countedQuantity: number; resolution: string; notes?: string; expectedVersion: number; idempotencyKey: string }) =>
+    api.post(`/inventory-exceptions/${id}/count`, data),
+  resolve: (id: string, data: { resolution: string; notes?: string }) => api.post(`/inventory-exceptions/${id}/resolve`, data),
+  correctSaleLine: (saleId: string, itemId: string, data: { toProductId: string; quantity: number; reason: string; idempotencyKey: string }) =>
+    api.post(`/sales/${saleId}/items/${itemId}/correct-product`, data),
 };
 
 /**

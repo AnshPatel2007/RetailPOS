@@ -12,7 +12,6 @@ import {
   Pencil,
   Tag,
 } from 'lucide-react';
-import toast from 'react-hot-toast';
 
 interface CartItemCardProps {
   onEditQuantity: () => void;
@@ -111,13 +110,7 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
           <button type="button" onClick={onEditQuantity} aria-label={`Change quantity for ${item.product.name}`}
             className="pos-quantity-button pos-quantity-value tabular-nums">{item.quantity}</button>
           <button
-            onClick={() => {
-              if (item.product.trackInventory && item.quantity + 1 > item.product.stockQuantity) {
-                toast.error(`Only ${item.product.stockQuantity} in stock`);
-                return;
-              }
-              onUpdateQuantity(item.product.id, item.quantity + 1);
-            }}
+            onClick={() => onUpdateQuantity(item.product.id, item.quantity + 1)}
             className="pos-quantity-button"
             title="Increase quantity"
           >

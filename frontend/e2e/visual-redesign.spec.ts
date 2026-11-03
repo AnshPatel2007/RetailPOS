@@ -47,7 +47,7 @@ test.describe('touch register', () => {
     await page.setViewportSize({ width: 1366, height: 768 });
     await login(page, 'cashier@example.test'); await page.goto('/pos');
     await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).fill('Fixture Coffee');
-    await page.getByRole('button', { name: /Fixture Coffee.*in stock/ }).click();
+    await page.getByRole('button', { name: /^Fixture Coffee/ }).click();
     const cart = page.locator('[data-sale-cart]').filter({ visible: true });
     const plus = cart.getByRole('button', { name: 'Increase quantity', exact: true });
     expect((await plus.boundingBox())!.height).toBeGreaterThanOrEqual(44);

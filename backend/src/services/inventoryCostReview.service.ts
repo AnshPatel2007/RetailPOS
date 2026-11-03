@@ -36,6 +36,14 @@ export async function confirmOpening(tx: Prisma.TransactionClient, locationId: s
 }
 
 export type CorrectionInput = { entryId: string; value: number; reason: string };
+/** Re-derive the provisional unit cost a shortfall originally used: the corrected
+ * average when crossing zero from stock, else the cost the posting recorded. */
+function replayProvisional(before: { quantity: number; value: Prisma.Decimal | null }, row: { quantity: number; quantityBefore: number; valueChange: Prisma.Decimal | null }) {
+  if (row.quantity >= 0 || before.quantity + row.quantity >= 0) return null;
+  if (before.quantity > 0 && before.value !== null) return before.value.div(before.quantity);
+  if (row.quantityBefore <= 0 && row.valueChange !== null) return row.valueChange.negated().div(-row.quantity);
+  return null;
+}
 export async function previewCostCorrection(tx: Prisma.TransactionClient, locationId: string, input: CorrectionInput) {
   const source = await effectiveEntry(tx, input.entryId);
   if (source.locationId !== locationId) throw new AppError('Cost record not found at this store', 404);
@@ -57,6 +65,9 @@ export async function previewCostCorrection(tx: Prisma.TransactionClient, locati
     previousCogs: Prisma.Decimal | null; previousValue: Prisma.Decimal | null; effectiveAt: Date }[] = [];
   const saleResolution = ['SALE', 'OFFLINE_SALE'].includes(source.kind);
   for (const row of effective) {
+    // Current-period correction entries summarize revisions already present in
+    // the replayed facts; replaying them again would count the change twice.
+    if (row.kind === 'COST_CORRECTION') continue;
     const reference = row.referenceEntryId ? calculated.get(row.referenceEntryId) : undefined;
     if (row.id !== source.id && !states.has(row.productId) && !reference) continue;
     const before = states.get(row.productId) || { quantity: row.quantityBefore, value: row.valueBefore };
@@ -67,7 +78,7 @@ export async function previewCostCorrection(tx: Prisma.TransactionClient, locati
       if (row.quantity < 0 || (row.mode === 'NONSTOCK' && ['RETURN','VOID_RETURN'].includes(row.kind))) inputValue = inputValue?.negated() ?? null;
     }
     const result = row.id === source.id && saleResolution ? { quantity: row.quantityAfter, value: row.valueAfter, change: row.valueChange, cogs: decimal(input.value) }
-      : valueMovement(before, { quantity: row.quantity, mode: row.mode, inputValue, kind: row.kind });
+      : valueMovement(before, { quantity: row.quantity, mode: row.mode, inputValue, kind: row.kind, provisionalUnitCost: replayProvisional(before, row) });
     if (row.kind === 'OFFLINE_SALE' && !(row.id === source.id && saleResolution)) result.cogs = row.cogsAmount;
     const next = { ...row, inputValue, valueBefore: before.value, valueChange: result.change, valueAfter: result.value, cogsAmount: result.cogs };
     calculated.set(row.id, next);
@@ -79,7 +90,14 @@ export async function previewCostCorrection(tx: Prisma.TransactionClient, locati
   }
   const balances = [...states].map(([productId, state]) => ({ productId, ...state }));
   const token = hash({ input, changes, balances, watermark: rows.at(-1)?.sequence, revisions: revisions.map(r => r.id) });
-  return { token, changes, balances, source, explanation: 'This records an audit entry and restates affected inventory and sale costs in their original periods. Booked sales remain unchanged.' };
+  // Filling a cost that was never recorded restates its (incomplete) period;
+  // changing an already-booked cost is recognized when confirmed.
+  const fillsMissing = saleResolution || source.inputValue === null;
+  const recognition = fillsMissing ? 'RESTATED' : 'CURRENT_PERIOD';
+  return { token, changes, balances, source, recognition,
+    explanation: fillsMissing
+      ? 'This fills a missing cost in its original period (that period was reported as incomplete). Booked sales remain unchanged.'
+      : 'This records an audit entry and recognizes the cost difference in the current period. Earlier reports stay unchanged; booked sales remain unchanged.' };
 }
 
 export async function confirmCostCorrection(tx: Prisma.TransactionClient, locationId: string, userId: string,
@@ -96,11 +114,37 @@ export async function confirmCostCorrection(tx: Prisma.TransactionClient, locati
   const preview = await previewCostCorrection(tx, locationId, clean);
   if (preview.token !== input.token) throw new AppError('Inventory changed. Review a fresh correction preview before confirming.', 409);
   const correction = await tx.inventoryCostCorrection.create({ data: { locationId, userId, sourceEntryId: input.entryId,
-    inputValue: input.value, reason: input.reason, idempotencyKey: input.idempotencyKey, requestHash, preview: json(preview) } });
+    inputValue: input.value, reason: input.reason, idempotencyKey: input.idempotencyKey, requestHash, preview: json(preview),
+    recognition: preview.recognition } });
   for (const row of preview.changes) await tx.inventoryCostRevision.create({ data: { correctionId: correction.id, entryId: row.entryId,
     inputValue: row.inputValue, valueBefore: row.valueBefore, valueChange: row.valueChange, valueAfter: row.valueAfter, cogsAmount: row.cogsAmount } });
-  for (const balance of preview.balances) await tx.inventoryValuation.updateMany({ where: { productId: balance.productId }, data: { value: balance.value } });
-  return { id: correction.id, affectedEntries: preview.changes.length, replayed: false };
+  if (preview.recognition === 'CURRENT_PERIOD') {
+    // One dated entry per product carries the sold share of the difference into
+    // this period as COGS. The on-hand share is already in the revised balance
+    // (and the revisions the valuation view reads), so the entry restates no value.
+    const cogsDelta = new Map<string, Prisma.Decimal | null>();
+    for (const row of preview.changes) {
+      const prior = cogsDelta.has(row.productId) ? cogsDelta.get(row.productId)! : decimal(0);
+      const delta = row.cogsAmount === null || row.previousCogs === null ? (row.cogsAmount === row.previousCogs ? decimal(0) : null)
+        : row.cogsAmount.minus(row.previousCogs);
+      cogsDelta.set(row.productId, prior === null || delta === null ? null : prior.plus(delta));
+    }
+    for (const balance of preview.balances) {
+      const current = await tx.inventoryValuation.findUnique({ where: { productId: balance.productId } });
+      if (!current) continue;
+      const product = await tx.product.findUnique({ where: { id: balance.productId }, select: { locationId: true } });
+      const cogs = cogsDelta.get(balance.productId) ?? decimal(0);
+      if (cogs?.isZero()) continue;
+      await tx.inventoryValueEntry.create({ data: { productId: balance.productId, locationId: product?.locationId || locationId, userId,
+        kind: 'COST_CORRECTION', mode: 'CORRECTION', sourceId: correction.id, sourceKey: 'cost-correction:' + correction.id + ':' + balance.productId,
+        quantity: 0, quantityBefore: current.quantity, quantityAfter: current.quantity, inputValue: null,
+        valueBefore: balance.value, valueChange: 0, valueAfter: balance.value, cogsAmount: cogs, costStatus: cogs === null ? 'UNKNOWN' : 'VERIFIED',
+        notes: input.reason } });
+    }
+  }
+  for (const balance of preview.balances) await tx.inventoryValuation.updateMany({ where: { productId: balance.productId }, data: { value: balance.value,
+    ...(balance.quantity > 0 && balance.value !== null ? { lastUnitCost: balance.value.div(balance.quantity).toDecimalPlaces(8) } : {}) } });
+  return { id: correction.id, affectedEntries: preview.changes.length, recognition: preview.recognition, replayed: false };
 }
 
 export async function supplierReturn(tx: Prisma.TransactionClient, locationId: string, userId: string,

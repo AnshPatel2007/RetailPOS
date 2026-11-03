@@ -28,6 +28,7 @@ export function PreserveRedirect({ to }: { to: string }) {
 export const stockControlViews = [
   { label: 'Transfers', path: '/inventory/stock-control/transfers' },
   { label: 'Counts', path: '/inventory/stock-control/counts' },
+  { label: 'Exceptions', path: '/inventory/stock-control/exceptions' },
   { label: 'Movement History', path: '/inventory/stock-control/movements' },
 ];
 

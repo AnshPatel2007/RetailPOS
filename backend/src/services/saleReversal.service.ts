@@ -56,6 +56,10 @@ export const refundSaleInTransaction = async (req: AuthRequest, tx: Prisma.Trans
   if (sale.status === SaleStatus.VOIDED) {
     throw new AppError('Cannot refund a voided sale', 400);
   }
+  // A corrected line's stock now belongs to a different SKU; restocking the
+  // original product would undo the correction.
+  if (restock !== false && await tx.saleItemCorrection.count({ where: { saleId: sale.id } }))
+    throw new AppError('A line on this sale had its product corrected. Refund without restocking, then count the returned item into stock.', 409);
 
   // Calculate already-refunded amount
   const previouslyRefunded = dollars(sale.refunds.reduce((sum, r) => sum + cents(Number(r.amount)), 0));
@@ -296,6 +300,7 @@ export const voidSaleInTransaction = async (req: AuthRequest, tx: Prisma.Transac
   if (sale.status === SaleStatus.VOIDED) throw new AppError('Sale already voided', 400);
   if (sale.status !== SaleStatus.COMPLETED) throw new AppError('Only completed sales can be voided', 400);
   if (sale.refunds.length) throw new AppError('This sale has refunds. Refund the remaining balance instead of voiding it.', 400);
+  if (await tx.saleItemCorrection.count({ where: { saleId: sale.id } })) throw new AppError('A line on this sale had its product corrected. Refund it without restocking instead of voiding.', 409);
   if (input.expectedAmount !== undefined && cents(input.expectedAmount) !== cents(Number(sale.total))) throw new AppError('Sale amount changed. Reload and review the void.', 409);
   const internalTenders = ['GIFT_CARD', 'STORE_CREDIT', 'HOUSE_ACCOUNT'];
   if ((!sale.payments.length && internalTenders.includes(sale.paymentMethod))

@@ -50,10 +50,16 @@ describe('manager reconciliation of saved register payments', () => {
     await post({ ...input, receipt: { ...input.receipt, tax: 2 } }).expect(400);
     await post({ ...input, receipt: { ...input.receipt, pointsEarned: 1 } }).expect(400);
     await post({ ...input, originalShiftId: undefined }).expect(400);
-    await prisma.product.update({ where: { id: data.product.id }, data: { stockQuantity: 0 } });
-    await post(input).expect(400);
     expect(await prisma.sale.count()).toBe(0); expect(await prisma.operationReceipt.count()).toBe(0);
     expect(await prisma.drawerEntry.count()).toBe(0);
+  });
+
+  it('books an original offline receipt even when recorded stock ran out, and raises an exception', async () => {
+    await prisma.product.update({ where: { id: data.product.id }, data: { stockQuantity: 0 } });
+    await post({ ...body('BOOK_CASH'), receipt: receipt() }).expect(200);
+    expect(await prisma.sale.count()).toBe(1);
+    expect((await prisma.product.findUniqueOrThrow({ where: { id: data.product.id } })).stockQuantity).toBeLessThan(0);
+    expect(await prisma.inventoryException.findUnique({ where: { openProductId: data.product.id } })).not.toBeNull();
   });
 
   it('keeps holds as evidence and permits one later final disposition', async () => {

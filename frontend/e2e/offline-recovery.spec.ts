@@ -4,7 +4,7 @@ import { login, logout } from './utils/auth-helper';
 test('offline cash survives logout, supports store review, and replays only for its cashier', async ({ page, context }) => {
   await login(page, 'cashier@example.test');
   await page.goto('/pos');
-  await page.getByRole('button', { name: /Fixture Loyalty.*in stock/ }).click();
+  await page.getByRole('button', { name: /^Fixture Loyalty/ }).click();
   await page.getByRole('button', { name: 'Charge $1.10', exact: true }).click();
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });

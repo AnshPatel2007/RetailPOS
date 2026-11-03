@@ -35,6 +35,7 @@ const GiftCards = lazy(() => import('./pages/GiftCards').then(m => ({ default: m
 const InventoryTransfers = lazy(() => import('./pages/InventoryTransfers').then(m => ({ default: m.InventoryTransfers })));
 const InventoryMovements = lazy(() => import('./pages/InventoryMovements').then(m => ({ default: m.InventoryMovements })));
 const CycleCount = lazy(() => import('./pages/CycleCount').then(m => ({ default: m.CycleCount })));
+const InventoryExceptions = lazy(() => import('./pages/InventoryExceptions').then(m => ({ default: m.InventoryExceptions })));
 const Lottery = lazy(() => import('./pages/Lottery').then(m => ({ default: m.Lottery })));
 const AuditLog = lazy(() => import('./pages/AuditLog').then(m => ({ default: m.AuditLog })));
 const StoreCredits = lazy(() => import('./pages/StoreCredits').then(m => ({ default: m.StoreCredits })));
@@ -219,7 +220,7 @@ function App() {
         <Route path="/inventory-transfers" element={<PreserveRedirect to="/inventory/stock-control/transfers" />} />
         <Route path="/cycle-counts" element={<PreserveRedirect to="/inventory/stock-control/counts" />} />
         <Route path="/inventory/stock-control" element={<PreserveRedirect to="/inventory/stock-control/transfers" />} />
-        {[["transfers", <InventoryTransfers />], ["counts", <CycleCount />], ["movements", <InventoryMovements />]].map(([view, page]) => <Route key={String(view)} path={'/inventory/stock-control/' + view} element={<PageRoute roles={MANAGER_ROLES} page={<WorkflowNavigation label="Inventory / Stock Control" views={stockControlViews}>{page}</WorkflowNavigation>} />} />)}
+        {[["transfers", <InventoryTransfers />], ["counts", <CycleCount />], ["exceptions", <InventoryExceptions />], ["movements", <InventoryMovements />]].map(([view, page]) => <Route key={String(view)} path={'/inventory/stock-control/' + view} element={<PageRoute roles={MANAGER_ROLES} page={<WorkflowNavigation label="Inventory / Stock Control" views={stockControlViews}>{page}</WorkflowNavigation>} />} />)}
         <Route path="/lottery" element={<PageRoute page={<Lottery />} />} />
         <Route path="/audit-log" element={<PageRoute page={<AuditLog />} roles={MANAGER_ROLES} />} />
         <Route path="/store-credits" element={<PreserveRedirect to="/customers/accounts/store-credits" />} />

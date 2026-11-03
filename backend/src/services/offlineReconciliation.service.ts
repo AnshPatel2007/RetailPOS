@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, CostStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { AuthRequest } from '../types';
@@ -84,19 +84,19 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
         if (!await tx.customer.findFirst({ where: { id: input.customerId, locationId: req.user!.locationId! } })) throw new AppError('Original customer not found at this store', 404);
       }
       const offlineSaleId = randomUUID();
-      const costEntries = new Map<string, string>();
+      const costEntries = new Map<string, { id: string; cogsAmount: Prisma.Decimal | null; costStatus: CostStatus }>();
       const lowStockProducts: { name: string; sku: string; stock: number; threshold: number }[] = [];
       for (const product of products.sort((a, b) => a.id.localeCompare(b.id))) if (product.trackInventory) {
         const updated = await moveInventory(tx, { productId: product.id, locationId: req.user!.locationId!, userId: input.cashierId,
-          type: 'SALE', sourceId: offlineSaleId, sourceKey: 'offline-sale:' + input.localId + ':' + product.id, forceUnknown: true,
+          type: 'SALE', sourceId: offlineSaleId, sourceKey: 'offline-sale:' + input.localId + ':' + product.id, forceUnknown: true, allowNegative: true,
           quantity: -receipt.items.find(item => item.productId === product.id)!.quantity, notes: 'Offline receipt reviewed by ' + req.user!.id });
-        costEntries.set(product.id, updated.inventoryEntry.id);
+        costEntries.set(product.id, updated.inventoryEntry);
         if (updated.stockQuantity <= product.lowStockAlert) lowStockProducts.push({ name: product.name, sku: product.sku, stock: updated.stockQuantity, threshold: product.lowStockAlert });
         } else {
           const entry = await postNonstockCost(tx, { productId: product.id, locationId: req.user!.locationId!, userId: input.cashierId,
             sourceId: offlineSaleId, sourceKey: 'offline-sale:' + input.localId + ':' + product.id, kind: 'OFFLINE_SALE',
             quantity: receipt.items.find(item => item.productId === product.id)!.quantity, cost: null });
-          costEntries.set(product.id, entry.id);
+          costEntries.set(product.id, { id: entry.id, cogsAmount: null, costStatus: 'UNKNOWN' });
       }
       const store = await tx.location.findUniqueOrThrow({ where: { id: req.user!.locationId! }, select: { timezone: true } });
       const sale = await tx.sale.create({ data: { id: offlineSaleId, saleNumber: generateSaleNumber(at, store.timezone, await nextDocumentSequence(tx)), idempotencyKey: input.localId, userId: input.cashierId,
@@ -105,8 +105,11 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
         subtotal: receipt.subtotal, discount: receipt.discount, tax: receipt.tax, total: input.total, amountPaid: receipt.amountPaid, changeDue: receipt.changeDue,
         notes: 'Manager-booked original offline receipt: ' + input.reference,
         payments: { create: { paymentMethod: 'CASH', amount: receipt.amountPaid } },
-        items: { create: receipt.items.map(item => ({ ...item, unitCost: null, costAmount: null, inventoryEntryId: costEntries.get(item.productId), taxRate: null, taxTreatment: 'VERIFIED_OFFLINE_RECEIPT',
-          manualDiscount: item.discount, loyaltyDiscount: 0, surcharge: 0, pointsRedeemed: 0 })) } } });
+        items: { create: receipt.items.map(item => { const cost = costEntries.get(item.productId)!; return { ...item,
+          // Today's average estimates the original receipt's cost; it is flagged, not verified.
+          unitCost: cost.cogsAmount === null ? null : cost.cogsAmount.div(item.quantity).toDecimalPlaces(4), costAmount: cost.cogsAmount,
+          costStatus: cost.costStatus, inventoryEntryId: cost.id, taxRate: null, taxTreatment: 'VERIFIED_OFFLINE_RECEIPT',
+          manualDiscount: item.discount, loyaltyDiscount: 0, surcharge: 0, pointsRedeemed: 0 }; }) } } });
       await postDrawerEntry(tx, { sourceKey: 'sale:' + sale.id, shiftId: shift.id, locationId: req.user!.locationId!, userId: input.cashierId, saleId: sale.id, type: 'SALE', amount: input.total, createdAt: at });
       await tx.shift.update({ where: { id: shift.id }, data: { totalSales: { increment: input.total }, totalTransactions: { increment: 1 },
         ...(lockedShift.isClosed ? { expectedCash: { increment: input.total }, cashDifference: { decrement: input.total } } : {}) } });

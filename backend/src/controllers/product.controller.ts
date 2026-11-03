@@ -1,3 +1,4 @@
+import { ADJUSTMENT_REASONS } from './inventoryAdjustment.controller';
 import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
@@ -249,7 +250,7 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
  */
 export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const { expectedStockVersion, ...data } = req.body;
+  const { expectedStockVersion, stockAdjustmentReason, stockAdjustmentNotes, ...data } = req.body;
   await validateProductCategory(req, data.categoryId);
 
   const product = await prisma.product.findUnique({ where: { id } });
@@ -297,7 +298,9 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     const updated = await tx.product.update({ where: { id }, data: updateFields, include: { category: true } });
     if (data.stockQuantity === undefined || data.stockQuantity === current.stockQuantity) return updated;
     if (expectedStockVersion === undefined) throw new AppError('Refresh the product before changing its stock quantity', 409);
-    const moved = await moveInventory(tx, { productId: id, locationId: req.user!.locationId!, userId: req.user!.id, type: 'ADJUSTMENT', setQuantity: data.stockQuantity, expectedVersion: expectedStockVersion, notes: 'Product edit' });
+    if (!(ADJUSTMENT_REASONS as readonly string[]).includes(stockAdjustmentReason)) throw new AppError('Select a reason for this stock change', 400);
+    if (stockAdjustmentReason === 'OTHER' && !stockAdjustmentNotes?.trim()) throw new AppError('Describe the reason when choosing Other', 400);
+    const moved = await moveInventory(tx, { productId: id, locationId: req.user!.locationId!, userId: req.user!.id, type: stockAdjustmentReason, costKind: 'ADJUSTMENT', setQuantity: data.stockQuantity, expectedVersion: expectedStockVersion, notes: stockAdjustmentNotes?.trim() || 'Product edit' });
     return { ...updated, stockQuantity: moved.stockQuantity, stockVersion: moved.stockVersion };
   });
 

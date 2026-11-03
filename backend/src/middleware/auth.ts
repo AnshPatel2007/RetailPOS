@@ -7,11 +7,11 @@ import prisma from '../config/database';
 import { can, Capability } from '../policies/capabilities';
 import { omitWageDetails } from '../utils/wagePrivacy';
 
-const operationAreas = new Set(['products', 'categories', 'sales', 'customers', 'shifts', 'reports', 'expenses', 'suppliers', 'purchase-orders', 'analytics', 'financial', 'gift-cards', 'store-credit', 'exchanges', 'inventory-transfers', 'cycle-counts', 'lottery', 'audit-logs', 'promotions', 'house-accounts', 'payroll', 'offline']);
+const operationAreas = new Set(['products', 'categories', 'sales', 'customers', 'shifts', 'reports', 'expenses', 'suppliers', 'purchase-orders', 'analytics', 'financial', 'gift-cards', 'store-credit', 'exchanges', 'inventory-transfers', 'cycle-counts', 'inventory-exceptions', 'lottery', 'audit-logs', 'promotions', 'house-accounts', 'payroll', 'offline']);
 const restrictedAreas: Record<string, Capability> = {
   payroll: 'payroll.manage', expenses: 'financial.read', financial: 'financial.read',
   suppliers: 'inventory.read', 'purchase-orders': 'inventory.read', 'inventory-transfers': 'inventory.read',
-  'cycle-counts': 'inventory.read', analytics: 'report.read', 'audit-logs': 'activity.read',
+  'cycle-counts': 'inventory.read', 'inventory-exceptions': 'inventory.read', analytics: 'report.read', 'audit-logs': 'activity.read',
 };
 
 // Kept for callers; authorization now reads current data on every request.

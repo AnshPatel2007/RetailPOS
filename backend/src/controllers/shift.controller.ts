@@ -241,8 +241,14 @@ export const getShiftZReport = asyncHandler(async (req: AuthRequest, res: Respon
   }), { isolationLevel: 'RepeatableRead' });
   if (!shift || (req.user?.role === 'CASHIER' && shift.userId !== req.user.id)) throw new AppError('Shift not found', 404);
   assertOwnsRecord(req, shift.locationId);
+  // Discrepancy alerts raised during this shift (sales beyond recorded stock).
+  const shiftEnd = shift.clockOutAt ?? new Date();
+  const [inventoryExceptionsRaised, inventoryExceptionsOpen] = shift.locationId ? await Promise.all([
+    prisma.inventoryException.count({ where: { locationId: shift.locationId, createdAt: { gte: shift.clockInAt, lte: shiftEnd } } }),
+    prisma.inventoryException.count({ where: { locationId: shift.locationId, status: { in: ['OPEN', 'RECOUNT_REQUESTED'] } } }),
+  ]) : [0, 0];
   res.json({ success: true, data: {
-    ...summarizeDrawer(shift), shiftId: shift.id, cashier: shift.user.firstName + ' ' + shift.user.lastName,
+    ...summarizeDrawer(shift), shiftId: shift.id, inventoryExceptionsRaised, inventoryExceptionsOpen, cashier: shift.user.firstName + ' ' + shift.user.lastName,
     location: shift.location?.name || null, clockInAt: shift.clockInAt, clockOutAt: shift.clockOutAt, isClosed: shift.isClosed,
     cashMovements: shift.cashMovements, drawerEntries: shift.drawerEntries.map(entry => ({ ...entry, amount: Number(entry.amount) })),
   } });

@@ -30,8 +30,8 @@ describe('Versioned inventory and cycle-count isolation', () => {
 
   it('requires a recount if stock moved, even when it returned to the same quantity', async () => {
     const count = await review(98);
-    await post('/api/products/' + data.product.id + '/adjust-inventory', { quantity: -1 }).expect(200);
-    await post('/api/products/' + data.product.id + '/adjust-inventory', { quantity: 1 }).expect(200);
+    await post('/api/products/' + data.product.id + '/adjust-inventory', { quantity: -1, type: 'CORRECTION' }).expect(200);
+    await post('/api/products/' + data.product.id + '/adjust-inventory', { quantity: 1, type: 'CORRECTION' }).expect(200);
     await post('/api/cycle-counts/' + count.id + '/approve').expect(409);
     expect((await stock()).stockQuantity).toBe(100);
     await post('/api/cycle-counts/' + count.id + '/refresh').expect(200);
@@ -64,7 +64,7 @@ describe('Versioned inventory and cycle-count isolation', () => {
   });
 
   it('concurrent adjustments and sales retain every unit and an unbroken history', async () => {
-    const responses = await Promise.all([sale(), post('/api/products/' + data.product.id + '/adjust-inventory', { quantity: 5 }), post('/api/products/' + data.product.id + '/adjust-inventory', { quantity: -3 })]);
+    const responses = await Promise.all([sale(), post('/api/products/' + data.product.id + '/adjust-inventory', { quantity: 5, type: 'CORRECTION' }), post('/api/products/' + data.product.id + '/adjust-inventory', { quantity: -3, type: 'CORRECTION' })]);
     expect(responses.map(r => r.status).sort()).toEqual([200, 200, 201]);
     expect((await stock()).stockQuantity).toBe(101);
     const logs = await prisma.inventoryLog.findMany({ where: { productId: data.product.id }, orderBy: { stockVersion: 'asc' } });
@@ -87,17 +87,17 @@ describe('Versioned inventory and cycle-count isolation', () => {
     for (const countedQty of [-1, 1.5]) await enter(count.id, [{ id: count.items[0].id, countedQty }]).expect(400);
     const version = (await stock()).stockVersion;
     await sale().expect(201);
-    await post('/api/products/bulk-update-stock', { updates: [{ productId: data.product.id, quantity: 10, type: 'set', expectedVersion: version }] }).expect(409);
+    await post('/api/products/bulk-update-stock', { updates: [{ productId: data.product.id, quantity: 10, type: 'set', expectedVersion: version }], reason: 'MANUAL_COUNT' }).expect(409);
     expect((await stock()).stockQuantity).toBe(99);
   });
 
   it('editing a stale product quantity preserves a concurrent sale and rolls back other edits', async () => {
     const snapshot = await stock();
     await sale().expect(201);
-    await request(app).put('/api/products/' + data.product.id).set('Authorization', 'Bearer ' + owner).send({ name: 'Should roll back', stockQuantity: 50, expectedStockVersion: snapshot.stockVersion }).expect(409);
+    await request(app).put('/api/products/' + data.product.id).set('Authorization', 'Bearer ' + owner).send({ name: 'Should roll back', stockAdjustmentReason: 'MANUAL_COUNT', stockQuantity: 50, expectedStockVersion: snapshot.stockVersion }).expect(409);
     expect((await stock()).stockQuantity).toBe(99); expect((await stock()).name).toBe(data.product.name);
     const current = await stock();
-    await request(app).put('/api/products/' + data.product.id).set('Authorization', 'Bearer ' + owner).send({ stockQuantity: 50, expectedStockVersion: current.stockVersion }).expect(200);
+    await request(app).put('/api/products/' + data.product.id).set('Authorization', 'Bearer ' + owner).send({ stockAdjustmentReason: 'MANUAL_COUNT', stockQuantity: 50, expectedStockVersion: current.stockVersion }).expect(200);
     const latest = await prisma.inventoryLog.findFirstOrThrow({ where: { productId: data.product.id }, orderBy: { stockVersion: 'desc' } });
     expect(latest).toMatchObject({ previousQty: 99, newQty: 50, quantity: -49 });
   });

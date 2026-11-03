@@ -4,7 +4,7 @@ import { login } from './utils/auth-helper';
 async function openPayment(page: Page, quantity = 1) {
   await login(page, 'loyalty@example.test');
   await page.goto('/pos');
-  await page.getByRole('button', { name: /Fixture Loyalty.*in stock/ }).click();
+  await page.getByRole('button', { name: /^Fixture Loyalty/ }).click();
   await page.getByRole('button', { name: 'Change quantity for Fixture Loyalty', exact: true }).click();
   const pad = page.getByRole('dialog', { name: 'Quantity for Fixture Loyalty' });
   await pad.getByRole('button', { name: String(quantity), exact: true }).click();
@@ -68,7 +68,7 @@ test('eligible products explain the EBT launch boundary without offering an unsa
   } });
   expect(created.status()).toBe(201);
   await page.goto('/pos');
-  await page.getByRole('button', { name: /SNAP Boundary Fixture.*5 left/ }).click();
+  await page.getByRole('button', { name: /^SNAP Boundary Fixture/ }).click();
   await page.getByRole('button', { name: 'Charge $1.10', exact: true }).click();
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });

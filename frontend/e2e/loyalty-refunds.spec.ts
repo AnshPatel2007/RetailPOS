@@ -3,7 +3,7 @@ import { login } from './utils/auth-helper';
 
 async function checkout(page: Page, quantity: number, points: string, total: string) {
   await page.goto('/pos');
-  await page.getByRole('button', { name: /Fixture Loyalty.*in stock/ }).click();
+  await page.getByRole('button', { name: /^Fixture Loyalty/ }).click();
   await page.getByRole('button', { name: 'Change quantity for Fixture Loyalty', exact: true }).click();
   const pad = page.getByRole('dialog', { name: 'Quantity for Fixture Loyalty' });
   await pad.getByRole('button', { name: String(quantity), exact: true }).click();

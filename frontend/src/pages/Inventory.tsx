@@ -1,3 +1,4 @@
+import { ADJUSTMENT_REASONS } from '@/components/inventory/StockAdjustmentModal';
 import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { api, productService, categoryService } from '@/services/api';
@@ -86,6 +87,13 @@ export const Inventory: React.FC = () => {
     isActive: true,
     trackInventory: true,
     allowBackorder: false,
+    saleBlockedReason: '',
+    provisionalUnitCost: '',
+    stockAdjustmentReason: 'MANUAL_COUNT',
+    brand: '',
+    productFamily: '',
+    variant: '',
+    size: '',
     minimumAge: '',
     ebtEligible: false,
     priceEmbedded: false,
@@ -228,6 +236,12 @@ export const Inventory: React.FC = () => {
         isActive: formData.isActive,
         trackInventory: formData.trackInventory,
         allowBackorder: formData.allowBackorder,
+        saleBlockedReason: formData.saleBlockedReason.trim() || null,
+        provisionalUnitCost: formData.provisionalUnitCost ? parseFloat(formData.provisionalUnitCost) : null,
+        brand: formData.brand.trim() || null,
+        productFamily: formData.productFamily.trim() || null,
+        variant: formData.variant.trim() || null,
+        size: formData.size.trim() || null,
         minimumAge: formData.minimumAge ? parseInt(formData.minimumAge) : null,
         ebtEligible: formData.ebtEligible,
         priceEmbedded: formData.priceEmbedded,
@@ -235,7 +249,7 @@ export const Inventory: React.FC = () => {
 
       if (editingProduct) {
         if (!data.trackInventory || data.stockQuantity === editingProduct.stockQuantity) delete data.stockQuantity;
-        else data.expectedStockVersion = editingProduct.stockVersion;
+        else { data.expectedStockVersion = editingProduct.stockVersion; data.stockAdjustmentReason = formData.stockAdjustmentReason; }
         await productService.update(editingProduct.id, data);
       } else {
         await productService.create(data);
@@ -275,6 +289,13 @@ export const Inventory: React.FC = () => {
       isActive: product.isActive,
       trackInventory: product.trackInventory,
       allowBackorder: product.allowBackorder,
+      saleBlockedReason: product.saleBlockedReason || '',
+      stockAdjustmentReason: 'MANUAL_COUNT',
+      provisionalUnitCost: product.provisionalUnitCost?.toString() || '',
+      brand: product.brand || '',
+      productFamily: product.productFamily || '',
+      variant: product.variant || '',
+      size: product.size || '',
       minimumAge: product.minimumAge?.toString() || '',
       ebtEligible: product.ebtEligible ?? false,
       priceEmbedded: product.priceEmbedded ?? false,
@@ -319,6 +340,13 @@ export const Inventory: React.FC = () => {
       isActive: true,
       trackInventory: true,
       allowBackorder: false,
+      saleBlockedReason: '',
+      provisionalUnitCost: '',
+      stockAdjustmentReason: 'MANUAL_COUNT',
+      brand: '',
+      productFamily: '',
+      variant: '',
+      size: '',
       minimumAge: '',
       ebtEligible: false,
       priceEmbedded: false,
@@ -442,6 +470,12 @@ export const Inventory: React.FC = () => {
                   <Input label="Product Name" value={formData.name} onChange={e => lookup.editIdentity('name', e.target.value)} required />
                   <Input label="SKU" value={formData.sku} onChange={e => lookup.editIdentity('sku', e.target.value)} description="Editable store code; defaults to the barcode." required />
                 </div>
+                <div className="product-field-grid">
+                  <Input label="Brand" description="Optional" value={formData.brand} onChange={e => setFormData({ ...formData, brand: e.target.value })} maxLength={80} placeholder="e.g. Gatorade" />
+                  <Input label="Product family" description="Optional. Groups flavors/variants to check together." value={formData.productFamily} onChange={e => setFormData({ ...formData, productFamily: e.target.value })} maxLength={80} placeholder="e.g. Gatorade Thirst Quencher" />
+                  <Input label="Flavor / variant" description="Optional" value={formData.variant} onChange={e => setFormData({ ...formData, variant: e.target.value })} maxLength={80} placeholder="e.g. Lemon-Lime" />
+                  <Input label="Size" description="Optional" value={formData.size} onChange={e => setFormData({ ...formData, size: e.target.value })} maxLength={40} placeholder="e.g. 20 oz" />
+                </div>
                 {!showNewCategoryInput ? <div className="space-y-2"><div className="product-category-control">
                   <Select label="Category" value={formData.categoryId} disabled={categoriesLoading || !!categoriesError} onChange={e => lookup.editIdentity('categoryId', e.target.value)}>
                     <option value="">Select a category</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
@@ -468,9 +502,18 @@ export const Inventory: React.FC = () => {
                   <Input type="number" label="Stock Quantity" value={formData.stockQuantity} onChange={e => setFormData({ ...formData, stockQuantity: e.target.value })} required />
                   <Input type="number" label="Low Stock Alert" value={formData.lowStockAlert} onChange={e => setFormData({ ...formData, lowStockAlert: e.target.value })} required />
                 </div>
+                {editingProduct && formData.trackInventory && formData.stockQuantity !== '' && parseInt(formData.stockQuantity) !== editingProduct.stockQuantity && (
+                  <Select label="Reason for stock change" value={formData.stockAdjustmentReason} onChange={e => setFormData({ ...formData, stockAdjustmentReason: e.target.value })}>
+                    {ADJUSTMENT_REASONS.filter(r => r.value !== 'OTHER').map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                  </Select>
+                )}
                 <div className="product-choice-grid">
                   <label><input type="checkbox" checked={formData.trackInventory} onChange={e => setFormData({ ...formData, trackInventory: e.target.checked })} className="rounded border-input" /><span>Track inventory</span></label>
-                  <label><input type="checkbox" checked={formData.allowBackorder} onChange={e => setFormData({ ...formData, allowBackorder: e.target.checked })} className="rounded border-input" /><span>Allow backorder</span></label>
+                </div>
+                <p className="text-xs text-muted-foreground">The register never blocks a sale because recorded stock is zero or negative. A negative balance opens an inventory exception for review.</p>
+                <div className="product-field-grid">
+                  <Input type="number" label="Provisional unit cost" description="Optional. Used for cost of goods only when stock runs out before any receipt or average cost exists." value={formData.provisionalUnitCost} onChange={e => setFormData({ ...formData, provisionalUnitCost: e.target.value })} step="0.01" min="0" />
+                  <Input label="Sale hold" description="Optional. Recall or prohibited-sale reason; the register refuses this item while set." value={formData.saleBlockedReason} onChange={e => setFormData({ ...formData, saleBlockedReason: e.target.value })} maxLength={200} />
                 </div>
               </div>
             </FormSection>

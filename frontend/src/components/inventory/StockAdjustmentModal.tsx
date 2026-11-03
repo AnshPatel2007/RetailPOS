@@ -14,8 +14,11 @@ interface StockAdjustmentModalProps {
   product: Product | null;
 }
 
-const ADJUSTMENT_REASONS = [
+export const ADJUSTMENT_REASONS = [
   { value: 'MANUAL_COUNT', label: 'Manual Count / Cycle Count' },
+  { value: 'WRONG_SKU_SOLD', label: 'Similar product sold under this item' },
+  { value: 'MISSING_RECEIPT', label: 'Delivery not received in system' },
+  { value: 'MISCOUNT', label: 'Earlier count was wrong' },
   { value: 'DAMAGED', label: 'Damaged Goods' },
   { value: 'LOST', label: 'Lost / Missing' },
   { value: 'THEFT', label: 'Theft' },
@@ -39,6 +42,8 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // One key per intended adjustment: a retried submit cannot apply it twice.
+  const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +59,11 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
 
     if (adjustmentType === 'remove' && qty > product.stockQuantity) {
       setError(`Cannot remove more than current stock (${product.stockQuantity})`);
+      return;
+    }
+
+    if (reason === 'OTHER' && !notes.trim()) {
+      setError('Describe the reason when choosing Other');
       return;
     }
 
@@ -79,7 +89,9 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
         quantity: delta,
         type: reason,
         notes: notes || undefined,
+        idempotencyKey: requestKey,
       });
+      setRequestKey(crypto.randomUUID());
 
       toast.success('Stock adjusted successfully');
       resetForm();

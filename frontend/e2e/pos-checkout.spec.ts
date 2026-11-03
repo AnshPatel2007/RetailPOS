@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { login, TEST_CASHIER } from './utils/auth-helper';
-test('quantity replaces the default digit and then appends; stock limit blocks confirmation', async ({ page }) => {
+test('quantity replaces the default digit and then appends; recorded stock never caps the quantity', async ({ page }) => {
   await login(page, TEST_CASHIER.email); await page.goto('/pos');
-  await page.getByRole('button', { name: /Fixture Coffee.*99 in stock/ }).click();
+  await page.getByRole('button', { name: /^Fixture Coffee/ }).click();
   await page.getByRole('button', { name: 'Change quantity for Fixture Coffee', exact: true }).click();
   const pad = page.getByRole('dialog', { name: 'Quantity for Fixture Coffee' });
   await expect(pad.getByLabel('Quantity', { exact: true })).toHaveText('1');
@@ -11,13 +11,15 @@ test('quantity replaces the default digit and then appends; stock limit blocks c
   await pad.getByRole('button', { name: '2', exact: true }).click();
   await expect(pad.getByLabel('Quantity', { exact: true })).toHaveText('32');
   await pad.getByRole('button', { name: '0', exact: true }).click();
-  await expect(pad.getByRole('button', { name: 'OK', exact: true })).toBeDisabled();
-  await expect(pad.getByRole('alert')).toHaveText('Only 99 available.');
+  // The customer may be holding more than the records show: no stock cap, no stock text.
+  await expect(pad.getByRole('button', { name: 'OK', exact: true })).toBeEnabled();
+  await expect(pad.getByRole('alert')).toHaveCount(0);
+  await expect(pad).not.toContainText(/in stock|available/i);
 });
 
 test('cashier discount requires manager approval and leaves the cashier signed in', async ({ page }) => {
   await login(page, TEST_CASHIER.email); await page.goto('/pos');
-  await page.getByRole('button', { name: /Fixture Coffee.*99 in stock/ }).click();
+  await page.getByRole('button', { name: /^Fixture Coffee/ }).click();
   await page.getByRole('button', { name: 'Actions for Fixture Coffee', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Item discount', exact: true }).click();
   await page.getByLabel('Item discount amount').fill('1');

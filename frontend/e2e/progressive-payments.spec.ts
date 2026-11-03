@@ -8,7 +8,7 @@ async function checkout(page: Page, sku: string, price = 100) {
   expect(response.status()).toBe(201); const product = (await response.json()).data;
   await page.goto('/pos');
   await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).fill(sku);
-  await page.getByRole('button', { name: new RegExp(sku + '.*3 left') }).click();
+  await page.getByRole('button', { name: new RegExp('^' + sku) }).click();
   await page.getByRole('button', { name: 'Charge $' + price.toFixed(2), exact: true }).click();
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   return { payment: page.getByRole('dialog', { name: 'Payment', exact: true }), headers, product };
@@ -26,7 +26,7 @@ test('cash, partial terminal approval, and final cash preserve the unpaid balanc
   expect(saleRequests).toBe(0);
   expect((await (await page.request.get('/api/products/' + product.id, { headers })).json()).data.stockQuantity).toBe(3);
   await payment.getByRole('button', { name: 'Save & close', exact: true }).click();
-  await expect(page.getByRole('button', { name: /Progressive hundred.*3 left/ })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /^Progressive hundred/ })).toBeDisabled();
   await page.reload();
   await page.getByRole('button', { name: 'Continue payment', exact: true }).click();
   await expect(payment.getByRole('status', { name: 'Payment balance', exact: true })).toContainText('$80.00 still due');

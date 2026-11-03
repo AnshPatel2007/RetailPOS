@@ -21,14 +21,14 @@ test('product search ignores older replies and shows a retry for failed reads', 
   });
   await search.fill('Coffee'); await arrived;
   await search.fill('Loyalty');
-  await expect(page.getByRole('button', { name: /Fixture Loyalty.*in stock/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Fixture Loyalty/ })).toBeVisible();
   release(); await done;
-  await expect(page.getByRole('button', { name: /Fixture Coffee.*in stock/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Fixture Coffee/ })).toHaveCount(0);
   fail = true; await search.fill('Refund');
   await expect(page.getByRole('alert')).toContainText('Catalog temporarily unavailable');
   await expect(page.getByText('No products found', { exact: true })).toHaveCount(0);
   fail = false; await page.getByRole('button', { name: 'Retry products' }).click();
-  await expect(page.getByRole('button', { name: /Fixture Refund.*left|Fixture Refund.*in stock/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Fixture Refund/ })).toBeVisible();
 });
 
 test('a delayed cache refresh cannot populate another store after logout', async ({ page, context }) => {
@@ -46,11 +46,11 @@ test('a delayed cache refresh cannot populate another store after logout', async
   await page.getByRole('button', { name: 'Register recovery and connection status' }).click();
   await arrived;
   await logout(page); await login(page, 'voids@example.test'); await page.goto('/pos');
-  await expect(page.getByRole('button', { name: /Fixture Void.*in stock/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Fixture Void/ })).toBeVisible();
   release(); await done; await page.unroute('**/api/products?*');
   await context.setOffline(true);
   await page.getByPlaceholder('Search products... (/ or F3)').fill('Coffee');
   await expect(page.getByRole('alert')).toContainText('No offline catalog is available for this cashier and store');
-  await expect(page.getByRole('button', { name: /Fixture Coffee.*in stock/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Fixture Coffee/ })).toHaveCount(0);
   await context.setOffline(false);
 });

@@ -208,7 +208,8 @@ export const offlineDb = {
       .where('id')
       .equals(productId)
       .modify(product => {
-        product.stockQuantity = Math.max(0, product.stockQuantity + quantityChange);
+        // Mirrors the server: recorded stock may go negative.
+        product.stockQuantity = product.stockQuantity + quantityChange;
       });
   },
 

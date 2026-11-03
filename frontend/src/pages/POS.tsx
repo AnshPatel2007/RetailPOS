@@ -45,6 +45,10 @@ import { cashOperationRejected } from '@/services/pendingCashOperation';
 
 type PaymentMethod = 'CASH' | 'CARD' | 'GIFT_CARD' | 'STORE_CREDIT' | 'EBT' | 'HOUSE_ACCOUNT';
 
+/** Shown only when a product carries a recall / prohibited-sale hold. */
+const saleHoldMessage = (product: Product) =>
+  product.saleBlockedReason ? `${product.name} cannot be sold: ${product.saleBlockedReason}` : `${product.name} cannot be added`;
+
 export const POS: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<{ id: string; name: string; color?: string | null }[]>([]);
@@ -316,7 +320,7 @@ export const POS: React.FC = () => {
               (p.barcode === embedded.itemCode || p.sku === embedded.itemCode || p.barcode === barcode)
           );
           if (found) {
-            if (!addItem(found, 1)) { toast.error(`Only ${found.stockQuantity} in stock`, { id: 'barcode-search' }); return; }
+            if (!addItem(found, 1)) { toast.error(saleHoldMessage(found), { id: 'barcode-search' }); return; }
             // The label price wins — flags the line as an override so the server
             // (which allows it for priceEmbedded products) charges the same amount
             updatePrice(found.id, embedded.price);
@@ -357,7 +361,7 @@ export const POS: React.FC = () => {
         const response = await productService.getAll({ search: barcode, isActive: true, limit: 10 });
         const found = response.data.data;
         if (found.length === 1) {
-          if (!addItem(found[0])) { toast.error(`Only ${found[0].stockQuantity} in stock`, { id: 'barcode-search' }); return; }
+          if (!addItem(found[0])) { toast.error(saleHoldMessage(found[0]), { id: 'barcode-search' }); return; }
           toast.success(`Added: ${found[0].name}`, { id: 'barcode-search' });
         } else if (found.length > 1) {
           setSearch(barcode);
@@ -475,17 +479,10 @@ export const POS: React.FC = () => {
     return items.find((i) => i.product.id === productId)?.quantity ?? 0;
   };
 
-  const isOutOfStock = (product: Product): boolean => {
-    return product.trackInventory && product.stockQuantity <= 0;
-  };
-
+  // Recorded stock never blocks a sale (the customer is holding the item).
   const handleProductClick = (product: Product) => {
     if (isReadOnly) return;
-    if (isOutOfStock(product)) {
-      toast.error(`${product.name} is out of stock`);
-      return;
-    }
-    if (!addItem(product, 1)) toast.error(`Only ${product.stockQuantity} in stock`);
+    if (!addItem(product, 1)) toast.error(saleHoldMessage(product));
   };
 
   const handleHoldSale = () => {
@@ -538,10 +535,6 @@ export const POS: React.FC = () => {
   // Numpad confirms the TOTAL quantity for the item (it opens pre-filled with
   // the current cart quantity), so set rather than add
   const handleSetQuantity = (product: Product, qty: number) => {
-    if (product.trackInventory && qty > product.stockQuantity) {
-      toast.error(`Only ${product.stockQuantity} in stock`);
-      qty = product.stockQuantity;
-    }
     if (qty <= 0) return;
     const current = getCartQty(product.id);
     if (current === 0) {
@@ -810,7 +803,6 @@ export const POS: React.FC = () => {
       {numpadProduct && (
         <QuantityNumpad
           initialQty={getCartQty(numpadProduct.id) || 1}
-          maxQty={numpadProduct.trackInventory ? numpadProduct.stockQuantity : undefined}
           productName={numpadProduct.name}
           onConfirm={(qty) => { handleSetQuantity(numpadProduct, qty); setNumpadProduct(null); }}
           onCancel={() => setNumpadProduct(null)}

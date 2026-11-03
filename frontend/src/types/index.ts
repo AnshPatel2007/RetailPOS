@@ -58,6 +58,13 @@ export interface Product {
   isActive: boolean;
   isTaxable: boolean;
   allowBackorder: boolean;
+  /** Recall / prohibited-sale hold. Recorded stock never blocks a sale; this does. */
+  saleBlockedReason?: string | null;
+  provisionalUnitCost?: number | null;
+  brand?: string | null;
+  productFamily?: string | null;
+  variant?: string | null;
+  size?: string | null;
   minimumAge?: number | null;
   ebtEligible?: boolean;
   priceEmbedded?: boolean;

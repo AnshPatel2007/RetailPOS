@@ -30,6 +30,7 @@ import { useLayoutStore } from '@/store/layoutStore';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { cn } from '@/lib/utils';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import { useInventoryExceptionCount } from '@/hooks/useInventoryExceptionCount';
 import { AdminViewBanner } from './AdminViewBanner';
 import { OfflineIndicator } from './common/OfflineIndicator';
 import { isTopFocusTrap, useFocusTrap } from '@/hooks/useFocusTrap';
@@ -120,7 +121,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   // Show which store you're operating — mirrors the POS top bar
   const settingsStoreName = useStoreSettingsStore((s) => s.storeInfo.storeName);
-  const { isAdminViewing, storeName: previewStoreName } = useEffectiveLocation();
+  const { isAdminViewing, storeName: previewStoreName, locationId: effectiveLocationId } = useEffectiveLocation();
+  const canReviewStock = !!user?.role && ['ADMIN', 'MANAGER'].includes(user.role) || (user?.role === 'SUPER_ADMIN' && isAdminViewing);
+  const exceptionCount = useInventoryExceptionCount(canReviewStock, user?.role === 'SUPER_ADMIN' ? effectiveLocationId : null);
   const storeName = isAdminViewing ? previewStoreName || '' : settingsStoreName || user?.location?.name || '';
 
   // Full-screen routes with no sidebar/chrome (register + second screen)
@@ -205,6 +208,10 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       >
         <Icon className={cn('h-5 w-5 shrink-0', !isSidebarCollapsed && 'mr-3', nested && !isSidebarCollapsed && 'h-4 w-4')} />
         {!isSidebarCollapsed && <span className="truncate">{item.name}</span>}
+        {item.href === '/inventory/stock-control' && exceptionCount > 0 && (
+          <span className={cn('rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-5 text-destructive-foreground tabular-nums', isSidebarCollapsed ? 'sr-only' : 'ml-auto')}
+            title={`${exceptionCount} inventory exception${exceptionCount === 1 ? '' : 's'} need review`} aria-label={`${exceptionCount} inventory exceptions need review`}>{exceptionCount}</span>
+        )}
       </Link>
     );
   };
