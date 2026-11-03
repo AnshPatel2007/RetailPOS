@@ -41,6 +41,7 @@ const AuditLog = lazy(() => import('./pages/AuditLog').then(m => ({ default: m.A
 const StoreCredits = lazy(() => import('./pages/StoreCredits').then(m => ({ default: m.StoreCredits })));
 const Promotions = lazy(() => import('./pages/Promotions').then(m => ({ default: m.Promotions })));
 const SuggestedOrders = lazy(() => import('./pages/SuggestedOrders').then(m => ({ default: m.SuggestedOrders })));
+const PriceReview = lazy(() => import('./pages/PriceReview'));
 const CustomerDisplay = lazy(() => import('./pages/CustomerDisplay').then(m => ({ default: m.CustomerDisplay })));
 const HouseAccounts = lazy(() => import('./pages/HouseAccounts').then(m => ({ default: m.HouseAccounts })));
 const Developers = lazy(() => import('./pages/Developers').then(m => ({ default: m.Developers })));
@@ -227,7 +228,7 @@ function App() {
         <Route path="/promotions" element={<PageRoute page={<Promotions />} roles={MANAGER_ROLES} />} />
         <Route path="/suggested-orders" element={<PreserveRedirect to="/inventory/purchasing/suggestions" />} />
         <Route path="/inventory/purchasing" element={<PreserveRedirect to="/inventory/purchasing/orders" />} />
-        {([['orders', <Suppliers key="orders" view="orders" />], ['suppliers', <Suppliers key="suppliers" view="suppliers" />], ['suggestions', <SuggestedOrders />]] as const).map(([view, page]) => <Route key={view} path={'/inventory/purchasing/' + view} element={<PageRoute roles={MANAGER_ROLES} page={<WorkflowNavigation label="Inventory / Purchasing" views={purchasingViews}>{page}</WorkflowNavigation>} />} />)}
+        {([['orders', <Suppliers key="orders" view="orders" />], ['suppliers', <Suppliers key="suppliers" view="suppliers" />], ['suggestions', <SuggestedOrders />], ['price-review', <PriceReview />]] as const).map(([view, page]) => <Route key={view} path={'/inventory/purchasing/' + view} element={<PageRoute roles={MANAGER_ROLES} page={<WorkflowNavigation label="Inventory / Purchasing" views={purchasingViews}>{page}</WorkflowNavigation>} />} />)}
         <Route path="/customer-display" element={<PageRoute page={<CustomerDisplay />} />} />
         <Route path="/house-accounts" element={<PreserveRedirect to="/customers/accounts/house-accounts" />} />
         <Route path="/developers" element={<PreserveRedirect to="/admin/integrations" />} />

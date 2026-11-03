@@ -22,6 +22,7 @@ import {
 import { hardware, HardwareSettings } from '@/services/hardware';
 import { userService } from '@/services/api';
 import { TwoFactorCard } from '@/components/settings/TwoFactorCard';
+import { PricingRulesCard } from '@/components/settings/PricingRulesCard';
 import {SecurityNotifications} from '@/components/settings/SecurityNotifications';
 import { ManagementPage } from '@/components/common/Workspace';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -44,7 +45,7 @@ export const Settings: React.FC = () => {
   const isAdmin = !!locationId && (canOperate || isSuperAdmin);
   const [section, setSection] = useUrlFilter('section', 'profile', false);
   const sections = [{ id: 'profile', label: 'Profile & Security' },
-    ...(isAdmin ? [{ id: 'store', label: 'Store' }, ...(canFinance || isSuperAdmin ? [{ id: 'payments', label: 'Taxes & Payments' }] : []), { id: 'receipts', label: 'Receipts' }, { id: 'notifications', label: 'Notifications' }] : []),
+    ...(isAdmin ? [{ id: 'store', label: 'Store' }, ...(canFinance || isSuperAdmin ? [{ id: 'payments', label: 'Taxes & Payments' }] : []), { id: 'receipts', label: 'Receipts' }, { id: 'pricing', label: 'Pricing' }, { id: 'notifications', label: 'Notifications' }] : []),
     { id: 'devices', label: 'Devices' }];
   const selected = sections.some(view => view.id === section) ? section : 'profile';
   const dirty = useRef<Record<string, boolean>>({});
@@ -374,6 +375,8 @@ export const Settings: React.FC = () => {
         </Card>
 
         </fieldset>)}
+
+        {selected === 'pricing' && <PricingRulesCard editable={canOperate} />}
 
         {selected === 'notifications' && (<fieldset disabled={!editable} className="contents">
         {/* Notifications */}

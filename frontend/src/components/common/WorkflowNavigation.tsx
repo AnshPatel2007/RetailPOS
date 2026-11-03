@@ -52,6 +52,7 @@ export const purchasingViews = [
   { label: 'Orders', path: '/inventory/purchasing/orders' },
   { label: 'Suppliers', path: '/inventory/purchasing/suppliers' },
   { label: 'Reorder Suggestions', path: '/inventory/purchasing/suggestions' },
+  { label: 'Price Review', path: '/inventory/purchasing/price-review' },
 ];
 
 export const accountViews = [

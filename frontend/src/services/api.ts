@@ -192,6 +192,21 @@ export const twoFactorService = {
 };
 
 /**
+ * Pricing: target-margin rules, suggested prices and the price review list.
+ */
+export type PriceRounding = 'CENT' | 'NICKEL' | 'NINE' | 'NINETY_NINE';
+export interface PriceRule { id: string; scope: 'STORE' | 'CATEGORY' | 'BRAND' | 'PRODUCT' | 'SELLING_UNIT'; scopeId: string; label: string; targetMargin: number; minMargin: number | null; rounding: PriceRounding }
+export const pricingService = {
+  rules: (signal?: AbortSignal) => api.get('/pricing/rules', { signal }),
+  saveRule: (data: { scope: PriceRule['scope']; scopeId?: string; targetMargin: number; minMargin?: number | null; rounding: PriceRounding }) => api.put('/pricing/rules', data),
+  deleteRule: (id: string) => api.delete(`/pricing/rules/${id}`),
+  suggest: (params: { productId?: string; sellingUnitId?: string; categoryId?: string; brand?: string; cost?: number; price?: number }, signal?: AbortSignal) =>
+    api.get('/pricing/suggest', { params, signal }),
+  review: (signal?: AbortSignal) => api.get('/pricing/review', { signal }),
+  apply: (changes: { productId: string; sellingUnitId?: string | null; price: number; expectedPrice: number }[]) => api.post('/pricing/apply', { changes }),
+};
+
+/**
  * Product service
  */
 export const productService = {

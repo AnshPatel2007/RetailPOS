@@ -189,9 +189,10 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     );
   }
 
+  const exceptionLabel = `${exceptionCount} inventory exception${exceptionCount === 1 ? ' needs' : 's need'} review`;
   const exceptionBadge = (className: string) => exceptionCount > 0 ? (
     <span className={cn('rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-5 text-destructive-foreground tabular-nums', className)}
-      title={`${exceptionCount} inventory exception${exceptionCount === 1 ? '' : 's'} need review`} aria-label={`${exceptionCount} inventory exceptions need review`}>{exceptionCount}</span>
+      title={exceptionLabel} aria-label={exceptionLabel}>{exceptionCount}</span>
   ) : null;
 
   const renderNavItem = (item: NavItem, nested = false) => {

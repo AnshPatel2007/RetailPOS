@@ -1,4 +1,5 @@
 import { PackagingEditor } from '@/components/inventory/PackagingEditor';
+import { MarginPricing } from '@/components/inventory/MarginPricing';
 import { VarietyPackEditor } from '@/components/inventory/VarietyPackEditor';
 import { ADJUSTMENT_REASONS } from '@/components/inventory/StockAdjustmentModal';
 import { Select } from '@/components/ui/Select';
@@ -500,6 +501,8 @@ export const Inventory: React.FC = () => {
                   <Input type="number" label="Compare-at Price" description="Optional" value={formData.compareAtPrice} onChange={e => setFormData({ ...formData, compareAtPrice: e.target.value })} step="0.01" min="0" />
                 </div>
                 {formData.cost && formData.price && parseFloat(formData.price) < parseFloat(formData.cost) && <p className="text-xs text-warning flex items-center gap-1"><AlertTriangle size={14} />Retail price is below cost</p>}
+                <MarginPricing productId={editingProduct?.id} categoryId={formData.categoryId || undefined} brand={formData.brand.trim() || undefined}
+                  cost={formData.cost} averageCost={editingProduct?.averageCost} price={formData.price} onPrice={price => setFormData(current => ({ ...current, price }))} />
                 <div className="product-field-grid">
                   <Input type="number" label="Stock Quantity" value={formData.stockQuantity} onChange={e => setFormData({ ...formData, stockQuantity: e.target.value })} required />
                   <Input type="number" label="Low Stock Alert" value={formData.lowStockAlert} onChange={e => setFormData({ ...formData, lowStockAlert: e.target.value })} required />

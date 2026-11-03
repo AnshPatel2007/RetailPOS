@@ -2031,3 +2031,19 @@ model BundleOpening {
   @@index([bundleProductId, createdAt])
   @@map("bundle_openings")
 }
+
+/// Target margin used to suggest prices. The most specific rule wins:
+/// pack, product, brand, category, then the store default.
+model PriceRule {
+  id String @id @default(uuid())
+  locationId String
+  scope String // STORE | CATEGORY | BRAND | PRODUCT | SELLING_UNIT
+  scopeId String @default("") // category id, brand, product id or pack id; empty for the store default
+  targetMargin Decimal @db.Decimal(5, 4)
+  minMargin Decimal? @db.Decimal(5, 4)
+  rounding String @default("CENT") // CENT | NICKEL | NINE | NINETY_NINE
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([locationId, scope, scopeId])
+  @@map("price_rules")
+}
