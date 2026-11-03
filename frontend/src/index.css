@@ -2,8 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Notifications are informational live regions. Keep register controls usable
+   beneath them; hover must not pause a toast over the next checkout action. */
+.app-notifications,
+.app-notifications * {
+  pointer-events: none !important;
+}
+
 @layer base {
   :root {
+    color-scheme: light;
+    --destructive-text: 0 72% 42%;
+    --warning-text: 30 90% 30%;
+    --success-text: 142 72% 28%;
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
 
@@ -45,13 +56,17 @@
   }
 
   .dark {
+    color-scheme: dark;
+    --destructive-text: 0 90% 74%;
+    --warning-text: 40 95% 64%;
+    --success-text: 142 65% 64%;
     --background: 0 0% 3.9%;
     --foreground: 0 0% 98%;
 
-    --card: 0 0% 5.5%;
+    --card: 0 0% 7.5%;
     --card-foreground: 0 0% 98%;
 
-    --popover: 0 0% 5.5%;
+    --popover: 0 0% 7.5%;
     --popover-foreground: 0 0% 98%;
 
     --primary: 217.2 91.2% 59.8%;
@@ -61,7 +76,7 @@
     --secondary-foreground: 0 0% 98%;
 
     --muted: 0 0% 12%;
-    --muted-foreground: 0 0% 63.9%;
+    --muted-foreground: 0 0% 69%;
 
     --accent: 0 0% 12%;
     --accent-foreground: 0 0% 98%;
@@ -78,8 +93,8 @@
     --info: 199 89% 48%;
     --info-foreground: 0 0% 100%;
 
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
+    --border: 0 0% 19%;
+    --input: 0 0% 23%;
     --ring: 217.2 91.2% 59.8%;
   }
 }
@@ -89,9 +104,86 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground text-sm;
     font-feature-settings: "rlig" 1, "calt" 1;
+    font-variant-numeric: tabular-nums;
   }
+}
+
+/* Shared management controls; register and customer-display dimensions stay local. */
+.text-destructive { color: hsl(var(--destructive-text)); }
+.text-warning { color: hsl(var(--warning-text)); }
+.text-success { color: hsl(var(--success-text)); }
+/* Keep the full viewport usable; end padding lets the last records clear the assistant. */
+.management-content { min-height: 0; padding-bottom: 80px; scroll-padding-bottom: 80px; scrollbar-gutter: stable; }
+.page-tabs { flex-wrap: wrap; }
+.page-tabs-secondary { padding-top: 8px; border-top: 1px solid hsl(var(--border)); }
+.page-tabs > * { white-space: nowrap; }
+.management-content input, .app-dialog input, .management-content textarea, .app-dialog textarea { accent-color: hsl(var(--primary)); }
+.management-content select:focus-visible, .app-dialog select:focus-visible,
+.management-content textarea:focus-visible, .app-dialog textarea:focus-visible {
+  outline: 2px solid hsl(var(--ring)); outline-offset: 2px;
+}
+.management-content textarea, .app-dialog textarea { border-radius: 6px; font-size: 14px; background: hsl(var(--background)); }
+.table-scroll { scrollbar-gutter: stable; }
+.table-scroll td { font-variant-numeric: tabular-nums; }
+.table-scroll th { white-space: nowrap; }
+.table-scroll td button:not(.app-button) { min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; }
+.table-scroll td button.text-destructive { color: hsl(var(--muted-foreground)); }
+.table-scroll td button.text-destructive:hover, .table-scroll td button.text-destructive:focus-visible { color: hsl(var(--destructive-text)); background: hsl(var(--destructive) / .1); }
+.recharts-cartesian-axis-tick-value { fill: hsl(var(--muted-foreground)); font-size: 12px; }
+.recharts-cartesian-axis-line, .recharts-cartesian-axis-tick-line, .recharts-cartesian-grid line { stroke: hsl(var(--border)); }
+.recharts-default-tooltip { background-color: hsl(var(--popover)) !important; border-color: hsl(var(--border)) !important; border-radius: 6px; color: hsl(var(--popover-foreground)); font-size: 14px; }
+.recharts-tooltip-label { color: hsl(var(--popover-foreground)); }
+.metric-grid > * { min-width: 0; container: metric-card / inline-size; }
+.metric-grid > * > .p-6 { padding: 16px; }
+.metric-grid .flex > div:not(.metric-icon) { min-width: 0; }
+.metric-grid .metric-value { font-size: 24px; line-height: 32px; font-weight: 600; overflow-wrap: anywhere; white-space: normal; }
+@container metric-card (max-width: 220px) {
+  .metric-grid .metric-icon { display: none; }
+  .metric-grid .metric-value { font-size: 20px; line-height: 28px; }
+}
+.page-tab { min-height: 36px; }
+.page-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; border: 1px solid hsl(var(--input)); border-radius: 6px; padding: 0 12px; font-size: 14px; line-height: 20px; font-weight: 500; text-decoration: none; }
+.page-action:hover { background-color: hsl(var(--accent)); }
+.page-action:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.management-content > div:has(> .page-header) { padding: 24px; }
+.management-content .app-button[data-control-size="standard"] {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.management-content .app-button[data-icon-only="true"] { width: 36px; padding: 0; }
+.management-content .page-header h1 { font-size: 24px; line-height: 32px; font-weight: 600; }
+.management-content h2, .management-content h3 { font-size: 18px; line-height: 28px; font-weight: 600; }
+.management-content select:not([multiple]), .app-dialog select:not([multiple]) {
+  min-height: 36px; height: 36px; border-radius: 6px; font-size: 14px;
+}
+.page-actions svg, .page-tab svg { width: 16px; height: 16px; flex-shrink: 0; }
+.dialog-close > svg { width: 16px; height: 16px; }
+.page-toolbar { min-width: 0; }
+.page-toolbar > * { max-width: 100%; }
+.app-dialog { font-size: 14px; line-height: 20px; }
+.app-dialog h2, .app-dialog h3 { font-size: 18px; line-height: 28px; }
+.app-dialog .app-button[data-control-size="standard"] { min-height: 36px; font-size: 14px; }
+@media (max-width: 639px) {
+  .page-header { margin-bottom: 16px; }
+  .page-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+  .page-tabs-secondary { padding-top: 6px; }
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .metric-grid > .metric-card { padding: 12px; }
+  .metric-grid > * > .p-6 { padding: 12px; }
+  .metric-grid .metric-icon { display: none; }
+  .metric-grid .metric-value { font-size: 20px; line-height: 28px; }
+  .table-scroll td button:not(.app-button) { min-width: 44px; min-height: 44px; }
+  .management-content > div:has(> .page-header) { padding: 16px; }
+  .app-button[data-control-size="standard"], .page-tab, .page-action, .dialog-close { min-height: 44px; }
+  .management-content .app-button[data-control-size="standard"] { height: 44px; min-height: 44px; }
+  .management-content .app-button[data-icon-only="true"], .app-button[data-icon-only="true"], .dialog-close { min-width: 44px; }
+  .management-content select:not([multiple]), .app-dialog select:not([multiple]), .app-input { min-height: 44px; }
+  .page-actions { flex-basis: 100%; }
 }
 
 /* Custom scrollbar */
@@ -159,3 +251,12 @@
 /* No-scrollbar utility */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

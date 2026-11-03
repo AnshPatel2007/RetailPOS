@@ -1,4 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { Select } from '@/components/ui/Select';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
+import { PageTabs } from '@/components/common/PageTabs';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -18,9 +22,13 @@ import {
 import { hardware, HardwareSettings } from '@/services/hardware';
 import { userService } from '@/services/api';
 import { TwoFactorCard } from '@/components/settings/TwoFactorCard';
+import {SecurityNotifications} from '@/components/settings/SecurityNotifications';
+import { ManagementPage } from '@/components/common/Workspace';
 import { PageHeader } from '@/components/common/PageHeader';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import toast from 'react-hot-toast';
+import { can } from '@/lib/capabilities';
+import { useUrlFilter } from '@/hooks/useUrlFilter';
 
 export const Settings: React.FC = () => {
   const { user } = useAuthStore();
@@ -30,8 +38,19 @@ export const Settings: React.FC = () => {
   );
   const [scannerTestResult, setScannerTestResult] = useState<string>('');
 
-  const { isReadOnly } = useEffectiveLocation();
-  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const { isReadOnly, locationId, isSuperAdmin } = useEffectiveLocation();
+  const canOperate = can(user?.role, 'settings.operational') && !isReadOnly;
+  const canFinance = can(user?.role, 'settings.financial') && !isReadOnly;
+  const isAdmin = !!locationId && (canOperate || isSuperAdmin);
+  const [section, setSection] = useUrlFilter('section', 'profile', false);
+  const sections = [{ id: 'profile', label: 'Profile & Security' },
+    ...(isAdmin ? [{ id: 'store', label: 'Store' }, ...(canFinance || isSuperAdmin ? [{ id: 'payments', label: 'Taxes & Payments' }] : []), { id: 'receipts', label: 'Receipts' }, { id: 'notifications', label: 'Notifications' }] : []),
+    { id: 'devices', label: 'Devices' }];
+  const selected = sections.some(view => view.id === section) ? section : 'profile';
+  const dirty = useRef<Record<string, boolean>>({});
+  const [saving, setSaving] = useState(false);
+  const editable = canOperate && settingsStore.isLoaded && !settingsStore.error && !saving;
+
 
   // Local form state initialized from the Zustand store
   const [storeSettings, setStoreSettings] = useState(settingsStore.storeInfo);
@@ -41,17 +60,15 @@ export const Settings: React.FC = () => {
 
   // Fetch settings from backend on mount (syncs across users)
   useEffect(() => {
-    if (isAdmin) {
-      settingsStore.fetchSettings();
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (locationId) settingsStore.fetchSettings(locationId);
+  }, [locationId]);
 
   // Sync local form state when store settings update from backend
   useEffect(() => {
-    setStoreSettings(settingsStore.storeInfo);
-    setReceiptSettings(settingsStore.receiptSettings);
-    setPaymentMethods(settingsStore.paymentMethods);
-    setNotificationSettings(settingsStore.notificationSettings);
+    if (!dirty.current.store && !dirty.current.payments) setStoreSettings(settingsStore.storeInfo);
+    if (!dirty.current.receipts) setReceiptSettings(settingsStore.receiptSettings);
+    if (!dirty.current.payments) setPaymentMethods(settingsStore.paymentMethods);
+    if (!dirty.current.notifications) setNotificationSettings(settingsStore.notificationSettings);
   }, [settingsStore.storeInfo, settingsStore.receiptSettings, settingsStore.paymentMethods, settingsStore.notificationSettings]);
 
   // User profile state
@@ -76,66 +93,18 @@ export const Settings: React.FC = () => {
     }
   }, [user]);
 
-  // Save handlers — persist to backend (shared across all users in the store)
-  const saveStoreSettings = async () => {
-    try {
-      await settingsStore.saveStoreInfo(storeSettings);
-      // Also sync store name/address/phone to hardware receipt printer settings
-      const updatedHw = {
-        ...hardwareSettings,
-        receiptPrinter: {
-          ...hardwareSettings.receiptPrinter,
-          storeName: storeSettings.storeName,
-          storeAddress: storeSettings.address
-            ? `${storeSettings.address}${storeSettings.city ? ', ' + storeSettings.city : ''}${storeSettings.state ? ', ' + storeSettings.state : ''}`
-            : '',
-          storePhone: storeSettings.phone,
-        },
-      };
-      setHardwareSettings(updatedHw);
-      hardware.saveSettings(updatedHw);
-      toast.success('Store settings saved');
-    } catch {
-      toast.error('Failed to save store settings');
-    }
+  const saveSection = async (view: string, operation: () => Promise<void>) => {
+    if (!editable || (view === 'payments' && !canFinance)) return;
+    setSaving(true);
+    try { await operation(); dirty.current[view] = false; toast.success('Settings saved'); }
+    catch (error: any) { toast.error(error.response?.data?.error || error.message || 'Failed to save settings'); }
+    finally { setSaving(false); }
   };
-
-  const saveReceiptSettings = async () => {
-    try {
-      await settingsStore.saveReceiptSettings(receiptSettings);
-      // Sync footer text to hardware settings
-      const updatedHw = {
-        ...hardwareSettings,
-        receiptPrinter: {
-          ...hardwareSettings.receiptPrinter,
-          footerText: receiptSettings.footer,
-        },
-      };
-      setHardwareSettings(updatedHw);
-      hardware.saveSettings(updatedHw);
-      toast.success('Receipt settings saved');
-    } catch {
-      toast.error('Failed to save receipt settings');
-    }
-  };
-
-  const savePaymentMethods = async () => {
-    try {
-      await settingsStore.savePaymentMethods(paymentMethods);
-      toast.success('Payment methods saved');
-    } catch {
-      toast.error('Failed to save payment methods');
-    }
-  };
-
-  const saveNotificationSettings = async () => {
-    try {
-      await settingsStore.saveNotificationSettings(notificationSettings);
-      toast.success('Notification settings saved');
-    } catch {
-      toast.error('Failed to save notification settings');
-    }
-  };
+  const saveStoreSettings = () => saveSection('store', () => settingsStore.saveStoreInfo({ storeName: storeSettings.storeName, address: storeSettings.address, city: storeSettings.city, state: storeSettings.state, phone: storeSettings.phone }));
+  const saveReceiptSettings = () => saveSection('receipts', () => settingsStore.saveReceiptSettings(receiptSettings));
+  const savePaymentMethods = () => saveSection('payments', () => settingsStore.savePaymentMethods(paymentMethods));
+  const saveTaxSettings = () => saveSection('payments', () => settingsStore.saveTaxRate(storeSettings.taxRate || 0));
+  const saveNotificationSettings = () => saveSection('notifications', () => settingsStore.saveNotificationSettings(notificationSettings));
 
   const saveUserProfile = async () => {
     // Validate password fields before making any API calls
@@ -169,8 +138,9 @@ export const Settings: React.FC = () => {
           confirmPassword: profileSettings.confirmPassword,
         });
 
-        toast.success('Profile and password updated successfully');
         setProfileSettings(prev => ({ ...prev, currentPassword: '', newPassword: '', confirmPassword: '' }));
+        await useAuthStore.getState().logout();
+        toast.success('Password updated. Sign in again with your new password.');
       } else {
         toast.success('Profile updated successfully');
       }
@@ -209,8 +179,9 @@ export const Settings: React.FC = () => {
 
   // Save hardware settings
   const saveHardwareSettings = () => {
-    hardware.saveSettings(hardwareSettings);
-    toast.success('Hardware settings saved');
+    if (!canOperate) return;
+    try { hardware.saveSettings(hardwareSettings); toast.success('Device settings saved for this browser/register'); }
+    catch { toast.error('This browser could not save device settings. Check available storage and retry.'); }
   };
 
   // Test scanner
@@ -222,11 +193,12 @@ export const Settings: React.FC = () => {
 
   // Test printer
   const testPrinter = async () => {
+    if (!settingsStore.isLoaded || settingsStore.error) { toast.error('Reload store settings before printing.'); return; }
     toast.loading('Opening print preview...');
     const success = await hardware.testPrinter();
     toast.dismiss();
     if (success) {
-      toast.success('Test receipt generated');
+      toast.success('Test print requested');
     } else {
       toast.error('Failed to generate test receipt');
     }
@@ -242,17 +214,25 @@ export const Settings: React.FC = () => {
     }
   };
 
+  const autoRefresh = useLegacyPageRefresh(async () => {
+    await settingsStore.fetchSettings(locationId || undefined);
+    if (useStoreSettingsStore.getState().error) throw new Error('Settings update failed');
+  }, { key: locationId || 'profile', enabled: !!locationId, paused: saving || settingsStore.isLoading || Object.values(dirty.current).some(Boolean) });
+
   return (
-    <div className="p-8">
+    <ManagementPage>
       <PageHeader
         title="Settings"
         subtitle={isAdmin ? 'Configure your POS system' : 'Manage your profile settings'}
+        actions={['ADMIN','SUPER_ADMIN'].includes(user?.role||'')?<Link className="page-action" to="/settings/jobs">Background Jobs</Link>:undefined}
+        tabs={<PageTabs label="Settings sections" items={sections} value={selected} onChange={setSection} />}
       />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Store Settings — Admin only */}
-        {isAdmin && (
-        <>
+      {autoRefresh.notice}
+      {locationId && settingsStore.isLoading && <p role="status" className="mb-4 text-sm text-muted-foreground">Refreshing store settings...</p>}
+      {locationId && settingsStore.error && <div role="alert" className="mb-4 rounded-lg border border-destructive/40 p-4"><p>{settingsStore.error}</p><Button variant="outline" className="mt-2" onClick={() => settingsStore.fetchSettings(locationId || undefined)}>Retry settings</Button></div>}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start" onChangeCapture={() => { dirty.current[selected] = true; }}>
+        {selected === 'devices' && !canOperate && <Card><CardHeader><CardTitle>Device diagnostics</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm text-muted-foreground">Scanner and browser printing are available on this register. A manager configures devices.</p><Button variant="outline" onClick={testScanner}>Test Scanner</Button><Button variant="outline" onClick={testPrinter}>Test Printer</Button><p role="status">{scannerTestResult}</p></CardContent></Card>}
+        {selected === 'store' && (<fieldset disabled={!editable} className="contents">
         {/* Store Settings */}
         <Card>
           <CardHeader>
@@ -272,7 +252,7 @@ export const Settings: React.FC = () => {
               value={storeSettings.address}
               onChange={(e) => setStoreSettings({ ...storeSettings, address: e.target.value })}
             />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
                 label="City"
                 value={storeSettings.city}
@@ -289,10 +269,14 @@ export const Settings: React.FC = () => {
               value={storeSettings.phone}
               onChange={(e) => setStoreSettings({ ...storeSettings, phone: e.target.value })}
             />
-            <Button variant="primary" onClick={saveStoreSettings} disabled={isReadOnly}>Save Changes</Button>
+            <p className="text-sm text-muted-foreground">Tax applies to taxable products after discounts. The owner sets this store’s rate.</p>
+            <Button variant="primary" onClick={saveStoreSettings} disabled={!editable}>Save Changes</Button>
           </CardContent>
         </Card>
 
+        </fieldset>)}
+
+        {selected === 'receipts' && (<fieldset disabled={!editable} className="contents">
         {/* Receipt Settings */}
         <Card>
           <CardHeader>
@@ -330,10 +314,14 @@ export const Settings: React.FC = () => {
               />
               <span className="text-sm">Show tax breakdown</span>
             </label>
-            <Button variant="primary" onClick={saveReceiptSettings} disabled={isReadOnly}>Save Changes</Button>
+            <Button variant="primary" onClick={saveReceiptSettings} disabled={!editable}>Save Changes</Button>
           </CardContent>
         </Card>
 
+        </fieldset>)}
+
+        {selected === 'payments' && <Card><CardHeader><CardTitle>Store Tax</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm text-muted-foreground">The store owner maintains this location's rate. Checkout applies it automatically to taxable products and preserves the rate on completed sales.</p><Input label="Store sales tax (%)" type="number" min="0" max="100" step="0.0001" value={storeSettings.taxRate ?? 0} disabled={!editable || !canFinance} onChange={e => setStoreSettings({ ...storeSettings, taxRate: Number(e.target.value) })} /><Button onClick={saveTaxSettings} disabled={!editable || !canFinance}>Save tax rate</Button></CardContent></Card>}
+        {selected === 'payments' && (<fieldset disabled={!editable} className="contents">
         {/* Payment Settings */}
         <Card>
           <CardHeader>
@@ -381,10 +369,13 @@ export const Settings: React.FC = () => {
                 <span className="text-sm">Store Credit</span>
               </label>
             </div>
-            <Button variant="primary" onClick={savePaymentMethods} disabled={isReadOnly}>Save Changes</Button>
+            <Button variant="primary" onClick={savePaymentMethods} disabled={!editable}>Save Changes</Button>
           </CardContent>
         </Card>
 
+        </fieldset>)}
+
+        {selected === 'notifications' && (<fieldset disabled={!editable} className="contents">
         {/* Notifications */}
         <Card>
           <CardHeader>
@@ -428,10 +419,13 @@ export const Settings: React.FC = () => {
               onChange={(e) => setNotificationSettings({ ...notificationSettings, notificationEmail: e.target.value })}
               disabled={!notificationSettings.emailNotifications}
             />
-            <Button variant="primary" onClick={saveNotificationSettings} disabled={isReadOnly}>Save Changes</Button>
+            <Button variant="primary" onClick={saveNotificationSettings} disabled={!editable}>Save Changes</Button>
           </CardContent>
         </Card>
 
+        </fieldset>)}
+
+        {selected === 'devices' && canOperate && (<>
         {/* Barcode Scanner Settings */}
         <Card>
           <CardHeader>
@@ -505,7 +499,7 @@ export const Settings: React.FC = () => {
             </label>
             <div>
               <label className="block text-sm font-medium mb-1">Paper Width</label>
-              <select
+              <Select
                 value={hardwareSettings.receiptPrinter.paperWidth}
                 onChange={(e) => updateHardwareSettings('receiptPrinter', 'paperWidth', parseInt(e.target.value))}
                 className="w-full px-3 py-2 rounded-md border border-input bg-background"
@@ -513,7 +507,7 @@ export const Settings: React.FC = () => {
               >
                 <option value={58}>58mm (narrow)</option>
                 <option value={80}>80mm (standard)</option>
-              </select>
+              </Select>
             </div>
             <label className="flex items-center space-x-2">
               <input
@@ -533,7 +527,7 @@ export const Settings: React.FC = () => {
                 className="rounded border-input"
                 disabled={!hardwareSettings.receiptPrinter.enabled}
               />
-              <span className="text-sm">Show store logo</span>
+              <span className="text-sm">Show store name</span>
             </label>
             <p className="text-xs text-muted-foreground">
               Store name, address, phone, and footer are configured in Store Information and Receipt Settings above.
@@ -588,7 +582,7 @@ export const Settings: React.FC = () => {
               <span className="text-sm">Only open for cash payments</span>
             </label>
             <p className="text-xs text-muted-foreground">
-              Cash drawer opens via ESC/POS command through the receipt printer's RJ11/RJ12 port.
+              Automatic drawer control is not connected. Open the drawer manually or configure your printer driver.
             </p>
             <Button
               variant="outline"
@@ -613,11 +607,12 @@ export const Settings: React.FC = () => {
             <label className="flex items-center space-x-2">
               <input
                 type="checkbox"
-                checked={hardwareSettings.cardReader.enabled}
+                checked={false}
+                disabled
                 onChange={(e) => updateHardwareSettings('cardReader', 'enabled', e.target.checked)}
                 className="rounded border-input"
               />
-              <span className="text-sm">Enable card reader</span>
+              <span className="text-sm">Card reader integration is not connected</span>
             </label>
             <Input
               label="Terminal ID"
@@ -627,7 +622,7 @@ export const Settings: React.FC = () => {
               disabled={!hardwareSettings.cardReader.enabled}
             />
             <p className="text-xs text-muted-foreground">
-              Integration with Stripe Terminal or Square Reader coming soon.
+              Card payments are recorded after approval on a separate terminal. This POS does not charge cards.
             </p>
           </CardContent>
         </Card>
@@ -650,16 +645,17 @@ export const Settings: React.FC = () => {
           </CardContent>
         </Card>
 
-        </>
-        )}
 
+        </>)}
+
+        {selected === 'profile' && <>
         {/* User Profile — visible to all roles */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>User Profile</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
               <Input
                 label="First Name"
                 value={profileSettings.firstName}
@@ -690,11 +686,11 @@ export const Settings: React.FC = () => {
               onChange={(e) => setProfileSettings({ ...profileSettings, currentPassword: e.target.value })}
               className="mb-4"
             />
-            <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
               <Input
                 label="New Password"
                 type="password"
-                placeholder="At least 6 characters"
+                placeholder="At least 8 characters"
                 value={profileSettings.newPassword}
                 onChange={(e) => setProfileSettings({ ...profileSettings, newPassword: e.target.value })}
               />
@@ -712,7 +708,9 @@ export const Settings: React.FC = () => {
 
         {/* Two-Factor Authentication — visible to all roles */}
         <TwoFactorCard />
+        <SecurityNotifications />
+        </>}
       </div>
-    </div>
+    </ManagementPage>
   );
 };

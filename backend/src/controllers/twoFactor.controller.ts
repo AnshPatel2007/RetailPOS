@@ -1,401 +1,108 @@
 import { Response } from 'express';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
-import crypto from 'crypto';
+import { randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
+import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { config } from '../config';
-import { logger } from '../utils/logger';
+import { consumeSecondFactor } from '../services/twoFactor.service';
+import {queueSecurityEmail} from '../services/securityEmail.service';
+export { verifyTOTPCode } from '../services/twoFactor.service';
 
-/**
- * Cryptographically random 8-char alphanumeric backup code
- * (replaces the ESM-only crypto-random-string dependency)
- */
-const generateBackupCode = (): string => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const bytes = crypto.randomBytes(8);
-  return Array.from(bytes, (b) => chars[b % chars.length]).join('');
+const passwordInput = z.object({ password: z.string().min(1).max(200) });
+const proofInput = passwordInput.extend({ code: z.string().trim().min(6).max(64) });
+const codes = () => Array.from({ length: 10 }, () => randomBytes(8).toString('hex').toUpperCase());
+async function lockedUser(tx: Prisma.TransactionClient, req: AuthRequest) {
+  await tx.$queryRaw`SELECT id FROM users WHERE id = ${req.user!.id} FOR UPDATE`;
+  const user = await tx.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  const session = await tx.refreshToken.findFirst({ where: { id: req.sessionId, userId: user.id, isRevoked: false, expiresAt: { gt: new Date() } } });
+  if (!user.isActive || !session) throw new AppError('Session expired. Sign in again.', 401);
+  return user;
+}
+async function keepCurrentSession(tx: Prisma.TransactionClient, req: AuthRequest) {
+  await tx.$queryRaw`SELECT set_config('pos.keep_session_id', ${req.sessionId!}, true)`;
+}
+const audit = async(tx: Prisma.TransactionClient, req: AuthRequest, action: string) => {
+  await tx.activityLog.create({data:{userId:req.user!.id,locationId:req.user!.locationId,action,entity:'USER',entityId:req.user!.id}});
+  if(['2FA_ENABLED','2FA_DISABLED','2FA_BACKUP_CODES_REGENERATED'].includes(action)){
+    const user=await tx.user.findUniqueOrThrow({where:{id:req.user!.id}});
+    await queueSecurityEmail(tx,user,action,String(user.twoFactorVersion));
+  }
 };
-import { send2FAEnabledEmail } from '../utils/email';
 
-/**
- * Generate 2FA secret and QR code
- * POST /api/auth/2fa/setup
- */
 export const setup2FA = asyncHandler(async (req: AuthRequest, res: Response) => {
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-    select: {
-      id: true,
-      email: true,
-      firstName: true,
-      twoFactorEnabled: true,
-    },
-  });
-
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
-
-  if (user.twoFactorEnabled) {
-    throw new AppError('Two-factor authentication is already enabled', 400);
-  }
-
-  // Generate secret
+  const { password } = passwordInput.parse(req.body);
   const secret = authenticator.generateSecret();
-
-  // Create otpauth URL for QR code
-  const otpauthUrl = authenticator.keyuri(
-    user.email,
-    config.security.twoFactorIssuer,
-    secret
-  );
-
-  // Generate QR code as data URL
-  const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
-
-  // Store secret temporarily (not enabled yet)
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { twoFactorSecret: secret },
+  const user = await prisma.$transaction(async tx => {
+    const current = await lockedUser(tx, req);
+    if (!await bcrypt.compare(password, current.password)) throw new AppError('Verification failed', 403);
+    if (current.twoFactorEnabled) throw new AppError('Two-factor authentication is already enabled', 409);
+    await tx.user.update({ where: { id: current.id }, data: { twoFactorSetupSecret: secret, twoFactorSetupExpires: new Date(Date.now() + 10 * 60000) } });
+    await audit(tx, req, '2FA_SETUP_STARTED'); return current;
   });
-
-  logger.info(`2FA setup initiated for user: ${user.email}`);
-
-  res.json({
-    success: true,
-    data: {
-      secret,
-      qrCode: qrCodeDataUrl,
-      otpauthUrl,
-    },
-    message: 'Scan the QR code with your authenticator app, then verify with a code',
-  });
+  const otpauthUrl = authenticator.keyuri(user.email, config.security.twoFactorIssuer, secret);
+  res.json({ success: true, data: { secret, qrCode: await QRCode.toDataURL(otpauthUrl), otpauthUrl, expiresIn: 600 } });
 });
 
-/**
- * Verify and enable 2FA
- * POST /api/auth/2fa/verify
- */
+export const cancel2FASetup = asyncHandler(async (req: AuthRequest, res: Response) => {
+  await prisma.$transaction(async tx => {
+    await lockedUser(tx, req);
+    await tx.user.update({ where: { id: req.user!.id }, data: { twoFactorSetupSecret: null, twoFactorSetupExpires: null } });
+    await audit(tx, req, '2FA_SETUP_CANCELLED');
+  });
+  res.json({ success: true });
+});
+
 export const verify2FA = asyncHandler(async (req: AuthRequest, res: Response) => {
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
-
-  const { code } = req.body;
-
-  if (!code) {
-    throw new AppError('Verification code is required', 400);
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-    select: {
-      id: true,
-      email: true,
-      firstName: true,
-      twoFactorEnabled: true,
-      twoFactorSecret: true,
-    },
-  });
-
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
-
-  if (user.twoFactorEnabled) {
-    throw new AppError('Two-factor authentication is already enabled', 400);
-  }
-
-  if (!user.twoFactorSecret) {
-    throw new AppError('Please set up 2FA first', 400);
-  }
-
-  // Verify the code
-  const isValid = authenticator.verify({
-    token: code,
-    secret: user.twoFactorSecret,
-  });
-
-  if (!isValid) {
-    throw new AppError('Invalid verification code', 400);
-  }
-
-  // Generate backup codes
-  const backupCodes = Array.from({ length: 10 }, () => generateBackupCode());
-
-  // Hash backup codes for storage
-  const hashedBackupCodes = await Promise.all(
-    backupCodes.map(code => bcrypt.hash(code, 10))
-  );
-
-  // Enable 2FA
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      twoFactorEnabled: true,
-      twoFactorBackupCodes: hashedBackupCodes,
-    },
-  });
-
-  // Log activity
-  await prisma.activityLog.create({
-    data: {
-      userId: user.id,
-      action: '2FA_ENABLED',
-      entity: 'USER',
-      entityId: user.id,
-      locationId: req.user.locationId,
-    },
-  });
-
-  // Send notification email
-  try {
-    await send2FAEnabledEmail(user.email, user.firstName);
-  } catch (error) {
-    logger.error('Failed to send 2FA enabled email:', error);
-  }
-
-  logger.info(`2FA enabled for user: ${user.email}`);
-
-  res.json({
-    success: true,
-    data: {
-      backupCodes,
-    },
-    message: 'Two-factor authentication enabled successfully. Save your backup codes!',
-  });
+  const { code } = z.object({ code: z.string().regex(/^\d{6}$/) }).parse(req.body);
+  const backupCodes = codes();
+  const hashes = await Promise.all(backupCodes.map(code => bcrypt.hash(code, 10)));
+  await prisma.$transaction(async tx => {
+    const user = await lockedUser(tx, req);
+    if (user.twoFactorEnabled) throw new AppError('Two-factor authentication is already enabled', 409);
+    if (!user.twoFactorSetupSecret || !user.twoFactorSetupExpires || user.twoFactorSetupExpires <= new Date()) throw new AppError('Setup expired. Start setup again.', 409);
+    const delta = authenticator.clone({ window: 1 }).checkDelta(code, user.twoFactorSetupSecret);
+    if (delta === null) throw new AppError('Invalid verification code', 400);
+    await keepCurrentSession(tx, req);
+    await tx.user.update({ where: { id: user.id }, data: { twoFactorEnabled: true, twoFactorSecret: user.twoFactorSetupSecret,
+      twoFactorSetupSecret: null, twoFactorSetupExpires: null, twoFactorBackupCodes: hashes,
+      twoFactorLastStep: Math.floor(Date.now() / 30000) + delta, twoFactorVersion: { increment: 1 } } });
+    await audit(tx, req, '2FA_ENABLED');
+  }, { timeout: 15000 });
+  res.json({ success: true, data: { backupCodes }, message: 'Two-factor authentication enabled. Other sessions have been signed out.' });
 });
 
-/**
- * Disable 2FA
- * POST /api/auth/2fa/disable
- */
 export const disable2FA = asyncHandler(async (req: AuthRequest, res: Response) => {
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
-
-  const { password, code } = req.body;
-
-  if (!password) {
-    throw new AppError('Password is required', 400);
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-  });
-
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
-
-  if (!user.twoFactorEnabled) {
-    throw new AppError('Two-factor authentication is not enabled', 400);
-  }
-
-  // Verify password
-  const isPasswordValid = await bcrypt.compare(password, user.password);
-  if (!isPasswordValid) {
-    throw new AppError('Invalid password', 401);
-  }
-
-  // Verify 2FA code if provided
-  if (code && user.twoFactorSecret) {
-    const isValid = authenticator.verify({
-      token: code,
-      secret: user.twoFactorSecret,
-    });
-
-    if (!isValid) {
-      throw new AppError('Invalid verification code', 400);
-    }
-  }
-
-  // Disable 2FA
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      twoFactorEnabled: false,
-      twoFactorSecret: null,
-      twoFactorBackupCodes: [],
-    },
-  });
-
-  // Log activity
-  await prisma.activityLog.create({
-    data: {
-      userId: user.id,
-      action: '2FA_DISABLED',
-      entity: 'USER',
-      entityId: user.id,
-      locationId: user.locationId,
-    },
-  });
-
-  logger.info(`2FA disabled for user: ${user.email}`);
-
-  res.json({
-    success: true,
-    message: 'Two-factor authentication disabled successfully',
-  });
+  const { password, code } = proofInput.parse(req.body);
+  await prisma.$transaction(async tx => {
+    const user = await lockedUser(tx, req);
+    if (!await bcrypt.compare(password, user.password) || !await consumeSecondFactor(tx, user.id, code)) throw new AppError('A valid password and unused authentication or backup code are required', 403);
+    await keepCurrentSession(tx, req);
+    await tx.user.update({ where: { id: user.id }, data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorSetupSecret: null,
+      twoFactorSetupExpires: null, twoFactorLastStep: null, twoFactorBackupCodes: [], twoFactorVersion: { increment: 1 } } });
+    await audit(tx, req, '2FA_DISABLED');
+  }, { timeout: 15000 });
+  res.json({ success: true, message: 'Two-factor authentication disabled. Other sessions have been signed out.' });
 });
 
-/**
- * Get 2FA status
- * GET /api/auth/2fa/status
- */
-export const get2FAStatus = asyncHandler(async (req: AuthRequest, res: Response) => {
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-    select: {
-      twoFactorEnabled: true,
-      twoFactorBackupCodes: true,
-    },
-  });
-
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
-
-  res.json({
-    success: true,
-    data: {
-      enabled: user.twoFactorEnabled,
-      backupCodesRemaining: user.twoFactorBackupCodes.length,
-    },
-  });
-});
-
-/**
- * Regenerate backup codes
- * POST /api/auth/2fa/backup-codes
- */
 export const regenerateBackupCodes = asyncHandler(async (req: AuthRequest, res: Response) => {
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
-
-  const { password } = req.body;
-
-  if (!password) {
-    throw new AppError('Password is required', 400);
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-  });
-
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
-
-  if (!user.twoFactorEnabled) {
-    throw new AppError('Two-factor authentication is not enabled', 400);
-  }
-
-  // Verify password
-  const isPasswordValid = await bcrypt.compare(password, user.password);
-  if (!isPasswordValid) {
-    throw new AppError('Invalid password', 401);
-  }
-
-  // Generate new backup codes
-  const backupCodes = Array.from({ length: 10 }, () => generateBackupCode());
-
-  // Hash backup codes for storage
-  const hashedBackupCodes = await Promise.all(
-    backupCodes.map(code => bcrypt.hash(code, 10))
-  );
-
-  // Update backup codes
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      twoFactorBackupCodes: hashedBackupCodes,
-    },
-  });
-
-  // Log activity
-  await prisma.activityLog.create({
-    data: {
-      userId: user.id,
-      action: '2FA_BACKUP_CODES_REGENERATED',
-      entity: 'USER',
-      entityId: user.id,
-      locationId: user.locationId,
-    },
-  });
-
-  logger.info(`Backup codes regenerated for user: ${user.email}`);
-
-  res.json({
-    success: true,
-    data: {
-      backupCodes,
-    },
-    message: 'Backup codes regenerated successfully. Save them securely!',
-  });
+  const { password, code } = proofInput.parse(req.body);
+  const backupCodes = codes(), hashes = await Promise.all(backupCodes.map(code => bcrypt.hash(code, 10)));
+  await prisma.$transaction(async tx => {
+    const user = await lockedUser(tx, req);
+    if (!await bcrypt.compare(password, user.password) || !await consumeSecondFactor(tx, user.id, code)) throw new AppError('A valid password and unused authentication or backup code are required', 403);
+    await keepCurrentSession(tx, req);
+    await tx.user.update({ where: { id: user.id }, data: { twoFactorBackupCodes: hashes, twoFactorVersion: { increment: 1 } } });
+    await audit(tx, req, '2FA_BACKUP_CODES_REGENERATED');
+  }, { timeout: 15000 });
+  res.json({ success: true, data: { backupCodes }, message: 'Backup codes replaced. Other sessions have been signed out.' });
 });
 
-/**
- * Verify 2FA code during login (called internally)
- */
-export const verifyTOTPCode = async (
-  userId: string,
-  code: string
-): Promise<boolean> => {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      twoFactorSecret: true,
-      twoFactorBackupCodes: true,
-    },
-  });
-
-  if (!user || !user.twoFactorSecret) {
-    return false;
-  }
-
-  // Try TOTP code first
-  const isValidTOTP = authenticator.verify({
-    token: code,
-    secret: user.twoFactorSecret,
-  });
-
-  if (isValidTOTP) {
-    return true;
-  }
-
-  // Try backup codes
-  for (let i = 0; i < user.twoFactorBackupCodes.length; i++) {
-    const isValidBackup = await bcrypt.compare(code, user.twoFactorBackupCodes[i]);
-    if (isValidBackup) {
-      // Remove used backup code
-      const updatedCodes = [...user.twoFactorBackupCodes];
-      updatedCodes.splice(i, 1);
-
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          twoFactorBackupCodes: updatedCodes,
-        },
-      });
-
-      logger.info(`Backup code used for user: ${userId}`);
-      return true;
-    }
-  }
-
-  return false;
-};
+export const get2FAStatus = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { twoFactorEnabled: true, twoFactorBackupCodes: true } });
+  res.json({ success: true, data: { enabled: user.twoFactorEnabled, backupCodesRemaining: user.twoFactorBackupCodes.length } });
+});

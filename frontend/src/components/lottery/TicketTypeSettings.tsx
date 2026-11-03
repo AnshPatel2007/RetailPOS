@@ -7,10 +7,12 @@ import { Input } from '@/components/ui/Input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 import { lotteryService } from '@/services/api';
 import toast from 'react-hot-toast';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 
 interface TicketTypeSettingsProps {
   locationId?: string;
   isReadOnly?: boolean;
+  onActionsChange?: (actions: React.ReactNode) => void;
 }
 
 interface TicketType {
@@ -25,11 +27,13 @@ interface TicketType {
 export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
   locationId,
   isReadOnly = false,
+  onActionsChange,
 }) => {
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [error, setError] = useState('');
   const [formData, setFormData] = useState({
     ticketName: '',
     ticketCode: '',
@@ -38,24 +42,31 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
   });
 
   useEffect(() => {
-    fetchTicketTypes();
+    const controller = new AbortController();
+    void fetchTicketTypes(false, () => !controller.signal.aborted, controller.signal);
+    return () => controller.abort();
   }, [locationId]);
 
-  const fetchTicketTypes = async () => {
-    setLoading(true);
+  const fetchTicketTypes = async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    if (!quiet) { setLoading(true); setError(''); }
     try {
       const params: any = {};
       if (locationId) {
         params.locationId = locationId;
       }
 
-      const response = await lotteryService.getTicketTypes(params);
+      const response = await lotteryService.getTicketTypes(params, signal);
+      if (!active()) return;
+      setError('');
       setTicketTypes(response.data.data || []);
     } catch (error) {
+      if (quiet) throw error;
+      if (!active()) return;
+      setError('Ticket types could not be loaded. Try again.');
       logger.error('Failed to fetch ticket types:', error);
       toast.error('Failed to load ticket types');
     } finally {
-      setLoading(false);
+      if (active()) setLoading(false);
     }
   };
 
@@ -155,6 +166,12 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
     }).format(value);
   };
 
+  useEffect(() => {
+    onActionsChange?.(!isReadOnly && !isAdding ? <Button onClick={handleAdd} disabled={loading || !!error}><Plus className="h-4 w-4 mr-2" />Add Ticket Type</Button> : null);
+    return () => onActionsChange?.(null);
+  }, [onActionsChange, isReadOnly, isAdding, ticketTypes.length, loading, error]);
+  const updates = useLegacyPageRefresh((current, signal) => fetchTicketTypes(true, current, signal), { key: locationId || 'all', paused: loading || isAdding || !!editingId });
+
   if (loading) {
     return (
       <Card className="p-6">
@@ -165,21 +182,9 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
 
   return (
     <div className="space-y-4">
+      {updates.notice}
+      {error && <div role="alert"><p>{error}</p><Button variant="outline" onClick={() => void fetchTicketTypes()}>Retry</Button></div>}
       <Card className="p-6">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h2 className="text-xl font-semibold">Lottery Ticket Types</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Manage ticket types used in daily lottery entries
-            </p>
-          </div>
-          {!isReadOnly && !isAdding && (
-            <Button onClick={handleAdd} className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Add Ticket Type
-            </Button>
-          )}
-        </div>
 
         <Table>
           <TableHeader>

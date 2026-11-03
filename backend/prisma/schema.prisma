@@ -2,12 +2,110 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Inventory cost facts are append-only. Balances are their current projection.
+model InventoryValuation {
+  productId String @id
+  locationId String
+  quantity Int
+  value Decimal? @db.Decimal(24, 8)
+  lastEntryId String?
+  verifiedAt DateTime?
+  updatedAt DateTime @updatedAt
+  @@index([locationId])
+  @@map("inventory_valuations")
+}
+
+model InventoryValueEntry {
+  id String @id @default(uuid())
+  sequence Int @unique @default(autoincrement())
+  productId String
+  locationId String
+  userId String
+  kind String
+  mode String
+  sourceId String
+  sourceKey String @unique
+  quantity Int
+  quantityBefore Int
+  quantityAfter Int
+  inputValue Decimal? @db.Decimal(24, 8)
+  valueBefore Decimal? @db.Decimal(24, 8)
+  valueChange Decimal? @db.Decimal(24, 8)
+  valueAfter Decimal? @db.Decimal(24, 8)
+  cogsAmount Decimal? @db.Decimal(24, 8)
+  referenceEntryId String?
+  referenceQuantity Int?
+  referenceOffset Int @default(0)
+  notes String?
+  effectiveAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  @@index([locationId, createdAt, sequence])
+  @@index([productId, sequence])
+  @@index([referenceEntryId])
+  @@index([sourceId])
+  @@map("inventory_value_entries")
+}
+
+model InventoryCostCorrection {
+  id String @id @default(uuid())
+  locationId String
+  userId String
+  sourceEntryId String
+  inputValue Decimal @db.Decimal(24, 8)
+  reason String
+  idempotencyKey String @unique
+  requestHash String
+  preview Json
+  createdAt DateTime @default(now())
+  @@index([locationId, createdAt])
+  @@map("inventory_cost_corrections")
+}
+
+model InventoryCostRevision {
+  id String @id @default(uuid())
+  sequence Int @unique @default(autoincrement())
+  correctionId String
+  entryId String
+  inputValue Decimal? @db.Decimal(24, 8)
+  valueBefore Decimal? @db.Decimal(24, 8)
+  valueChange Decimal? @db.Decimal(24, 8)
+  valueAfter Decimal? @db.Decimal(24, 8)
+  cogsAmount Decimal? @db.Decimal(24, 8)
+  createdAt DateTime @default(now())
+  @@unique([correctionId, entryId])
+  @@index([entryId, sequence])
+  @@map("inventory_cost_revisions")
+}
+
+model SupplierReturn {
+  id String @id @default(uuid())
+  locationId String
+  userId String
+  receiptEntryId String
+  productId String
+  quantity Int
+  creditAmount Decimal @db.Decimal(14, 2)
+  carryingValue Decimal? @db.Decimal(24, 8)
+  costAdjustment Decimal? @db.Decimal(24, 8)
+  reason String
+  idempotencyKey String @unique
+  requestHash String
+  createdAt DateTime @default(now())
+  @@index([locationId, createdAt])
+  @@index([receiptEntryId])
+  @@map("supplier_returns")
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model User {
+  operationReceipts OperationReceipt[]
+  emailDeliveries EmailDelivery[]
+  hourlyRate                 Decimal? @db.Decimal(14, 4)
+  payrollEntries             PayrollEntry[]
   id                         String               @id @default(uuid())
   email                      String               @unique
   password                   String
@@ -26,11 +124,17 @@ model User {
   twoFactorBackupCodes       String[]             @default([])
   twoFactorEnabled           Boolean              @default(false)
   twoFactorSecret            String?
+  twoFactorSetupSecret       String?
+  twoFactorSetupExpires      DateTime?
+  twoFactorLastStep           Int?
+  twoFactorVersion            Int                  @default(0)
   activityLogs               ActivityLog[]
   expenses                   Expense[]
   refreshTokens              RefreshToken[]
   sales                      Sale[]
   shifts                     Shift[]
+  drawerEntries              DrawerEntry[]
+  accountOperations          AccountOperation[]
   location                   Location?            @relation(fields: [locationId], references: [id])
   recurringExpenses          RecurringExpense[]
   lotteryBatches             LotteryBatch[]
@@ -45,6 +149,23 @@ model User {
   @@index([locationId])
   @@index([passwordResetToken])
   @@map("users")
+}
+
+model OperationReceipt {
+  id             String   @id @default(uuid())
+  idempotencyKey String   @unique
+  kind           String
+  targetId       String
+  userId         String
+  locationId     String
+  requestHash    String
+  result         Json
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  location       Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  @@index([locationId, kind, createdAt, id], map: "operation_receipts_scope_idx")
+  @@index([targetId], map: "operation_receipts_target_idx")
+  @@map("operation_receipts")
 }
 
 model RefreshToken {
@@ -65,6 +186,14 @@ model RefreshToken {
 }
 
 model Location {
+  costingActivatedAt DateTime?
+  historicalIncome HistoricalIncome[]
+  operationReceipts OperationReceipt[]
+  emailDeliveries      EmailDelivery[]
+  payrollFrequency     String               @default("WEEKLY")
+  payrollEntries       PayrollEntry[]
+  connectionsA         StoreConnection[]    @relation("ConnectionA")
+  connectionsB         StoreConnection[]    @relation("ConnectionB")
   id                   String               @id @default(uuid())
   name                 String
   address              String
@@ -74,8 +203,8 @@ model Location {
   country              String               @default("US")
   phone                String
   email                String
-  taxRate              Float                @default(0)
-  cardSurchargePercent Float                @default(0) // card surcharge / cash-discount program (0 = off)
+  taxRate              Decimal @db.Decimal(9, 4)                @default(0)
+  cardSurchargePercent Decimal @db.Decimal(9, 4)                @default(0) // card surcharge / cash-discount program (0 = off)
   isActive             Boolean              @default(true)
   businessHours        Json?
   settings             Json?
@@ -87,6 +216,8 @@ model Location {
   products             Product[]
   sales                Sale[]
   shifts               Shift[]
+  drawerEntries        DrawerEntry[]
+  accountOperations    AccountOperation[]
   users                User[]
   budgets              Budget[]
   recurringExpenses    RecurringExpense[]
@@ -98,6 +229,21 @@ model Location {
   lotteryDayStatuses   LotteryDayStatus[]
 
   @@map("locations")
+}
+
+model HistoricalIncome {
+  id String @id @default(uuid())
+  locationId String
+  sourceKey String @unique
+  period String
+  kind String
+  amount Decimal @db.Decimal(14, 2)
+  recognizedAt DateTime
+  notes String
+  createdAt DateTime @default(now())
+  location Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  @@index([locationId, recognizedAt])
+  @@map("historical_income")
 }
 
 model Category {
@@ -121,16 +267,20 @@ model Category {
 }
 
 model Product {
+  baseUnitName    String            @default("unit")
+  sellingUnits    ProductSellingUnit[]
+  verifiedUnitCost Decimal? @db.Decimal(24, 8)
   id              String            @id @default(uuid())
   sku             String
   name            String
   description     String?
   categoryId      String?
-  cost            Float             @default(0)
-  price           Float
-  compareAtPrice  Float?
+  cost            Decimal @db.Decimal(14, 4)             @default(0)
+  price           Decimal @db.Decimal(14, 4)
+  compareAtPrice  Decimal? @db.Decimal(14, 4)
   trackInventory  Boolean           @default(true)
   stockQuantity   Int               @default(0)
+  stockVersion    Int               @default(0)
   lowStockAlert   Int               @default(10)
   barcode         String?
   image           String?
@@ -151,6 +301,7 @@ model Product {
   location        Location?         @relation(fields: [locationId], references: [id])
   saleItems       SaleItem[]
   transferItems   TransferItem[]
+  destinationTransferItems TransferItem[] @relation("TransferDestination")
   cycleCountItems CycleCountItem[]
 
   @@unique([sku, locationId])
@@ -162,14 +313,57 @@ model Product {
   @@map("products")
 }
 
+model ProductSellingUnit {
+  id String @id @default(uuid())
+  productId String
+  locationId String
+  name String
+  sku String?
+  barcode String
+  price Decimal @db.Decimal(14, 4)
+  unitsPerPackage Int
+  sealedQuantity Int @default(0)
+  isActive Boolean @default(true)
+  version Int @default(0)
+  createRequestKey String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  @@unique([barcode, locationId], map: "product_selling_units_barcode_location_key")
+  @@unique([sku, locationId], map: "product_selling_units_sku_location_key")
+  @@unique([createRequestKey, locationId], map: "product_selling_units_request_location_key")
+  @@index([productId], map: "product_selling_units_product_idx")
+  @@index([locationId], map: "product_selling_units_location_idx")
+  @@map("product_selling_units")
+}
+
+model ProductPackagingEvent {
+  id String @id @default(uuid())
+  productId String
+  sellingUnitId String
+  locationId String
+  userId String
+  kind String
+  quantity Int
+  previousQuantity Int
+  newQuantity Int
+  sourceId String?
+  requestKey String?
+  notes String?
+  createdAt DateTime @default(now())
+  @@unique([locationId, requestKey], map: "product_packaging_events_location_request_key")
+  @@index([productId, createdAt], map: "product_packaging_events_product_created_idx")
+  @@map("product_packaging_events")
+}
+
 model ProductVariant {
   id            String   @id @default(uuid())
   productId     String
   name          String
   sku           String   @unique
   barcode       String?  @unique
-  price         Float?
-  cost          Float?
+  price         Decimal? @db.Decimal(14, 4)
+  cost          Decimal? @db.Decimal(14, 4)
   stockQuantity Int      @default(0)
   options       Json
   isActive      Boolean  @default(true)
@@ -192,7 +386,7 @@ model Supplier {
   notes          String?
   paymentTerms   String?
   leadTimeDays   Int?
-  minimumOrder   Float?
+  minimumOrder   Decimal? @db.Decimal(14, 4)
   isActive       Boolean           @default(true)
   locationId     String? // null = shared across all locations
   createdAt      DateTime          @default(now())
@@ -209,7 +403,7 @@ model ProductSupplier {
   productId   String
   supplierId  String
   supplierSku String?
-  cost        Float?
+  cost        Decimal? @db.Decimal(14, 4)
   leadTime    Int?
   minOrder    Int?
   createdAt   DateTime @default(now())
@@ -226,15 +420,17 @@ model PurchaseOrder {
   orderNumber String              @unique
   supplierId  String
   status      String              @default("PENDING")
-  totalAmount Float               @default(0)
+  totalAmount Decimal @db.Decimal(14, 2)               @default(0)
   notes       String?
   locationId  String? // null = shared across all locations
   orderedAt   DateTime?
   expectedAt  DateTime?
   receivedAt  DateTime?
+  receivingHistoryKnown Boolean @default(true)
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
   items       PurchaseOrderItem[]
+  receipts    PurchaseReceipt[]
   supplier    Supplier            @relation(fields: [supplierId], references: [id])
 
   @@index([locationId])
@@ -248,13 +444,79 @@ model PurchaseOrderItem {
   sku             String
   productName     String
   quantity        Int
-  cost            Float
-  total           Float
+  receivedQty     Int           @default(0)
+  damagedQty      Int           @default(0)
+  rejectedQty     Int           @default(0)
+  cost            Decimal @db.Decimal(14, 4)
+  total           Decimal @db.Decimal(14, 2)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  receiptItems    PurchaseReceiptItem[]
 
   @@map("purchase_order_items")
+}
+
+model PurchaseReceipt {
+  invoiceNumber String?
+  invoiceDate DateTime?
+  freight Decimal @default(0) @db.Decimal(14, 2)
+  acquisitionTax Decimal @default(0) @db.Decimal(14, 2)
+  invoiceDiscount Decimal @default(0) @db.Decimal(14, 2)
+  id              String                @id @default(uuid())
+  purchaseOrderId String
+  idempotencyKey  String
+  requestHash     String
+  receivedBy      String
+  notes           String?
+  finalDelivery   Boolean               @default(false)
+  createdAt       DateTime              @default(now())
+  purchaseOrder   PurchaseOrder         @relation(fields: [purchaseOrderId], references: [id])
+  items           PurchaseReceiptItem[]
+
+  @@unique([purchaseOrderId, idempotencyKey])
+  @@index([purchaseOrderId, createdAt])
+  @@map("purchase_receipts")
+}
+
+model PurchaseReceiptItem {
+  sellingUnitId String?
+  sellingUnitName String?
+  receivedPackageQuantity Int @default(0)
+  unitCost Decimal? @db.Decimal(24, 8)
+  packSize Int @default(1)
+  lineDiscount Decimal @default(0) @db.Decimal(14, 2)
+  allocatedCharges Decimal @default(0) @db.Decimal(14, 2)
+  inventoryValue Decimal? @db.Decimal(24, 8)
+  inventoryEntryId String? @unique
+  id                  String            @id @default(uuid())
+  receiptId           String
+  purchaseOrderItemId String
+  acceptedQty         Int
+  damagedQty          Int               @default(0)
+  rejectedQty         Int               @default(0)
+  receipt             PurchaseReceipt   @relation(fields: [receiptId], references: [id])
+  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
+
+  @@index([receiptId])
+  @@index([purchaseOrderItemId])
+  @@map("purchase_receipt_items")
+}
+
+model InventoryImport {
+  id          String   @id @default(uuid())
+  locationId  String
+  userId      String
+  kind        String
+  payload     Json
+  preview     Json
+  result      Json?
+  expiresAt   DateTime
+  appliedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([locationId, userId, createdAt])
+  @@map("inventory_imports")
 }
 
 model InventoryLog {
@@ -266,6 +528,9 @@ model InventoryLog {
   newQty      Int
   notes       String?
   userId      String?
+  locationId  String?
+  sourceId    String?
+  stockVersion Int?
   createdAt   DateTime @default(now())
   product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
@@ -275,19 +540,25 @@ model InventoryLog {
 }
 
 model Sale {
+  sourceType String @default("RECEIPT")
+  sourceData Json?
+  pricingVersion Int?
+  pointsEarned Int?
+  pointsRedeemed Int?
+  loyaltyDiscount Decimal? @db.Decimal(14, 2)
   id             String        @id @default(uuid())
   saleNumber     String        @unique
   customerId     String?
   userId         String
   locationId     String?
-  subtotal       Float         @default(0)
-  tax            Float         @default(0)
-  discount       Float         @default(0)
-  surcharge      Float         @default(0) // card surcharge collected (included in total)
-  total          Float         @default(0)
+  subtotal       Decimal @db.Decimal(14, 2)         @default(0)
+  tax            Decimal @db.Decimal(14, 2)         @default(0)
+  discount       Decimal @db.Decimal(14, 2)         @default(0)
+  surcharge      Decimal @db.Decimal(14, 2)         @default(0) // card surcharge collected (included in total)
+  total          Decimal @db.Decimal(14, 2)         @default(0)
   paymentMethod  PaymentMethod
-  amountPaid     Float         @default(0)
-  changeDue      Float         @default(0)
+  amountPaid     Decimal @db.Decimal(14, 2)         @default(0)
+  changeDue      Decimal @db.Decimal(14, 2)         @default(0)
   status         SaleStatus    @default(COMPLETED)
   notes          String?
   receiptNumber  String?
@@ -299,6 +570,8 @@ model Sale {
   completedAt    DateTime?
   refundedAt     DateTime?
   refunds        Refund[]
+  voidEvent      SaleVoid?
+  drawerEntries  DrawerEntry[]
   items          SaleItem[]
   payments       SalePayment[]
   customer       Customer?     @relation(fields: [customerId], references: [id])
@@ -315,21 +588,59 @@ model Sale {
   @@map("sales")
 }
 
+model SaleVoid {
+  id             String   @id @default(uuid())
+  saleId         String   @unique
+  locationId     String
+  userId         String
+  approvalId     String?
+  shiftId        String?
+  reason         String
+  amount         Decimal  @db.Decimal(14, 2)
+  taxAmount      Decimal  @db.Decimal(14, 2)
+  discount       Decimal  @db.Decimal(14, 2)
+  costReversed   Decimal? @db.Decimal(24, 8)
+  pointsRestored Int?
+  pointsReversed Int?
+  items          Json
+  tenders        Json
+  idempotencyKey String?  @unique
+  requestHash    String
+  createdAt      DateTime @default(now())
+  sale           Sale     @relation(fields: [saleId], references: [id], onDelete: Restrict)
+
+  @@index([locationId, createdAt])
+  @@map("sale_voids")
+}
+
 model SaleItem {
+  sellingUnitId String?
+  unitsPerPackage Int @default(1)
+  inventoryQuantity Int?
+  costAmount Decimal? @db.Decimal(24, 8)
+  inventoryEntryId String? @unique
+  unitCost Decimal? @db.Decimal(14, 4)
+  taxRate Decimal? @db.Decimal(9, 4)
+  taxTreatment String?
+  manualDiscount Decimal? @db.Decimal(14, 2)
+  loyaltyDiscount Decimal? @db.Decimal(14, 2)
+  surcharge Decimal? @db.Decimal(14, 2)
+  pointsEarned Int?
+  pointsRedeemed Int?
   id                String       @id @default(uuid())
   saleId            String
   productId         String
   sku               String
   productName       String
   quantity          Int          @default(1)
-  price             Float
-  discount          Float        @default(0)
-  tax               Float        @default(0)
-  total             Float
+  price             Decimal @db.Decimal(14, 4)
+  discount          Decimal @db.Decimal(14, 2)        @default(0)
+  tax               Decimal @db.Decimal(14, 2)        @default(0)
+  total             Decimal @db.Decimal(14, 2)
   notes             String?
   promotionId       String? // promotion applied to this line (denormalized — promo may be edited/deleted later)
   promotionName     String?
-  promotionDiscount Float        @default(0) // portion of `discount` contributed by the promotion
+  promotionDiscount Decimal @db.Decimal(14, 2)        @default(0) // portion of `discount` contributed by the promotion
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
   product           Product      @relation(fields: [productId], references: [id])
@@ -345,7 +656,7 @@ model SalePayment {
   id            String        @id @default(uuid())
   saleId        String
   paymentMethod PaymentMethod
-  amount        Float
+  amount        Decimal @db.Decimal(14, 2)
   reference     String?
   createdAt     DateTime      @default(now())
   sale          Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
@@ -355,14 +666,21 @@ model SalePayment {
 }
 
 model Refund {
+  tenders Json? // Original payment source and actual payout allocations; null for legacy history.
+  pointsRestored Int?
+  pointsReversed Int?
+  taxAmount Decimal? @db.Decimal(14, 2)
   id         String       @id @default(uuid())
   saleId     String
-  amount     Float
+  amount     Decimal @db.Decimal(14, 2)
   reason     String
   notes      String?
   refundedBy String
   method     String? // CASH, CARD, GIFT_CARD, STORE_CREDIT — where the money went back to
   reference  String? // gift card code when method = GIFT_CARD
+  idempotencyKey String? @unique
+  requestHash    String?
+  drawerEntries  DrawerEntry[]
   createdAt  DateTime     @default(now())
   sale       Sale         @relation(fields: [saleId], references: [id])
   items      RefundItem[]
@@ -372,11 +690,16 @@ model Refund {
 }
 
 model RefundItem {
+  restockedAsSealed Boolean @default(false)
+  pointsRestored Int?
+  pointsReversed Int?
+  taxAmount Decimal? @db.Decimal(14, 2)
+  costReturned Decimal? @db.Decimal(24, 8)
   id         String   @id @default(uuid())
   refundId   String
   saleItemId String
   quantity   Int
-  amount     Float // portion of the refund attributable to this line
+  amount     Decimal @db.Decimal(14, 2) // portion of the refund attributable to this line
   restocked  Boolean  @default(true)
   createdAt  DateTime @default(now())
   refund     Refund   @relation(fields: [refundId], references: [id], onDelete: Cascade)
@@ -405,7 +728,7 @@ model Customer {
   lastBirthdayEmailAt DateTime? // resend guard — one birthday email per year
   loyaltyPoints       Int                 @default(0)
   loyaltyTier         String              @default("BRONZE")
-  totalSpent          Float               @default(0)
+  totalSpent          Decimal @db.Decimal(14, 2)               @default(0)
   visitCount          Int                 @default(0)
   notes               String?
   isActive            Boolean             @default(true)
@@ -427,8 +750,8 @@ model Customer {
 model GiftCard {
   id             String                @id @default(uuid())
   code           String                @unique
-  initialBalance Float
-  currentBalance Float
+  initialBalance Decimal @db.Decimal(14, 2)
+  currentBalance Decimal @db.Decimal(14, 2)
   isActive       Boolean               @default(true)
   expiresAt      DateTime?
   customerId     String?
@@ -437,6 +760,7 @@ model GiftCard {
   updatedAt      DateTime              @updatedAt
   customer       Customer?             @relation(fields: [customerId], references: [id])
   transactions   GiftCardTransaction[]
+  operations     AccountOperation[]
 
   @@index([code])
   @@index([customerId])
@@ -448,13 +772,15 @@ model GiftCardTransaction {
   id            String   @id @default(uuid())
   giftCardId    String
   type          String // ISSUE, RELOAD, REDEEM, REFUND
-  amount        Float
-  balanceBefore Float
-  balanceAfter  Float
+  amount        Decimal @db.Decimal(14, 2)
+  balanceBefore Decimal @db.Decimal(14, 2)
+  balanceAfter  Decimal @db.Decimal(14, 2)
   saleId        String?
   notes         String?
   createdAt     DateTime @default(now())
-  giftCard      GiftCard @relation(fields: [giftCardId], references: [id], onDelete: Cascade)
+  operationId   String? @unique
+  operation     AccountOperation? @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  giftCard      GiftCard @relation(fields: [giftCardId], references: [id], onDelete: Restrict)
 
   @@index([giftCardId])
   @@index([saleId])
@@ -464,12 +790,13 @@ model GiftCardTransaction {
 model StoreCreditAccount {
   id           String                   @id @default(uuid())
   customerId   String                   @unique
-  balance      Float                    @default(0)
+  balance      Decimal @db.Decimal(14, 2)                    @default(0)
   locationId   String? // null = shared across all locations
   createdAt    DateTime                 @default(now())
   updatedAt    DateTime                 @updatedAt
   customer     Customer                 @relation(fields: [customerId], references: [id])
   transactions StoreCreditTransaction[]
+  operations   AccountOperation[]
 
   @@index([locationId])
   @@map("store_credit_accounts")
@@ -479,13 +806,15 @@ model StoreCreditTransaction {
   id            String             @id @default(uuid())
   accountId     String
   type          String // CREDIT, DEBIT, REFUND
-  amount        Float
-  balanceBefore Float
-  balanceAfter  Float
+  amount        Decimal @db.Decimal(14, 2)
+  balanceBefore Decimal @db.Decimal(14, 2)
+  balanceAfter  Decimal @db.Decimal(14, 2)
   saleId        String?
   notes         String?
   createdAt     DateTime           @default(now())
-  account       StoreCreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  operationId   String? @unique
+  operation     AccountOperation? @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  account       StoreCreditAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   @@index([accountId])
   @@index([saleId])
@@ -495,14 +824,15 @@ model StoreCreditTransaction {
 model HouseAccount {
   id           String                    @id @default(uuid())
   customerId   String                    @unique
-  creditLimit  Float                     @default(0)
-  balance      Float                     @default(0) // amount the customer currently owes
+  creditLimit  Decimal @db.Decimal(14, 2)                     @default(0)
+  balance      Decimal @db.Decimal(14, 2)                     @default(0) // amount the customer currently owes
   isActive     Boolean                   @default(true)
   locationId   String? // null = shared across all locations
   createdAt    DateTime                  @default(now())
   updatedAt    DateTime                  @updatedAt
   customer     Customer                  @relation(fields: [customerId], references: [id])
   transactions HouseAccountTransaction[]
+  operations   AccountOperation[]
 
   @@index([locationId])
   @@map("house_accounts")
@@ -512,18 +842,58 @@ model HouseAccountTransaction {
   id            String       @id @default(uuid())
   accountId     String
   type          String // CHARGE, PAYMENT, ADJUSTMENT
-  amount        Float
-  balanceBefore Float
-  balanceAfter  Float
+  amount        Decimal @db.Decimal(14, 2)
+  balanceBefore Decimal @db.Decimal(14, 2)
+  balanceAfter  Decimal @db.Decimal(14, 2)
   saleId        String?
   notes         String?
   userId        String?
   createdAt     DateTime     @default(now())
-  account       HouseAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  operationId   String? @unique
+  operation     AccountOperation? @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  account       HouseAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   @@index([accountId])
   @@index([saleId])
   @@map("house_account_transactions")
+}
+
+// Funding/repayment receipt facts. Old account transactions remain explicitly
+// unlinked: their original funding tender or drawer cannot be inferred.
+model AccountOperation {
+  id                   String @id @default(uuid())
+  idempotencyKey       String @unique
+  requestHash          String
+  kind                 String // GIFT_ISSUE, GIFT_RELOAD, STORE_CREDIT, HOUSE_PAYMENT
+  paymentMethod        String // CASH, CARD, PROMOTIONAL, GOODWILL, CORRECTION
+  amount               Decimal @db.Decimal(14, 2)
+  balanceBefore        Decimal @db.Decimal(14, 2)
+  balanceAfter         Decimal @db.Decimal(14, 2)
+  reference            String?
+  reason               String?
+  userId               String
+  locationId           String
+  shiftId              String?
+  giftCardId           String?
+  storeCreditAccountId String?
+  houseAccountId       String?
+  createdAt            DateTime @default(now())
+  user                 User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  location             Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  shift                Shift? @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  giftCard             GiftCard? @relation(fields: [giftCardId], references: [id], onDelete: Restrict)
+  storeCreditAccount   StoreCreditAccount? @relation(fields: [storeCreditAccountId], references: [id], onDelete: Restrict)
+  houseAccount         HouseAccount? @relation(fields: [houseAccountId], references: [id], onDelete: Restrict)
+  giftTransactions     GiftCardTransaction[]
+  creditTransactions   StoreCreditTransaction[]
+  houseTransactions    HouseAccountTransaction[]
+  drawerEntries        DrawerEntry[]
+
+  @@index([locationId, createdAt])
+  @@index([giftCardId])
+  @@index([storeCreditAccountId])
+  @@index([houseAccountId])
+  @@map("account_operations")
 }
 
 model Exchange {
@@ -535,7 +905,7 @@ model Exchange {
   status          String   @default("PENDING") // PENDING, COMPLETED, CANCELLED
   reason          String
   returnedItems   Json // [{productId, quantity, price}]
-  priceDifference Float    @default(0)
+  priceDifference Decimal @db.Decimal(14, 2)    @default(0)
   notes           String?
   processedBy     String
   locationId      String? // denormalized from the original sale's location
@@ -558,9 +928,11 @@ model InventoryTransfer {
   createdBy      String
   shippedAt      DateTime?
   receivedAt     DateTime?
+  receivingHistoryKnown Boolean @default(true)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   items          TransferItem[]
+  receipts       TransferReceipt[]
 
   @@index([fromLocationId])
   @@index([toLocationId])
@@ -569,18 +941,65 @@ model InventoryTransfer {
 }
 
 model TransferItem {
+  inventoryEntryId String? @unique
+  dispatchedValue Decimal? @db.Decimal(24, 8)
   id          String            @id @default(uuid())
   transferId  String
   productId   String
   quantity    Int
   receivedQty Int               @default(0)
+  damagedQty  Int               @default(0)
+  missingQty  Int               @default(0)
+  sentBackQty Int               @default(0)
+  returnedQty Int               @default(0)
+  returnDamagedQty Int           @default(0)
+  returnMissingQty Int           @default(0)
+  productSnapshot Json?
+  destinationProductId String?
+  destinationProduct Product? @relation("TransferDestination", fields: [destinationProductId], references: [id], onDelete: Restrict)
+  receiptItems TransferReceiptItem[]
   createdAt   DateTime          @default(now())
   transfer    InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
   product     Product           @relation(fields: [productId], references: [id])
 
   @@index([transferId])
   @@index([productId])
+  @@index([destinationProductId])
   @@map("transfer_items")
+}
+
+model TransferReceipt {
+  id String @id @default(uuid())
+  transferId String
+  kind String // RECEIVE, SOURCE_RETURN, REQUEST_RETURN
+  idempotencyKey String
+  requestHash String
+  locationId String
+  userId String
+  notes String?
+  createdAt DateTime @default(now())
+  transfer InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  items TransferReceiptItem[]
+
+  @@unique([transferId, idempotencyKey])
+  @@index([transferId, createdAt])
+  @@map("transfer_receipts")
+}
+
+model TransferReceiptItem {
+  id String @id @default(uuid())
+  receiptId String
+  transferItemId String
+  acceptedQty Int @default(0)
+  damagedQty Int @default(0)
+  missingQty Int @default(0)
+  sentBackQty Int @default(0)
+  receipt TransferReceipt @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  transferItem TransferItem @relation(fields: [transferItemId], references: [id], onDelete: Restrict)
+
+  @@index([receiptId])
+  @@index([transferItemId])
+  @@map("transfer_receipt_items")
 }
 
 model CycleCount {
@@ -608,6 +1027,7 @@ model CycleCountItem {
   cycleCountId String
   productId    String
   expectedQty  Int
+  stockVersion Int?
   countedQty   Int?
   discrepancy  Int?
   notes        String?
@@ -622,16 +1042,20 @@ model CycleCountItem {
 }
 
 model Shift {
+  hourlyRate        Decimal? @db.Decimal(14, 4)
+  payrollFrequency  String?
+  payrollTimezone   String?
+  payrollEntries    PayrollEntry[]
   id                String         @id @default(uuid())
   userId            String
   locationId        String?
   clockInAt         DateTime
   clockOutAt        DateTime?
-  startingCash      Float          @default(0)
-  endingCash        Float?
-  expectedCash      Float?
-  cashDifference    Float?
-  totalSales        Float          @default(0)
+  startingCash      Decimal @db.Decimal(14, 2)          @default(0)
+  endingCash        Decimal? @db.Decimal(14, 2)
+  expectedCash      Decimal? @db.Decimal(14, 2)
+  cashDifference    Decimal? @db.Decimal(14, 2)
+  totalSales        Decimal @db.Decimal(14, 2)          @default(0)
   totalTransactions Int            @default(0)
   isClosed          Boolean        @default(false)
   notes             String?
@@ -639,6 +1063,9 @@ model Shift {
   updatedAt         DateTime       @updatedAt
   sales             Sale[]
   cashMovements     CashMovement[]
+  drawerEntries     DrawerEntry[]
+  accountOperations AccountOperation[]
+  drawerHistoryComplete Boolean @default(true)
   location          Location?      @relation(fields: [locationId], references: [id])
   user              User           @relation(fields: [userId], references: [id])
 
@@ -652,14 +1079,44 @@ model CashMovement {
   id        String   @id @default(uuid())
   shiftId   String
   type      String // SAFE_DROP, PAID_IN, PAID_OUT
-  amount    Float
+  amount    Decimal @db.Decimal(14, 2)
   reason    String
   userId    String
+  idempotencyKey String? @unique
+  drawerEntries DrawerEntry[]
   createdAt DateTime @default(now())
   shift     Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
 
   @@index([shiftId])
   @@map("cash_movements")
+}
+
+// Signed cash kept in or paid from a particular drawer. Entries are append-only.
+// Starting cash remains on Shift; sale entries already subtract change.
+model DrawerEntry {
+  id             String   @id @default(uuid())
+  sourceKey      String   @unique
+  shiftId        String
+  locationId     String?
+  userId         String
+  saleId         String?
+  refundId       String?
+  cashMovementId String?
+  accountOperationId String?
+  type           String // SALE, REFUND, VOID, PAID_IN, PAID_OUT, SAFE_DROP
+  amount         Decimal  @db.Decimal(14, 2)
+  createdAt      DateTime @default(now())
+  shift          Shift    @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  location       Location? @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  sale           Sale?    @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  refund         Refund?  @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  cashMovement   CashMovement? @relation(fields: [cashMovementId], references: [id], onDelete: Restrict)
+  accountOperation AccountOperation? @relation(fields: [accountOperationId], references: [id], onDelete: Restrict)
+
+  @@index([shiftId, createdAt])
+  @@index([locationId, createdAt])
+  @@map("drawer_entries")
 }
 
 model ActivityLog {
@@ -682,25 +1139,29 @@ model ActivityLog {
 }
 
 model Expense {
-  id            String          @id @default(uuid())
-  expenseNumber String          @unique
-  category      ExpenseCategory
-  description   String
-  amount        Float
-  status        ExpenseStatus   @default(PENDING)
-  vendor        String?
-  receiptUrl    String?
-  invoiceNumber String?
-  expenseDate   DateTime        @default(now())
-  dueDate       DateTime?
-  paidDate      DateTime?
-  locationId    String?
-  userId        String
-  approvedBy    String?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  location      Location?       @relation(fields: [locationId], references: [id])
-  user          User            @relation(fields: [userId], references: [id])
+  inventoryReceiptId String?
+  sourceType String @default("TRANSACTION")
+  payrollEntries PayrollEntry[]
+  id             String          @id @default(uuid())
+  expenseNumber  String          @unique
+  referenceKey   String?         @unique
+  category       ExpenseCategory
+  description    String
+  amount         Decimal @db.Decimal(14, 2)
+  status         ExpenseStatus   @default(PENDING)
+  vendor         String?
+  receiptUrl     String?
+  invoiceNumber  String?
+  expenseDate    DateTime        @default(now())
+  dueDate        DateTime?
+  paidDate       DateTime?
+  locationId     String?
+  userId         String
+  approvedBy     String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  location       Location?       @relation(fields: [locationId], references: [id])
+  user           User            @relation(fields: [userId], references: [id])
 
   @@index([category])
   @@index([status])
@@ -739,6 +1200,79 @@ model WebhookEndpoint {
   @@map("webhook_endpoints")
 }
 
+enum EmailDeliveryStatus {
+  QUEUED
+  SENDING
+  ACCEPTED
+  FAILED
+  REVIEW
+  CANCELLED
+}
+
+model EmailDelivery {
+  id             String              @id @default(uuid())
+  locationId     String
+  recipientId    String?
+  recipientEmail String
+  idempotencyKey String              @unique
+  subject        String
+  html           String
+  status         EmailDeliveryStatus @default(QUEUED)
+  attempts       Int                 @default(0)
+  leaseToken     String?
+  leaseExpiresAt DateTime?
+  errorCode      String?
+  acceptedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  location       Location            @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  recipient      User?               @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([locationId, createdAt])
+  @@map("email_deliveries")
+}
+
+model BackgroundJob {
+  id             String @id @default(uuid())
+  idempotencyKey String @unique
+  kind           String
+  status         String @default("QUEUED")
+  locationId     String?
+  requestedBy    String?
+  label          String
+  payload        String // encrypted; never returned by history APIs
+  result         Json?
+  attempts       Int @default(0)
+  maxAttempts    Int @default(5)
+  availableAt    DateTime @default(now())
+  leaseToken     String?
+  leaseExpiresAt DateTime?
+  lastError      String?
+  finishedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  history        BackgroundJobAttempt[]
+
+  @@index([status, availableAt, createdAt], map: "background_jobs_claim_idx")
+  @@index([locationId, kind, createdAt], map: "background_jobs_scope_idx")
+  @@map("background_jobs")
+}
+
+model BackgroundJobAttempt {
+  id          String @id @default(uuid())
+  jobId       String
+  number      Int
+  startedAt   DateTime
+  finishedAt  DateTime @default(now())
+  outcome     String
+  code        String?
+  job         BackgroundJob @relation(fields: [jobId], references: [id], onDelete: Restrict)
+
+  @@unique([jobId, number])
+  @@map("background_job_attempts")
+}
+
 model Setting {
   id          String   @id @default(uuid())
   key         String   @unique
@@ -756,9 +1290,9 @@ model Discount {
   name        String
   description String?
   type        String
-  value       Float
-  minPurchase Float?
-  maxDiscount Float?
+  value       Decimal @db.Decimal(14, 4)
+  minPurchase Decimal? @db.Decimal(14, 2)
+  maxDiscount Decimal? @db.Decimal(14, 2)
   startDate   DateTime?
   endDate     DateTime?
   isActive    Boolean   @default(true)
@@ -797,9 +1331,9 @@ model Promotion {
   // Rule parameters (which ones apply depends on `type`)
   buyQuantity Int? // QUANTITY_PRICE: units per bundle; BOGO: paid units
   getQuantity Int? // BOGO: discounted units per group
-  bundlePrice Float? // QUANTITY_PRICE: total price for buyQuantity units
-  percentOff  Float? // BOGO (default 100 = free) and PERCENT_OFF
-  amountOff   Float? // AMOUNT_OFF: $ off per unit
+  bundlePrice Decimal? @db.Decimal(14, 4) // QUANTITY_PRICE: total price for buyQuantity units
+  percentOff  Decimal? @db.Decimal(9, 4) // BOGO (default 100 = free) and PERCENT_OFF
+  amountOff   Decimal? @db.Decimal(14, 4) // AMOUNT_OFF: $ off per unit
   // Targeting — a unit is eligible if its product OR category is listed (mix-and-match group)
   productIds  String[]      @default([])
   categoryIds String[]      @default([])
@@ -823,13 +1357,13 @@ model Promotion {
 model Budget {
   id         String          @id @default(uuid())
   category   ExpenseCategory
-  amount     Float
+  amount     Decimal @db.Decimal(14, 2)
   period     BudgetPeriod    @default(MONTHLY)
   startDate  DateTime
   endDate    DateTime?
   locationId String?
   isActive   Boolean         @default(true)
-  alertAt    Float? // Alert when spending reaches this percentage (e.g., 80)
+  alertAt    Decimal? @db.Decimal(9, 4) // Alert when spending reaches this percentage (e.g., 80)
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
   location   Location?       @relation(fields: [locationId], references: [id])
@@ -844,7 +1378,7 @@ model RecurringExpense {
   id            String             @id @default(uuid())
   description   String
   category      ExpenseCategory
-  amount        Float
+  amount        Decimal @db.Decimal(14, 2)
   vendor        String?
   frequency     RecurringFrequency
   dayOfMonth    Int? // For MONTHLY: which day (1-31)
@@ -869,6 +1403,7 @@ model RecurringExpense {
 
 model AccountingExport {
   id          String     @id @default(uuid())
+  locationId  String?
   type        ExportType
   format      String // CSV, QBO, XLS
   startDate   DateTime
@@ -880,8 +1415,39 @@ model AccountingExport {
   createdAt   DateTime   @default(now())
 
   @@index([type])
+  @@index([locationId, createdAt])
   @@index([createdAt])
   @@map("accounting_exports")
+}
+
+model ReceiptAttachment {
+  id         String   @id @default(uuid())
+  filename   String   @unique
+  locationId String
+  userId     String
+  mimeType   String
+  size       Int
+  createdAt  DateTime @default(now())
+
+  @@index([locationId])
+  @@map("receipt_attachments")
+}
+
+model ManagerApproval {
+  id          String   @id @default(uuid())
+  tokenHash   String   @unique
+  requestHash String
+  cashierId   String
+  managerId   String
+  locationId  String
+  action      String
+  reason      String
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([cashierId, expiresAt])
+  @@map("manager_approvals")
 }
 
 enum UserRole {
@@ -982,7 +1548,7 @@ model LotteryBatch {
   endTicketNum     String
   totalTickets     Int
   remainingTickets Int
-  pricePerTicket   Float
+  pricePerTicket   Decimal @db.Decimal(14, 4)
   status           LotteryBatchStatus  @default(ACTIVE)
   activatedAt      DateTime?
   depletedAt       DateTime?
@@ -1004,11 +1570,11 @@ model LotteryTransaction {
   id                 String                   @id @default(uuid())
   transactionDate    DateTime
   onlineSalesCount   Int                      @default(0)
-  onlineSalesAmount  Float                    @default(0)
+  onlineSalesAmount  Decimal @db.Decimal(14, 2)                    @default(0)
   offlineSalesCount  Int                      @default(0)
-  offlineSalesAmount Float                    @default(0)
-  cashoutAmount      Float                    @default(0)
-  netAmount          Float                    @default(0)
+  offlineSalesAmount Decimal @db.Decimal(14, 2)                    @default(0)
+  cashoutAmount      Decimal @db.Decimal(14, 2)                    @default(0)
+  netAmount          Decimal @db.Decimal(14, 2)                    @default(0)
   status             LotteryTransactionStatus @default(OPEN)
   closedAt           DateTime?
   closedBy           String?
@@ -1032,7 +1598,7 @@ model LotteryTicketScan {
   barcode       String
   ticketNumber  String?
   gameType      String?
-  amount        Float?
+  amount        Decimal? @db.Decimal(14, 2)
   notes         String?
   batchId       String?
   transactionId String?
@@ -1056,9 +1622,15 @@ model LotteryTicketType {
   id             String              @id @default(uuid())
   ticketName     String
   ticketCode     String
-  pricePerTicket Float
+  pricePerTicket Decimal @db.Decimal(14, 4)
   sortOrder      Int                 @default(0)
   isActive       Boolean             @default(true)
+  gameNumber     String?
+  firstTicket    Int?
+  lastTicket     Int?
+  binNumber      String?
+  startingNumber Int?
+  countDirection String             @default("ASC")
   locationId     String
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
@@ -1070,6 +1642,128 @@ model LotteryTicketType {
   @@map("lottery_ticket_types")
 }
 
+// Store-day lottery accounting. Legacy lottery tables remain historical evidence.
+model LotteryConfiguration {
+  id String @id @default(uuid())
+  locationId String
+  effectiveDate String
+  settings Json
+  userId String
+  createdAt DateTime @default(now())
+  @@unique([locationId, effectiveDate])
+  @@map("lottery_configurations")
+}
+
+model LotteryBook {
+  id String @id @default(uuid())
+  locationId String
+  ticketTypeId String
+  gameNumber String
+  bookNumber String
+  name String
+  slot String
+  direction String
+  firstTicket Int
+  lastTicket Int
+  ticketCount Int
+  price Decimal @db.Decimal(14, 2)
+  position Int
+  status String @default("ACTIVE")
+  registeredDate String
+  evidence String
+  version Int @default(0)
+  userId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([locationId, gameNumber, bookNumber])
+  @@index([locationId, status])
+  @@map("lottery_books")
+}
+
+model LotteryDay {
+  id String @id @default(uuid())
+  locationId String
+  businessDate String
+  recognizedAt DateTime
+  configurationId String
+  configuration Json
+  report Json
+  status String @default("DRAFT")
+  version Int @default(0)
+  totals Json?
+  earningsIncomplete Boolean @default(true)
+  closedBy String?
+  closedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([locationId, businessDate])
+  @@index([locationId, recognizedAt])
+  @@map("lottery_days")
+}
+
+model LotteryCheckpoint {
+  id String @id @default(uuid())
+  dayId String
+  bookId String
+  openingPosition Int
+  closingPosition Int?
+  openingVerified Boolean @default(false)
+  previousStatus String
+  disposition String @default("ACTIVE")
+  lossQuantity Int @default(0)
+  reason String?
+  barcode String?
+  slot String
+  @@unique([dayId, bookId])
+  @@map("lottery_checkpoints")
+}
+
+model LotterySettlement {
+  id String @id @default(uuid())
+  locationId String
+  periodStart String
+  periodEnd String
+  reference String
+  details Json
+  reportedEarnings Decimal @db.Decimal(14, 2)
+  version Int @default(1)
+  userId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([locationId, periodStart, periodEnd])
+  @@unique([locationId, reference])
+  @@map("lottery_settlements")
+}
+
+model LotteryEarningPosting {
+  id String @id @default(uuid())
+  locationId String
+  dayId String?
+  settlementId String?
+  sourceKey String @unique
+  recognizedAt DateTime
+  amount Decimal @db.Decimal(14, 2)
+  reason String
+  userId String
+  createdAt DateTime @default(now())
+  @@index([locationId, recognizedAt])
+  @@index([dayId])
+  @@index([settlementId])
+  @@map("lottery_earning_postings")
+}
+
+model LotteryAuditEvent {
+  id String @id @default(uuid())
+  locationId String
+  dayId String?
+  action String
+  details Json
+  userId String
+  createdAt DateTime @default(now())
+  @@index([locationId, createdAt])
+  @@map("lottery_audit_events")
+}
+
 model LotteryDailyEntry {
   id             String            @id @default(uuid())
   entryDate      DateTime
@@ -1077,9 +1771,9 @@ model LotteryDailyEntry {
   locationId     String
   startNumber    Int
   endNumber      Int
-  pricePerTicket Float
+  pricePerTicket Decimal @db.Decimal(14, 4)
   ticketsSold    Int               @default(0)
-  totalSales     Float             @default(0)
+  totalSales     Decimal @db.Decimal(14, 2)             @default(0)
   notes          String?
   createdBy      String?
   updatedBy      String?
@@ -1101,9 +1795,9 @@ model LotteryDayStatus {
   entryDate           DateTime
   locationId          String
   totalTicketsSold    Int       @default(0)
-  totalSales          Float     @default(0)
-  manualCashoutAmount Float     @default(0)
-  netAmount           Float     @default(0)
+  totalSales          Decimal @db.Decimal(14, 2)     @default(0)
+  manualCashoutAmount Decimal @db.Decimal(14, 2)     @default(0)
+  netAmount           Decimal @db.Decimal(14, 2)     @default(0)
   status              String    @default("OPEN")
   isClosed            Boolean   @default(false)
   closedAt            DateTime?
@@ -1120,4 +1814,41 @@ model LotteryDayStatus {
   @@index([entryDate])
   @@index([locationId])
   @@map("lottery_day_statuses")
+}
+
+// Only a super-admin can link stores; links allow transfers in both directions.
+model StoreConnection {
+  id          String   @id @default(uuid())
+  locationAId String
+  locationBId String
+  createdBy   String
+  createdAt   DateTime @default(now())
+  locationA   Location @relation("ConnectionA", fields: [locationAId], references: [id], onDelete: Cascade)
+  locationB   Location @relation("ConnectionB", fields: [locationBId], references: [id], onDelete: Cascade)
+
+  @@unique([locationAId, locationBId])
+  @@map("store_connections")
+}
+
+// Snapshot of earned gross wages, split at store-local pay-period boundaries.
+model PayrollEntry {
+  id          String   @id @default(uuid())
+  shiftId     String
+  userId      String
+  locationId  String
+  periodStart DateTime
+  periodEnd   DateTime
+  seconds     Int
+  hourlyRate  Decimal @db.Decimal(14, 4)
+  grossPay    Decimal @db.Decimal(14, 2)
+  expenseId   String?
+  createdAt   DateTime @default(now())
+  shift       Shift    @relation(fields: [shiftId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
+  location    Location @relation(fields: [locationId], references: [id])
+  expense     Expense? @relation(fields: [expenseId], references: [id], onDelete: Restrict)
+
+  @@unique([shiftId, periodStart])
+  @@index([locationId, periodEnd])
+  @@map("payroll_entries")
 }

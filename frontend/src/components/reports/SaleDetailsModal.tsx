@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { X, XCircle, RotateCcw, CreditCard, User, Calendar } from 'lucide-react';
+import { QuickRefundModal } from '@/components/pos/QuickRefundModal';
+import React, { useState, useEffect } from 'react';
+import { XCircle, RotateCcw, CreditCard, User, Calendar } from 'lucide-react';
 import { Sale } from '@/types';
 import { Button } from '@/components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { saleService } from '@/services/api';
+import { SaleVoidDialog } from './SaleVoidDialog';
 import { useAuthStore } from '@/store/authStore';
 
 interface SaleDetailsModalProps {
@@ -12,6 +13,7 @@ interface SaleDetailsModalProps {
   onClose: () => void;
   sale: Sale | null;
   onSuccess: () => void;
+  refreshing?: boolean;
 }
 
 export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
@@ -19,66 +21,36 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
   onClose,
   sale,
   onSuccess,
+  refreshing,
 }) => {
   const { user } = useAuthStore();
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [showVoid, setShowVoid] = useState(false);
+
+  const [showRefund, setShowRefund] = useState(false);
+  useEffect(() => { setShowRefund(false); setShowVoid(false); }, [isOpen, sale?.id]);
 
   if (!isOpen || !sale) return null;
+  const historical = sale.sourceType === 'DAILY_SUMMARY';
 
-  const handleVoid = async () => {
-    if (!confirm('Are you sure you want to void this sale? This will restore inventory.')) return;
+  if (showVoid) return <SaleVoidDialog sale={sale} onClose={() => setShowVoid(false)} onSuccess={() => { onSuccess(); onClose(); }} />;
 
-    setIsLoading(true);
-    setError('');
-    try {
-      await saleService.void(sale.id);
-      onSuccess();
-      onClose();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to void sale');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  if (showRefund) return <QuickRefundModal isOpen={true} initialSaleId={sale.id} onClose={() => setShowRefund(false)} onRefundComplete={() => { onSuccess(); onClose(); }} />;
 
-  const handleRefund = async () => {
-    if (!confirm('Are you sure you want to refund this sale? This will restore inventory and adjust customer points.')) return;
-
-    setIsLoading(true);
-    setError('');
-    try {
-      await saleService.refund(sale.id, {});
-      onSuccess();
-      onClose();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to refund sale');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const canVoid = sale.status === 'COMPLETED' && (user?.role === 'ADMIN' || user?.role === 'MANAGER');
-  const canRefund = sale.status === 'COMPLETED' && (user?.role === 'ADMIN' || user?.role === 'MANAGER');
+  const canVoid = !historical && ['COMPLETED', 'VOIDED'].includes(sale.status) && ['ADMIN', 'MANAGER', 'CASHIER'].includes(user?.role || '');
+  const canRefund = !historical && sale.status === 'COMPLETED' && ['ADMIN', 'MANAGER', 'CASHIER'].includes(user?.role || '');
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Sale Details</CardTitle>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {error && (
-            <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
-              {error}
+    <Modal isOpen={isOpen} onClose={onClose} title={historical ? 'Historical Daily Summary' : 'Sale Details'} size="xl">
+        <fieldset disabled={refreshing} className="min-w-0 space-y-6">
+          {refreshing && <p role="status">Refreshing sale. Actions will be available after the latest details load.</p>}
+          {historical && <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Daily source totals. Individual receipts, items, costs, customers and staff were not supplied. Register figures are not classified as cash.</p>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {([['Register 1', sale.sourceData?.register1Cents], ['Register 2', sale.sourceData?.register2Cents], ['Credit card', sale.sourceData?.cardCents], ['Lottery net after payouts', sale.sourceData?.lotteryNetCents]] as const).map(([label, amount]) => <div key={label}><p className="text-muted-foreground">{label}</p><p>{amount == null ? 'Not supplied' : formatCurrency(amount / 100)}</p></div>)}
             </div>
-          )}
+            {sale.sourceData?.caveats?.map(note => <p key={note} className="text-sm text-warning">{note}</p>)}
+          </div>}
+
 
           {/* Header Info */}
           <div className="flex items-start justify-between">
@@ -107,14 +79,14 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
               <Calendar className="h-4 w-4 text-muted-foreground" />
               <div>
                 <p className="text-xs text-muted-foreground">Sale Date</p>
-                <p className="font-medium text-sm">{formatDate(sale.createdAt)}</p>
+                <p className="font-medium text-sm">{historical ? sale.sourceData?.businessDate : formatDate(sale.createdAt)}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <CreditCard className="h-4 w-4 text-muted-foreground" />
               <div>
-                <p className="text-xs text-muted-foreground">Payment Method</p>
-                <p className="font-medium text-sm">{sale.paymentMethod.replace(/_/g, ' ')}</p>
+                <p className="text-xs text-muted-foreground">Original primary tender</p>
+                <p className="font-medium text-sm">{historical ? 'Card recorded; remaining tender unspecified' : sale.paymentMethod.replace(/_/g, ' ')}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -122,7 +94,7 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
               <div>
                 <p className="text-xs text-muted-foreground">Employee</p>
                 <p className="font-medium text-sm">
-                  {sale.user ? `${sale.user.firstName} ${sale.user.lastName}` : 'N/A'}
+                  {historical ? 'Not supplied' : sale.user ? `${sale.user.firstName} ${sale.user.lastName}` : 'N/A'}
                 </p>
               </div>
             </div>
@@ -140,7 +112,7 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
           </div>
 
           {/* Sale Items */}
-          <div>
+          {!historical && <div>
             <h4 className="font-medium mb-3">Items</h4>
             <div className="border rounded-md overflow-hidden">
               <table className="w-full text-sm">
@@ -175,7 +147,7 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
                 </tbody>
               </table>
             </div>
-          </div>
+          </div>}
 
           {/* Sale Summary */}
           <div className="border-t pt-4">
@@ -184,6 +156,7 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
                 <span className="text-muted-foreground">Subtotal</span>
                 <span className="font-mono">{formatCurrency(sale.subtotal)}</span>
               </div>
+              {sale.pricingVersion && <p className="text-sm text-muted-foreground">Loyalty: {sale.pointsRedeemed || 0} points redeemed ({formatCurrency(Number(sale.loyaltyDiscount || 0))}); {sale.pointsEarned || 0} points earned.</p>}
               {sale.discount > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Discount</span>
@@ -223,26 +196,23 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
             {canVoid && (
               <Button
                 variant="destructive"
-                onClick={handleVoid}
-                disabled={isLoading}
+                onClick={() => setShowVoid(true)}
               >
                 <XCircle className="h-4 w-4 mr-2" />
-                Void Sale
+                {sale.status === 'VOIDED' ? 'Void Details / Retry' : 'Void Sale'}
               </Button>
             )}
             {canRefund && (
               <Button
                 variant="outline"
-                onClick={handleRefund}
-                disabled={isLoading}
+                onClick={() => setShowRefund(true)}
               >
                 <RotateCcw className="h-4 w-4 mr-2" />
                 Refund Sale
               </Button>
             )}
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        </fieldset>
+    </Modal>
   );
 };

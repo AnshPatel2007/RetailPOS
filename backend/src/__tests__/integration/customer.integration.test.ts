@@ -33,7 +33,7 @@ describe('Customer API Integration Tests', () => {
 
     it('should filter by search term', async () => {
       await prisma.customer.create({
-        data: { firstName: 'Alice', lastName: 'Wonder', phone: '555-9999' },
+        data: { firstName: 'Alice', lastName: 'Wonder', phone: '555-9999', locationId: testData.location.id },
       });
 
       const res = await api

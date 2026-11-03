@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
@@ -10,17 +11,11 @@ import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter, isSuperAdm
  * GET /api/suppliers
  */
 export const getSuppliers = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const {
-    page = '1',
-    limit = '20',
-    search,
-    isActive,
-    sortBy = 'name',
-    sortOrder = 'asc',
-  } = req.query;
-
-  const pageNum = parseInt(page as string);
-  const limitNum = parseInt(limit as string);
+  const { page: pageNum, limit: limitNum, search, isActive, sortBy, sortOrder } = z.object({
+    page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(100).default(20),
+    search: z.string().trim().max(200).optional(), isActive: z.enum(['true', 'false']).optional(),
+    sortBy: z.enum(['name', 'createdAt', 'updatedAt', 'email', 'contactName']).default('name'), sortOrder: z.enum(['asc', 'desc']).default('asc'),
+  }).parse(req.query);
   const skip = (pageNum - 1) * limitNum;
 
   // Build where clause
@@ -49,7 +44,7 @@ export const getSuppliers = asyncHandler(async (req: AuthRequest, res: Response)
           },
         },
       },
-      orderBy: { [sortBy as string]: sortOrder },
+      orderBy: [{ [sortBy]: sortOrder }, { id: sortOrder }],
       skip,
       take: limitNum,
     }),
@@ -418,7 +413,7 @@ export const getSupplierPerformance = asyncHandler(async (req: AuthRequest, res:
   const completedOrders = orders.filter(o => o.status === 'RECEIVED').length;
   const totalSpent = orders
     .filter(o => o.status === 'RECEIVED')
-    .reduce((sum, o) => sum + o.totalAmount, 0);
+    .reduce((sum, o) => sum + Number(o.totalAmount), 0);
 
   // Calculate on-time delivery rate
   let onTimeDeliveries = 0;

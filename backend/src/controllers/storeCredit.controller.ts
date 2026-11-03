@@ -2,8 +2,8 @@ import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
-import { logger } from '../utils/logger';
-import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter } from '../utils/locationFilter.util';
+import { fundAccount, operationReceipt } from '../services/accountFunding.service';
+import { assertCanReadRecord, getSharedOrOwnFilter } from '../utils/locationFilter.util';
 
 /**
  * List all store credit accounts with balances
@@ -68,6 +68,7 @@ export const getTransactions = asyncHandler(async (req: AuthRequest, res: Respon
   const [transactions, total] = await Promise.all([
     prisma.storeCreditTransaction.findMany({
       where: { accountId: account.id },
+      include: { operation: true },
       orderBy: { createdAt: 'desc' },
       skip,
       take: limitNum,
@@ -77,7 +78,7 @@ export const getTransactions = asyncHandler(async (req: AuthRequest, res: Respon
 
   res.json({
     success: true,
-    data: transactions,
+    data: transactions.map(t => ({ ...t, operation: t.operation ? operationReceipt(t.operation) : null })),
     pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
   });
 });
@@ -112,89 +113,14 @@ export const getBalance = asyncHandler(async (req: AuthRequest, res: Response) =
  * POST /api/store-credit/:customerId/credit
  */
 export const addCredit = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { customerId } = req.params;
-  const { amount, notes, saleId } = req.body;
-
-  if (!amount || amount <= 0) throw new AppError('Amount must be positive', 400);
-
-  // Ensure customer exists and is usable from this store
-  const customer = await prisma.customer.findUnique({ where: { id: customerId } });
-  if (!customer) throw new AppError('Customer not found', 404);
-  assertCanReadRecord(req, customer.locationId, 'Customer not found');
-
-  const result = await prisma.$transaction(async (tx) => {
-    // Get or create account — inherits the customer's own store scope
-    let account = await tx.storeCreditAccount.findUnique({ where: { customerId } });
-
-    if (!account) {
-      account = await tx.storeCreditAccount.create({
-        data: { customerId, balance: 0, locationId: customer.locationId },
-      });
-    } else {
-      assertOwnsRecord(req, account.locationId);
-    }
-
-    // Add credit
-    const updated = await tx.storeCreditAccount.update({
-      where: { id: account.id },
-      data: {
-        balance: { increment: amount },
-        transactions: {
-          create: {
-            type: 'CREDIT',
-            amount,
-            balanceBefore: account.balance,
-            balanceAfter: account.balance + amount,
-            saleId,
-            notes,
-          },
-        },
-      },
-    });
-
-    return updated;
-  });
-
-  logger.info(`Store credit added: $${amount} for customer ${customerId}`);
-  res.json({ success: true, data: result, message: 'Store credit added' });
+  const result = await prisma.$transaction(tx => fundAccount(req, tx, 'STORE_CREDIT'));
+  res.json({ success: true, ...result, message: result.replayed ? 'Saved credit confirmed' : 'Store credit added' });
 });
 
 /**
  * Debit from a customer's store credit (used during sale)
  * POST /api/store-credit/:customerId/debit
  */
-export const debitCredit = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { customerId } = req.params;
-  const { amount, saleId } = req.body;
-
-  if (!amount || amount <= 0) throw new AppError('Amount must be positive', 400);
-
-  // Use transaction with atomic balance check to prevent race conditions
-  const updated = await prisma.$transaction(async (tx) => {
-    const account = await tx.storeCreditAccount.findUnique({ where: { customerId } });
-    if (!account) throw new AppError('No store credit account found', 404);
-    assertOwnsRecord(req, account.locationId);
-    if (account.balance < amount) throw new AppError(`Insufficient store credit. Available: $${account.balance.toFixed(2)}`, 400);
-
-    const result = await tx.storeCreditAccount.update({
-      where: { id: account.id },
-      data: {
-        balance: { decrement: amount },
-        transactions: {
-          create: {
-            type: 'DEBIT',
-            amount: -amount,
-            balanceBefore: account.balance,
-            balanceAfter: account.balance - amount,
-            saleId,
-          },
-        },
-      },
-    });
-
-    return result;
-  });
-
-  logger.info(`Store credit debited: $${amount} from customer ${customerId}`);
-  res.json({ success: true, data: updated, message: 'Store credit applied' });
+export const debitCredit = asyncHandler(async (_req: AuthRequest, _res: Response) => {
+  throw new AppError('Apply store credit through checkout so the payment, sale and balance are recorded together.', 409);
 });

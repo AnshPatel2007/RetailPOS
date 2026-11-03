@@ -1,9 +1,9 @@
+import { formatEnumLabel } from '@/lib/utils';
 import React from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { FilterSection } from '@/components/common/FilterSection';
-import { DatePresetsSelect } from '@/components/common/DatePresetsSelect';
 
 interface ExpenseFiltersProps {
   filters: {
@@ -62,11 +62,6 @@ export const ExpenseFilters: React.FC<ExpenseFiltersProps> = ({
     filters.minAmount ||
     filters.maxAmount;
 
-  const getDateSummary = () => {
-    if (!filters.startDate && !filters.endDate) return '';
-    if (filters.startDate === filters.endDate) return filters.startDate;
-    return `${filters.startDate || '...'} to ${filters.endDate || '...'}`;
-  };
 
   return (
     <div className="space-y-2">
@@ -83,44 +78,6 @@ export const ExpenseFilters: React.FC<ExpenseFiltersProps> = ({
 
       {/* Horizontal Filter Layout with Wrapping */}
       <div className="flex flex-wrap gap-4">
-        {/* Date Range Section */}
-        <div className="min-w-[250px] flex-1">
-          <FilterSection
-            title="Date Range"
-            summary={getDateSummary()}
-            defaultOpen={false}
-          >
-            <div className="space-y-1.5">
-              <label className="block text-xs text-muted-foreground">Quick Select</label>
-              <DatePresetsSelect
-                onSelect={(start, end) =>
-                  onFilterChange({ ...filters, startDate: start, endDate: end })
-                }
-              />
-              <div className="grid grid-cols-2 gap-1.5 pt-1">
-                <Input
-                  type="date"
-                  value={filters.startDate}
-                  onChange={(e) =>
-                    onFilterChange({ ...filters, startDate: e.target.value })
-                  }
-                  placeholder="Start date"
-                  className="text-xs"
-                />
-                <Input
-                  type="date"
-                  value={filters.endDate}
-                  onChange={(e) =>
-                    onFilterChange({ ...filters, endDate: e.target.value })
-                  }
-                  placeholder="End date"
-                  className="text-xs"
-                />
-              </div>
-            </div>
-          </FilterSection>
-        </div>
-
         {/* Amount Range Section */}
         <div className="min-w-[200px] flex-1">
           <FilterSection
@@ -170,14 +127,14 @@ export const ExpenseFilters: React.FC<ExpenseFiltersProps> = ({
               {EXPENSE_STATUSES.map((status) => (
                 <button
                   key={status}
-                  onClick={() => handleStatusToggle(status)}
+                  onClick={() => handleStatusToggle(status)} aria-pressed={filters.status.includes(status)}
                   className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${
                     filters.status.includes(status)
                       ? 'bg-primary text-primary-foreground border-primary'
                       : 'bg-background border-border hover:bg-accent'
                   }`}
                 >
-                  {status}
+                  {formatEnumLabel(status)}
                 </button>
               ))}
             </div>
@@ -199,14 +156,14 @@ export const ExpenseFilters: React.FC<ExpenseFiltersProps> = ({
               {EXPENSE_CATEGORIES.map((category) => (
                 <button
                   key={category}
-                  onClick={() => handleCategoryToggle(category)}
+                  onClick={() => handleCategoryToggle(category)} aria-pressed={filters.category.includes(category)}
                   className={`px-1.5 py-0.5 text-xs rounded border transition-colors text-left ${
                     filters.category.includes(category)
                       ? 'bg-primary text-primary-foreground border-primary'
                       : 'bg-background border-border hover:bg-accent'
                   }`}
                 >
-                  {category.replace(/_/g, ' ')}
+                  {formatEnumLabel(category)}
                 </button>
               ))}
             </div>

@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { useCartStore } from '@/store/cartStore';
+import { Product } from '@/types';
 import { useAuthStore } from '@/store/authStore';
 import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { CartItemCard } from '@/components/pos/CartItemCard';
-import { CustomerLinkSection, LinkedCustomer } from '@/components/pos/CustomerLinkSection';
-import { RecentTransactions } from '@/components/pos/RecentTransactions';
 import { Receipt } from '@/services/hardware';
 import { hardware } from '@/services/hardware';
 import {
@@ -16,32 +15,29 @@ import {
   PauseCircle,
   StickyNote,
   ShoppingCart,
+  X,
 } from 'lucide-react';
 
 interface CartPanelProps {
+  onEditQuantity: (product: Product) => void;
   lastReceipt: Receipt | null;
   onPrintReceipt: () => void;
   onShowHeldSales: () => void;
   onShowRefund: () => void;
   onCheckout: () => void;
   onHoldSale: () => void;
-  linkedCustomer: LinkedCustomer | null;
-  onCustomerChange: (customer: LinkedCustomer | null) => void;
-  onViewRecentReceipt?: (saleId: string) => void;
-  refreshTrigger?: number;
+  onClose?: () => void;
 }
 
 export const CartPanel: React.FC<CartPanelProps> = ({
+  onEditQuantity,
   lastReceipt,
   onPrintReceipt,
   onShowHeldSales,
   onShowRefund,
   onCheckout,
   onHoldSale,
-  linkedCustomer,
-  onCustomerChange,
-  onViewRecentReceipt,
-  refreshTrigger,
+  onClose,
 }) => {
   const {
     items,
@@ -64,21 +60,24 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   const lineBreakdown = getLineBreakdown();
 
   const { user } = useAuthStore();
-  const canOverridePrice = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
-  const isManagerOrAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const canOverridePrice = ['ADMIN', 'MANAGER', 'CASHIER'].includes(user?.role || '');
+  const canRequestRefund = ['ADMIN', 'MANAGER', 'CASHIER'].includes(user?.role || '');
   const [showNotes, setShowNotes] = useState(false);
 
   return (
-    <div className="w-full md:w-80 lg:w-96 bg-card md:border-l border-border flex flex-col">
+    <div data-sale-cart className="pos-cart">
       {/* Cart header */}
-      <div className="p-4 border-b border-border">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xl font-bold">Current Sale</h2>
-          <div className="flex gap-1 items-center">
+      <div className="pos-cart-header">
+        <div className="flex items-center justify-between gap-2">
+          <div className="pos-cart-heading">
+            <h2 className="text-base font-semibold whitespace-nowrap">Current Sale</h2>
+            <span className="text-xs text-muted-foreground whitespace-nowrap">{getItemCount()} {getItemCount() === 1 ? 'item' : 'items'}</span>
+          </div>
+          <div className="flex gap-0.5 items-center">
             {/* Held sales button */}
             <button
               onClick={onShowHeldSales}
-              className="relative h-9 w-9 flex items-center justify-center rounded hover:bg-accent transition-colors"
+              className="pos-cart-tool relative"
               title="Held sales (F6)"
             >
               <List className="h-4 w-4 text-muted-foreground" />
@@ -89,10 +88,10 @@ export const CartPanel: React.FC<CartPanelProps> = ({
               )}
             </button>
 
-            {isManagerOrAdmin && (
+            {canRequestRefund && (
               <button
                 onClick={onShowRefund}
-                className="h-9 w-9 flex items-center justify-center rounded hover:bg-accent transition-colors"
+                className="pos-cart-tool"
                 title="Quick refund"
               >
                 <RotateCcw className="h-4 w-4 text-muted-foreground" />
@@ -103,6 +102,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
               <Button
                 variant="ghost"
                 size="sm"
+                className="pos-cart-tool"
                 onClick={onPrintReceipt}
                 title="Print last receipt"
               >
@@ -118,30 +118,20 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                     clearCart();
                   }
                 }}
-                className="text-destructive"
+                className="text-destructive pos-cart-tool"
                 title="Clear cart"
+                aria-label="Clear cart"
               >
                 <Trash2 className="h-4 w-4 mr-1" />
-                Clear
               </Button>
             )}
+            {onClose && <button type="button" onClick={onClose} aria-label="Close sale cart" className="pos-cart-tool"><X size={18} /></button>}
           </div>
         </div>
-        <p className="text-sm text-muted-foreground">
-          {getItemCount()} {getItemCount() === 1 ? 'item' : 'items'}
-        </p>
-      </div>
-
-      {/* Customer link */}
-      <div className="px-4 py-3 border-b border-border">
-        <CustomerLinkSection
-          linkedCustomer={linkedCustomer}
-          onCustomerChange={onCustomerChange}
-        />
       </div>
 
       {/* Cart items */}
-      <div className="flex-1 overflow-auto p-4 space-y-3">
+      <div data-cart-items className="pos-cart-items">
         {items.length === 0 ? (
           <div className="text-center py-10">
             <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
@@ -163,6 +153,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
         ) : (
           items.map((item) => (
             <CartItemCard
+              onEditQuantity={() => onEditQuantity(item.product)}
               key={item.product.id}
               item={item}
               onUpdateQuantity={updateQuantity}
@@ -178,20 +169,14 @@ export const CartPanel: React.FC<CartPanelProps> = ({
         )}
       </div>
 
-      {/* Recent transactions (collapsed by default) */}
-      <RecentTransactions
-        refreshTrigger={refreshTrigger}
-        onViewReceipt={onViewRecentReceipt}
-      />
-
       {/* Cart footer */}
-      <div className="border-t border-border p-4 space-y-3">
+      <div data-assistant-avoid className="pos-cart-footer">
         {/* Notes toggle */}
         {items.length > 0 && (
           <div>
             <button
               onClick={() => setShowNotes(!showNotes)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="pos-sale-note flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               <StickyNote className="h-3.5 w-3.5" />
               {notes ? 'Edit note' : 'Add note'}
@@ -242,7 +227,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                 <span className="text-muted-foreground">Tax</span>
                 <span className="font-medium tabular-nums">{formatCurrency(getTax())}</span>
               </div>
-              <div className="flex justify-between text-lg font-bold pt-2 border-t">
+              <div className="pos-cart-total flex justify-between pt-2 border-t">
                 <span>Total</span>
                 <span className="tabular-nums">{formatCurrency(getTotal())}</span>
               </div>
@@ -272,7 +257,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             {items.length > 0 ? <>Charge {formatCurrency(getTotal())}</> : 'Charge'}
           </Button>
         </div>
-        <p className="text-[11px] text-center text-muted-foreground">
+        <p className="pos-shortcuts text-xs text-center text-muted-foreground">
           F1 Cash · F2 Card · F4 Checkout · F5 Hold · F7 Misc
         </p>
       </div>

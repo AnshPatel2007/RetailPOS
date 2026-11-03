@@ -8,6 +8,7 @@ jest.mock('../config/database', () => ({
   default: {
     product: {
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
@@ -18,6 +19,9 @@ jest.mock('../config/database', () => ({
     inventoryLog: {
       create: jest.fn(),
     },
+    category: { findUnique: jest.fn() },
+    inventoryValuation: { findMany: jest.fn() },
+    inventoryValueEntry: { count: jest.fn() },
     activityLog: {
       create: jest.fn(),
     },
@@ -55,9 +59,13 @@ describe('Product Controller', () => {
     mockNext = jest.fn();
 
     jest.clearAllMocks();
+    (prisma.$transaction as jest.Mock).mockImplementation(callback => callback(prisma));
+    (prisma.inventoryValuation.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.inventoryValueEntry.count as jest.Mock).mockResolvedValue(0);
   });
 
   describe('getProducts', () => {
+    beforeEach(() => { mockRequest.user!.locationId = 'store-1'; });
     const mockProducts = [
       {
         id: '1',
@@ -94,7 +102,7 @@ describe('Product Controller', () => {
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: true,
-          data: mockProducts,
+          data: mockProducts.map(product => ({ ...product, inventoryValue: null, averageCost: null })),
           pagination: expect.objectContaining({
             total: 2,
           }),
@@ -170,7 +178,7 @@ describe('Product Controller', () => {
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: true,
-          data: mockProduct,
+          data: { ...mockProduct, inventoryValue: null, averageCost: null },
         })
       );
     });
@@ -193,6 +201,8 @@ describe('Product Controller', () => {
 
   describe('createProduct', () => {
     it('should create a new product', async () => {
+      mockRequest.user!.locationId = 'store-1';
+      (prisma.category.findUnique as jest.Mock).mockResolvedValue({ id: 'cat1', locationId: 'store-1' });
       mockRequest.body = {
         sku: 'SKU003',
         name: 'New Product',
@@ -228,6 +238,7 @@ describe('Product Controller', () => {
 
   describe('updateProduct', () => {
     it('should update an existing product', async () => {
+      mockRequest.user!.locationId = 'store-1';
       mockRequest.params = { id: '1' };
       mockRequest.body = {
         name: 'Updated Product',
@@ -236,6 +247,7 @@ describe('Product Controller', () => {
 
       const existingProduct = {
         id: '1',
+        locationId: 'store-1',
         sku: 'SKU001',
         name: 'Original Product',
         price: 10.99,
@@ -247,6 +259,7 @@ describe('Product Controller', () => {
       };
 
       (prisma.product.findUnique as jest.Mock).mockResolvedValue(existingProduct);
+      (prisma.product.findUniqueOrThrow as jest.Mock).mockResolvedValue(existingProduct);
       (prisma.product.update as jest.Mock).mockResolvedValue(updatedProduct);
 
       await productController.updateProduct(
@@ -255,6 +268,7 @@ describe('Product Controller', () => {
         mockNext
       );
 
+      expect(mockNext).not.toHaveBeenCalled();
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: true,
@@ -291,6 +305,7 @@ describe('Product Controller', () => {
 
   describe('getLowStockProducts', () => {
     it('should return products with low stock', async () => {
+      mockRequest.user!.locationId = 'store-1';
       const lowStockProducts = [
         {
           id: '1',

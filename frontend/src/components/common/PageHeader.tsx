@@ -1,15 +1,30 @@
 import React from 'react';
 import { LucideIcon } from 'lucide-react';
+import { useWorkflowNavigation } from './WorkflowNavigation';
+import { HeaderActions } from './HeaderActions';
+import { PageTabStyleContext } from './PageTabs';
 
 interface PageHeaderProps {
   title: string;
+  /** Accepted for older pages; generic introductions are intentionally omitted. */
   subtitle?: React.ReactNode;
-  /** Optional leading icon rendered in a tinted chip next to the title */
+  /** Accepted for older pages; headers use text without decorative icon chips. */
   icon?: LucideIcon;
-  /** Right-aligned actions (buttons, filters, clocks) */
+  /** Page-level actions. Put filters and clocks in the toolbar. */
   actions?: React.ReactNode;
   /** Optional extra row rendered below the title/actions line */
   children?: React.ReactNode;
+  tabs?: React.ReactNode;
+  secondaryTabs?: React.ReactNode;
+  toolbar?: React.ReactNode;
+}
+
+function hasContent(node: React.ReactNode): boolean {
+  if (node == null || typeof node === 'boolean') return false;
+  if (typeof node === 'string') return node.trim().length > 0;
+  if (Array.isArray(node)) return node.some(hasContent);
+  if (React.isValidElement<{ children?: React.ReactNode }>(node) && node.type === React.Fragment) return hasContent(node.props.children);
+  return true;
 }
 
 /**
@@ -18,32 +33,28 @@ interface PageHeaderProps {
  */
 export const PageHeader: React.FC<PageHeaderProps> = ({
   title,
-  subtitle,
-  icon: Icon,
   actions,
   children,
+  tabs,
+  secondaryTabs,
+  toolbar,
 }) => {
+  const workflow = useWorkflowNavigation();
+  const nestedTabs = workflow?.secondaryTabs || secondaryTabs;
+  const additionalTabs = workflow?.tabs && tabs;
   return (
-    <div className="mb-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
-          {Icon && (
-            <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
-              <Icon className="h-6 w-6" />
-            </div>
-          )}
-          <div className="min-w-0">
-            <h1 className="text-3xl font-bold truncate">{title}</h1>
-            {subtitle && (
-              <p className="text-muted-foreground mt-1">{subtitle}</p>
-            )}
-          </div>
-        </div>
-        {actions && (
-          <div className="flex items-center gap-2 shrink-0">{actions}</div>
+    <header className="page-header mb-6 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <h1 className="min-w-0 text-2xl font-semibold leading-8 tracking-tight break-words">{workflow?.title || title}</h1>
+        {hasContent(actions) && (
+          <HeaderActions>{actions}</HeaderActions>
         )}
       </div>
-      {children && <div className="mt-4">{children}</div>}
-    </div>
+      {(workflow?.tabs || tabs) && <PageTabStyleContext.Provider value="primary"><div>{workflow?.tabs || tabs}</div></PageTabStyleContext.Provider>}
+      {nestedTabs && <PageTabStyleContext.Provider value="subtle"><div className="page-secondary-row">{nestedTabs}</div></PageTabStyleContext.Provider>}
+      {additionalTabs && <PageTabStyleContext.Provider value="subtle"><div className="page-secondary-row">{additionalTabs}</div></PageTabStyleContext.Provider>}
+      {hasContent(toolbar) && <div className="page-toolbar flex flex-wrap items-center gap-2">{toolbar}</div>}
+      {children}
+    </header>
   );
 };

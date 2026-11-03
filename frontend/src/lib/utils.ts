@@ -8,6 +8,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Display enum labels without exposing storage-style identifiers. */
+export function formatEnumLabel(value: string): string {
+  if (['EBT', 'SKU', 'CSV', 'PDF', 'POS', 'ATM', 'API'].includes(value)) return value;
+  return value.toLowerCase().split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
 /**
  * Format currency
  */
@@ -15,6 +21,14 @@ export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
+  }).format(amount);
+}
+
+/** Preserve small dollar values while keeping large chart ticks compact. */
+export function formatChartCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency', currency: 'USD', notation: Math.abs(amount) >= 1000 ? 'compact' : 'standard',
+    maximumFractionDigits: Math.abs(amount) < 1 && amount !== 0 ? 2 : 1,
   }).format(amount);
 }
 
@@ -117,11 +131,12 @@ export const CHART_COLORS = [
 
 /**
  * Escape a value for a CSV cell: wrap in quotes, double inner quotes.
- * Prefixing =+-@ with a quote is handled by quoting, which also neutralizes
- * formula injection in spreadsheet apps.
+ * Text that could be interpreted as a spreadsheet formula gets an apostrophe.
+ * CSV quoting alone does not prevent formulas. Numeric negatives stay numeric.
  */
 export function escapeCsvValue(value: unknown): string {
-  const str = value === null || value === undefined ? '' : String(value);
+  let str = value === null || value === undefined ? '' : String(value);
+  if (typeof value === 'string' && (/^\s*[=+@-]/.test(str) || /^[\t\r\n]/.test(str))) str = "'" + str;
   return `"${str.replace(/"/g, '""')}"`;
 }
 

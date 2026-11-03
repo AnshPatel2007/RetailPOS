@@ -11,14 +11,18 @@ import request from 'supertest';
 import app from '../../server';
 import jwt from 'jsonwebtoken';
 import { config } from '../../config';
+import { prisma } from './setup';
+import { randomUUID } from 'crypto';
 
 /**
  * Create JWT token for testing
  */
-export function createTestToken(userId: string, role: string, _locationId?: string): string {
+export async function createTestToken(userId: string, role: string, _locationId?: string): Promise<string> {
+  const session = await prisma.refreshToken.create({ data: { userId, token: randomUUID(), expiresAt: new Date(Date.now() + 3600000) } });
   return jwt.sign(
     {
       userId,
+      sessionId: session.id,
       email: `${userId}@test.com`,
       role,
     },

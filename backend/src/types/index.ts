@@ -3,6 +3,7 @@ import { UserRole } from '@prisma/client';
 
 // Extend Express Request to include authenticated user
 export interface AuthRequest extends Request {
+  sessionId?: string;
   user?: {
     id: string;
     email: string;
@@ -13,6 +14,7 @@ export interface AuthRequest extends Request {
 
 // JWT Payload
 export interface JWTPayload {
+  sessionId: string;
   userId: string;
   email: string;
   role: UserRole;

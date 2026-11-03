@@ -1,13 +1,20 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { Select } from '@/components/ui/Select';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
+import { PageTabs } from '@/components/common/PageTabs';
+import { useSavedOperation } from '@/hooks/useSavedOperation';
+import { OperationRecovery } from '@/components/common/OperationRecovery';
+import React, { useState, useEffect, useRef, useId } from 'react';
 import { customerService, analyticsService } from '@/services/api';
 import { Customer } from '@/types';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PageHeader } from '@/components/common/PageHeader';
+import { DataPanel, ManagementPage } from '@/components/common/Workspace';
+import { CustomerDirectoryTable } from '@/components/customers/CustomerDirectoryTable';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Badge } from '@/components/ui/Badge';
@@ -20,22 +27,31 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Plus, Search, Edit, Trash2, Users as UsersIcon, Star, BarChart3, PieChart, Eye, Megaphone } from 'lucide-react';
+import { Plus, Search, Edit, Users as UsersIcon, Star, Megaphone } from 'lucide-react';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import { useUrlFilter, useUrlPage } from '@/hooks/useUrlFilter';
+import { can } from '@/lib/capabilities';
 import { useAuthStore } from '@/store/authStore';
+import '@/styles/customers.css';
 
-export const Customers: React.FC = () => {
+export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }) => {
+  const { locationId } = useEffectiveLocation();
+  const requestVersion = useRef(0);
+  const [loadError, setLoadError] = useState('');
+  const [analysis, setAnalysis] = useUrlFilter('analysis', 'overview', false);
+  const activeTab = view === 'directory' ? 'directory' : analysis === 'segments' ? 'segments' : 'insights';
   const { user } = useAuthStore();
-  const canDelete = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
-  const [activeTab, setActiveTab] = useState<'directory' | 'insights' | 'segments'>('directory');
+  const canDelete = can(user?.role, 'customer.manage');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useUrlFilter('search');
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const [page, setPage] = useUrlPage();
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [showModal, setShowModal] = useState(false);
+  const customerFormId = useId();
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
 
   // Customer detail modal
@@ -52,7 +68,6 @@ export const Customers: React.FC = () => {
   useEffect(() => {
     searchTimer.current = setTimeout(() => {
       setDebouncedSearch(search);
-      setPage(1);
     }, 300);
     return () => clearTimeout(searchTimer.current);
   }, [search]);
@@ -74,14 +89,18 @@ export const Customers: React.FC = () => {
   const [tagInput, setTagInput] = useState('');
 
   // ─── Email campaign (admin) ───
-  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const isAdmin = can(user?.role, 'campaign.send');
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [campaignSegment, setCampaignSegment] = useState('all');
   const [campaignTag, setCampaignTag] = useState('');
   const [campaignSubject, setCampaignSubject] = useState('');
   const [campaignMessage, setCampaignMessage] = useState('');
   const [campaignReach, setCampaignReach] = useState<number | null>(null);
-  const [campaignSending, setCampaignSending] = useState(false);
+  const campaignOperation = useSavedOperation('campaign', '/customers/campaign', response => {
+    toast.success('Queued ' + response.data.queued + ' campaign emails. Review delivery jobs for results.');
+    setShowCampaignModal(false); setCampaignSubject(''); setCampaignMessage('');
+  });
+  const campaignSending = campaignOperation.busy;
 
   const effectiveSegment = campaignSegment === 'tag' ? `tag:${campaignTag.trim().toLowerCase()}` : campaignSegment;
 
@@ -94,29 +113,14 @@ export const Customers: React.FC = () => {
       .then((res) => { if (!cancelled) setCampaignReach(res.data.data.matched); })
       .catch(() => { if (!cancelled) setCampaignReach(null); });
     return () => { cancelled = true; };
-  }, [showCampaignModal, effectiveSegment]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [showCampaignModal, effectiveSegment]);
 
   const handleSendCampaign = async () => {
     if (!campaignSubject.trim() || !campaignMessage.trim()) {
       toast.error('Subject and message are required');
       return;
     }
-    setCampaignSending(true);
-    try {
-      const res = await customerService.sendCampaign({
-        segment: effectiveSegment,
-        subject: campaignSubject.trim(),
-        message: campaignMessage.trim(),
-      });
-      toast.success(res.data.message);
-      setShowCampaignModal(false);
-      setCampaignSubject('');
-      setCampaignMessage('');
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to send campaign');
-    } finally {
-      setCampaignSending(false);
-    }
+    await campaignOperation.submit({label:'Campaign: '+campaignSubject.trim(),path:'/customers/campaign',payload:{segment:effectiveSegment,subject:campaignSubject.trim(),message:campaignMessage.trim()}});
   };
 
   const addTag = () => {
@@ -138,37 +142,50 @@ export const Customers: React.FC = () => {
     } else if (activeTab === 'insights' || activeTab === 'segments') {
       loadCustomerInsights();
     }
-  }, [debouncedSearch, page, activeTab]);
+    return () => { requestVersion.current++; };
+  }, [debouncedSearch, page, activeTab, locationId]);
 
-  const loadCustomers = async () => {
-    setIsLoading(true);
+  const loadCustomers = async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++requestVersion.current; if (!quiet) setLoadError('');
+    if (!quiet) setIsLoading(true);
     try {
       const response = await customerService.getAll({
-        search: debouncedSearch,
+        locationId, search: debouncedSearch,
         page,
         limit: 20,
-      });
+      }, signal);
+      if (version !== requestVersion.current || !active()) return;
+      setLoadError('');
       setCustomers(response.data.data);
       setTotalPages(response.data.pagination?.totalPages || 1);
       setTotal(response.data.pagination?.total || 0);
     } catch (error) {
-      console.error('Failed to load customers:', error);
+      if (quiet) throw error;
+      if (version === requestVersion.current) setLoadError('Unable to load customers. Try again.');
     } finally {
-      setIsLoading(false);
+      if (version === requestVersion.current) setIsLoading(false);
     }
   };
 
-  const loadCustomerInsights = async () => {
-    setInsightsLoading(true);
+  const loadCustomerInsights = async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++requestVersion.current; if (!quiet) setLoadError('');
+    if (!quiet) setInsightsLoading(true);
     try {
-      const response = await analyticsService.getCustomerInsights();
+      const response = await analyticsService.getCustomerInsights({ locationId }, signal);
+      if (version !== requestVersion.current || !active()) return;
+      setLoadError('');
       setCustomerData(response.data.data);
     } catch (error) {
-      console.error('Failed to load customer insights:', error);
+      if (quiet) throw error;
+      if (version === requestVersion.current) setLoadError('Unable to load customer insights. Try again.');
     } finally {
-      setInsightsLoading(false);
+      if (version === requestVersion.current) setInsightsLoading(false);
     }
   };
+
+  useEffect(() => {
+    setCustomers([]); setCustomerData(null); setShowModal(false); setShowDetailModal(false); setSelectedCustomer(null); setCustomerHistory([]); setShowCampaignModal(false);
+  }, [locationId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -259,209 +276,33 @@ export const Customers: React.FC = () => {
     setShowModal(true);
   };
 
+  const autoRefresh = useLegacyPageRefresh((current, signal) => activeTab === 'directory' ? loadCustomers(true, current, signal) : loadCustomerInsights(true, current, signal), { key: JSON.stringify([locationId, activeTab, debouncedSearch, page]), paused: isLoading && activeTab === 'directory' || insightsLoading });
+
   return (
-    <div className="p-8">
+    <ManagementPage className="customers-workspace">
       <PageHeader
-        title="Customers"
-        subtitle="Manage customers, view insights, and track segments"
-        actions={activeTab === 'directory' && (
-          <>
-            {isAdmin && (
-              <Button variant="outline" onClick={() => setShowCampaignModal(true)}>
-                <Megaphone className="h-4 w-4 mr-2" />
-                Email Campaign
-              </Button>
-            )}
-            <Button variant="primary" onClick={openCreateModal}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Customer
-            </Button>
-          </>
-        )}
+        title={view === 'directory' ? 'Customers' : 'Customer Insights'}
+        subtitle={view === 'directory' ? 'Find customers and manage their contact details.' : 'Understand customer activity and plan owner-approved campaigns.'}
+        actions={view === 'directory' ? (can(user?.role, 'customer.edit') && <Button variant="primary" onClick={openCreateModal}><Plus className="h-4 w-4 mr-2" />Add Customer</Button>) : isAdmin && <Button variant="outline" onClick={() => setShowCampaignModal(true)}><Megaphone className="h-4 w-4 mr-2" />Email Campaign</Button>}
+        tabs={view === 'insights' ? <PageTabs label="Customer analysis" value={analysis === 'segments' ? 'segments' : 'overview'} items={[{ id: 'overview', label: 'Overview' }, { id: 'segments', label: 'Customer Segments' }]} onChange={setAnalysis} /> : undefined}
       />
-
-      {/* Tab Navigation */}
-      <div className="flex gap-2 mb-6">
-        <Button
-          variant={activeTab === 'directory' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('directory')}
-          size="sm"
-        >
-          <UsersIcon className="w-4 h-4 mr-2" />
-          Directory
-        </Button>
-        <Button
-          variant={activeTab === 'insights' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('insights')}
-          size="sm"
-        >
-          <BarChart3 className="w-4 h-4 mr-2" />
-          Insights
-        </Button>
-        <Button
-          variant={activeTab === 'segments' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('segments')}
-          size="sm"
-        >
-          <PieChart className="w-4 h-4 mr-2" />
-          Segments
-        </Button>
-      </div>
-
+      {autoRefresh.notice}
+      {loadError && <div className="p-6 mb-4 border rounded-lg" role="alert"><p>{loadError}</p><Button className="mt-3" variant="outline" onClick={() => void (view === 'directory' ? loadCustomers() : loadCustomerInsights())}>Retry</Button></div>}
       {/* Directory Tab */}
-      {activeTab === 'directory' && (
-        <>
-          {/* Search */}
-          <div className="mb-6">
-            <div className="relative max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search by name, email, or phone..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
-
-          {/* Customers table */}
-          <Card>
-        {isLoading ? (
-          <div className="p-8 text-center">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
-            <p className="mt-4 text-muted-foreground">Loading customers...</p>
-          </div>
-        ) : customers.length === 0 ? (
-          <EmptyState
-            icon={UsersIcon}
-            title="No customers found"
-            hint={search ? 'Try adjusting your search' : 'Get started by adding your first customer'}
-            action={!search && (
-              <Button variant="primary" onClick={openCreateModal}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Customer
-              </Button>
-            )}
-          />
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>Loyalty</TableHead>
-                <TableHead>Total Spent</TableHead>
-                <TableHead>Visits</TableHead>
-                <TableHead>Last Visit</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {customers.map((customer) => (
-                <TableRow key={customer.id}>
-                  <TableCell>
-                    <p className="font-medium">
-                      {customer.firstName} {customer.lastName}
-                    </p>
-                    {(customer.tags?.length ?? 0) > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-0.5">
-                        {customer.tags!.slice(0, 3).map((tag) => (
-                          <span key={tag} className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-                            {tag}
-                          </span>
-                        ))}
-                        {customer.tags!.length > 3 && (
-                          <span className="text-[10px] text-muted-foreground">+{customer.tags!.length - 3}</span>
-                        )}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="text-sm">
-                      {customer.email && (
-                        <p className="text-muted-foreground">{customer.email}</p>
-                      )}
-                      {customer.phone && (
-                        <p className="text-muted-foreground">{customer.phone}</p>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center">
-                        <Star className="h-4 w-4 text-warning mr-1" />
-                        <span className="font-medium">{customer.loyaltyPoints}</span>
-                      </div>
-                      {customer.loyaltyTier && (
-                        <Badge variant={
-                          customer.loyaltyTier === 'GOLD' ? 'warning' :
-                          customer.loyaltyTier === 'SILVER' ? 'secondary' : 'default'
-                        }>
-                          {customer.loyaltyTier}
-                        </Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <p className="font-medium">{formatCurrency(customer.totalSpent)}</p>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{customer.visitCount}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    {customer.lastVisitAt ? (
-                      <span className="text-sm text-muted-foreground">
-                        {formatDate(customer.lastVisitAt)}
-                      </span>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">Never</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => viewCustomerDetail(customer)}
-                        title="View Details"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEdit(customer)}
-                        title="Edit"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      {canDelete && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteTargetId(customer.id)}
-                        className="text-destructive"
-                        title="Delete"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-          </Card>
-
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} totalItems={total} itemName="customers" />
-        </>
-      )}
+      {activeTab === 'directory' && !loadError && <DataPanel
+        toolbar={<div className="customer-directory-toolbar">
+          <div className="customer-directory-search"><Search aria-hidden="true" /><Input type="search" aria-label="Search customers" placeholder="Search by name, email, or phone..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" /></div>
+          {search ? <Button variant="ghost" onClick={() => setSearch('')}>Clear search</Button> : !isLoading && <span className="text-xs text-muted-foreground">{total} customers</span>}
+        </div>}
+        footer={!isLoading && <div className="customer-directory-footer"><span role="status">{customers.length ? `${customers.length} customers on this page, ${total} ${search ? 'matching' : 'total'}` : '0 customers'}</span><Pagination page={page} totalPages={totalPages} onPageChange={setPage} itemName="customers" /></div>}
+      >
+        {isLoading ? <div className="p-8 text-center" role="status"><div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto" /><p className="mt-3 text-muted-foreground">Loading customers...</p></div>
+          : customers.length === 0 ? <EmptyState icon={UsersIcon} title="No customers found" hint={search ? 'Try another search or clear it to see all customers.' : 'Add a customer to keep contact details and purchase history together.'} />
+            : <CustomerDirectoryTable customers={customers} canDelete={canDelete} onView={viewCustomerDetail} onEdit={handleEdit} onDelete={customer => setDeleteTargetId(customer.id)} />}
+      </DataPanel>}
 
       {/* Insights Tab */}
-      {activeTab === 'insights' && (
+      {activeTab === 'insights' && !loadError && (
         <div className="space-y-6">
           {insightsLoading ? (
             <div className="flex justify-center items-center h-64">
@@ -470,22 +311,22 @@ export const Customers: React.FC = () => {
           ) : customerData ? (
             <>
               {/* Overview Cards */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="metric-grid grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card className="p-4">
                   <p className="text-sm text-muted-foreground">Total Customers</p>
-                  <p className="text-2xl font-bold">{customerData.overview.totalCustomers}</p>
+                  <p className="metric-value text-2xl font-semibold">{customerData.overview.totalCustomers}</p>
                 </Card>
                 <Card className="p-4">
                   <p className="text-sm text-muted-foreground">Avg Lifetime Value</p>
-                  <p className="text-2xl font-bold">{formatCurrency(customerData.overview.avgLifetimeValue)}</p>
+                  <p className="metric-value text-2xl font-semibold">{formatCurrency(customerData.overview.avgLifetimeValue)}</p>
                 </Card>
                 <Card className="p-4">
                   <p className="text-sm text-muted-foreground">Avg Order Value</p>
-                  <p className="text-2xl font-bold">{formatCurrency(customerData.overview.avgOrderValue)}</p>
+                  <p className="metric-value text-2xl font-semibold">{formatCurrency(customerData.overview.avgOrderValue)}</p>
                 </Card>
                 <Card className="p-4">
                   <p className="text-sm text-muted-foreground">Avg Visit Count</p>
-                  <p className="text-2xl font-bold">{customerData.overview.avgVisitCount}</p>
+                  <p className="metric-value text-2xl font-semibold">{customerData.overview.avgVisitCount}</p>
                 </Card>
               </div>
 
@@ -498,9 +339,9 @@ export const Customers: React.FC = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Customer</TableHead>
-                      <TableHead>Total Spent</TableHead>
-                      <TableHead>Visits</TableHead>
-                      <TableHead>Avg Order</TableHead>
+                      <TableHead className="text-right">Total Spent</TableHead>
+                      <TableHead className="text-right">Visits</TableHead>
+                      <TableHead className="text-right">Avg Order</TableHead>
                       <TableHead>Last Visit</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -511,9 +352,9 @@ export const Customers: React.FC = () => {
                           <p className="font-medium">{customer.name}</p>
                           {customer.email && <p className="text-xs text-muted-foreground">{customer.email}</p>}
                         </TableCell>
-                        <TableCell className="font-medium">{formatCurrency(customer.totalSpent)}</TableCell>
-                        <TableCell>{customer.visitCount}</TableCell>
-                        <TableCell>{formatCurrency(customer.avgOrderValue)}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap font-medium">{formatCurrency(customer.totalSpent)}</TableCell>
+                        <TableCell className="text-right">{customer.visitCount}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap">{formatCurrency(customer.avgOrderValue)}</TableCell>
                         <TableCell className="text-muted-foreground">
                           {customer.lastVisit ? new Date(customer.lastVisit).toLocaleDateString() : 'Never'}
                         </TableCell>
@@ -529,11 +370,11 @@ export const Customers: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm text-muted-foreground">Retention Rate</p>
-                    <p className="text-2xl font-bold">{customerData.acquisition.retentionRate}%</p>
+                    <p className="metric-value text-2xl font-semibold">{customerData.acquisition.retentionRate}%</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">New Customers (30d)</p>
-                    <p className="text-2xl font-bold">{customerData.acquisition.newCustomers}</p>
+                    <p className="metric-value text-2xl font-semibold">{customerData.acquisition.newCustomers}</p>
                   </div>
                 </div>
               </Card>
@@ -547,14 +388,14 @@ export const Customers: React.FC = () => {
       )}
 
       {/* Segments Tab */}
-      {activeTab === 'segments' && (
+      {activeTab === 'segments' && !loadError && (
         <div className="space-y-6">
           {insightsLoading ? (
             <div className="flex justify-center items-center h-64">
               <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
             </div>
           ) : customerData ? (
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Recency Segments */}
               <Card className="p-6">
                 <h4 className="font-medium mb-4">Customer Recency</h4>
@@ -667,8 +508,9 @@ export const Customers: React.FC = () => {
         }}
         title={editingCustomer ? 'Edit Customer' : 'Add New Customer'}
         size="lg"
+        footer={<div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setShowModal(false); resetForm(); }}>Cancel</Button><Button type="submit" form={customerFormId}>{editingCustomer ? 'Update Customer' : 'Create Customer'}</Button></div>}
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form id={customerFormId} onSubmit={handleSubmit} className="customer-form space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Input
               label="First Name"
@@ -794,22 +636,6 @@ export const Customers: React.FC = () => {
             </label>
           </div>
 
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowModal(false);
-                resetForm();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" className="flex-1">
-              {editingCustomer ? 'Update Customer' : 'Create Customer'}
-            </Button>
-          </div>
         </form>
       </Modal>
 
@@ -823,7 +649,7 @@ export const Customers: React.FC = () => {
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Who gets it?</label>
-            <select
+            <Select
               value={campaignSegment}
               onChange={(e) => setCampaignSegment(e.target.value)}
               className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
@@ -833,7 +659,7 @@ export const Customers: React.FC = () => {
               <option value="lapsed60">Lapsed — no visit in 60+ days</option>
               <option value="top20">Top 20 spenders</option>
               <option value="tag">Customers with a tag...</option>
-            </select>
+            </Select>
             {campaignSegment === 'tag' && (
               <Input
                 placeholder='Tag name, e.g. "vip"'
@@ -879,7 +705,7 @@ export const Customers: React.FC = () => {
               className="flex-1"
               onClick={handleSendCampaign}
               disabled={
-                campaignSending ||
+                campaignOperation.blocked ||
                 !campaignSubject.trim() ||
                 !campaignMessage.trim() ||
                 campaignReach === 0 ||
@@ -888,13 +714,14 @@ export const Customers: React.FC = () => {
             >
               <Megaphone className="h-4 w-4 mr-2" />
               {campaignSending
-                ? 'Sending...'
-                : `Send${campaignReach ? ` to ${campaignReach}` : ''}`}
+                ? 'Queuing...'
+                : `Queue${campaignReach ? ` to ${campaignReach}` : ''}`}
             </Button>
           </div>
         </div>
       </Modal>
 
+      <OperationRecovery operation={campaignOperation} />
       {/* Customer Detail Modal */}
       <Modal
         isOpen={showDetailModal}
@@ -999,6 +826,6 @@ export const Customers: React.FC = () => {
         destructive
         confirmLabel="Delete"
       />
-    </div>
+    </ManagementPage>
   );
 };

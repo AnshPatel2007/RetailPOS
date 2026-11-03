@@ -3,7 +3,7 @@
  *
  * - Age-restricted items: sale blocked without verification, underage blocked
  *   (with a failed-check audit row), verified sales log the check
- * - EBT tender: capped server-side at the SNAP-eligible portion of the sale
+ * - EBT tender: disabled until tax allocation and original-tender returns are validated
  * - Price-embedded barcodes: label price honored only for flagged products
  */
 
@@ -127,102 +127,19 @@ describe('Compliance Workflow Integration Tests', () => {
     });
   });
 
-  describe('EBT tender', () => {
-    it('should reject EBT when nothing in the cart is eligible', async () => {
-      const res = await api
-        .post('/api/sales')
-        .withAuth(cashierToken)
-        .withBody(saleBody({
-          paymentMethod: 'EBT',
-          amountPaid: 21.99,
-          payments: [{ paymentMethod: 'EBT', amount: 21.99 }],
-        }))
-        .expectStatus(400)
-        .execute();
-
-      assertResponse.error(res, 'EBT can only cover eligible items');
-    });
-
-    it('should accept EBT for a fully eligible sale', async () => {
-      await prisma.product.update({
-        where: { id: testData.product.id },
-        data: { ebtEligible: true },
-      });
-
-      // $19.99 + 10% tax = $21.99, all eligible
-      const res = await api
-        .post('/api/sales')
-        .withAuth(cashierToken)
-        .withBody(saleBody({
-          paymentMethod: 'EBT',
-          amountPaid: 21.99,
-          payments: [{ paymentMethod: 'EBT', amount: 21.99 }],
-        }))
-        .expectStatus(201)
-        .execute();
-
-      expect(res.body.data.total).toBe(21.99);
-      expect(res.body.data.payments[0].paymentMethod).toBe('EBT');
-    });
-
-    it('should cap EBT at the eligible portion of a mixed cart', async () => {
-      await prisma.product.update({
-        where: { id: testData.product.id },
-        data: { ebtEligible: true },
-      });
-      const nonEbt = await prisma.product.create({
-        data: {
-          id: 'test-product-noebt',
-          name: 'Cigarettes',
-          sku: 'TEST-SKU-002',
-          price: 10.0,
-          cost: 5.0,
-          stockQuantity: 50,
-          locationId: testData.location.id,
-          isActive: true,
-        },
-      });
-
-      // Eligible: $19.99 + $2.00 tax = $21.99; total = $21.99 + $11.00 = $32.99
-      const overRes = await api
-        .post('/api/sales')
-        .withAuth(cashierToken)
-        .withBody({
-          idempotencyKey: randomUUID(),
-          items: [
-            { productId: testData.product.id, quantity: 1, price: 19.99 },
-            { productId: nonEbt.id, quantity: 1, price: 10.0 },
-          ],
-          paymentMethod: 'EBT',
-          amountPaid: 32.99,
-          payments: [{ paymentMethod: 'EBT', amount: 32.99 }],
-        })
-        .expectStatus(400)
-        .execute();
-
-      assertResponse.error(overRes, 'EBT can only cover eligible items');
-
-      // Split: EBT for the eligible share, cash for the rest
-      const okRes = await api
-        .post('/api/sales')
-        .withAuth(cashierToken)
-        .withBody({
-          idempotencyKey: randomUUID(),
-          items: [
-            { productId: testData.product.id, quantity: 1, price: 19.99 },
-            { productId: nonEbt.id, quantity: 1, price: 10.0 },
-          ],
-          paymentMethod: 'CASH',
-          amountPaid: 32.99,
-          payments: [
-            { paymentMethod: 'EBT', amount: 21.99 },
-            { paymentMethod: 'CASH', amount: 11.0 },
-          ],
-        })
-        .expectStatus(201)
-        .execute();
-
-      expect(okRes.body.data.total).toBe(32.99);
+  describe('EBT launch boundary', () => {
+    it.each([
+      ['ineligible cart', false, 'EBT', [{ paymentMethod: 'EBT', amount: 21.99 }]],
+      ['eligible cart', true, 'EBT', [{ paymentMethod: 'EBT', amount: 21.99 }]],
+      ['mixed tenders', true, 'CASH', [{ paymentMethod: 'EBT', amount: 10 }, { paymentMethod: 'CASH', amount: 11.99 }]],
+    ])('blocks %s without recording payment or changing inventory', async (_label, eligible, method, payments) => {
+      await prisma.product.update({ where: { id: testData.product.id }, data: { ebtEligible: eligible as boolean } });
+      const res = await api.post('/api/sales').withAuth(cashierToken)
+        .withBody(saleBody({ paymentMethod: method, amountPaid: 21.99, payments })).expectStatus(409).execute();
+      assertResponse.error(res, 'EBT/SNAP checkout is unavailable');
+      expect(await prisma.sale.count()).toBe(0);
+      expect(await prisma.drawerEntry.count()).toBe(0);
+      expect((await prisma.product.findUniqueOrThrow({ where: { id: testData.product.id } })).stockQuantity).toBe(100);
     });
   });
 
@@ -252,7 +169,7 @@ describe('Compliance Workflow Integration Tests', () => {
       expect(res.body.data.subtotal).toBe(4.2);
     });
 
-    it('should ignore cashier price overrides on unflagged products', async () => {
+    it('requires manager approval for cashier price overrides on unflagged products', async () => {
       const res = await api
         .post('/api/sales')
         .withAuth(cashierToken)
@@ -264,11 +181,11 @@ describe('Compliance Workflow Integration Tests', () => {
           paymentMethod: 'CASH',
           amountPaid: 50,
         })
-        .expectStatus(201)
+        .expectStatus(428)
         .execute();
 
-      // Catalog price wins — cashiers can't invent prices for normal products
-      expect(res.body.data.items[0].price).toBe(19.99);
+      expect(res.body.error).toContain('Manager approval');
+      expect(await prisma.sale.count()).toBe(0);
     });
   });
 });

@@ -27,11 +27,14 @@ export const useEffectiveLocation = (): EffectiveLocation => {
     const isValidAdminView = Boolean(isSuperAdmin && isAdminViewing && viewingLocationId);
 
     // Determine effective location ID
-    const effectiveLocationId = isValidAdminView ? viewingLocationId : user?.locationId;
+    // Older login responses only included location.id. Keep existing sessions usable
+    // while respecting an explicit null assignment and super-admin preview rules.
+    const assignedLocationId = user?.locationId === undefined ? user?.location?.id : user.locationId;
+    const effectiveLocationId = isValidAdminView ? viewingLocationId : assignedLocationId;
 
-    // Determine if we're in read-only mode
-    // Read-only when SUPER_ADMIN is viewing a different store
-    const isReadOnly = Boolean(isValidAdminView && viewingLocationId !== user?.locationId);
+    // Platform admins never perform store operations, including direct URLs
+    // outside an explicitly selected preview. Platform management is separate.
+    const isReadOnly = isSuperAdmin;
 
     return {
       locationId: effectiveLocationId,

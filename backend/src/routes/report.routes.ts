@@ -18,73 +18,73 @@ router.get('/dashboard/hourly', reportController.getDashboardHourly);
 
 router.get(
   '/employee-sales',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.getEmployeeSalesBreakdown
 );
 
 router.get(
   '/overall',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.getOverallReport
 );
 
 router.get(
   '/sales',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.getSalesReport
 );
 
 router.get(
   '/sales/export/csv',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.exportSalesCSV
 );
 
 router.get(
   '/sales/export/pdf',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.exportSalesPDF
 );
 
 router.get(
   '/inventory',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.getInventoryReport
 );
 
 router.get(
   '/inventory/export/csv',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.exportInventoryCSV
 );
 
 router.get(
   '/inventory/export/pdf',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.exportInventoryPDF
 );
 
 router.get(
   '/employees',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.getEmployeeReport
 );
 
 router.get(
   '/products',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.getProductSalesReport
 );
 
 router.get(
   '/expenses',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.getExpenseReport
 );
 
 router.get(
   '/stock-health',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.getStockHealthReport
 );
 
@@ -96,14 +96,17 @@ router.post(
 
 router.get(
   '/age-verifications',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.getAgeVerifications
 );
 
 router.get(
   '/scan-data/export/csv',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   reportController.exportScanDataCSV
 );
+
+router.get('/daily-digest/deliveries', authorize('ADMIN'), reportController.listDigestDeliveries);
+router.post('/daily-digest/deliveries/:id/retry', authorize('ADMIN'), reportController.retryDigestDelivery);
 
 export default router;

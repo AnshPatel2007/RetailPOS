@@ -34,7 +34,7 @@ export const getLocationFilter = (
     return { locationId: user.locationId };
   }
 
-  // SUPER_ADMIN without locationId param sees all locations
+  if (user.role !== 'SUPER_ADMIN') throw new AppError('A store assignment is required', 403);
   return {};
 };
 
@@ -79,43 +79,35 @@ export const isSuperAdmin = (req: AuthRequest): boolean => {
  */
 export const assertOwnsRecord = (req: AuthRequest, recordLocationId: string | null): void => {
   if (isSuperAdmin(req)) return;
-  if (recordLocationId !== req.user!.locationId) {
+  if (!req.user?.locationId || recordLocationId !== req.user.locationId) {
     throw new AppError('You do not have access to this record', 403);
   }
 };
 
-/**
- * Read-access check for "shared-by-default" entities (Customer, GiftCard,
- * StoreCreditAccount, HouseAccount, Supplier, PurchaseOrder, Category) whose
- * locationId null means "chain-wide, visible to every store" — unlike
- * assertOwnsRecord, a null-location record is READABLE by anyone (only its
- * mutation is SUPER_ADMIN-only, via assertOwnsRecord in the update/delete
- * handler). Uses 404 rather than 403 to avoid revealing another store's
- * private record exists.
- * @throws AppError (404) if the caller can't read this record
- */
+/** Read access to an assigned store record; unassigned legacy records require administrative review. */
 export const assertCanReadRecord = (
   req: AuthRequest,
   recordLocationId: string | null,
   notFoundMessage = 'Record not found'
 ): void => {
   if (isSuperAdmin(req)) return;
-  if (recordLocationId !== null && recordLocationId !== req.user!.locationId) {
+  if (!recordLocationId || recordLocationId !== req.user!.locationId) {
     throw new AppError(notFoundMessage, 404);
   }
 };
 
-/**
- * List-query filter for "shared-by-default" entities — visible if the record
- * is chain-wide (locationId null) OR belongs to the caller's own store.
- * SUPER_ADMIN sees everything by default, or one store via locationIdParam.
- */
+/** Store-isolated list filter. Connections authorize inventory transfers only. */
 export const getSharedOrOwnFilter = (req: AuthRequest, locationIdParam?: string): any => {
-  if (isSuperAdmin(req)) {
-    if (locationIdParam) return { OR: [{ locationId: null }, { locationId: locationIdParam }] };
-    return {};
-  }
-  return { OR: [{ locationId: null }, { locationId: req.user!.locationId ?? null }] };
+  // Legacy unassigned records are visible only to platform administrators for
+  // ownership review. A transfer connection never grants data-sharing rights.
+  return getLocationFilter(req, locationIdParam);
+};
+
+/** New store-owned records must have an explicit, authorized assignment. */
+export const resolveWriteLocation = (req: AuthRequest, requested?: string | null): string => {
+  const locationId = getLocationFilter(req, requested || undefined).locationId;
+  if (!locationId) throw new AppError('Select a store before creating this record', 400);
+  return locationId;
 };
 
 /**
@@ -129,7 +121,7 @@ export const assertOwnsOneOfLocations = (
   locationIds: (string | null)[]
 ): void => {
   if (isSuperAdmin(req)) return;
-  if (!locationIds.includes(req.user!.locationId ?? null)) {
+  if (!req.user?.locationId || !locationIds.includes(req.user.locationId)) {
     throw new AppError('You do not have access to this record', 403);
   }
 };

@@ -1,7 +1,9 @@
+import { lineMoney, roundMoney, taxMoney } from '@/lib/money';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { CartItem, Product, Customer, Promotion } from '../types';
 import { applyPromotions, isPromotionActiveNow } from '../lib/promotionEngine';
+import { maxCartQuantity } from '../lib/sellingUnits';
 
 interface HeldSale {
   id: string;
@@ -29,7 +31,8 @@ interface CartState {
   heldSales: HeldSale[];
   promotions: Promotion[]; // active promotions, refreshed by the POS page (not persisted)
 
-  addItem: (product: Product, quantity?: number) => void;
+  applyQuote: (quote: any) => void;
+  addItem: (product: Product, quantity?: number) => boolean;
   removeItem: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number) => void;
   updateDiscount: (productId: string, discount: number) => void;
@@ -75,9 +78,18 @@ export const useCartStore = create<CartState>()(
       heldSales: [],
       promotions: [],
 
+      applyQuote: (quote) => set({
+        items: get().items.map(item => {
+          const product = quote.products.find((p: Product) => p.id === item.product.id);
+          return product ? { ...item, product: { ...product, ...(item.priceOverride ? { price: item.product.price } : {}) } } : item;
+        }),
+        taxRate: quote.taxRate, cardSurchargePercent: quote.cardSurchargePercent, promotions: quote.promotions,
+      }),
       addItem: (product: Product, quantity = 1) => {
         const items = get().items;
         const existingItem = items.find((item) => item.product.id === product.id);
+        const nextQuantity = (existingItem?.quantity || 0) + quantity;
+        if (!Number.isSafeInteger(quantity) || quantity <= 0 || (product.trackInventory && nextQuantity > maxCartQuantity(product, items))) return false;
 
         if (existingItem) {
           set({
@@ -95,6 +107,7 @@ export const useCartStore = create<CartState>()(
             ],
           });
         }
+        return true;
       },
 
       removeItem: (productId: string) => {
@@ -104,6 +117,8 @@ export const useCartStore = create<CartState>()(
       },
 
       updateQuantity: (productId: string, quantity: number) => {
+        const item = get().items.find(line => line.product.id === productId);
+        if (!Number.isSafeInteger(quantity) || !item || (item.product.trackInventory && quantity > maxCartQuantity(item.product, get().items))) return;
         if (quantity <= 0) {
           get().removeItem(productId);
           return;
@@ -118,7 +133,7 @@ export const useCartStore = create<CartState>()(
                   // Re-clamp fixed discounts so they never exceed the new line total
                   discount: Math.min(
                     item.discount,
-                    Math.round(item.product.price * quantity * 100) / 100
+                    lineMoney(item.product.price, quantity)
                   ),
                 }
               : item
@@ -152,7 +167,7 @@ export const useCartStore = create<CartState>()(
                   priceOverride: true,
                   discount: Math.min(
                     item.discount,
-                    Math.round(price * item.quantity * 100) / 100
+                    lineMoney(price, item.quantity)
                   ),
                 }
               : item
@@ -297,10 +312,10 @@ export const useCartStore = create<CartState>()(
 
         const breakdown: Record<string, LineBreakdown> = {};
         for (const item of items) {
-          const gross = item.product.price * item.quantity;
-          const manualDiscount = Math.min(item.discount, gross);
+          const gross = lineMoney(item.product.price, item.quantity);
+          const manualDiscount = roundMoney(Math.min(item.discount, gross));
           const promo = promoResults.get(item.product.id);
-          const totalDiscount = Math.min(manualDiscount + (promo?.discount || 0), gross);
+          const totalDiscount = roundMoney(Math.min(manualDiscount + (promo?.discount || 0), gross));
           const promoDiscount = Math.round((totalDiscount - manualDiscount) * 100) / 100;
           breakdown[item.product.id] = {
             gross: Math.round(gross * 100) / 100,
@@ -320,17 +335,16 @@ export const useCartStore = create<CartState>()(
         ) / 100;
       },
 
-      // SNAP-eligible portion of the sale: eligible lines net of discounts plus
-      // their tax — mirrors the backend cap in createSale
+      // Eligible merchandise before tax. Tender remains gated until allocation
+      // and original-tender refunds are validated.
       getEbtEligibleTotal: () => {
-        const { items, taxRate } = get();
+        const { items } = get();
         const breakdown = get().getLineBreakdown();
         return Math.round(items.reduce((total, item) => {
           if (!item.product.ebtEligible || item.product.id.startsWith('misc-')) return total;
           const line = breakdown[item.product.id];
-          const net = Math.max(0, item.product.price * item.quantity - (line?.totalDiscount ?? item.discount));
-          const tax = item.product.isTaxable ? Math.round((net * taxRate) / 100 * 100) / 100 : 0;
-          return total + net + tax;
+          const net = Math.max(0, lineMoney(item.product.price, item.quantity) - (line?.totalDiscount ?? item.discount));
+          return total + net;
         }, 0) * 100) / 100;
       },
 
@@ -346,7 +360,7 @@ export const useCartStore = create<CartState>()(
         const breakdown = get().getLineBreakdown();
         return Math.round(get().items.reduce((total, item) => {
           const line = breakdown[item.product.id];
-          return total + item.product.price * item.quantity - (line?.totalDiscount ?? item.discount);
+          return total + lineMoney(item.product.price, item.quantity) - (line?.totalDiscount ?? item.discount);
         }, 0) * 100) / 100;
       },
 
@@ -358,15 +372,15 @@ export const useCartStore = create<CartState>()(
         return Math.round(get().items.reduce((total, item) => {
           if (!item.product.isTaxable) return total;
           const line = breakdown[item.product.id];
-          const net = Math.max(0, item.product.price * item.quantity - (line?.totalDiscount ?? item.discount));
-          return total + Math.round((net * taxRate) / 100 * 100) / 100;
+          const net = Math.max(0, lineMoney(item.product.price, item.quantity) - (line?.totalDiscount ?? item.discount));
+          return total + taxMoney(roundMoney(net), taxRate);
         }, 0) * 100) / 100;
       },
 
       getTotal: () => {
         const subtotal = get().getSubtotal();
         const tax = get().getTax();
-        return Math.round((subtotal + tax) * 100) / 100;
+        return roundMoney(subtotal + tax);
       },
 
       getItemCount: () => {

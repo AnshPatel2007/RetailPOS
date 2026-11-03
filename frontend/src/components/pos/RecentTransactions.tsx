@@ -16,31 +16,32 @@ interface RecentSale {
 interface RecentTransactionsProps {
   refreshTrigger?: number;
   onViewReceipt?: (saleId: string) => void;
+  initiallyExpanded?: boolean;
+  disabled?: boolean;
 }
 
 export const RecentTransactions: React.FC<RecentTransactionsProps> = ({
   refreshTrigger,
   onViewReceipt,
+  initiallyExpanded = false,
+  disabled = false,
 }) => {
   const [sales, setSales] = useState<RecentSale[]>([]);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
   const [isLoading, setIsLoading] = useState(false);
-
-  const loadRecent = async () => {
-    setIsLoading(true);
-    try {
-      const response = await saleService.getAll({ limit: 10, sortBy: 'createdAt', sortOrder: 'desc' });
-      setSales(response.data.data || []);
-    } catch {
-      // silently fail
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    if (isExpanded) loadRecent();
-  }, [isExpanded, refreshTrigger]);
+    if (!isExpanded) return;
+    const abort = new AbortController();
+    setIsLoading(true); setError('');
+    saleService.getAll({ limit: 10, sortBy: 'createdAt', sortOrder: 'desc' }, abort.signal)
+      .then(response => { if (!abort.signal.aborted) setSales(response.data.data || []); })
+      .catch(() => { if (!abort.signal.aborted) setError('Recent sales could not be loaded.'); })
+      .finally(() => { if (!abort.signal.aborted) setIsLoading(false); });
+    return () => abort.abort();
+  }, [isExpanded, refreshTrigger, retry]);
 
   const getRelativeTime = (dateStr: string) => {
     const mins = Math.max(0, Math.round((Date.now() - new Date(dateStr).getTime()) / 60000));
@@ -71,7 +72,7 @@ export const RecentTransactions: React.FC<RecentTransactionsProps> = ({
 
       {isExpanded && (
         <div className="px-4 pb-3 space-y-1.5 max-h-48 overflow-auto">
-          {isLoading ? (
+          {error ? <div role="alert" className="text-sm">{error} <button type="button" className="text-primary underline" onClick={() => setRetry(value => value + 1)}>Retry</button></div> : isLoading ? (
             <p className="text-xs text-muted-foreground text-center py-2">Loading...</p>
           ) : sales.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-2">No recent sales</p>
@@ -79,8 +80,9 @@ export const RecentTransactions: React.FC<RecentTransactionsProps> = ({
             sales.map((sale) => (
               <button
                 key={sale.id}
+                disabled={disabled}
                 onClick={() => onViewReceipt?.(sale.id)}
-                className={`w-full text-left rounded-lg border shadow-sm bg-card p-2 cursor-pointer hover:bg-accent/50 transition-colors ${
+                className={`w-full text-left rounded-lg border bg-card p-2 cursor-pointer hover:bg-accent/50 transition-colors disabled:opacity-50 ${
                   sale.status === 'REFUNDED' ? 'opacity-60' : ''
                 }`}
               >
@@ -96,8 +98,8 @@ export const RecentTransactions: React.FC<RecentTransactionsProps> = ({
                           </span>
                         )}
                       </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {getRelativeTime(sale.createdAt)}
+                      <p className="text-xs text-muted-foreground">
+                        {getRelativeTime(sale.createdAt)} · {new Date(sale.createdAt).toLocaleString()}
                         {sale.status === 'REFUNDED' && (
                           <span className="ml-1 text-destructive font-medium">Refunded</span>
                         )}

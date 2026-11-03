@@ -17,13 +17,15 @@ interface ExportPreviewModalProps {
   onClose: () => void;
   type: 'sales' | 'inventory' | 'expenses' | 'locations';
   data: any[];
+  /** Full range count when data contains only a paged preview. */
+  totalItems?: number;
   onExportCSV: () => Promise<void>;
   /** Omit to hide the PDF button (e.g. when only CSV export is implemented) */
   onExportPDF?: () => Promise<void>;
 }
 
 const typeLabels: Record<string, string> = {
-  sales: 'sales',
+  sales: 'sale, return and void entries',
   inventory: 'products',
   expenses: 'expenses',
   locations: 'locations',
@@ -34,16 +36,21 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
   onClose,
   type,
   data,
+  totalItems,
   onExportCSV,
   onExportPDF,
 }) => {
   const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
 
   const handleExport = async (format: 'csv' | 'pdf') => {
     setIsExporting(true);
+    setExportError('');
     try {
       if (format === 'csv') await onExportCSV();
       else if (onExportPDF) await onExportPDF();
+    } catch {
+      setExportError('The export could not be downloaded. Retry when the connection is available.');
     } finally {
       setIsExporting(false);
     }
@@ -63,7 +70,7 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                 <TableHead>Date</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>Payment</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Entry</TableHead>
                 <TableHead className="text-right">Total</TableHead>
               </TableRow>
             </TableHeader>
@@ -72,15 +79,15 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                 <TableRow key={sale.id}>
                   <TableCell className="font-mono text-xs">{sale.saleNumber}</TableCell>
                   <TableCell className="text-xs">
-                    {new Date(sale.createdAt).toLocaleDateString()}
+                    {sale.storeDate || new Date(sale.createdAt).toLocaleDateString()}
                   </TableCell>
                   <TableCell className="text-xs">
-                    {sale.customer
+                    {typeof sale.customer === 'string' ? sale.customer : sale.customer
                       ? `${sale.customer.firstName} ${sale.customer.lastName}`
                       : '-'}
                   </TableCell>
-                  <TableCell className="text-xs">{sale.paymentMethod}</TableCell>
-                  <TableCell className="text-xs">{sale.status}</TableCell>
+                  <TableCell className="text-xs">{sale.sourceType === 'DAILY_SUMMARY' ? 'Card recorded; remainder unspecified' : sale.method || sale.paymentMethod}</TableCell>
+                  <TableCell className="text-xs">{sale.sourceType === 'DAILY_SUMMARY' ? 'Daily summary' : sale.kind || sale.status}</TableCell>
                   <TableCell className="text-right text-xs font-medium">
                     {formatCurrency(sale.total)}
                   </TableCell>
@@ -187,11 +194,12 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Export Preview" size="lg">
+    <Modal isOpen={isOpen} onClose={() => { if (!isExporting) onClose(); }} title="Export Preview" size="lg">
       <div className="space-y-4">
+        {exportError && <p role="alert" className="text-destructive text-sm">{exportError}</p>}
         <p className="text-sm text-muted-foreground">
-          {data.length} {typeLabels[type] || 'records'} will be exported.
-          {hasMore && ` Showing first 20 of ${data.length}.`}
+          {totalItems ?? data.length} {typeLabels[type] || 'records'} will be exported.
+          {totalItems !== undefined && totalItems > data.length ? ` Previewing ${previewRows.length} entries from the loaded pages. Downloads use the entire filtered range.` : hasMore && ` Showing first 20 of ${data.length}.`}
         </p>
 
         <div className="max-h-[50vh] overflow-auto border border-border rounded-md">
@@ -199,7 +207,7 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" disabled={isExporting} onClick={onClose}>
             Cancel
           </Button>
           <Button

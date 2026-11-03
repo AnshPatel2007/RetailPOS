@@ -47,25 +47,26 @@ export const POSTopBar: React.FC = () => {
     new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   return (
-    <header className="relative h-12 shrink-0 flex items-center px-2 sm:px-3 border-b border-border bg-card">
+    <header className="pos-topbar min-h-14 shrink-0 flex flex-wrap items-center gap-x-2 gap-y-1 py-1 px-2 sm:px-3 border-b border-border bg-card">
       {/* Left: navigation + store identity + shift status */}
-      <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1 basis-full sm:basis-64">
         <button
           onClick={() => navigate('/dashboard')}
-          className="h-9 w-9 shrink-0 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
+          className="h-11 w-11 shrink-0 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
           title="Back to Dashboard (Esc)"
+          aria-label="Back to Dashboard"
         >
           <ArrowLeft className="h-[18px] w-[18px]" />
         </button>
 
-        <span className="font-semibold text-sm truncate">{storeName || 'POS System'}</span>
+        <span className="font-semibold text-sm break-words min-w-0 max-w-48">{storeName || 'POS System'}</span>
 
         <div className="hidden sm:block h-5 w-px bg-border mx-1" />
 
         {currentShift !== undefined && (
           <button
             onClick={() => navigate('/shifts')}
-            className={`h-7 shrink-0 flex items-center gap-1.5 px-2 rounded-md text-[11px] font-medium transition-colors ${
+            className={`min-h-11 shrink-0 flex items-center gap-1.5 px-2 rounded-md text-xs font-medium transition-colors ${
               currentShift
                 ? 'text-success hover:bg-success/10'
                 : 'text-warning bg-warning/10 hover:bg-warning/20'
@@ -88,12 +89,12 @@ export const POSTopBar: React.FC = () => {
       </div>
 
       {/* Center: clock */}
-      <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 hidden md:inline text-sm font-medium tabular-nums text-muted-foreground">
+      <span className="hidden xl:inline shrink-0 px-2 text-sm font-medium tabular-nums text-muted-foreground">
         {formatTime(now)}
       </span>
 
       {/* Right: connectivity + cashier + theme */}
-      <div className="ml-auto flex items-center gap-2 sm:gap-3">
+      <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
         <OfflineIndicator variant="badge" showDetails />
 
         {user && (
@@ -101,8 +102,8 @@ export const POSTopBar: React.FC = () => {
             <div className="hidden md:block h-5 w-px bg-border" />
             <div className="hidden md:flex flex-col items-end leading-tight">
               <span className="text-xs font-medium">{user.firstName} {user.lastName}</span>
-              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
-                {user.role.replace(/_/g, ' ')}
+              <span className="text-xs text-muted-foreground">
+                {user.role === 'ADMIN' ? 'Owner' : user.role === 'SUPER_ADMIN' ? 'Platform administrator' : user.role === 'MANAGER' ? 'Manager' : 'Cashier'}
               </span>
             </div>
           </>
@@ -110,7 +111,7 @@ export const POSTopBar: React.FC = () => {
 
         <button
           onClick={() => window.open('/customer-display', 'customerDisplay', 'width=1024,height=768')}
-          className="h-9 w-9 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
+          className="h-11 w-11 shrink-0 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
           aria-label="Open customer display"
           title="Open customer display (drag to the second monitor)"
         >
@@ -119,7 +120,7 @@ export const POSTopBar: React.FC = () => {
 
         <button
           onClick={toggleTheme}
-          className="h-9 w-9 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
+          className="h-11 w-11 shrink-0 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
           aria-label="Toggle theme"
           title="Toggle theme"
         >

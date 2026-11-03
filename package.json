@@ -8,6 +8,7 @@
     "backend"
   ],
   "scripts": {
+    "audit:interactions": "node scripts/inventory-interactions.cjs",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "npm run dev --workspace=backend",
     "dev:frontend": "npm run dev --workspace=frontend",
@@ -17,10 +18,19 @@
     "db:seed": "npm run db:seed --workspace=backend",
     "db:studio": "npm run db:studio --workspace=backend"
   },
-  "keywords": ["pos", "point-of-sale", "square", "retail", "inventory"],
+  "keywords": [
+    "pos",
+    "point-of-sale",
+    "square",
+    "retail",
+    "inventory"
+  ],
   "author": "POS System Team",
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "@vercel/analytics": "^2.0.1"
   }
 }

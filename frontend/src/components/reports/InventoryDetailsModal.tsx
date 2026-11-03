@@ -1,7 +1,7 @@
 import React from 'react';
-import { X, Package, Tag, DollarSign, BarChart3 } from 'lucide-react';
+import { Package, Tag, DollarSign, BarChart3 } from 'lucide-react';
 import { Product } from '@/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
 interface InventoryDetailsModalProps {
@@ -21,7 +21,7 @@ export const InventoryDetailsModal: React.FC<InventoryDetailsModalProps> = ({
     ? ((product.price - product.cost) / product.price) * 100
     : 0;
 
-  const inventoryValue = product.cost * product.stockQuantity;
+  const inventoryValue = product.inventoryValue ?? null;
   const retailValue = product.price * product.stockQuantity;
 
   const getStockStatus = () => {
@@ -34,18 +34,8 @@ export const InventoryDetailsModal: React.FC<InventoryDetailsModalProps> = ({
   const stockStatus = getStockStatus();
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Product Details</CardTitle>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </CardHeader>
-        <CardContent className="space-y-6">
+    <Modal isOpen={isOpen} onClose={onClose} title="Product Details" size="lg">
+      <div className="space-y-6">
           {/* Header with Image */}
           <div className="flex items-start gap-4">
             {product.image ? (
@@ -152,7 +142,7 @@ export const InventoryDetailsModal: React.FC<InventoryDetailsModalProps> = ({
               )}
               <div>
                 <p className="text-sm text-muted-foreground">Inventory Value (Cost)</p>
-                <p className="font-medium">{formatCurrency(inventoryValue)}</p>
+                <p className="font-medium">{inventoryValue === null ? 'Unavailable' : formatCurrency(inventoryValue)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Retail Value</p>
@@ -212,8 +202,7 @@ export const InventoryDetailsModal: React.FC<InventoryDetailsModalProps> = ({
             <p>Created: {formatDate(product.createdAt)}</p>
             <p>Last Updated: {formatDate(product.updatedAt)}</p>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+              </div>
+    </Modal>
   );
 };

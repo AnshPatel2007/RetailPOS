@@ -1,11 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeftRight, Plus, Truck, CheckCircle, XCircle } from 'lucide-react';
+import { ManagementPage } from '@/components/common/Workspace';
+import { Select } from '@/components/ui/Select';
+import { formatEnumLabel } from '@/lib/utils';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ArrowLeftRight, Plus, Truck, XCircle } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { PageTabs } from '@/components/common/PageTabs';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -17,112 +22,111 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { inventoryTransferService, locationService, productService } from '@/services/api';
+import { inventoryTransferService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import toast from 'react-hot-toast';
-
-interface Transfer {
-  id: string;
-  transferNumber: string;
-  fromLocationId: string;
-  toLocationId: string;
-  status: string;
-  notes: string | null;
-  createdAt: string;
-  shippedAt: string | null;
-  receivedAt: string | null;
-  items: TransferItem[];
-}
-
-interface TransferItem {
-  id: string;
-  productId: string;
-  quantity: number;
-  receivedQty: number | null;
-  product?: {
-    id: string;
-    name: string;
-    sku: string;
-  };
-}
+import { useUrlFilter, useUrlPage, useResetUrlFilters } from '@/hooks/useUrlFilter';
+import { ProductPicker, PickableProduct } from '@/components/common/ProductPicker';
+import { can } from '@/lib/capabilities';
+import { Transfer, TransferReceiptKind, outstandingTransfer, returningTransfer, transferProductName, transferRetryKey, pendingTransferReceipt } from '@/types/transfers';
+import { TransferReceiptModal } from '@/components/inventory/TransferReceiptModal';
+import { TransferHistory } from '@/components/inventory/TransferHistory';
 
 interface Location {
   id: string;
   name: string;
 }
 
-interface Product {
-  id: string;
-  name: string;
-  sku: string;
-  stockQuantity: number;
-}
 
 const statusColors: Record<string, string> = {
   PENDING: 'bg-warning/10 text-warning',
   IN_TRANSIT: 'bg-info/10 text-info',
+  PARTIALLY_RECEIVED: 'bg-warning/10 text-warning',
+  RETURN_IN_TRANSIT: 'bg-warning/10 text-warning',
+  CLOSED: 'bg-success/10 text-success',
   RECEIVED: 'bg-success/10 text-success',
   CANCELLED: 'bg-destructive/10 text-destructive',
 };
 
 export const InventoryTransfers: React.FC = () => {
   const { user } = useAuthStore();
-  const { isReadOnly } = useEffectiveLocation();
+  const { isReadOnly, locationId } = useEffectiveLocation();
   // Mutating routes are ADMIN/MANAGER only — hide the buttons cashiers can't use
   const canManage =
     !isReadOnly &&
-    ['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(user?.role || '');
+    can(user?.role, 'inventory.manage');
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [locations, setLocations] = useState<Location[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [page, setPage] = useState(1);
+  const [products, setProducts] = useState<PickableProduct[]>([]);
+  const [showProductPicker, setShowProductPicker] = useState(false);
+  const requestVersion = useRef(0);
+  const [statusFilter, setStatusFilter] = useUrlFilter('status');
+  const [page, setPage] = useUrlPage();
   const [total, setTotal] = useState(0);
 
   // Create modal
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [fromLocationId, setFromLocationId] = useState('');
+  const fromLocationId = locationId || '';
+  const [source, setSource] = useState<Location | null>(null);
+  const [saving, setSaving] = useState(false);
   const [toLocationId, setToLocationId] = useState('');
   const [transferItems, setTransferItems] = useState<{ productId: string; quantity: number }[]>([]);
   const [notes, setNotes] = useState('');
 
   // Detail modal
-  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [recordId, setRecordId] = useUrlFilter('record');
+  const [detailRefresh, setDetailRefresh] = useState(0);
+  const [detailError, setDetailError] = useState('');
+  const showDetailModal = !!recordId;
+  const resetUrlFilters = useResetUrlFilters();
+  const priorLocation = useRef(locationId);
+  useEffect(() => {
+    if (priorLocation.current !== locationId) { resetUrlFilters(); priorLocation.current = locationId; }
+  }, [locationId, resetUrlFilters]);
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
+  const [receiptKind, setReceiptKind] = useState<TransferReceiptKind | null>(null);
 
-  const fetchTransfers = useCallback(async () => {
-    setLoading(true);
+  const fetchTransfers = useCallback(async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++requestVersion.current;
+    if (!quiet) { setLoading(true); setLoadError(''); }
     try {
-      const { data } = await inventoryTransferService.getAll({ page, limit: 20, status: statusFilter || undefined });
+      const { data } = await inventoryTransferService.getAll({ locationId, page, limit: 20, status: statusFilter || undefined }, signal);
+      if (version !== requestVersion.current || !active()) return;
+      setLoadError('');
       setTransfers(data.data);
       setTotal(data.total);
-    } catch {
-      toast.error('Failed to load transfers');
+    } catch (failure) {
+      if (quiet) throw failure;
+      if (version === requestVersion.current) setLoadError('Unable to load transfers. Try again.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
-  }, [page, statusFilter]);
+  }, [page, statusFilter, locationId]);
 
   useEffect(() => {
     fetchTransfers();
+    return () => { requestVersion.current++; };
   }, [fetchTransfers]);
 
   useEffect(() => {
-    locationService.getAll().then(({ data }) => setLocations(data.data)).catch(() => {});
-  }, []);
+    let cancelled = false;
+    setSource(null); setLocations([]); setTransfers([]);
+    setShowCreateModal(false); setSelectedTransfer(null); setReceiptKind(null);
+    setToLocationId(''); setTransferItems([]); setProducts([]); setNotes(''); setShowProductPicker(false);
+    if (!locationId) return;
+    inventoryTransferService.options(locationId).then(({ data }) => {
+      if (!cancelled) { setSource(data.data.source); setLocations(data.data.destinations); }
+    }).catch((err) => { if (!cancelled) toast.error(err.response?.data?.error || 'Could not load connected stores'); });
+    return () => { cancelled = true; };
+  }, [locationId]);
 
-  useEffect(() => {
-    if (fromLocationId) {
-      productService.getAll({ locationId: fromLocationId, limit: 200 })
-        .then(({ data }) => setProducts(data.data))
-        .catch(() => {});
-    }
-  }, [fromLocationId]);
-
-  const addItem = () => {
-    setTransferItems([...transferItems, { productId: '', quantity: 1 }]);
+  const selectProduct = (product: PickableProduct) => {
+    if (transferItems.length >= 100) { toast.error('Use up to 100 products per transfer'); return; }
+    setProducts(current => [...current.filter(p => p.id !== product.id), product]);
+    setTransferItems(current => current.some(i => i.productId === product.id) ? current : [...current, { productId: product.id, quantity: 1 }]);
   };
 
   const removeItem = (index: number) => {
@@ -142,6 +146,10 @@ export const InventoryTransfers: React.FC = () => {
       toast.error('Add at least one item');
       return;
     }
+    if (saving) return;
+    if (validItems.length !== transferItems.length || new Set(validItems.map(i => i.productId)).size !== validItems.length) { toast.error('Select each product once'); return; }
+    if (validItems.some(i => !Number.isInteger(i.quantity) || i.quantity > (products.find(p => p.id === i.productId)?.stockQuantity ?? 0))) { toast.error('Quantity exceeds available stock'); return; }
+    setSaving(true);
     try {
       await inventoryTransferService.create({
         fromLocationId,
@@ -154,13 +162,14 @@ export const InventoryTransfers: React.FC = () => {
       resetCreateForm();
       fetchTransfers();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to create transfer');
-    }
+      toast.error(err.response?.data?.error || 'Failed to create transfer');
+    } finally { setSaving(false); }
   };
 
   const resetCreateForm = () => {
-    setFromLocationId('');
+
     setToLocationId('');
+    setProducts([]); setShowProductPicker(false);
     setTransferItems([]);
     setNotes('');
   };
@@ -179,20 +188,9 @@ export const InventoryTransfers: React.FC = () => {
       await inventoryTransferService.ship(id);
       toast.success('Transfer shipped');
       fetchTransfers();
-      setShowDetailModal(false);
+      setRecordId('');
     } catch (err: any) {
       toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to ship');
-    }
-  };
-
-  const handleReceive = async (id: string) => {
-    try {
-      await inventoryTransferService.receive(id);
-      toast.success('Transfer received');
-      fetchTransfers();
-      setShowDetailModal(false);
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to receive');
     }
   };
 
@@ -201,50 +199,44 @@ export const InventoryTransfers: React.FC = () => {
       await inventoryTransferService.cancel(id);
       toast.success('Transfer cancelled');
       fetchTransfers();
-      setShowDetailModal(false);
+      setRecordId('');
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to cancel');
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to cancel');
     }
   };
 
-  const viewDetail = async (transfer: Transfer) => {
-    try {
-      const { data } = await inventoryTransferService.getById(transfer.id);
+  const viewDetail = (record: { id: string }) => { setRecordId(record.id); setDetailRefresh(value => value + 1); };
+  useEffect(() => {
+    let active = true;
+    setSelectedTransfer(null); setDetailError('');
+    if (recordId) inventoryTransferService.getById(recordId).then(({ data }) => {
+      if (!active) return;
       setSelectedTransfer(data.data);
-      setShowDetailModal(true);
-    } catch {
-      toast.error('Failed to load transfer details');
-    }
-  };
-
+    }).catch(() => { if (active) setDetailError('Unable to load this record. It may no longer be available to this store.'); });
+    return () => { active = false; };
+  }, [recordId, locationId, detailRefresh]);
   const totalPages = Math.ceil(total / 20);
 
+  const autoRefresh = useLegacyPageRefresh((current, signal) => fetchTransfers(true, current, signal), { key: JSON.stringify([locationId, page, statusFilter]), paused: loading });
+
   return (
-    <div className="p-8">
+    <ManagementPage className="">
       <PageHeader
         title="Inventory Transfers"
+        secondaryTabs={<PageTabs secondary label="Transfer status" value={statusFilter} onChange={setStatusFilter}
+          items={["","PENDING","IN_TRANSIT","PARTIALLY_RECEIVED","RETURN_IN_TRANSIT","RECEIVED","CLOSED","CANCELLED"].map(status => ({ id: status, label: status ? formatEnumLabel(status) : 'All' }))} />}
         subtitle="Transfer stock between locations"
-        actions={canManage && (
+        actions={canManage && !!fromLocationId && (
           <Button variant="primary" onClick={() => setShowCreateModal(true)}>
             <Plus className="w-4 h-4 mr-2" />
             New Transfer
           </Button>
         )}
       />
+      {autoRefresh.notice}
 
-      {/* Status filter */}
-      <div className="flex gap-2 mb-6">
-        {['', 'PENDING', 'IN_TRANSIT', 'RECEIVED', 'CANCELLED'].map((status) => (
-          <Button
-            key={status}
-            variant={statusFilter === status ? 'primary' : 'outline'}
-            size="sm"
-            onClick={() => { setStatusFilter(status); setPage(1); }}
-          >
-            {status ? status.replace(/_/g, ' ') : 'All'}
-          </Button>
-        ))}
-      </div>
+      {!isReadOnly && source && locations.length === 0 && <p className="mb-4 text-sm text-muted-foreground">No connected destination stores. A super-admin can link partner stores in Store Management. Each store keeps its own staff sign-ins.</p>}
+      {!fromLocationId && <p className="mb-4 text-sm text-muted-foreground">Sign in to a store account to send stock. Super-admins manage store connections in Store Management.</p>}
 
       {/* Table */}
       <Card>
@@ -256,14 +248,19 @@ export const InventoryTransfers: React.FC = () => {
             <div className="flex justify-center py-8">
               <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
             </div>
-          ) : transfers.length === 0 ? (
+          ) : loadError ? (<div role="alert"><p>{loadError}</p><Button className="mt-3" variant="outline" onClick={() => void fetchTransfers()}>Retry</Button></div>) : transfers.length === 0 ? (
             <EmptyState
               icon={ArrowLeftRight}
               title="No transfers found"
               hint={statusFilter ? 'Try a different status filter' : 'Create a transfer to move stock between locations'}
+              action={canManage && !!fromLocationId && !statusFilter ? (
+                <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+                  <Plus className="w-4 h-4 mr-2" />New Transfer
+                </Button>
+              ) : undefined}
             />
           ) : (
-            <Table>
+            <Table scrollLabel="Inventory Transfers records">
               <TableHeader>
                 <TableRow>
                   <TableHead>Transfer #</TableHead>
@@ -278,11 +275,11 @@ export const InventoryTransfers: React.FC = () => {
                 {transfers.map((t) => (
                   <TableRow key={t.id} className="cursor-pointer" onClick={() => viewDetail(t)}>
                     <TableCell className="font-medium">{t.transferNumber}</TableCell>
-                    <TableCell>{locations.find(l => l.id === t.fromLocationId)?.name || t.fromLocationId}</TableCell>
-                    <TableCell>{locations.find(l => l.id === t.toLocationId)?.name || t.toLocationId}</TableCell>
+                    <TableCell>{t.fromLocation?.name || t.fromLocationId}</TableCell>
+                    <TableCell>{t.toLocation?.name || t.toLocationId}</TableCell>
                     <TableCell className="text-muted-foreground">{t.items?.length || 0}</TableCell>
                     <TableCell>
-                      <Badge className={statusColors[t.status] || ''}>{t.status.replace(/_/g, ' ')}</Badge>
+                      <Badge className={statusColors[t.status] || ''}>{formatEnumLabel(t.status)}</Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{new Date(t.createdAt).toLocaleDateString()}</TableCell>
                   </TableRow>
@@ -296,24 +293,19 @@ export const InventoryTransfers: React.FC = () => {
       </Card>
 
       {/* Create Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => { setShowCreateModal(false); resetCreateForm(); }} title="New Inventory Transfer">
+      <Modal isOpen={showCreateModal} onClose={() => { if (!saving) { setShowCreateModal(false); resetCreateForm(); } }} title="New Inventory Transfer" size="lg">
         <form onSubmit={handleCreate} className="space-y-4">
+          <fieldset disabled={saving} className="space-y-4">
+          <p className="text-sm text-muted-foreground">A draft does not reserve stock. Available quantities are checked again when you ship.</p>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">From Location *</label>
-              <select
-                value={fromLocationId}
-                onChange={(e) => setFromLocationId(e.target.value)}
-                required
-                className="w-full px-3 py-2 bg-background border border-input rounded-md text-foreground"
-              >
-                <option value="">Select...</option>
-                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
+              <Input value={source?.name || fromLocationId} readOnly aria-label="Source store" />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">To Location *</label>
-              <select
+              <Select
+                aria-label="Destination store"
                 value={toLocationId}
                 onChange={(e) => setToLocationId(e.target.value)}
                 required
@@ -321,38 +313,36 @@ export const InventoryTransfers: React.FC = () => {
               >
                 <option value="">Select...</option>
                 {locations.filter(l => l.id !== fromLocationId).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
+              </Select>
             </div>
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium">Items</label>
-              <button type="button" onClick={addItem} className="text-xs text-primary hover:underline">+ Add Item</button>
+              <button type="button" onClick={() => setShowProductPicker(current => !current)} className="text-xs text-primary hover:underline">+ Add Item</button>
             </div>
+            {showProductPicker && <ProductPicker locationId={fromLocationId} selectedIds={transferItems.map(item => item.productId)} onSelect={selectProduct} inStockOnly />}
             {transferItems.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-3 border border-dashed border-border rounded-lg">
-                No items added. Click "+ Add Item" above.
+              <p id="transfer-items-hint" className="text-sm text-muted-foreground text-center py-3 border border-dashed border-border rounded-lg">
+                Add at least one product to create a transfer.
               </p>
             )}
             {transferItems.map((item, i) => (
               <div key={i} className="flex gap-2 mb-2">
-                <select
-                  value={item.productId}
-                  onChange={(e) => updateItem(i, 'productId', e.target.value)}
-                  className="flex-1 px-3 py-2 bg-background border border-input rounded-md text-foreground text-sm"
-                >
-                  <option value="">Select product...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name} (Stock: {p.stockQuantity})</option>)}
-                </select>
+                <div className="min-w-0 flex-1"><p className="text-sm font-medium">{products.find(p => p.id === item.productId)?.name}</p><p className="text-xs text-muted-foreground">{products.find(p => p.id === item.productId)?.stockQuantity} available</p></div>
                 <Input
                   type="number"
                   min="1"
+                  step="1"
+                  aria-label={'Quantity for ' + products.find(p => p.id === item.productId)?.name}
+                  required
+                  max={products.find(p => p.id === item.productId)?.stockQuantity ?? 0}
                   value={item.quantity}
-                  onChange={(e) => updateItem(i, 'quantity', parseInt(e.target.value))}
+                  onChange={(e) => updateItem(i, 'quantity', Number(e.target.value))}
                   className="w-20"
                 />
-                <Button variant="ghost" size="sm" type="button" onClick={() => removeItem(i)} className="text-destructive hover:text-destructive">
+                <Button variant="ghost" size="sm" type="button" aria-label={'Remove ' + products.find(p => p.id === item.productId)?.name} onClick={() => removeItem(i)} className="text-destructive hover:text-destructive">
                   <XCircle className="w-4 h-4" />
                 </Button>
               </div>
@@ -370,20 +360,23 @@ export const InventoryTransfers: React.FC = () => {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" type="button" onClick={() => { setShowCreateModal(false); resetCreateForm(); }}>Cancel</Button>
-            <Button variant="primary" type="submit">Create Transfer</Button>
+            <Button variant="outline" type="button" disabled={saving} onClick={() => { setShowCreateModal(false); resetCreateForm(); }}>Cancel</Button>
+            <Button variant="primary" type="submit" aria-describedby={!transferItems.length ? 'transfer-items-hint' : undefined} disabled={saving || !locations.length || !transferItems.length}>{saving ? 'Creating...' : 'Create Transfer'}</Button>
           </div>
+          </fieldset>
         </form>
       </Modal>
 
       {/* Detail Modal */}
-      <Modal isOpen={showDetailModal} onClose={() => { setShowDetailModal(false); setSelectedTransfer(null); }} title={`Transfer ${selectedTransfer?.transferNumber || ''}`}>
+      <Modal isOpen={showDetailModal} onClose={() => { setRecordId(''); setSelectedTransfer(null); }} title="Transfer details" size="lg">
+        {!selectedTransfer && (detailError ? <div role="alert"><p>{detailError}</p><Button variant="outline" onClick={() => setDetailRefresh(value => value + 1)}>Retry</Button></div> : <p role="status">Loading details...</p>)}
         {selectedTransfer && (
           <div className="space-y-4">
+            <p className="text-sm font-mono break-all">{selectedTransfer.transferNumber}</p>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">Status</p>
-                <Badge className={statusColors[selectedTransfer.status] || ''}>{selectedTransfer.status.replace(/_/g, ' ')}</Badge>
+                <Badge className={statusColors[selectedTransfer.status] || ''}>{formatEnumLabel(selectedTransfer.status)}</Badge>
               </div>
               <div>
                 <p className="text-muted-foreground">Created</p>
@@ -391,11 +384,11 @@ export const InventoryTransfers: React.FC = () => {
               </div>
               <div>
                 <p className="text-muted-foreground">From</p>
-                <p>{locations.find(l => l.id === selectedTransfer.fromLocationId)?.name || selectedTransfer.fromLocationId}</p>
+                <p>{selectedTransfer.fromLocation?.name || selectedTransfer.fromLocationId}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">To</p>
-                <p>{locations.find(l => l.id === selectedTransfer.toLocationId)?.name || selectedTransfer.toLocationId}</p>
+                <p>{selectedTransfer.toLocation?.name || selectedTransfer.toLocationId}</p>
               </div>
             </div>
 
@@ -406,25 +399,23 @@ export const InventoryTransfers: React.FC = () => {
             <div>
               <h4 className="text-sm font-medium mb-2">Items ({selectedTransfer.items.length})</h4>
               <div className="space-y-1">
-                {selectedTransfer.items.map((item) => (
-                  <div key={item.id} className="flex justify-between text-sm p-2 bg-muted/50 rounded">
-                    <div>
-                      <span className="font-medium">{item.product?.name || item.productId}</span>
-                      {item.product?.sku && (
-                        <span className="text-xs text-muted-foreground ml-2">{item.product.sku}</span>
-                      )}
-                    </div>
-                    <span className="text-muted-foreground">
-                      Qty: {item.quantity}
-                      {item.receivedQty !== null && ` / Received: ${item.receivedQty}`}
-                    </span>
-                  </div>
-                ))}
+                {selectedTransfer.items.map(item => <div key={item.id} className="rounded border p-3 text-sm space-y-2">
+                  <div className="flex justify-between gap-3"><div><p className="font-medium">{transferProductName(item)}</p><p className="text-xs text-muted-foreground">{item.productSnapshot?.sku || item.product?.sku}</p></div><span className="tabular-nums">{item.quantity} {selectedTransfer.shippedAt ? 'shipped' : 'planned'}</span></div>
+                  {selectedTransfer.status === 'PENDING' ? <p className="text-xs text-muted-foreground">Draft quantity; stock is not reserved.</p> : <div className="grid grid-cols-2 gap-2 text-xs tabular-nums">
+                    <p>{item.receivedQty} accepted at destination</p><p>{outstandingTransfer(item)} unresolved at destination</p>
+                    {item.damagedQty > 0 && <p>{item.damagedQty} damaged at destination</p>}{item.missingQty > 0 && <p>{item.missingQty} missing at destination</p>}
+                    {item.sentBackQty > 0 && <><p>{returningTransfer(item)} returning to source</p><p>{item.returnedQty} restored at source</p></>}
+                    {item.returnDamagedQty > 0 && <p>{item.returnDamagedQty} returned damaged</p>}{item.returnMissingQty > 0 && <p>{item.returnMissingQty} missing on return</p>}
+                  </div>}
+                  {item.destinationProduct && <p className="text-xs text-muted-foreground">Destination product: {item.destinationProduct.name} ({item.destinationProduct.sku})</p>}
+                </div>)}
+
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
-              {selectedTransfer.status === 'PENDING' && canManage && (
+            <TransferHistory key={selectedTransfer.id} transfer={selectedTransfer} />
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              {selectedTransfer.status === 'PENDING' && canManage && fromLocationId === selectedTransfer.fromLocationId && (
                 <>
                   <Button
                     variant="destructive"
@@ -453,39 +444,20 @@ export const InventoryTransfers: React.FC = () => {
                   </Button>
                 </>
               )}
-              {selectedTransfer.status === 'IN_TRANSIT' && canManage && (
-                <>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => setConfirmState({
-                      title: 'Cancel transfer?',
-                      message: 'Shipped stock will be restored to the source location.',
-                      destructive: true,
-                      confirmLabel: 'Cancel Transfer',
-                      action: () => handleCancel(selectedTransfer.id),
-                    })}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => setConfirmState({
-                      title: 'Receive transfer?',
-                      message: 'Stock will be added to the destination location.',
-                      confirmLabel: 'Receive',
-                      action: () => handleReceive(selectedTransfer.id),
-                    })}
-                  >
-                    <CheckCircle className="w-4 h-4 mr-1" /> Receive
-                  </Button>
-                </>
-              )}
+              {canManage && fromLocationId === selectedTransfer.fromLocationId && <>
+                {((['IN_TRANSIT', 'PARTIALLY_RECEIVED'].includes(selectedTransfer.status) && selectedTransfer.items.some(item => outstandingTransfer(item) > 0)) || pendingTransferReceipt(transferRetryKey(selectedTransfer, user?.id, 'REQUEST_RETURN'))) && <Button variant="outline" onClick={() => setReceiptKind('REQUEST_RETURN')}>Request return</Button>}
+                {(selectedTransfer.items.some(item => returningTransfer(item) > 0) || pendingTransferReceipt(transferRetryKey(selectedTransfer, user?.id, 'SOURCE_RETURN'))) && <Button onClick={() => setReceiptKind('SOURCE_RETURN')}>Record returned goods</Button>}
+              </>}
+              {canManage && fromLocationId === selectedTransfer.toLocationId && ((['IN_TRANSIT', 'PARTIALLY_RECEIVED'].includes(selectedTransfer.status) && selectedTransfer.items.some(item => outstandingTransfer(item) > 0)) || pendingTransferReceipt(transferRetryKey(selectedTransfer, user?.id, 'RECEIVE'))) && <Button onClick={() => setReceiptKind('RECEIVE')}>Receive or resolve delivery</Button>}
+
             </div>
           </div>
         )}
       </Modal>
+
+      {receiptKind && selectedTransfer && <TransferReceiptModal key={selectedTransfer.id + receiptKind} transfer={selectedTransfer} kind={receiptKind} onClose={() => setReceiptKind(null)} onSaved={() => {
+        setReceiptKind(null); fetchTransfers(); viewDetail(selectedTransfer); toast.success('Transfer updated');
+      }} />}
 
       <ConfirmDialog
         isOpen={confirmState !== null}
@@ -496,6 +468,6 @@ export const InventoryTransfers: React.FC = () => {
         destructive={confirmState?.destructive}
         confirmLabel={confirmState?.confirmLabel}
       />
-    </div>
+    </ManagementPage>
   );
 };

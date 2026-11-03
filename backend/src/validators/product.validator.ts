@@ -10,6 +10,7 @@ export const createProductSchema = z.object({
     price: z.number().gt(0, 'Price must be greater than 0'),
     compareAtPrice: z.number().min(0).optional(),
     trackInventory: z.boolean().optional(),
+    isActive: z.boolean().optional(),
     stockQuantity: z.number().int().min(0).optional(),
     lowStockAlert: z.number().int().min(0).optional(),
     barcode: z.string().optional(),
@@ -25,6 +26,7 @@ export const createProductSchema = z.object({
 
 export const updateProductSchema = z.object({
   body: z.object({
+    expectedStockVersion: z.number().int().min(0).optional(),
     sku: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     description: z.string().optional(),

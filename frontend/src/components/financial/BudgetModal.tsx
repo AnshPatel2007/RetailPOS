@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { today } from '@internationalized/date';
+import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
+import { formatEnumLabel } from '@/lib/utils';
+import { Select } from '@/components/ui/Select';
+import React, { useState, useEffect, useId } from 'react';
 import { financialService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 import toast from 'react-hot-toast';
 
 interface Budget {
@@ -50,11 +53,13 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   onSuccess,
   budget,
 }) => {
+  const timezone = useCalendarTimezone();
+  const formId = useId();
   const [formData, setFormData] = useState({
     category: '',
     period: 'MONTHLY',
     amount: '',
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: today(timezone).toString(),
     endDate: '',
   });
 
@@ -67,7 +72,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
         category: budget.category,
         period: budget.period,
         amount: budget.amount.toString(),
-        startDate: budget.startDate ? budget.startDate.split('T')[0] : new Date().toISOString().split('T')[0],
+        startDate: budget.startDate ? budget.startDate.split('T')[0] : today(timezone).toString(),
         endDate: budget.endDate ? budget.endDate.split('T')[0] : '',
       });
     } else {
@@ -75,7 +80,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
         category: '',
         period: 'MONTHLY',
         amount: '',
-        startDate: new Date().toISOString().split('T')[0],
+        startDate: today(timezone).toString(),
         endDate: '',
       });
     }
@@ -121,19 +126,16 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>{budget ? 'Edit Budget' : 'Create Budget'}</CardTitle>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting) onClose(); }} title={budget ? 'Edit Budget' : 'Create Budget'} size="sm" footer={<div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="submit" form={formId} disabled={isSubmitting}>
+                {isSubmitting ? 'Saving...' : budget ? 'Update Budget' : 'Create Budget'}
+              </Button>
+            </div>}>
+      <div className="space-y-4">
+          <form id={formId} onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
                 {error}
@@ -145,7 +147,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
               <label className="block text-sm font-medium mb-1">
                 Category <span className="text-destructive">*</span>
               </label>
-              <select
+              <Select
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -154,10 +156,10 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
                 <option value="">Select category</option>
                 {EXPENSE_CATEGORIES.map((cat) => (
                   <option key={cat} value={cat}>
-                    {cat.replace(/_/g, ' ')}
+                    {formatEnumLabel(cat)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
 
             {/* Period */}
@@ -165,7 +167,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
               <label className="block text-sm font-medium mb-1">
                 Budget Period <span className="text-destructive">*</span>
               </label>
-              <select
+              <Select
                 value={formData.period}
                 onChange={(e) => setFormData({ ...formData, period: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -176,7 +178,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
                     {period.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
 
             {/* Amount */}
@@ -214,18 +216,8 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Saving...' : budget ? 'Update Budget' : 'Create Budget'}
-              </Button>
-            </div>
           </form>
-        </CardContent>
-      </Card>
-    </div>
+              </div>
+    </Modal>
   );
 };

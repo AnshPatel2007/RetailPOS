@@ -8,12 +8,13 @@ import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
-import { logger } from '../utils/logger';
-import { sendEmail } from '../utils/email';
+import { fundAccount, lockAccountCustomer, operationReceipt } from '../services/accountFunding.service';
+import { cashAmount } from '../services/drawer.service';
+import { queueEmail, emailContentKey, EmailPayload } from '../services/queuedEmail.service';
 import { config } from '../config';
-import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
+import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter } from '../utils/locationFilter.util';
 
-const rc = (n: number) => Math.round(n * 100) / 100;
+
 
 /**
  * List house accounts
@@ -64,39 +65,16 @@ export const getHouseAccounts = asyncHandler(async (req: AuthRequest, res: Respo
  */
 export const createHouseAccount = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { customerId, creditLimit } = req.body;
-
-  const limit = rc(parseFloat(creditLimit));
-  if (!customerId) throw new AppError('Customer is required', 400);
-  if (!Number.isFinite(limit) || limit <= 0) {
-    throw new AppError('Credit limit must be greater than 0', 400);
-  }
-
-  const customer = await prisma.customer.findUnique({ where: { id: customerId } });
-  if (!customer) throw new AppError('Customer not found', 404);
-
-  const existing = await prisma.houseAccount.findUnique({ where: { customerId } });
-  if (existing) throw new AppError('This customer already has a house account', 400);
-
-  // Non-SUPER_ADMIN is always forced to their own store
-  const locationId = isSuperAdmin(req) ? (req.body.locationId ?? null) : (req.user!.locationId ?? null);
-
-  const account = await prisma.houseAccount.create({
-    data: { customerId, creditLimit: limit, locationId },
-    include: { customer: { select: { firstName: true, lastName: true } } },
+  if (typeof customerId !== 'string' || !customerId) throw new AppError('Customer is required', 400);
+  const limit = cashAmount(creditLimit, 'Credit limit');
+  if (limit <= 0) throw new AppError('Credit limit must be greater than 0', 400);
+  const account = await prisma.$transaction(async tx => {
+    await lockAccountCustomer(tx, req, customerId);
+    if (await tx.houseAccount.findUnique({ where: { customerId } })) throw new AppError('This customer already has a house account', 400);
+    const created = await tx.houseAccount.create({ data: { customerId, creditLimit: limit, locationId: req.user!.locationId }, include: { customer: { select: { firstName: true, lastName: true } } } });
+    await tx.activityLog.create({ data: { userId: req.user!.id, locationId: created.locationId, action: 'CREATE', entity: 'HOUSE_ACCOUNT', entityId: created.id, details: { creditLimit: limit } } });
+    return created;
   });
-
-  await prisma.activityLog.create({
-    data: {
-      userId: req.user!.id,
-      action: 'CREATE',
-      entity: 'HOUSE_ACCOUNT',
-      entityId: account.id,
-      details: { customer: `${account.customer.firstName} ${account.customer.lastName}`, creditLimit: limit },
-      locationId,
-    },
-  });
-
-  logger.info(`House account opened for ${account.customer.firstName} ${account.customer.lastName} ($${limit} limit)`);
   res.status(201).json({ success: true, data: account, message: 'House account opened' });
 });
 
@@ -106,25 +84,18 @@ export const createHouseAccount = asyncHandler(async (req: AuthRequest, res: Res
  */
 export const updateHouseAccount = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { creditLimit, isActive } = req.body;
-
-  const existing = await prisma.houseAccount.findUnique({ where: { id: req.params.id } });
-  if (!existing) throw new AppError('House account not found', 404);
-  assertOwnsRecord(req, existing.locationId);
-
-  const data: any = {};
-  if (creditLimit !== undefined) {
-    const limit = rc(parseFloat(creditLimit));
-    if (!Number.isFinite(limit) || limit < 0) throw new AppError('Invalid credit limit', 400);
-    data.creditLimit = limit;
-  }
-  if (isActive !== undefined) data.isActive = Boolean(isActive);
-
-  const account = await prisma.houseAccount.update({
-    where: { id: req.params.id },
-    data,
-    include: { customer: { select: { firstName: true, lastName: true } } },
+  if (isActive !== undefined && typeof isActive !== 'boolean') throw new AppError('Active state must be true or false', 400);
+  const limit = creditLimit === undefined ? undefined : cashAmount(creditLimit, 'Credit limit');
+  const account = await prisma.$transaction(async tx => {
+    const existing = await tx.houseAccount.findUnique({ where: { id: req.params.id } });
+    if (!existing) throw new AppError('House account not found', 404);
+    assertOwnsRecord(req, existing.locationId);
+    await lockAccountCustomer(tx, req, existing.customerId, false);
+    await tx.$queryRaw`SELECT id FROM house_accounts WHERE id = ${existing.id} FOR UPDATE`;
+    const updated = await tx.houseAccount.update({ where: { id: existing.id }, data: { creditLimit: limit, isActive }, include: { customer: { select: { firstName: true, lastName: true } } } });
+    await tx.activityLog.create({ data: { userId: req.user!.id, locationId: existing.locationId, action: 'UPDATE', entity: 'HOUSE_ACCOUNT', entityId: existing.id, details: { creditLimit: updated.creditLimit, isActive: updated.isActive } } });
+    return updated;
   });
-
   res.json({ success: true, data: account, message: 'House account updated' });
 });
 
@@ -133,44 +104,8 @@ export const updateHouseAccount = asyncHandler(async (req: AuthRequest, res: Res
  * POST /api/house-accounts/:id/payment  { amount, notes? }
  */
 export const recordHousePayment = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { amount, notes } = req.body;
-  const value = rc(parseFloat(amount));
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new AppError('Payment amount must be greater than 0', 400);
-  }
-
-  // Fresh read + rounded write inside one transaction so a concurrent register
-  // charge can't be clobbered and the balance never accumulates float drift
-  const updated = await prisma.$transaction(async (tx) => {
-    const account = await tx.houseAccount.findUnique({ where: { id: req.params.id } });
-    if (!account) throw new AppError('House account not found', 404);
-    assertOwnsRecord(req, account.locationId);
-
-    return tx.houseAccount.update({
-      where: { id: account.id },
-      data: {
-        balance: rc(account.balance - value),
-        transactions: {
-          create: {
-            type: 'PAYMENT',
-            amount: value,
-            balanceBefore: account.balance,
-            balanceAfter: rc(account.balance - value),
-            notes: notes || null,
-            userId: req.user!.id,
-          },
-        },
-      },
-      include: { customer: { select: { firstName: true, lastName: true } } },
-    });
-  });
-
-  logger.info(`House account payment: $${value} from ${updated.customer.firstName} ${updated.customer.lastName}`);
-  res.json({
-    success: true,
-    data: updated,
-    message: `Payment of $${value.toFixed(2)} recorded — balance is now $${updated.balance.toFixed(2)}`,
-  });
+  const result = await prisma.$transaction(tx => fundAccount(req, tx, 'HOUSE_PAYMENT'));
+  res.json({ success: true, ...result, message: result.replayed ? 'Saved payment confirmed' : 'Account payment recorded' });
 });
 
 /**
@@ -184,11 +119,12 @@ export const getHouseTransactions = asyncHandler(async (req: AuthRequest, res: R
 
   const transactions = await prisma.houseAccountTransaction.findMany({
     where: { accountId: account.id },
+    include: { operation: true },
     orderBy: { createdAt: 'desc' },
     take: 100,
   });
 
-  res.json({ success: true, data: transactions });
+  res.json({ success: true, data: transactions.map(t => ({ ...t, operation: t.operation ? operationReceipt(t.operation) : null })) });
 });
 
 /**
@@ -227,7 +163,7 @@ export const emailHouseStatement = asyncHandler(async (req: AuthRequest, res: Re
     .join('');
 
   const storeName = config.app.name || 'Your local store';
-  await sendEmail({
+  const payload: EmailPayload = { type: 'STATEMENT', accountId: account.id,
     to: account.customer.email,
     subject: `Your account statement — balance $${account.balance.toFixed(2)}`,
     html: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#333;background:#f1f1f4;margin:0;padding:0;">
@@ -251,8 +187,9 @@ export const emailHouseStatement = asyncHandler(async (req: AuthRequest, res: Re
         </div>
       </div>
     </body></html>`,
-  });
+  };
 
-  logger.info(`Statement emailed to ${account.customer.email}`);
-  res.json({ success: true, message: `Statement emailed to ${account.customer.email}` });
+  const job = await prisma.$transaction(tx => queueEmail(tx, account.locationId!, req.user!.id,
+    'statement:' + req.user!.id + ':' + account.id + ':' + emailContentKey(payload), payload));
+  res.json({ success: true, data: job, message: 'Statement queued. Review delivery history for the result.' });
 });

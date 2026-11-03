@@ -1,4 +1,10 @@
+import { employeeActivity } from '../services/employeeActivity.service';
+import { inventoryPredictions, salesAnomalies, abcAnalysis } from '../services/inventoryAnalytics.service';
+import { getSalesForecastData } from '../services/salesForecast.service';
 import { Response } from 'express';
+import { getFinancialMetrics, getProductFinancialMetrics } from '../services/financialMetrics.service';
+import { getReportCalendar } from '../services/reportDates.service';
+import { z } from 'zod';
 import { asyncHandler } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
@@ -13,77 +19,25 @@ const rc = (n: number) => Math.round(n * 100) / 100;
  */
 export const getComparisonAnalytics = asyncHandler(async (req: AuthRequest, res: Response) => {
   const locationFilter = getLocationFilter(req, req.query.locationId as string);
-  const now = new Date();
+  const calendar = await getReportCalendar(locationFilter);
+  const now = calendar.now;
+  const todayStart = calendar.day();
+  const weekStart = calendar.day(-calendar.weekday);
+  const monthStart = calendar.monthStart();
+  const yearStart = calendar.yearStart();
+  const prevDayStart = calendar.day(-1);
+  const prevWeekStart = calendar.day(-calendar.weekday - 7);
+  const prevMonthStart = calendar.monthStart(-1);
+  const prevYearStart = calendar.yearStart(-1);
+  const prevYearEnd = yearStart;
+  const lastYearSameDayStart = calendar.midnight(calendar.year - 1, calendar.month, calendar.dayOfMonth);
+  const lastYearSameWeekStart = calendar.midnight(calendar.year - 1, calendar.month, calendar.dayOfMonth - calendar.weekday);
+  const lastYearSameMonthStart = calendar.midnight(calendar.year - 1, calendar.month, 1);
 
-  // Current periods
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const weekStart = new Date(todayStart);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const yearStart = new Date(now.getFullYear(), 0, 1);
-
-  // Previous periods
-  const prevDayStart = new Date(todayStart);
-  prevDayStart.setDate(prevDayStart.getDate() - 1);
-  const prevWeekStart = new Date(weekStart);
-  prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-  const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const prevYearStart = new Date(now.getFullYear() - 1, 0, 1);
-  const prevYearEnd = new Date(now.getFullYear() - 1, 11, 31);
-
-  // Same period last year
-  const lastYearSameDayStart = new Date(todayStart);
-  lastYearSameDayStart.setFullYear(lastYearSameDayStart.getFullYear() - 1);
-  const lastYearSameWeekStart = new Date(weekStart);
-  lastYearSameWeekStart.setFullYear(lastYearSameWeekStart.getFullYear() - 1);
-  const lastYearSameMonthStart = new Date(monthStart);
-  lastYearSameMonthStart.setFullYear(lastYearSameMonthStart.getFullYear() - 1);
-
-  // Helper function to get sales for a period. Revenue counts sales when
-  // they happened (COMPLETED + later fully REFUNDED) minus refunds issued in
-  // the period (Refund table covers partial refunds too). Profit uses the
-  // sold line totals, not the current product price.
   const getSalesForPeriod = async (start: Date, end: Date) => {
-    const saleWhere = {
-      createdAt: { gte: start, lt: end },
-      status: { in: ['COMPLETED', 'REFUNDED'] as any },
-      ...locationFilter,
-    };
-
-    const [sales, refunds, items] = await Promise.all([
-      prisma.sale.aggregate({
-        where: saleWhere,
-        _sum: { total: true },
-        _count: { id: true },
-      }),
-      prisma.refund.aggregate({
-        where: {
-          createdAt: { gte: start, lt: end },
-          ...(locationFilter.locationId ? { sale: { locationId: locationFilter.locationId } } : {}),
-        },
-        _sum: { amount: true },
-      }),
-      prisma.saleItem.findMany({
-        where: { sale: saleWhere },
-        select: {
-          quantity: true,
-          total: true,
-          tax: true,
-          product: { select: { cost: true } },
-        },
-      }),
-    ]);
-
-    const profit = items.reduce(
-      (sum, item) => sum + (item.total - item.tax) - (item.product?.cost || 0) * item.quantity,
-      0
-    );
-
-    return {
-      revenue: rc((sales._sum.total || 0) - (refunds._sum.amount || 0)),
-      profit: rc(profit),
-      transactions: sales._count.id || 0,
-    };
+    const metrics = await getFinancialMetrics(locationFilter, { gte: start, lt: end });
+    return { revenue: metrics.netCollected, netSales: metrics.netSales, profit: metrics.grossProfit,
+      transactions: metrics.transactions, costBasis: metrics.costBasis, unavailableReason: metrics.unavailableReason };
   };
 
   // Get all period data in parallel
@@ -95,13 +49,13 @@ export const getComparisonAnalytics = asyncHandler(async (req: AuthRequest, res:
   ] = await Promise.all([
     getSalesForPeriod(todayStart, now),
     getSalesForPeriod(prevDayStart, todayStart),
-    getSalesForPeriod(lastYearSameDayStart, new Date(lastYearSameDayStart.getTime() + 86400000)),
+    getSalesForPeriod(lastYearSameDayStart, calendar.midnight(calendar.year - 1, calendar.month, calendar.dayOfMonth + 1)),
     getSalesForPeriod(weekStart, now),
     getSalesForPeriod(prevWeekStart, weekStart),
-    getSalesForPeriod(lastYearSameWeekStart, new Date(lastYearSameWeekStart.getTime() + 7 * 86400000)),
+    getSalesForPeriod(lastYearSameWeekStart, calendar.midnight(calendar.year - 1, calendar.month, calendar.dayOfMonth - calendar.weekday + 7)),
     getSalesForPeriod(monthStart, now),
     getSalesForPeriod(prevMonthStart, monthStart),
-    getSalesForPeriod(lastYearSameMonthStart, new Date(lastYearSameMonthStart.getFullYear(), lastYearSameMonthStart.getMonth() + 1, 1)),
+    getSalesForPeriod(lastYearSameMonthStart, calendar.midnight(calendar.year - 1, calendar.month + 1, 1)),
     getSalesForPeriod(yearStart, now),
     getSalesForPeriod(prevYearStart, prevYearEnd),
   ]);
@@ -149,203 +103,37 @@ export const getComparisonAnalytics = asyncHandler(async (req: AuthRequest, res:
  * Get ABC inventory analysis
  * GET /api/analytics/abc-analysis
  */
-export const getABCAnalysis = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { days = '90' } = req.query;
-  const daysNum = parseInt(days as string);
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - daysNum);
-  const locationFilter = getLocationFilter(req, req.query.locationId as string);
-
-  // Get product sales data
-  const productSales = await prisma.saleItem.groupBy({
-    by: ['productId'],
-    where: {
-      sale: {
-        createdAt: { gte: startDate },
-        status: 'COMPLETED',
-        ...locationFilter,
-      },
-    },
-    _sum: {
-      total: true,
-      quantity: true,
-    },
-    _count: { id: true },
-  });
-
-  // Get product details
-  const products = await prisma.product.findMany({
-    where: {
-      id: { in: productSales.map(ps => ps.productId) },
-      ...locationFilter,
-    },
-    select: {
-      id: true,
-      name: true,
-      sku: true,
-      stockQuantity: true,
-      cost: true,
-      price: true,
-      category: { select: { name: true } },
-    },
-  });
-
-  // Calculate metrics and sort by revenue
-  const productMetrics = productSales.map(ps => {
-    const product = products.find(p => p.id === ps.productId);
-    const revenue = ps._sum.total || 0;
-    const quantity = ps._sum.quantity || 0;
-    const inventoryValue = rc((product?.stockQuantity || 0) * (product?.cost || 0));
-
-    return {
-      id: ps.productId,
-      name: product?.name || 'Unknown',
-      sku: product?.sku || '',
-      category: product?.category?.name || 'Uncategorized',
-      revenue: rc(revenue),
-      quantity,
-      transactions: ps._count.id || 0,
-      stockQuantity: product?.stockQuantity || 0,
-      inventoryValue,
-      turnoverRate: inventoryValue > 0 ? rc(revenue / inventoryValue) : 0,
-    };
-  }).sort((a, b) => b.revenue - a.revenue);
-
-  // Calculate cumulative percentages
-  const totalRevenue = productMetrics.reduce((sum, p) => sum + p.revenue, 0);
-  let cumulativeRevenue = 0;
-
-  const analyzedProducts = productMetrics.map(product => {
-    cumulativeRevenue += product.revenue;
-    const cumulativePercentage = totalRevenue > 0 ? (cumulativeRevenue / totalRevenue) * 100 : 0;
-
-    let classification: 'A' | 'B' | 'C';
-    if (cumulativePercentage <= 80) {
-      classification = 'A';
-    } else if (cumulativePercentage <= 95) {
-      classification = 'B';
-    } else {
-      classification = 'C';
-    }
-
-    return {
-      ...product,
-      revenuePercentage: totalRevenue > 0 ? rc((product.revenue / totalRevenue) * 100) : 0,
-      cumulativePercentage,
-      classification,
-    };
-  });
-
-  // Summary statistics
-  const classA = analyzedProducts.filter(p => p.classification === 'A');
-  const classB = analyzedProducts.filter(p => p.classification === 'B');
-  const classC = analyzedProducts.filter(p => p.classification === 'C');
-
-  res.json({
-    success: true,
-    data: {
-      products: analyzedProducts,
-      summary: {
-        totalProducts: analyzedProducts.length,
-        totalRevenue,
-        classA: {
-          count: classA.length,
-          percentage: analyzedProducts.length > 0 ? rc((classA.length / analyzedProducts.length) * 100) : 0,
-          revenue: rc(classA.reduce((sum, p) => sum + p.revenue, 0)),
-          revenuePercentage: totalRevenue > 0 ? rc((classA.reduce((sum, p) => sum + p.revenue, 0) / totalRevenue) * 100) : 0,
-        },
-        classB: {
-          count: classB.length,
-          percentage: analyzedProducts.length > 0 ? rc((classB.length / analyzedProducts.length) * 100) : 0,
-          revenue: rc(classB.reduce((sum, p) => sum + p.revenue, 0)),
-          revenuePercentage: totalRevenue > 0 ? rc((classB.reduce((sum, p) => sum + p.revenue, 0) / totalRevenue) * 100) : 0,
-        },
-        classC: {
-          count: classC.length,
-          percentage: analyzedProducts.length > 0 ? rc((classC.length / analyzedProducts.length) * 100) : 0,
-          revenue: rc(classC.reduce((sum, p) => sum + p.revenue, 0)),
-          revenuePercentage: totalRevenue > 0 ? rc((classC.reduce((sum, p) => sum + p.revenue, 0) / totalRevenue) * 100) : 0,
-        },
-      },
-      period: {
-        days: daysNum,
-        startDate: startDate.toISOString(),
-        endDate: new Date().toISOString(),
-      },
-    },
-  });
-});
+export const getABCAnalysis = asyncHandler(async (req: AuthRequest, res: Response) => res.json({ success: true, data: await abcAnalysis(getLocationFilter(req, req.query.locationId as string), req.query.days || 90, new Date(), req.query.page || 1) }));
 
 /**
  * Get product performance matrix
  * GET /api/analytics/product-matrix
  */
 export const getProductPerformanceMatrix = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { days = '30' } = req.query;
-  const daysNum = parseInt(days as string);
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - daysNum);
+  const daysNum = z.coerce.number().int().min(1).max(366).parse(req.query.days ?? 30);
   const locationFilter = getLocationFilter(req, req.query.locationId as string);
-
-  // Get sales data by product
-  const salesData = await prisma.saleItem.groupBy({
-    by: ['productId'],
-    where: {
-      sale: {
-        createdAt: { gte: startDate },
-        status: 'COMPLETED',
-        ...locationFilter,
-      },
-    },
-    _sum: {
-      quantity: true,
-      total: true,
-      tax: true,
-    },
-  });
-
-  // Get product details
-  const productIds = salesData.map(s => s.productId);
-  const products = await prisma.product.findMany({
-    where: { id: { in: productIds }, ...locationFilter },
-    include: { category: { select: { name: true } } },
-  });
-
-  // Calculate metrics
-  const productMetrics = salesData.map(sale => {
-    const product = products.find(p => p.id === sale.productId);
-    const revenue = sale._sum.total || 0;
-    const quantity = sale._sum.quantity || 0;
-    // Profit from what was actually charged (discounted, pre-tax), not the current list price
-    const profit = product ? rc((revenue - (sale._sum.tax || 0)) - quantity * product.cost) : 0;
-    const margin = revenue > 0 ? rc((profit / revenue) * 100) : 0;
-    const velocity = rc(quantity / daysNum);
-
-    return {
-      id: sale.productId,
-      name: product?.name || 'Unknown',
-      sku: product?.sku || '',
-      category: product?.category?.name || 'Uncategorized',
-      revenue: rc(revenue),
-      profit,
-      quantity,
-      margin,
-      velocity,
-      cost: product?.cost || 0,
-      price: product?.price || 0,
-      stock: product?.stockQuantity || 0,
-    };
+  const calendar = await getReportCalendar(locationFilter);
+  const startDate = calendar.day(1 - daysNum);
+  const metrics = await getProductFinancialMetrics(locationFilter, { gte: startDate, lte: calendar.now });
+  const products = await prisma.product.findMany({ where: { id: { in: metrics.map(row => row.productId) }, ...locationFilter }, include: { category: { select: { name: true } } } });
+  const byId = new Map(products.map(product => [product.id, product]));
+  const productMetrics = metrics.map(row => {
+    const product = byId.get(row.productId);
+    return { ...row, id: row.productId, name: row.productName, quantity: row.quantitySold,
+      category: product?.category?.name || 'Uncategorized', velocity: rc(row.quantitySold / daysNum),
+      cost: Number(product?.cost || 0), price: Number(product?.price || 0), stock: product?.stockQuantity || 0 };
   });
 
   // Calculate quartiles for velocity and margin
   const velocities = productMetrics.map(p => p.velocity).sort((a, b) => a - b);
-  const margins = productMetrics.map(p => p.margin).sort((a, b) => a - b);
+  const margins = productMetrics.map(p => p.margin).filter((m): m is number => m !== null).sort((a, b) => a - b);
 
   const medianVelocity = velocities[Math.floor(velocities.length / 2)] || 0;
   const medianMargin = margins[Math.floor(margins.length / 2)] || 0;
 
   // Classify products into quadrants
   const matrixProducts = productMetrics.map(product => {
+    if (product.margin === null) return { ...product, quadrant: 'unavailable' as const };
     let quadrant: 'star' | 'cash_cow' | 'question_mark' | 'dog';
 
     if (product.velocity >= medianVelocity && product.margin >= medianMargin) {
@@ -371,6 +159,7 @@ export const getProductPerformanceMatrix = asyncHandler(async (req: AuthRequest,
     success: true,
     data: {
       products: matrixProducts,
+      unavailableCount: matrixProducts.filter(p => p.quadrant === 'unavailable').length,
       quadrants: {
         star: {
           label: 'Stars',
@@ -404,7 +193,8 @@ export const getProductPerformanceMatrix = asyncHandler(async (req: AuthRequest,
       period: {
         days: daysNum,
         startDate: startDate.toISOString(),
-        endDate: new Date().toISOString(),
+        endDate: calendar.now.toISOString(),
+        timezone: calendar.timezone,
       },
     },
   });
@@ -415,153 +205,8 @@ export const getProductPerformanceMatrix = asyncHandler(async (req: AuthRequest,
  * GET /api/analytics/forecast
  */
 export const getSalesForecast = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { forecastDays = '30' } = req.query;
-  const forecastDaysNum = parseInt(forecastDays as string);
-  const locationFilter = getLocationFilter(req, req.query.locationId as string);
-
-  // Get historical daily sales for the past 90 days
-  const historicalDays = 90;
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - historicalDays);
-
-  // Get daily sales using findMany and manual grouping
-  const sales = await prisma.sale.findMany({
-    where: {
-      createdAt: { gte: startDate },
-      status: 'COMPLETED',
-      ...locationFilter,
-    },
-    select: {
-      createdAt: true,
-      total: true,
-    },
-  });
-
-  // Group by date
-  const dailyMap = new Map<string, { revenue: number; transactions: number }>();
-  sales.forEach(sale => {
-    const dateKey = sale.createdAt.toISOString().split('T')[0];
-    const existing = dailyMap.get(dateKey) || { revenue: 0, transactions: 0 };
-    dailyMap.set(dateKey, {
-      revenue: existing.revenue + sale.total,
-      transactions: existing.transactions + 1,
-    });
-  });
-
-  const dailySales = Array.from(dailyMap.entries())
-    .map(([date, data]) => ({ date, ...data }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  // Calculate trends
-  const revenueValues = dailySales.map(d => d.revenue);
-  const transactionValues = dailySales.map(d => d.transactions);
-
-  // Simple linear regression for trend
-  const calculateTrend = (values: number[]) => {
-    const n = values.length;
-    if (n < 2) return { slope: 0, intercept: 0 };
-
-    const sumX = (n * (n - 1)) / 2;
-    const sumY = values.reduce((a, b) => a + b, 0);
-    const sumXY = values.reduce((sum, val, i) => sum + i * val, 0);
-    const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6;
-
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-    const intercept = (sumY - slope * sumX) / n;
-
-    return { slope: isNaN(slope) ? 0 : slope, intercept: isNaN(intercept) ? 0 : intercept };
-  };
-
-  const revenueTrend = calculateTrend(revenueValues);
-  const transactionTrend = calculateTrend(transactionValues);
-
-  // Calculate day-of-week patterns
-  const dayOfWeekPatterns: { [key: number]: number[] } = {
-    0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: []
-  };
-
-  dailySales.forEach(day => {
-    const dayOfWeek = new Date(day.date).getDay();
-    dayOfWeekPatterns[dayOfWeek].push(day.revenue);
-  });
-
-  const dayOfWeekMultipliers: { [key: number]: number } = {};
-  const avgRevenue = revenueValues.length > 0
-    ? revenueValues.reduce((a, b) => a + b, 0) / revenueValues.length
-    : 1;
-
-  for (let i = 0; i < 7; i++) {
-    const dayAvg = dayOfWeekPatterns[i].length > 0
-      ? dayOfWeekPatterns[i].reduce((a, b) => a + b, 0) / dayOfWeekPatterns[i].length
-      : avgRevenue;
-    dayOfWeekMultipliers[i] = avgRevenue > 0 ? dayAvg / avgRevenue : 1;
-  }
-
-  // Generate forecast
-  const forecast = [];
-  const n = revenueValues.length;
-
-  for (let i = 0; i < forecastDaysNum; i++) {
-    const date = new Date();
-    date.setDate(date.getDate() + i + 1);
-    const dayOfWeek = date.getDay();
-
-    // Base prediction from trend
-    const baseRevenue = revenueTrend.intercept + revenueTrend.slope * (n + i);
-    const baseTransactions = transactionTrend.intercept + transactionTrend.slope * (n + i);
-
-    // Apply day-of-week multiplier
-    const adjustedRevenue = Math.max(0, baseRevenue * dayOfWeekMultipliers[dayOfWeek]);
-    const adjustedTransactions = Math.max(0, Math.round(baseTransactions * dayOfWeekMultipliers[dayOfWeek]));
-
-    // Calculate confidence interval
-    const variance = n > 2 ? revenueValues.reduce((sum, val, idx) => {
-      const predicted = revenueTrend.intercept + revenueTrend.slope * idx;
-      return sum + Math.pow(val - predicted, 2);
-    }, 0) / (n - 2) : 0;
-    const stdError = Math.sqrt(variance);
-
-    forecast.push({
-      date: date.toISOString().split('T')[0],
-      dayOfWeek: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayOfWeek],
-      revenue: Math.round(adjustedRevenue * 100) / 100,
-      transactions: adjustedTransactions,
-      confidenceLow: Math.max(0, Math.round((adjustedRevenue - 1.96 * stdError) * 100) / 100),
-      confidenceHigh: Math.round((adjustedRevenue + 1.96 * stdError) * 100) / 100,
-    });
-  }
-
-  // Summary statistics
-  const totalForecastRevenue = rc(forecast.reduce((sum, f) => sum + f.revenue, 0));
-  const avgDailyForecast = forecastDaysNum > 0 ? rc(totalForecastRevenue / forecastDaysNum) : 0;
-  const expectedGrowth = avgRevenue > 0 ? rc(((avgDailyForecast - avgRevenue) / avgRevenue) * 100) : 0;
-
-  res.json({
-    success: true,
-    data: {
-      forecast,
-      summary: {
-        totalForecastRevenue: Math.round(totalForecastRevenue * 100) / 100,
-        avgDailyForecast: Math.round(avgDailyForecast * 100) / 100,
-        historicalAvgDaily: Math.round(avgRevenue * 100) / 100,
-        expectedGrowth: Math.round(expectedGrowth * 100) / 100,
-        totalForecastTransactions: forecast.reduce((sum, f) => sum + f.transactions, 0),
-      },
-      trends: {
-        revenueSlope: Math.round(revenueTrend.slope * 100) / 100,
-        transactionSlope: Math.round(transactionTrend.slope * 100) / 100,
-        direction: revenueTrend.slope > 0 ? 'upward' : revenueTrend.slope < 0 ? 'downward' : 'flat',
-      },
-      dayOfWeekPatterns: Object.entries(dayOfWeekMultipliers).map(([day, multiplier]) => ({
-        day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][parseInt(day)],
-        multiplier: Math.round(multiplier * 100) / 100,
-      })),
-      historicalPeriod: {
-        days: historicalDays,
-        dataPoints: dailySales.length,
-      },
-    },
-  });
+  const scope = getLocationFilter(req, req.query.locationId as string);
+  res.json({ success: true, data: await getSalesForecastData(scope, req.query.forecastDays ?? 30) });
 });
 
 /**
@@ -570,14 +215,15 @@ export const getSalesForecast = asyncHandler(async (req: AuthRequest, res: Respo
  */
 export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Response) => {
   const locationFilter = getLocationFilter(req, req.query.locationId as string);
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+  const calendar = await getReportCalendar(locationFilter);
+  const now = calendar.now;
+  const thirtyDaysAgo = calendar.day(-30);
+  const sixtyDaysAgo = calendar.day(-60);
 
   // Get customer segments by recency
   const [activeCustomers, atRiskCustomers, lostCustomers] = await Promise.all([
     prisma.customer.count({
-      where: { lastVisitAt: { gte: thirtyDaysAgo }, ...locationFilter },
+      where: { lastVisitAt: { gte: thirtyDaysAgo, lte: now }, ...locationFilter },
     }),
     prisma.customer.count({
       where: {
@@ -613,24 +259,24 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
   });
 
   // Calculate value tiers
-  const sortedBySpend = [...customers].sort((a, b) => b.totalSpent - a.totalSpent);
+  const sortedBySpend = [...customers].sort((a, b) => Number(b.totalSpent) - Number(a.totalSpent));
   const totalCustomers = customers.length;
 
   const vipThreshold = sortedBySpend[Math.floor(totalCustomers * 0.1)]?.totalSpent || 0;
   const regularThreshold = sortedBySpend[Math.floor(totalCustomers * 0.4)]?.totalSpent || 0;
 
-  const vipCustomers = customers.filter(c => c.totalSpent >= vipThreshold);
-  const regularCustomers = customers.filter(c => c.totalSpent >= regularThreshold && c.totalSpent < vipThreshold);
-  const occasionalCustomers = customers.filter(c => c.totalSpent < regularThreshold);
+  const vipCustomers = customers.filter(c => Number(c.totalSpent) >= Number(vipThreshold));
+  const regularCustomers = customers.filter(c => Number(c.totalSpent) >= Number(regularThreshold) && Number(c.totalSpent) < Number(vipThreshold));
+  const occasionalCustomers = customers.filter(c => Number(c.totalSpent) < Number(regularThreshold));
 
   // New vs returning analysis (last 30 days)
   const newCustomersCount = await prisma.customer.count({
-    where: { createdAt: { gte: thirtyDaysAgo }, ...locationFilter },
+    where: { createdAt: { gte: thirtyDaysAgo, lte: now }, ...locationFilter },
   });
 
   const returningCustomerSales = await prisma.sale.count({
     where: {
-      createdAt: { gte: thirtyDaysAgo },
+      createdAt: { gte: thirtyDaysAgo, lte: now },
       status: 'COMPLETED',
       customer: {
         createdAt: { lt: thirtyDaysAgo },
@@ -641,10 +287,10 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
 
   const newCustomerSales = await prisma.sale.count({
     where: {
-      createdAt: { gte: thirtyDaysAgo },
+      createdAt: { gte: thirtyDaysAgo, lte: now },
       status: 'COMPLETED',
       customer: {
-        createdAt: { gte: thirtyDaysAgo },
+        createdAt: { gte: thirtyDaysAgo, lte: now },
       },
       ...locationFilter,
     },
@@ -652,7 +298,7 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
 
   // Customer lifetime value distribution
   const avgLifetimeValue = totalCustomers > 0
-    ? customers.reduce((sum, c) => sum + c.totalSpent, 0) / totalCustomers
+    ? customers.reduce((sum, c) => sum + Number(c.totalSpent), 0) / totalCustomers
     : 0;
   const avgOrderValue = await prisma.sale.aggregate({
     where: {
@@ -675,7 +321,7 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
     email: c.email,
     totalSpent: c.totalSpent,
     visitCount: c.visitCount,
-    avgOrderValue: c.visitCount > 0 ? rc(c.totalSpent / c.visitCount) : 0,
+    avgOrderValue: c.visitCount > 0 ? rc(Number(c.totalSpent) / c.visitCount) : 0,
     lastVisit: c.lastVisitAt,
   }));
 
@@ -685,7 +331,7 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
       overview: {
         totalCustomers,
         avgLifetimeValue: Math.round(avgLifetimeValue * 100) / 100,
-        avgOrderValue: Math.round((avgOrderValue._avg?.total || 0) * 100) / 100,
+        avgOrderValue: Math.round(Number((avgOrderValue._avg?.total || 0)) * 100) / 100,
         avgVisitCount: Math.round(avgVisitCount * 10) / 10,
       },
       segments: {
@@ -699,18 +345,18 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
             count: vipCustomers.length,
             label: 'VIP (Top 10%)',
             threshold: vipThreshold,
-            totalSpent: rc(vipCustomers.reduce((sum, c) => sum + c.totalSpent, 0)),
+            totalSpent: rc(vipCustomers.reduce((sum, c) => sum + Number(c.totalSpent), 0)),
           },
           regular: {
             count: regularCustomers.length,
             label: 'Regular (Top 40%)',
             threshold: regularThreshold,
-            totalSpent: rc(regularCustomers.reduce((sum, c) => sum + c.totalSpent, 0)),
+            totalSpent: rc(regularCustomers.reduce((sum, c) => sum + Number(c.totalSpent), 0)),
           },
           occasional: {
             count: occasionalCustomers.length,
             label: 'Occasional',
-            totalSpent: rc(occasionalCustomers.reduce((sum, c) => sum + c.totalSpent, 0)),
+            totalSpent: rc(occasionalCustomers.reduce((sum, c) => sum + Number(c.totalSpent), 0)),
           },
         },
       },
@@ -732,320 +378,13 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
  * Get inventory predictions and reorder suggestions
  * GET /api/analytics/inventory-predictions
  */
-export const getInventoryPredictions = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const locationFilter = getLocationFilter(req, req.query.locationId as string);
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
-
-  // Get all active products with inventory tracking
-  const products = await prisma.product.findMany({
-    where: {
-      isActive: true,
-      trackInventory: true,
-      ...locationFilter,
-    },
-    include: {
-      category: { select: { name: true } },
-      suppliers: {
-        include: {
-          supplier: { select: { name: true } },
-        },
-      },
-    },
-  });
-
-  // Get sales velocity for each product
-  const salesData = await prisma.saleItem.groupBy({
-    by: ['productId'],
-    where: {
-      sale: {
-        createdAt: { gte: thirtyDaysAgo },
-        status: 'COMPLETED',
-        ...locationFilter,
-      },
-    },
-    _sum: { quantity: true },
-    _count: { id: true },
-  });
-
-  const salesMap = new Map(salesData.map(s => [s.productId, s]));
-
-  // Analyze each product
-  const predictions = products.map(product => {
-    const sales = salesMap.get(product.id);
-    const quantitySold = sales?._sum.quantity || 0;
-    const dailyVelocity = quantitySold / 30;
-    const daysOfStock = dailyVelocity > 0 ? product.stockQuantity / dailyVelocity : 999;
-
-    // Get supplier info
-    const supplierLink = product.suppliers[0];
-    const leadTime = supplierLink?.leadTime || 7;
-
-    // Calculate reorder point
-    const safetyStock = Math.ceil(dailyVelocity * 7); // 7 days safety
-    const reorderPoint = Math.ceil(dailyVelocity * leadTime) + safetyStock;
-    const suggestedOrderQty = Math.ceil(dailyVelocity * 30); // 30 days supply
-
-    // Determine status
-    let status: 'critical' | 'low' | 'reorder' | 'adequate' | 'overstock';
-    let action: string;
-
-    if (product.stockQuantity === 0) {
-      status = 'critical';
-      action = `Order ${suggestedOrderQty} units immediately - Out of stock!`;
-    } else if (daysOfStock <= leadTime) {
-      status = 'critical';
-      action = `Order ${suggestedOrderQty} units now - Stock will run out before delivery`;
-    } else if (product.stockQuantity <= reorderPoint) {
-      status = 'reorder';
-      action = `Order ${suggestedOrderQty} units - ${Math.ceil(daysOfStock)} days of stock remaining`;
-    } else if (product.stockQuantity <= product.lowStockAlert) {
-      status = 'low';
-      action = `Consider ordering - Below low stock alert`;
-    } else if (daysOfStock > 90 && dailyVelocity > 0) {
-      status = 'overstock';
-      action = `${Math.ceil(daysOfStock)} days of stock - Consider promotion or markdown`;
-    } else {
-      status = 'adequate';
-      action = `${Math.ceil(daysOfStock)} days of stock remaining`;
-    }
-
-    return {
-      id: product.id,
-      name: product.name,
-      sku: product.sku,
-      category: product.category?.name || 'Uncategorized',
-      currentStock: product.stockQuantity,
-      dailyVelocity: Math.round(dailyVelocity * 100) / 100,
-      daysOfStock: Math.min(Math.ceil(daysOfStock), 999),
-      reorderPoint,
-      suggestedOrderQty,
-      status,
-      action,
-      supplier: supplierLink?.supplier.name || 'No supplier',
-      leadTime,
-      cost: product.cost,
-      totalValue: rc(product.stockQuantity * product.cost),
-    };
-  });
-
-  // Sort by urgency
-  const priorityOrder = { critical: 0, reorder: 1, low: 2, overstock: 3, adequate: 4 };
-  predictions.sort((a, b) => priorityOrder[a.status] - priorityOrder[b.status]);
-
-  // Summary
-  const critical = predictions.filter(p => p.status === 'critical');
-  const reorder = predictions.filter(p => p.status === 'reorder');
-  const overstock = predictions.filter(p => p.status === 'overstock');
-
-  // Dead stock analysis (products not sold in 60+ days)
-  const recentSales = await prisma.saleItem.groupBy({
-    by: ['productId'],
-    where: {
-      sale: {
-        createdAt: { gte: sixtyDaysAgo },
-        status: 'COMPLETED',
-        ...locationFilter,
-      },
-    },
-  });
-  const recentlySoldIds = new Set(recentSales.map(s => s.productId));
-  const deadStock = products.filter(p =>
-    !recentlySoldIds.has(p.id) && p.stockQuantity > 0
-  );
-
-  res.json({
-    success: true,
-    data: {
-      predictions,
-      summary: {
-        totalProducts: predictions.length,
-        critical: critical.length,
-        needsReorder: reorder.length,
-        overstock: overstock.length,
-        deadStock: deadStock.length,
-        totalInventoryValue: rc(predictions.reduce((sum, p) => sum + p.totalValue, 0)),
-        potentialStockouts: critical.length + reorder.length,
-      },
-      deadStock: deadStock.slice(0, 20).map(p => ({
-        id: p.id,
-        name: p.name,
-        sku: p.sku,
-        stock: p.stockQuantity,
-        value: p.stockQuantity * p.cost,
-        daysSinceLastSale: 60,
-      })),
-      autoOrderSuggestions: [...critical, ...reorder].slice(0, 10).map(p => ({
-        productId: p.id,
-        productName: p.name,
-        quantity: p.suggestedOrderQty,
-        supplier: p.supplier,
-        estimatedCost: p.suggestedOrderQty * p.cost,
-        urgency: p.status,
-      })),
-    },
-  });
-});
+export const getInventoryPredictions = asyncHandler(async (req: AuthRequest, res: Response) => res.json({ success: true, data: await inventoryPredictions(getLocationFilter(req, req.query.locationId as string), req.query.page || 1) }));
 
 /**
  * Get sales anomaly detection
  * GET /api/analytics/anomalies
  */
-export const getSalesAnomalies = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const locationFilter = getLocationFilter(req, req.query.locationId as string);
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-  // Get daily sales for the past 30 days
-  const sales = await prisma.sale.findMany({
-    where: {
-      createdAt: { gte: thirtyDaysAgo },
-      status: 'COMPLETED',
-      ...locationFilter,
-    },
-    select: {
-      id: true,
-      total: true,
-      createdAt: true,
-      items: {
-        select: {
-          productId: true,
-          quantity: true,
-          total: true,
-        },
-      },
-    },
-  });
-
-  // Daily revenue analysis
-  const dailyRevenue = new Map<string, number>();
-  sales.forEach(sale => {
-    const date = sale.createdAt.toISOString().split('T')[0];
-    dailyRevenue.set(date, (dailyRevenue.get(date) || 0) + sale.total);
-  });
-
-  const revenues = Array.from(dailyRevenue.values());
-  const mean = revenues.length > 0 ? revenues.reduce((a, b) => a + b, 0) / revenues.length : 0;
-  const stdDev = revenues.length > 1
-    ? Math.sqrt(revenues.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / revenues.length)
-    : 0;
-
-  // Detect daily anomalies (outside 2 standard deviations)
-  const dailyAnomalies: any[] = [];
-  dailyRevenue.forEach((revenue, date) => {
-    const zScore = stdDev > 0 ? (revenue - mean) / stdDev : 0;
-    if (Math.abs(zScore) > 2) {
-      dailyAnomalies.push({
-        date,
-        revenue,
-        expected: mean,
-        deviation: revenue - mean,
-        zScore: Math.round(zScore * 100) / 100,
-        type: zScore > 0 ? 'spike' : 'drop',
-        severity: Math.abs(zScore) > 3 ? 'high' : 'medium',
-      });
-    }
-  });
-
-  // Product-level anomalies
-  const productSales = new Map<string, number[]>();
-  sales.forEach(sale => {
-    sale.items.forEach(item => {
-      if (!productSales.has(item.productId)) {
-        productSales.set(item.productId, []);
-      }
-      productSales.get(item.productId)!.push(item.quantity);
-    });
-  });
-
-  // Get product names
-  const productIds = Array.from(productSales.keys());
-  const products = await prisma.product.findMany({
-    where: { id: { in: productIds }, ...locationFilter },
-    select: { id: true, name: true },
-  });
-  const productMap = new Map(products.map(p => [p.id, p.name]));
-
-  // Find products with unusual sales
-  const productAnomalies: any[] = [];
-  productSales.forEach((quantities, productId) => {
-    if (quantities.length < 5) return;
-
-    const prodMean = quantities.reduce((a, b) => a + b, 0) / quantities.length;
-    const prodStdDev = Math.sqrt(
-      quantities.reduce((sum, val) => sum + Math.pow(val - prodMean, 2), 0) / quantities.length
-    );
-
-    const lastQty = quantities[quantities.length - 1];
-    const zScore = prodStdDev > 0 ? (lastQty - prodMean) / prodStdDev : 0;
-
-    if (Math.abs(zScore) > 2) {
-      productAnomalies.push({
-        productId,
-        productName: productMap.get(productId) || 'Unknown',
-        lastQuantity: lastQty,
-        avgQuantity: Math.round(prodMean * 10) / 10,
-        zScore: Math.round(zScore * 100) / 100,
-        type: zScore > 0 ? 'surge' : 'decline',
-      });
-    }
-  });
-
-  // Transaction-level anomalies (unusually large transactions)
-  const transactionTotals = sales.map(s => s.total);
-  const txMean = transactionTotals.length > 0
-    ? transactionTotals.reduce((a, b) => a + b, 0) / transactionTotals.length
-    : 0;
-  const txStdDev = transactionTotals.length > 1
-    ? Math.sqrt(transactionTotals.reduce((sum, val) => sum + Math.pow(val - txMean, 2), 0) / transactionTotals.length)
-    : 0;
-
-  const transactionAnomalies = sales
-    .filter(s => {
-      const zScore = txStdDev > 0 ? (s.total - txMean) / txStdDev : 0;
-      return Math.abs(zScore) > 2.5;
-    })
-    .map(s => ({
-      saleId: s.id,
-      total: s.total,
-      date: s.createdAt,
-      deviation: s.total - txMean,
-      type: s.total > txMean ? 'high_value' : 'low_value',
-    }))
-    .slice(0, 10);
-
-  res.json({
-    success: true,
-    data: {
-      summary: {
-        dailyAnomalies: dailyAnomalies.length,
-        productAnomalies: productAnomalies.length,
-        transactionAnomalies: transactionAnomalies.length,
-        avgDailyRevenue: Math.round(mean * 100) / 100,
-        revenueStdDev: Math.round(stdDev * 100) / 100,
-      },
-      dailyAnomalies: dailyAnomalies.sort((a, b) =>
-        new Date(b.date).getTime() - new Date(a.date).getTime()
-      ),
-      productAnomalies: productAnomalies.sort((a, b) =>
-        Math.abs(b.zScore) - Math.abs(a.zScore)
-      ),
-      transactionAnomalies,
-      insights: [
-        dailyAnomalies.filter(a => a.type === 'spike').length > 0
-          ? `${dailyAnomalies.filter(a => a.type === 'spike').length} days with unusually high sales detected`
-          : null,
-        dailyAnomalies.filter(a => a.type === 'drop').length > 0
-          ? `${dailyAnomalies.filter(a => a.type === 'drop').length} days with unusually low sales detected`
-          : null,
-        productAnomalies.filter(a => a.type === 'surge').length > 0
-          ? `${productAnomalies.filter(a => a.type === 'surge').length} products with demand surge`
-          : null,
-      ].filter(Boolean),
-    },
-  });
-});
+export const getSalesAnomalies = asyncHandler(async (req: AuthRequest, res: Response) => res.json({ success: true, data: await salesAnomalies(getLocationFilter(req, req.query.locationId as string)) }));
 
 /**
  * Get bundle recommendations
@@ -1053,13 +392,13 @@ export const getSalesAnomalies = asyncHandler(async (req: AuthRequest, res: Resp
  */
 export const getBundleRecommendations = asyncHandler(async (req: AuthRequest, res: Response) => {
   const locationFilter = getLocationFilter(req, req.query.locationId as string);
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const calendar = await getReportCalendar(locationFilter);
+  const thirtyDaysAgo = calendar.day(-30);
 
   // Get all sales with their items
   const sales = await prisma.sale.findMany({
     where: {
-      createdAt: { gte: thirtyDaysAgo },
+      createdAt: { gte: thirtyDaysAgo, lt: calendar.day() },
       status: 'COMPLETED',
       ...locationFilter,
     },
@@ -1078,7 +417,7 @@ export const getBundleRecommendations = asyncHandler(async (req: AuthRequest, re
   const productFrequency = new Map<string, number>();
 
   sales.forEach(sale => {
-    const productIds = sale.items.map(item => item.productId);
+    const productIds = [...new Set(sale.items.map(item => item.productId))];
 
     // Count individual product frequency
     productIds.forEach(id => {
@@ -1130,8 +469,8 @@ export const getBundleRecommendations = asyncHandler(async (req: AuthRequest, re
         if (lift > 1.5 && confidence > 0.1) {
           const bundleKey = [productId, partnerId].sort().join('|');
           if (!bundles.find(b => b.key === bundleKey)) {
-            const combinedPrice = product1.price + product2.price;
-            const combinedCost = product1.cost + product2.cost;
+            const combinedPrice = Number(product1.price) + Number(product2.price);
+            const combinedCost = Number(product1.cost) + Number(product2.cost);
             const suggestedDiscount = 10; // 10% bundle discount
             const bundlePrice = combinedPrice * (1 - suggestedDiscount / 100);
 
@@ -1185,154 +524,7 @@ export const getBundleRecommendations = asyncHandler(async (req: AuthRequest, re
  * Get employee performance scores and leaderboard
  * GET /api/analytics/employee-performance
  */
-export const getEmployeePerformance = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { days = '30' } = req.query;
-  const daysNum = parseInt(days as string);
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - daysNum);
-  const locationFilter = getLocationFilter(req, req.query.locationId as string);
-
-  // Get all employees
-  const employees = await prisma.user.findMany({
-    where: { role: { in: ['CASHIER', 'MANAGER', 'ADMIN'] }, ...locationFilter },
-    select: { id: true, firstName: true, lastName: true, role: true },
-  });
-
-  // Get sales data per employee
-  const employeeMetrics = await Promise.all(
-    employees.map(async (employee) => {
-      const [sales, refunds, shifts] = await Promise.all([
-        // Sales metrics
-        prisma.sale.aggregate({
-          where: {
-            userId: employee.id,
-            createdAt: { gte: startDate },
-            status: 'COMPLETED',
-          },
-          _sum: { total: true },
-          _count: { id: true },
-          _avg: { total: true },
-        }),
-        // Refunds (negative indicator)
-        prisma.sale.count({
-          where: {
-            userId: employee.id,
-            createdAt: { gte: startDate },
-            status: 'REFUNDED',
-          },
-        }),
-        // Shift hours
-        prisma.shift.findMany({
-          where: {
-            userId: employee.id,
-            clockInAt: { gte: startDate },
-            clockOutAt: { not: null },
-          },
-          select: { clockInAt: true, clockOutAt: true },
-        }),
-      ]);
-
-      // Calculate hours worked
-      const hoursWorked = shifts.reduce((total, shift) => {
-        if (shift.clockOutAt) {
-          return total + (shift.clockOutAt.getTime() - shift.clockInAt.getTime()) / (1000 * 60 * 60);
-        }
-        return total;
-      }, 0);
-
-      const totalSales = sales._count.id || 0;
-      const totalRevenue = sales._sum.total || 0;
-      const avgTransaction = sales._avg.total || 0;
-      const revenuePerHour = hoursWorked > 0 ? totalRevenue / hoursWorked : 0;
-      const transactionsPerHour = hoursWorked > 0 ? totalSales / hoursWorked : 0;
-      const refundRate = totalSales > 0 ? (refunds / totalSales) * 100 : 0;
-
-      return {
-        id: employee.id,
-        name: `${employee.firstName} ${employee.lastName}`.trim(),
-        role: employee.role,
-        metrics: {
-          totalSales,
-          totalRevenue,
-          avgTransaction,
-          hoursWorked: Math.round(hoursWorked * 10) / 10,
-          revenuePerHour: Math.round(revenuePerHour * 100) / 100,
-          transactionsPerHour: Math.round(transactionsPerHour * 10) / 10,
-          refunds,
-          refundRate: Math.round(refundRate * 10) / 10,
-        },
-      };
-    })
-  );
-
-  // Calculate performance scores (0-100)
-  const maxRevenue = Math.max(...employeeMetrics.map(e => e.metrics.totalRevenue), 1);
-  const maxTransactions = Math.max(...employeeMetrics.map(e => e.metrics.totalSales), 1);
-  const maxAvgTransaction = Math.max(...employeeMetrics.map(e => e.metrics.avgTransaction), 1);
-  const maxRevenuePerHour = Math.max(...employeeMetrics.map(e => e.metrics.revenuePerHour), 1);
-
-  const scoredEmployees = employeeMetrics.map(emp => {
-    // Weighted scoring
-    const revenueScore = (emp.metrics.totalRevenue / maxRevenue) * 30;
-    const transactionScore = (emp.metrics.totalSales / maxTransactions) * 25;
-    const avgTransactionScore = (emp.metrics.avgTransaction / maxAvgTransaction) * 20;
-    const efficiencyScore = (emp.metrics.revenuePerHour / maxRevenuePerHour) * 20;
-    const qualityScore = Math.max(0, 5 - emp.metrics.refundRate); // Lower refunds = higher score
-
-    const totalScore = revenueScore + transactionScore + avgTransactionScore + efficiencyScore + qualityScore;
-
-    // Determine badges
-    const badges: string[] = [];
-    if (emp.metrics.totalRevenue === maxRevenue) badges.push('Top Seller');
-    if (emp.metrics.avgTransaction === maxAvgTransaction) badges.push('Upsell Champion');
-    if (emp.metrics.revenuePerHour === maxRevenuePerHour) badges.push('Most Efficient');
-    if (emp.metrics.refundRate === 0 && emp.metrics.totalSales > 10) badges.push('Quality Star');
-    if (emp.metrics.totalSales > 100) badges.push('High Volume');
-
-    return {
-      ...emp,
-      score: Math.round(totalScore),
-      badges,
-      rank: 0, // Will be set after sorting
-    };
-  });
-
-  // Sort by score and assign ranks
-  scoredEmployees.sort((a, b) => b.score - a.score);
-  scoredEmployees.forEach((emp, index) => {
-    emp.rank = index + 1;
-  });
-
-  // Team statistics
-  const teamStats = {
-    totalRevenue: rc(employeeMetrics.reduce((sum, e) => sum + e.metrics.totalRevenue, 0)),
-    totalTransactions: employeeMetrics.reduce((sum, e) => sum + e.metrics.totalSales, 0),
-    avgScore: scoredEmployees.length > 0
-      ? Math.round(scoredEmployees.reduce((sum, e) => sum + e.score, 0) / scoredEmployees.length)
-      : 0,
-    topPerformer: scoredEmployees[0]?.name || 'N/A',
-  };
-
-  res.json({
-    success: true,
-    data: {
-      leaderboard: scoredEmployees,
-      teamStats,
-      period: {
-        days: daysNum,
-        startDate: startDate.toISOString(),
-        endDate: new Date().toISOString(),
-      },
-      scoringWeights: {
-        revenue: '30%',
-        transactions: '25%',
-        avgTransaction: '20%',
-        efficiency: '20%',
-        quality: '5%',
-      },
-    },
-  });
-});
+export const getEmployeePerformance = asyncHandler(async (req: AuthRequest, res: Response) => res.json({ success: true, data: await employeeActivity(getLocationFilter(req, req.query.locationId as string), req.query.days || 30) }));
 
 /**
  * Get business health dashboard
@@ -1340,178 +532,55 @@ export const getEmployeePerformance = asyncHandler(async (req: AuthRequest, res:
  */
 export const getBusinessHealth = asyncHandler(async (req: AuthRequest, res: Response) => {
   const locationFilter = getLocationFilter(req, req.query.locationId as string);
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const yearStart = new Date(now.getFullYear(), 0, 1);
-
-  // Get comprehensive financial data
-  const [
-    todaySales,
-    monthSales,
-    lastMonthSales,
-    yearSales,
-    inventory,
-    expenses,
-    customers,
-  ] = await Promise.all([
-    // Today
-    prisma.sale.aggregate({
-      where: { createdAt: { gte: todayStart }, status: 'COMPLETED', ...locationFilter },
-      _sum: { total: true, tax: true },
-      _count: { id: true },
-    }),
-    // This month
-    prisma.sale.aggregate({
-      where: { createdAt: { gte: monthStart }, status: 'COMPLETED', ...locationFilter },
-      _sum: { total: true, tax: true },
-      _count: { id: true },
-    }),
-    // Last month
-    prisma.sale.aggregate({
-      where: {
-        createdAt: { gte: lastMonthStart, lt: monthStart },
-        status: 'COMPLETED',
-        ...locationFilter,
-      },
-      _sum: { total: true },
-      _count: { id: true },
-    }),
-    // Year to date
-    prisma.sale.aggregate({
-      where: { createdAt: { gte: yearStart }, status: 'COMPLETED', ...locationFilter },
-      _sum: { total: true, tax: true },
-      _count: { id: true },
-    }),
-    // Inventory units
-    prisma.product.aggregate({
-      where: { isActive: true, ...locationFilter },
-      _sum: { stockQuantity: true },
-    }),
-    // Expenses this month
-    prisma.expense.aggregate({
-      where: {
-        expenseDate: { gte: monthStart },
-        status: 'APPROVED',
-        ...locationFilter,
-      },
-      _sum: { amount: true },
-    }),
-    // Customer stats
-    prisma.customer.aggregate({
-      where: { ...locationFilter },
-      _count: { id: true },
-      _sum: { totalSpent: true },
-    }),
+  const calendar = await getReportCalendar(locationFilter);
+  const now = calendar.now;
+  const todayStart = calendar.day();
+  const monthStart = calendar.monthStart();
+  const lastMonthStart = calendar.monthStart(-1);
+  const yearStart = calendar.yearStart();
+  const [today, month, lastMonth, year, products, customers] = await Promise.all([
+    getFinancialMetrics(locationFilter, { gte: todayStart, lte: now }),
+    getFinancialMetrics(locationFilter, { gte: monthStart, lte: now }),
+    getFinancialMetrics(locationFilter, { gte: lastMonthStart, lt: monthStart }),
+    getFinancialMetrics(locationFilter, { gte: yearStart, lte: now }),
+    prisma.product.findMany({ where: { isActive: true, trackInventory: true, sku: { not: 'MISC-001' }, ...locationFilter }, select: { id: true, stockQuantity: true, price: true } }),
+    prisma.customer.aggregate({ where: locationFilter, _count: { id: true }, _sum: { totalSpent: true } }),
   ]);
-
-  // Refunds issued per period (Refund table — includes partial refunds)
-  const refundSaleFilter = locationFilter.locationId ? { sale: { locationId: locationFilter.locationId } } : {};
-  const [todayRefunds, monthRefunds, lastMonthRefunds, yearRefunds] = await Promise.all([
-    prisma.refund.aggregate({ where: { createdAt: { gte: todayStart }, ...refundSaleFilter }, _sum: { amount: true } }),
-    prisma.refund.aggregate({ where: { createdAt: { gte: monthStart }, ...refundSaleFilter }, _sum: { amount: true } }),
-    prisma.refund.aggregate({
-      where: { createdAt: { gte: lastMonthStart, lt: monthStart }, ...refundSaleFilter },
-      _sum: { amount: true },
-    }),
-    prisma.refund.aggregate({ where: { createdAt: { gte: yearStart }, ...refundSaleFilter }, _sum: { amount: true } }),
-  ]);
-
-  const todayRevenueNet = rc((todaySales._sum.total || 0) - (todayRefunds._sum.amount || 0));
-  const yearRevenueNet = rc((yearSales._sum.total || 0) - (yearRefunds._sum.amount || 0));
-
-  // Calculate inventory value (need separate query for cost)
-  const productsWithCost = await prisma.product.findMany({
-    where: { isActive: true, ...locationFilter },
-    select: { stockQuantity: true, cost: true, price: true },
-  });
-
-  const inventoryAtCost = rc(productsWithCost.reduce((sum, p) => sum + rc(p.stockQuantity * p.cost), 0));
-  const inventoryAtRetail = rc(productsWithCost.reduce((sum, p) => sum + rc(p.stockQuantity * p.price), 0));
-
-  // KPIs (revenue net of refunds issued in the period)
-  const monthlyRevenue = rc((monthSales._sum.total || 0) - (monthRefunds._sum.amount || 0));
-  const lastMonthRevenue = rc((lastMonthSales._sum.total || 0) - (lastMonthRefunds._sum.amount || 0));
-
-  // Calculate estimated COGS (assuming 40% margin on average)
-  const estimatedCOGS = rc(monthlyRevenue * 0.6);
-  const grossProfit = rc(monthlyRevenue - estimatedCOGS);
-  const netProfit = rc(grossProfit - (expenses._sum.amount || 0));
-  const revenueGrowth = lastMonthRevenue > 0
-    ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100
-    : 0;
-
-  const avgDailyRevenue = rc(monthlyRevenue / now.getDate());
-  const projectedMonthlyRevenue = rc(avgDailyRevenue * new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate());
-
-  // Break-even analysis (simplified)
-  const fixedCosts = 5000; // Placeholder - would come from settings
-  const avgMargin = 0.4;
-  const breakEvenRevenue = rc(fixedCosts / avgMargin);
-  const breakEvenProgress = rc((monthlyRevenue / breakEvenRevenue) * 100);
-
-  // Health scores
-  const scores = {
-    revenue: Math.min(100, (monthlyRevenue / (lastMonthRevenue || monthlyRevenue)) * 50),
-    profitability: Math.min(100, (netProfit / (monthlyRevenue || 1)) * 250),
-    inventory: Math.min(100, 100 - Math.abs(50 - ((inventoryAtCost / (monthlyRevenue || 1)) * 100))),
-    growth: Math.min(100, 50 + revenueGrowth),
+  const valuations = await prisma.inventoryValuation.findMany({ where: { productId: { in: products.map(p => p.id) } } });
+  const incompleteInventory = products.some(p => p.stockQuantity > 0 && valuations.find(v => v.productId === p.id)?.value == null);
+  const inventoryAtCost = incompleteInventory ? null : rc(valuations.reduce((sum, v) => sum + Number(v.value || 0), 0));
+  const inventoryAtRetail = rc(products.reduce((sum, p) => sum + Math.max(0, p.stockQuantity) * Number(p.price), 0));
+  const revenueGrowth = lastMonth.netCollected > 0 ? rc((month.netCollected - lastMonth.netCollected) / lastMonth.netCollected * 100) : null;
+  const score = (n: number) => Math.round(Math.max(0, Math.min(100, n)));
+  const healthScores = {
+    overall: null as number | null,
+    revenue: month.netCollected > 0 && lastMonth.netCollected > 0 ? score(month.netCollected / lastMonth.netCollected * 50) : null,
+    profitability: month.operatingMargin === null ? null : score(month.operatingMargin * 2.5),
+    inventory: month.netCollected > 0 && inventoryAtCost !== null ? score(100 - Math.abs(50 - inventoryAtCost / month.netCollected * 100)) : null,
+    growth: revenueGrowth === null ? null : score(50 + revenueGrowth),
   };
-  const overallHealth = Math.round((scores.revenue + scores.profitability + scores.inventory + scores.growth) / 4);
-
-  res.json({
-    success: true,
-    data: {
-      overview: {
-        todayRevenue: todayRevenueNet,
-        todayTransactions: todaySales._count.id || 0,
-        monthRevenue: monthlyRevenue,
-        monthTransactions: monthSales._count.id || 0,
-        yearRevenue: yearRevenueNet,
-        yearTransactions: yearSales._count.id || 0,
-      },
-      profitability: {
-        grossRevenue: monthlyRevenue,
-        estimatedCOGS,
-        grossProfit,
-        grossMargin: monthlyRevenue > 0 ? rc((grossProfit / monthlyRevenue) * 100) : 0,
-        expenses: expenses._sum.amount || 0,
-        netProfit,
-        netMargin: monthlyRevenue > 0 ? rc((netProfit / monthlyRevenue) * 100) : 0,
-      },
-      inventory: {
-        totalUnits: inventory._sum.stockQuantity || 0,
-        valueAtCost: inventoryAtCost,
-        valueAtRetail: inventoryAtRetail,
-        potentialProfit: rc(inventoryAtRetail - inventoryAtCost),
-        turnoverRatio: inventoryAtCost > 0 ? rc(estimatedCOGS / inventoryAtCost) : 0,
-      },
-      kpis: {
-        revenueGrowth: Math.round(revenueGrowth * 10) / 10,
-        avgTransactionValue: monthSales._count.id
-          ? Math.round((monthlyRevenue / monthSales._count.id) * 100) / 100
-          : 0,
-        projectedMonthlyRevenue: Math.round(projectedMonthlyRevenue),
-        customerLifetimeValue: customers._count.id
-          ? Math.round((customers._sum.totalSpent || 0) / customers._count.id)
-          : 0,
-        breakEvenProgress: Math.min(100, Math.round(breakEvenProgress)),
-      },
-      healthScores: {
-        overall: overallHealth,
-        revenue: Math.round(scores.revenue),
-        profitability: Math.round(scores.profitability),
-        inventory: Math.round(scores.inventory),
-        growth: Math.round(scores.growth),
-      },
-      cashFlow: {
-        inflows: monthlyRevenue,
-        outflows: rc((expenses._sum.amount || 0) + estimatedCOGS),
-        netCashFlow: rc(monthlyRevenue - (expenses._sum.amount || 0) - estimatedCOGS),
-      },
-    },
-  });
+  const scores = [healthScores.revenue, healthScores.profitability, healthScores.inventory, healthScores.growth];
+  if (scores.every((n): n is number => n !== null)) healthScores.overall = score(scores.reduce((n, s) => n + s, 0) / scores.length);
+  res.json({ success: true, data: {
+    overview: { todayRevenue: today.netCollected, todayTransactions: today.transactions,
+      monthRevenue: month.netCollected, monthTransactions: month.transactions, yearRevenue: year.netCollected, yearTransactions: year.transactions },
+    profitability: { grossRevenue: month.netSales, estimatedCOGS: month.costOfGoodsSold, costOfGoodsSold: month.costOfGoodsSold,
+      grossProfit: month.grossProfit, grossMargin: month.grossMargin, expenses: month.expenses, otherIncome: month.otherIncome,
+      inventoryPurchases: month.inventoryPurchases, receivedInventoryPurchases: month.receivedInventoryPurchases,
+      netProfit: month.netProfit, netMargin: month.netProfit === null || !month.netSales ? null : rc(month.netProfit / month.netSales * 100), costBasis: month.costBasis, unavailableReason: month.unavailableReason,
+      recordedSaleCosts: month.recordedSaleCosts, inventoryCostAdjustments: month.inventoryCostAdjustments, costCompleteness: month.costCompleteness },
+    inventory: { totalUnits: products.reduce((sum, p) => sum + Math.max(0, p.stockQuantity), 0), valueAtCost: inventoryAtCost,
+      valueAtRetail: inventoryAtRetail, potentialProfit: inventoryAtCost === null ? null : rc(inventoryAtRetail - inventoryAtCost),
+      turnoverRatio: null, turnoverReason: 'Historical average inventory is required to calculate turnover.' },
+    kpis: { revenueGrowth, avgTransactionValue: month.transactions === null ? null : month.transactions ? rc(month.netCollected / month.transactions) : 0,
+      projectedMonthlyRevenue: rc(month.netCollected / calendar.dayOfMonth * new Date(Date.UTC(calendar.year, calendar.month, 0)).getUTCDate()),
+      customerLifetimeValue: customers._count.id ? rc(Number((customers._sum.totalSpent || 0)) / customers._count.id) : 0,
+      breakEvenProgress: null, breakEvenReason: 'Break-even requires a configured fixed/variable expense model.' },
+    healthScores, healthScoreBasis: 'Heuristic indicators; unavailable when required history is missing.',
+    projectionBasis: "Estimate using this month's average daily collected sales; not a guarantee.",
+    cashFlow: { inflows: null, outflows: null, netCashFlow: null,
+      unavailableReason: 'Profit is not cash flow. Complete payment and expense settlement records are required.' },
+  } });
 });
 
 /**
@@ -1519,110 +588,34 @@ export const getBusinessHealth = asyncHandler(async (req: AuthRequest, res: Resp
  * POST /api/analytics/what-if
  */
 export const getWhatIfAnalysis = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { priceChange, costChange, volumeChange, locationId } = req.body;
-  const locationFilter = getLocationFilter(req, locationId as string);
-
-  const monthStart = new Date();
-  monthStart.setDate(1);
-
-  // Get current month data
-  const currentSales = await prisma.sale.aggregate({
-    where: { createdAt: { gte: monthStart }, status: 'COMPLETED', ...locationFilter },
-    _sum: { total: true },
-    _count: { id: true },
-  });
-
-  const currentRevenue = currentSales._sum.total || 0;
-  const currentTransactions = currentSales._count.id || 0;
-  const avgTransaction = currentTransactions > 0 ? rc(currentRevenue / currentTransactions) : 0;
-
-  // Assume 40% margin
-  const currentMargin = 0.4;
-  const currentCOGS = rc(currentRevenue * (1 - currentMargin));
-  const currentProfit = rc(currentRevenue - currentCOGS);
-
-  // Calculate scenarios
-  const scenarios = {
-    current: {
-      revenue: currentRevenue,
-      transactions: currentTransactions,
-      avgTransaction,
-      cogs: currentCOGS,
-      profit: currentProfit,
-      margin: currentMargin * 100,
+  const input = z.object({ priceChange: z.number().finite().min(-100).max(1000).default(0),
+    costChange: z.number().finite().min(-100).max(1000).default(0), volumeChange: z.number().finite().min(-100).max(1000).default(0),
+    locationId: z.string().optional() }).parse(req.body);
+  const locationFilter = getLocationFilter(req, input.locationId);
+  const calendar = await getReportCalendar(locationFilter);
+  const now = calendar.now;
+  const metrics = await getFinancialMetrics(locationFilter, { gte: calendar.monthStart(), lte: now });
+  const volume = 1 + input.volumeChange / 100;
+  const revenue = metrics.netSales === null ? null : rc(metrics.netSales * (1 + input.priceChange / 100) * volume);
+  const cogs = metrics.costOfGoodsSold === null ? null : rc(metrics.costOfGoodsSold * (1 + input.costChange / 100) * volume);
+  const profit = revenue === null || cogs === null ? null : rc(revenue - cogs);
+  const margin = profit !== null && revenue !== null && revenue > 0 ? rc(profit / revenue * 100) : null;
+  const transactions = metrics.transactions === null ? null : Math.round(metrics.transactions * volume);
+  const difference = { revenue: revenue === null || metrics.netSales === null ? null : rc(revenue - metrics.netSales),
+    transactions: transactions === null || metrics.transactions === null ? null : transactions - metrics.transactions, profit: profit === null || metrics.grossProfit === null ? null : rc(profit - metrics.grossProfit),
+    margin: margin === null || metrics.grossMargin === null ? null : rc(margin - metrics.grossMargin) };
+  res.json({ success: true, data: { inputs: input, costBasis: metrics.costBasis, unavailableReason: metrics.unavailableReason,
+    scenarios: {
+      current: { revenue: metrics.netSales, transactions: metrics.transactions, avgTransaction: metrics.netSales === null || metrics.transactions === null ? null : metrics.transactions ? rc(metrics.netSales / metrics.transactions) : 0,
+        cogs: metrics.costOfGoodsSold, profit: metrics.grossProfit, margin: metrics.grossMargin },
+      projected: { revenue, transactions, avgTransaction: revenue === null || transactions === null ? null : transactions ? rc(revenue / transactions) : 0, cogs, profit, margin },
+      difference,
     },
-    projected: {
-      revenue: 0,
-      transactions: 0,
-      avgTransaction: 0,
-      cogs: 0,
-      profit: 0,
-      margin: 0,
-    },
-    difference: {
-      revenue: 0,
-      transactions: 0,
-      profit: 0,
-      margin: 0,
-    },
-  };
-
-  // Price change affects revenue and margin
-  const priceMultiplier = 1 + (priceChange || 0) / 100;
-  // Cost change affects COGS
-  const costMultiplier = 1 + (costChange || 0) / 100;
-  // Volume change affects transactions (price elasticity assumed)
-  const volumeMultiplier = 1 + (volumeChange || 0) / 100;
-  // Simple price elasticity: 10% price increase = 5% volume decrease
-  const elasticityEffect = priceChange ? Math.pow(0.95, priceChange / 10) : 1;
-
-  const projectedTransactions = Math.round(currentTransactions * volumeMultiplier * elasticityEffect);
-  const projectedAvgTransaction = rc(avgTransaction * priceMultiplier);
-  const projectedRevenue = rc(projectedTransactions * projectedAvgTransaction);
-  const projectedCOGS = currentTransactions > 0 ? rc((currentCOGS / currentTransactions) * projectedTransactions * costMultiplier) : 0;
-  const projectedProfit = rc(projectedRevenue - projectedCOGS);
-  const projectedMargin = projectedRevenue > 0 ? rc((projectedProfit / projectedRevenue) * 100) : 0;
-
-  scenarios.projected = {
-    revenue: Math.round(projectedRevenue * 100) / 100,
-    transactions: projectedTransactions,
-    avgTransaction: Math.round(projectedAvgTransaction * 100) / 100,
-    cogs: Math.round(projectedCOGS * 100) / 100,
-    profit: Math.round(projectedProfit * 100) / 100,
-    margin: Math.round(projectedMargin * 10) / 10,
-  };
-
-  scenarios.difference = {
-    revenue: Math.round((projectedRevenue - currentRevenue) * 100) / 100,
-    transactions: projectedTransactions - currentTransactions,
-    profit: Math.round((projectedProfit - currentProfit) * 100) / 100,
-    margin: Math.round((projectedMargin - currentMargin * 100) * 10) / 10,
-  };
-
-  res.json({
-    success: true,
-    data: {
-      scenarios,
-      inputs: {
-        priceChange: priceChange || 0,
-        costChange: costChange || 0,
-        volumeChange: volumeChange || 0,
-      },
-      insights: [
-        scenarios.difference.profit > 0
-          ? `This scenario would increase profit by $${scenarios.difference.profit}`
-          : `This scenario would decrease profit by $${Math.abs(scenarios.difference.profit)}`,
-        priceChange && priceChange > 0
-          ? `Price increase may reduce volume by ~${Math.round((1 - elasticityEffect) * 100)}% due to elasticity`
-          : null,
-        scenarios.difference.margin > 2
-          ? 'Significant margin improvement expected'
-          : scenarios.difference.margin < -2
-          ? 'Warning: Margin compression expected'
-          : null,
-      ].filter(Boolean),
-    },
-  });
+    insights: [ "Scenario estimate based on this month's recorded pre-tax sales and costs. Volume changes only by your input; no demand elasticity is assumed.",
+      ...(metrics.unavailableReason ? [metrics.unavailableReason] : []),
+      ...(difference.profit !== null ? ['Projected gross profit change: $' + difference.profit.toFixed(2)] : []),
+    ],
+  } });
 });
 
 /**
@@ -1631,59 +624,34 @@ export const getWhatIfAnalysis = asyncHandler(async (req: AuthRequest, res: Resp
  */
 export const getRealtimeMetrics = asyncHandler(async (req: AuthRequest, res: Response) => {
   const locationFilter = getLocationFilter(req, req.query.locationId as string);
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const salesScope = { ...locationFilter, ...(req.user?.role === 'CASHIER' ? { userId: req.user.id } : {}) };
+  const calendar = await getReportCalendar(locationFilter);
+  const now = calendar.now;
+  const todayStart = calendar.day();
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
   const [
     todaySales,
-    todayRefunds,
     lastHourSales,
     pendingSales,
     activeShifts,
     recentTransactions
   ] = await Promise.all([
-    // Today's totals
-    prisma.sale.aggregate({
-      where: {
-        createdAt: { gte: todayStart },
-        status: 'COMPLETED',
-        ...locationFilter,
-      },
-      _sum: { total: true },
-      _count: { id: true },
-    }),
-    // Today's refunds (Refund table — includes partial refunds)
-    prisma.refund.aggregate({
-      where: {
-        createdAt: { gte: todayStart },
-        ...(locationFilter.locationId ? { sale: { locationId: locationFilter.locationId } } : {}),
-      },
-      _sum: { amount: true },
-    }),
-    // Last hour
-    prisma.sale.aggregate({
-      where: {
-        createdAt: { gte: oneHourAgo },
-        status: 'COMPLETED',
-        ...locationFilter,
-      },
-      _sum: { total: true },
-      _count: { id: true },
-    }),
+    getFinancialMetrics(salesScope, { gte: todayStart, lte: now }),
+    getFinancialMetrics(salesScope, { gte: oneHourAgo, lte: now }),
     // Pending sales
     prisma.sale.count({
-      where: { status: 'PENDING', ...locationFilter },
+      where: { status: 'PENDING', ...salesScope },
     }),
     // Active shifts
     prisma.shift.count({
-      where: { clockOutAt: null, ...locationFilter },
+      where: { clockOutAt: null, ...salesScope },
     }),
     // Recent transactions
     prisma.sale.findMany({
       take: 5,
       orderBy: { createdAt: 'desc' },
-      where: { status: 'COMPLETED', ...locationFilter },
+      where: { status: { in: ['COMPLETED', 'REFUNDED'] }, createdAt: { lte: now }, ...salesScope },
       select: {
         id: true,
         saleNumber: true,
@@ -1695,35 +663,31 @@ export const getRealtimeMetrics = asyncHandler(async (req: AuthRequest, res: Res
     }),
   ]);
 
-  // Low stock alerts - in memory check
-  const productsForLowStock = await prisma.product.findMany({
+  const lowStockCount = await prisma.product.count({
     where: {
       isActive: true,
       trackInventory: true,
+      sku: { not: 'MISC-001' },
+      stockQuantity: { lte: prisma.product.fields.lowStockAlert },
       ...locationFilter,
     },
-    select: {
-      stockQuantity: true,
-      lowStockAlert: true,
-    },
   });
-  const lowStockCount = productsForLowStock.filter(p => p.stockQuantity <= p.lowStockAlert).length;
 
-  const todayCount = todaySales._count?.id || 0;
-  const todayTotal = rc((todaySales._sum?.total || 0) - (todayRefunds._sum?.amount || 0));
+  const todayCount = todaySales.transactions;
+  const todayTotal = todaySales.netCollected;
 
   res.json({
     success: true,
     data: {
       today: {
         revenue: todayTotal,
-        profit: 0,
+        profit: todaySales.grossProfit,
         transactions: todayCount,
-        avgOrderValue: todayCount > 0 ? rc(todayTotal / todayCount) : 0,
+        avgOrderValue: todayCount === null ? null : todayCount > 0 ? rc(todaySales.grossCollected / todayCount) : 0,
       },
       lastHour: {
-        revenue: lastHourSales._sum?.total || 0,
-        transactions: lastHourSales._count?.id || 0,
+        revenue: lastHourSales.netCollected,
+        transactions: lastHourSales.transactions,
       },
       alerts: {
         pendingSales,

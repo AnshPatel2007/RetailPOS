@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { ManagementPage } from '@/components/common/Workspace';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { purchaseOrderService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -13,8 +15,11 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import { formatCurrency } from '@/lib/utils';
-import { ClipboardList, RefreshCw, ShoppingCart, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { ClipboardList, ShoppingCart, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import { useAuthStore } from '@/store/authStore';
+import { can } from '@/lib/capabilities';
 
 interface SuggestedItem {
   productId: string;
@@ -42,6 +47,11 @@ interface SupplierGroup {
  * editable quantities and one-click PO creation per supplier.
  */
 export const SuggestedOrders: React.FC = () => {
+  const { locationId } = useEffectiveLocation();
+  const role = useAuthStore(state => state.user?.role);
+  const canManage = can(role, 'inventory.manage');
+  const requestVersion = useRef(0);
+  const [loadError, setLoadError] = useState('');
   const [groups, setGroups] = useState<SupplierGroup[]>([]);
   const [meta, setMeta] = useState<{ velocityWindowDays: number; coverTargetDays: number } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,27 +61,31 @@ export const SuggestedOrders: React.FC = () => {
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
   const [createdFor, setCreatedFor] = useState<Set<string>>(new Set());
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++requestVersion.current;
+    if (!quiet) { setLoading(true); setLoadError(''); }
     try {
-      const res = await purchaseOrderService.getSuggested();
+      const res = await purchaseOrderService.getSuggested(locationId || undefined, signal);
+      if (version !== requestVersion.current || !active()) return;
+      setLoadError('');
       setGroups(res.data.data.suppliers);
       setMeta({
         velocityWindowDays: res.data.data.velocityWindowDays,
         coverTargetDays: res.data.data.coverTargetDays,
       });
-      setQtyOverrides({});
-      setExcluded(new Set());
-      setCreatedFor(new Set());
-    } catch {
-      toast.error('Failed to load reorder suggestions');
+      if (!quiet) { setQtyOverrides({}); setExcluded(new Set()); setCreatedFor(new Set()); }
+    } catch (failure) {
+      if (quiet) throw failure;
+      if (version === requestVersion.current) setLoadError('Unable to load reorder suggestions. Try again.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
-  }, []);
+  }, [locationId]);
 
   useEffect(() => {
+    setGroups([]); setMeta(null); setQtyOverrides({}); setExcluded(new Set()); setCreatedFor(new Set());
     load();
+    return () => { requestVersion.current++; };
   }, [load]);
 
   const qtyFor = (item: SuggestedItem) => qtyOverrides[item.productId] ?? item.suggestedQty;
@@ -83,7 +97,7 @@ export const SuggestedOrders: React.FC = () => {
     Math.round(activeItems(g).reduce((s, i) => s + i.cost * qtyFor(i), 0) * 100) / 100;
 
   const handleCreatePO = async (g: SupplierGroup) => {
-    if (!g.supplierId) return;
+    if (!canManage || !g.supplierId || creatingFor) return;
     const items = activeItems(g).map((i) => ({
       productId: i.productId,
       quantity: qtyFor(i),
@@ -109,8 +123,10 @@ export const SuggestedOrders: React.FC = () => {
     }
   };
 
+  const autoRefresh = useLegacyPageRefresh((current, signal) => load(true, current, signal), { key: locationId || 'all', paused: loading || Object.keys(qtyOverrides).length > 0 || excluded.size > 0 || !!creatingFor });
+
   return (
-    <div className="p-8">
+    <ManagementPage className="">
       <PageHeader
         title="Suggested Orders"
         subtitle={
@@ -119,24 +135,20 @@ export const SuggestedOrders: React.FC = () => {
             : 'What to reorder, from whom, and how much'
         }
         icon={ClipboardList}
-        actions={
-          <Button variant="outline" size="sm" onClick={load} title="Refresh">
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        }
       />
+      {autoRefresh.notice}
 
       {loading ? (
         <div className="flex justify-center py-12">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
         </div>
-      ) : groups.length === 0 ? (
+      ) : loadError ? (<Card><CardContent className="p-6"><div role="alert"><p>{loadError}</p><Button className="mt-3" variant="outline" onClick={() => void load()}>Retry</Button></div></CardContent></Card>) : groups.length === 0 ? (
         <Card>
           <CardContent className="py-10">
             <EmptyState
               icon={CheckCircle2}
               title="Nothing needs reordering"
-              hint="Every tracked product has healthy stock for the next week"
+              hint="No reorder suggestions were found using the available stock and sales history."
             />
           </CardContent>
         </Card>
@@ -156,10 +168,10 @@ export const SuggestedOrders: React.FC = () => {
                         {' · '}est. {formatCurrency(groupTotal(g))}
                       </p>
                     </div>
-                    {g.supplierId ? (
+                    {!canManage ? <span className="text-xs text-muted-foreground">Store preview</span> : g.supplierId ? (
                       done ? (
                         <span className="flex items-center gap-1.5 text-success text-sm font-medium">
-                          <CheckCircle2 className="h-4 w-4" /> PO created
+                          <CheckCircle2 className="h-4 w-4" /> Draft created
                         </span>
                       ) : (
                         <Button
@@ -169,7 +181,7 @@ export const SuggestedOrders: React.FC = () => {
                           disabled={creatingFor !== null || activeItems(g).length === 0}
                         >
                           <ShoppingCart className="h-4 w-4 mr-1.5" />
-                          {creatingFor === g.supplierId ? 'Creating...' : `Create PO (${activeItems(g).length})`}
+                          {creatingFor === g.supplierId ? 'Creating...' : `Create draft (${activeItems(g).length})`}
                         </Button>
                       )
                     ) : (
@@ -180,7 +192,7 @@ export const SuggestedOrders: React.FC = () => {
                   </div>
 
                   <div className="border rounded-lg overflow-hidden">
-                    <Table>
+                    <Table scrollLabel="Suggested Orders records">
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-8"></TableHead>
@@ -216,7 +228,7 @@ export const SuggestedOrders: React.FC = () => {
                                 <span className="font-medium">{item.name}</span>
                                 <span className="text-muted-foreground text-xs ml-2">{item.sku}</span>
                                 {item.urgent && (
-                                  <span className="ml-2 inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
+                                  <span className="ml-2 inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
                                     <AlertTriangle className="h-2.5 w-2.5" />
                                     {item.stock === 0 ? 'OUT' : 'URGENT'}
                                   </span>
@@ -262,6 +274,6 @@ export const SuggestedOrders: React.FC = () => {
           })}
         </div>
       )}
-    </div>
+    </ManagementPage>
   );
 };

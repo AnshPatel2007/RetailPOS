@@ -1,3 +1,4 @@
+import { numeric } from '../../utils/money';
 /**
  * Sale Workflow Integration Tests
  *
@@ -200,7 +201,7 @@ describe('Sale Workflow Integration Tests', () => {
         where: { id: testData.customer.id },
       });
       expect(customer!.loyaltyPoints).toBe(43); // floor(43.98)
-      expect(customer!.totalSpent).toBe(43.98);
+      expect(numeric(customer!.totalSpent)).toBe(43.98);
       expect(customer!.visitCount).toBe(1);
     });
 
@@ -253,7 +254,7 @@ describe('Sale Workflow Integration Tests', () => {
       const cardRes = await api
         .post('/api/gift-cards')
         .withAuth(adminToken)
-        .withBody({ amount: 50 })
+        .withBody({ amount: 50, paymentMethod: 'PROMOTIONAL', notes: 'Test fixture grant', idempotencyKey: randomUUID() })
         .expectStatus(201)
         .execute();
       cardCode = cardRes.body.data.code;
@@ -268,13 +269,13 @@ describe('Sale Workflow Integration Tests', () => {
       });
 
       const card = await prisma.giftCard.findUnique({ where: { code: cardCode } });
-      expect(card!.currentBalance).toBe(28.01); // 50 - 21.99
+      expect(numeric(card!.currentBalance)).toBe(28.01); // 50 - 21.99
 
       const txn = await prisma.giftCardTransaction.findFirst({
         where: { giftCardId: card!.id, type: 'REDEEM' },
       });
       expect(txn).not.toBeNull();
-      expect(txn!.amount).toBe(-21.99);
+      expect(numeric(txn!.amount)).toBe(-21.99);
     });
 
     it('should reject payment from a nonexistent gift card and roll back the sale', async () => {
@@ -325,6 +326,7 @@ describe('Sale Workflow Integration Tests', () => {
   describe('Refunds', () => {
     beforeEach(async () => {
       await clockIn(cashierToken);
+      await clockIn(adminToken);
     });
 
     it('should refund selected items, restock them, and track refundable balance', async () => {
@@ -391,7 +393,7 @@ describe('Sale Workflow Integration Tests', () => {
       const cardRes = await api
         .post('/api/gift-cards')
         .withAuth(adminToken)
-        .withBody({ amount: 50 })
+        .withBody({ amount: 50, paymentMethod: 'PROMOTIONAL', notes: 'Test fixture grant', idempotencyKey: randomUUID() })
         .expectStatus(201)
         .execute();
       const cardCode = cardRes.body.data.code;
@@ -415,16 +417,16 @@ describe('Sale Workflow Integration Tests', () => {
         .execute();
 
       const card = await prisma.giftCard.findUnique({ where: { code: cardCode } });
-      expect(card!.currentBalance).toBe(50); // fully restored
+      expect(numeric(card!.currentBalance)).toBe(50); // fully restored
 
       const refundTxn = await prisma.giftCardTransaction.findFirst({
         where: { giftCardId: card!.id, type: 'REFUND' },
       });
       expect(refundTxn).not.toBeNull();
-      expect(refundTxn!.amount).toBe(21.99);
+      expect(numeric(refundTxn!.amount)).toBe(21.99);
     });
 
-    it('should restore inventory on a money-only full refund', async () => {
+    it('should retain stock and allow later item returns after a money-only full refund', async () => {
       const sale = await makeCashSale(cashierToken, 2);
 
       await api
@@ -435,10 +437,10 @@ describe('Sale Workflow Integration Tests', () => {
         .execute();
 
       const product = await prisma.product.findUnique({ where: { id: testData.product.id } });
-      expect(product!.stockQuantity).toBe(100);
+      expect(product!.stockQuantity).toBe(98);
 
       const saleAfter = await prisma.sale.findUnique({ where: { id: sale.id } });
-      expect(saleAfter!.status).toBe('REFUNDED');
+      expect(saleAfter!.status).toBe('COMPLETED'); // Physical items have not been returned.
     });
 
     it('should reject refunds beyond the refundable balance', async () => {
@@ -458,6 +460,7 @@ describe('Sale Workflow Integration Tests', () => {
   describe('Voids', () => {
     beforeEach(async () => {
       await clockIn(cashierToken);
+      await clockIn(adminToken);
     });
 
     it('should void a sale, restore stock, and reverse customer stats', async () => {
@@ -476,7 +479,7 @@ describe('Sale Workflow Integration Tests', () => {
       expect(product!.stockQuantity).toBe(100);
 
       const customer = await prisma.customer.findUnique({ where: { id: testData.customer.id } });
-      expect(customer!.totalSpent).toBe(0);
+      expect(numeric(customer!.totalSpent)).toBe(0);
       expect(customer!.loyaltyPoints).toBe(0);
       expect(customer!.visitCount).toBe(0);
     });
@@ -503,6 +506,7 @@ describe('Sale Workflow Integration Tests', () => {
   describe('Reports after refunds', () => {
     beforeEach(async () => {
       await clockIn(cashierToken);
+      await clockIn(adminToken);
     });
 
     it('should subtract partial refunds from overall report revenue and count them from the refunds table', async () => {
@@ -549,7 +553,7 @@ describe('Sale Workflow Integration Tests', () => {
     it('should not double-count a fully refunded sale in overall revenue', async () => {
       const sale = await makeCashSale(cashierToken, 2); // total 43.98
 
-      // Full money-only refund → sale becomes REFUNDED
+      // The full money refund reduces revenue; physical units remain outstanding.
       await api
         .post(`/api/sales/${sale.id}/refund`)
         .withAuth(adminToken)
@@ -558,7 +562,7 @@ describe('Sale Workflow Integration Tests', () => {
         .execute();
 
       const saleAfter = await prisma.sale.findUnique({ where: { id: sale.id } });
-      expect(saleAfter!.status).toBe('REFUNDED');
+      expect(saleAfter!.status).toBe('COMPLETED');
 
       const report = await api
         .get('/api/reports/overall')

@@ -1,3 +1,7 @@
+import { today as calendarToday } from '@internationalized/date';
+import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
+import { can } from '@/lib/capabilities';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { logger } from '../../utils/logger';
 import {
@@ -66,10 +70,13 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
   onUpdate,
 }) => {
   const { user } = useAuthStore();
+  const timezone = useCalendarTimezone();
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const loadVersion = useRef(0);
   const [saving, setSaving] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(calendarToday(timezone).toString());
   const [entries, setEntries] = useState<DailyEntryRow[]>([]);
   const [dayStatus, setDayStatus] = useState<DayStatus>({
     totalTicketsSold: 0,
@@ -93,9 +100,9 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
 
   // Helper to check if selected date is in the past
   const isPastDate = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = calendarToday(timezone).toString();
     return selectedDate < today;
-  }, [selectedDate]);
+  }, [selectedDate, timezone]);
 
   // Refs for keyboard navigation
   const closeInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
@@ -118,7 +125,9 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
   }, []);
 
   useEffect(() => {
-    loadDailyData();
+    const controller = new AbortController();
+    void loadDailyData(false, () => true, controller.signal);
+    return () => { controller.abort(); loadVersion.current++; };
   }, [selectedDate, locationId]);
 
   // Auto-save functionality - immediate save after changes
@@ -143,7 +152,9 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
     }
   }, [hasUnsavedChanges, entries, cashoutAmount]);
 
-  const loadDailyData = async () => {
+  const loadDailyData = async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++loadVersion.current;
+    const current = () => version === loadVersion.current && !signal?.aborted && active();
     const startTime = performance.now();
     logger.info('Loading daily lottery data', {
       selectedDate,
@@ -151,7 +162,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
       user: user?.email,
     });
 
-    setLoading(true);
+    if (!quiet) { setLoading(true); setLoadError(''); }
     try {
       const params: any = { entryDate: selectedDate };
       if (locationId) {
@@ -162,22 +173,22 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
       const ticketTypesRes = await lotteryService.getTicketTypes({
         ...params,
         isActive: 'true',
-      });
+      }, signal);
       const ticketTypes: TicketType[] = ticketTypesRes.data.data || [];
       logger.info('Ticket types loaded', { count: ticketTypes.length });
 
       logger.debug('Fetching carry-forward data');
-      const carryForwardRes = await lotteryService.getCarryForwardInfo(params);
+      const carryForwardRes = await lotteryService.getCarryForwardInfo(params, signal);
       const carryForwardData = carryForwardRes.data.data || [];
       logger.info('Carry-forward data loaded', { count: carryForwardData.length });
 
       logger.debug('Fetching existing entries');
-      const entriesRes = await lotteryService.getDailyEntries(params);
+      const entriesRes = await lotteryService.getDailyEntries(params, signal);
       const existingEntries = entriesRes.data.data || [];
       logger.info('Existing entries loaded', { count: existingEntries.length });
 
       logger.debug('Fetching day status');
-      const dayStatusRes = await lotteryService.getDayStatus(params);
+      const dayStatusRes = await lotteryService.getDayStatus(params, signal);
       const status = dayStatusRes.data.data;
       logger.info('Day status loaded', {
         isClosed: status?.isClosed,
@@ -208,6 +219,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
         };
       });
 
+      if (!current()) return;
       setEntries(rows);
       logger.info('Entry rows prepared', { rowCount: rows.length });
 
@@ -246,6 +258,9 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
         entriesCount: rows.length,
       });
     } catch (error: any) {
+      if (quiet) throw error;
+      if (!current()) return;
+      setLoadError('Lottery entries are unavailable. Try again.');
       logger.error('Failed to load daily data', {
         error: error.message,
         stack: error.stack,
@@ -254,9 +269,14 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
       });
       toast.error('Failed to load daily data');
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   };
+
+  const updates = useLegacyPageRefresh((current, signal) => loadDailyData(true, current, signal), {
+    key: JSON.stringify([selectedDate, locationId]),
+    paused: loading || saving || autoSaving || hasUnsavedChanges || !!confirmState,
+  });
 
   const validateEntry = useCallback((row: DailyEntryRow): string | undefined => {
     if (row.closeNumber < row.openNumber) {
@@ -589,6 +609,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
     [entries]
   );
 
+  if (loadError) return <div role="alert" className="flex flex-wrap items-center gap-3 rounded border border-destructive/30 p-4"><p>{loadError}</p><Button variant="outline" onClick={() => void loadDailyData()}>Retry lottery entries</Button></div>;
   if (loading) {
     return (
       <Card className="p-8">
@@ -609,6 +630,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
 
   return (
     <div className="space-y-6">
+      {updates.notice}
       {/* Success Toast - Professional */}
       {showSuccessToast && !autoSaving && lastSaved && (
         <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-bottom-5">
@@ -742,7 +764,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                 <label htmlFor="lottery-date-selector" className="text-xs font-medium text-muted-foreground">
                   Select Date
                 </label>
-                <input
+                <Input
                   id="lottery-date-selector"
                   type="date"
                   value={selectedDate}
@@ -753,19 +775,9 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                       user: user?.email,
                     });
                   }}
-                  max={new Date().toISOString().split('T')[0]}
+                  max={calendarToday(timezone).toString()}
                   disabled={loading}
-                  className={cn(
-                    "lottery-date-selector",
-                    "px-4 py-2.5 rounded-lg border-2 font-medium text-sm",
-                    "transition-all duration-200",
-                    "focus:outline-none focus:ring-2 focus:ring-offset-2",
-                    isPastDate
-                      ? "bg-warning/10 border-warning/30 text-warning focus:border-warning focus:ring-warning/20"
-                      : "bg-card border-primary/40 text-foreground focus:border-ring focus:ring-ring/30",
-                    "hover:border-info hover:shadow-sm",
-                    "disabled:opacity-50 disabled:cursor-not-allowed"
-                  )}
+                  className="w-44"
                 />
               </div>
             </div>
@@ -884,7 +896,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                 <tr>
                   <td colSpan={7} className="px-3 py-8 text-center">
                     <p className="text-sm text-muted-foreground">
-                      No ticket types configured. Please add ticket types in the <strong>Ticket Types</strong> tab first.
+                      No ticket types configured. A manager can add them in <strong>Ticket Setup</strong>.
                     </p>
                   </td>
                 </tr>
@@ -970,7 +982,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
           </div>
 
           {/* Action Section */}
-          {!isReadOnly && !dayStatus.isClosed && (
+          {!isReadOnly && can(user?.role, 'lottery.manage') && !dayStatus.isClosed && (
             <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center pt-4 border-t border-border">
               <div className="flex items-start gap-2 text-xs text-muted-foreground">
                 <Info className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
@@ -999,7 +1011,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
 
           {/* Reopen (ADMIN+) */}
           {!isReadOnly && dayStatus.isClosed && dayStatus.id &&
-            (user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN') && (
+            can(user?.role, 'lottery.reopen') && (
             <div className="flex justify-end pt-4 border-t border-border">
               <Button
                 variant="outline"

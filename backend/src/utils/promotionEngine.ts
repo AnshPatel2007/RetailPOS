@@ -1,9 +1,8 @@
+import { roundMoney } from './moneyNumbers';
 /**
  * Pure promotion evaluation engine.
  *
- * IMPORTANT: this module is duplicated at frontend/src/lib/promotionEngine.ts so the
- * cart preview matches the server-authoritative totals exactly. Keep both copies
- * identical (dependency-free, deterministic float math) when editing either one.
+ * This pure contract is also imported by the register for matching previews.
  *
  * Semantics:
  * - Units are never shared between promotions (no stacking). Higher `priority` wins,
@@ -60,7 +59,7 @@ export interface PromoLineResult {
 /** Hard cap on expanded units so a bogus quantity can't stall the request */
 const MAX_UNITS = 10000;
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+const round2 = roundMoney;
 
 /**
  * Schedule check. `now` defaults to the current time; pass the store-local time if

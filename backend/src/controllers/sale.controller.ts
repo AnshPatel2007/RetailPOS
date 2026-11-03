@@ -1,15 +1,36 @@
+import { lineMoney, formatUnitPrice, toCents } from '../utils/moneyNumbers';
+import { lockInventory, moveInventory } from '../services/inventory.service';
+import { saleCost, postNonstockCost } from '../services/inventoryCost.service';
+import { randomUUID } from 'crypto';
+import { lockDrawer, postDrawerEntry, saleTenderAmounts, dollars } from '../services/drawer.service';
+import { allocateSale } from '../services/saleAllocation.service';
+import { priceSaleItems } from '../services/salePricing.service';
+import { checkoutTotals } from '../services/checkoutTotals.service';
+import { assertCheckoutTendersAvailable, assertConfiguredTenders } from '../services/tenderAvailability.service';
+import { publicStoreSettings } from '../validators/storeSettings.validator';
+import { z } from 'zod';
+import { requireTransactionApproval } from '../services/managerApproval.service';
 import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
-import { PaymentMethod, SaleStatus } from '@prisma/client';
+import { PaymentMethod, SaleStatus, Prisma } from '@prisma/client';
+import { refundSaleInTransaction, voidSaleInTransaction } from '../services/saleReversal.service';
+import { bulkVoid } from '../services/bulkVoid.service';
+import { bulkRefund, previewBulkRefund } from '../services/bulkRefund.service';
+import { generateSaleNumber } from '../utils/saleNumber';
+import { nextDocumentSequence } from '../services/documentNumber.service';
+import { getReportCalendar } from '../services/reportDates.service';
+import { assertOwnsRecord, assertCanReadRecord } from '../utils/locationFilter.util';
 import { createDateFilter } from '../utils/dateFilter.util';
-import { applyPromotions, isPromotionActiveNow } from '../utils/promotionEngine';
-import { emitWebhook } from '../services/webhook.service';
+import { isPromotionActiveNow } from '../utils/promotionEngine';
+import { queueWebhook } from '../services/webhook.service';
+import { queueLowStockEmails, queueEmail, emailContentKey, EmailPayload } from '../services/queuedEmail.service';
 import { businessConfig } from '../config/business.config';
-import { sendEmail, sendLowStockAlert } from '../utils/email';
 import { config } from '../config';
+import { lockOfflineCheckout, offlineDisposition } from '../services/offlineReconciliation.service';
+import {getRefundTenderOptions} from '../services/refundTenders.service';
 
 function calculateLoyaltyTier(points: number): string {
   const tiers = businessConfig.customer.loyaltyTiers;
@@ -19,28 +40,11 @@ function calculateLoyaltyTier(points: number): string {
 }
 
 /**
- * Generate unique sale number
- */
-const generateSaleNumber = async (locationId: string | null): Promise<string> => {
-  const date = new Date();
-  const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
-  const count = await prisma.sale.count({
-    where: {
-      createdAt: {
-        gte: new Date(date.setHours(0, 0, 0, 0)),
-      },
-      ...(locationId ? { locationId } : {}),
-    },
-  });
-  return `SALE-${dateStr}-${(count + 1).toString().padStart(4, '0')}`;
-};
-
-/**
  * Create sale
  * POST /api/sales
  */
 export const createSale = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { customerId, items, paymentMethod, amountPaid, notes, receiptEmail, payments, pointsRedeemed, idempotencyKey, ageVerification } = req.body;
+  const { customerId, items, paymentMethod, amountPaid, notes, receiptEmail, payments, pointsRedeemed, idempotencyKey, ageVerification, offlineCreatedAt, offlineShiftId, expectedTotal } = req.body;
 
   if (!req.user) {
     throw new AppError('User not authenticated', 401);
@@ -53,37 +57,29 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       include: { items: { include: { product: true } }, payments: true, customer: true, user: { select: { id: true, firstName: true, lastName: true } } },
     });
     if (existing) {
+      assertOwnsRecord(req, existing.locationId);
+      if (existing.userId !== req.user.id) throw new AppError('Checkout belongs to another cashier', 403);
       res.status(200).json({ success: true, data: existing });
       return;
     }
   }
 
-  // Get current shift — required for sale creation
-  const currentShift = await prisma.shift.findFirst({
-    where: {
-      userId: req.user.id,
-      isClosed: false,
-    },
-    orderBy: {
-      clockInAt: 'desc',
-    },
-  });
-
-  if (!currentShift) {
-    throw new AppError('You must clock in before creating a sale', 400);
+  assertCheckoutTendersAvailable({ paymentMethod, payments });
+  const saleTime = offlineCreatedAt ? new Date(offlineCreatedAt) : new Date();
+  if (isNaN(saleTime.getTime()) || saleTime.getTime() > Date.now() + 60000) throw new AppError('Invalid checkout time', 400);
+  if (offlineCreatedAt && (!offlineShiftId || !idempotencyKey || typeof expectedTotal !== 'number' || paymentMethod !== 'CASH' || pointsRedeemed || payments?.some((p: any) => p.paymentMethod !== 'CASH'))) {
+    throw new AppError('Offline sales require the original shift, checkout key, total and cash-only payment without loyalty redemption', 400);
   }
-
-  // Card surcharge rate + tax rate both come from the location config, never
-  // from the register — fetched once for the whole transaction (not per item)
-  let locationTaxRate = 0;
-  let surchargeRate = 0;
-  if (req.user.locationId) {
-    const loc = await prisma.location.findUnique({
-      where: { id: req.user.locationId },
-      select: { cardSurchargePercent: true, taxRate: true },
-    });
-    surchargeRate = loc?.cardSurchargePercent || 0;
-    locationTaxRate = loc?.taxRate || 0;
+  const currentShift = await prisma.shift.findFirst({
+    where: { userId: req.user.id, locationId: req.user.locationId, ...(offlineCreatedAt ? { id: offlineShiftId } : { isClosed: false }) },
+    orderBy: { clockInAt: 'desc' },
+  });
+  if (!currentShift) throw new AppError('You must clock in before creating a sale', 400);
+  if (req.body.expectedShiftId && currentShift.id !== req.body.expectedShiftId) {
+    throw new AppError('The original drawer session has changed. This payment requires manager reconciliation; do not charge the customer again.', 409);
+  }
+  if (offlineCreatedAt && (saleTime < currentShift.clockInAt || (currentShift.clockOutAt && saleTime > currentShift.clockOutAt))) {
+    throw new AppError('Checkout time is outside the original shift', 400);
   }
 
   // Separate misc items (no real productId) from regular items
@@ -167,7 +163,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       if (isNaN(birthDate.getTime())) {
         throw new AppError('Invalid birth date', 400);
       }
-      const now = new Date();
+      const now = saleTime;
       let age = now.getFullYear() - birthDate.getFullYear();
       const beforeBirthday =
         now.getMonth() < birthDate.getMonth() ||
@@ -210,19 +206,15 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
   const promotionRows = await prisma.promotion.findMany({
     where: {
       isActive: true,
-      OR: [{ locationId: null }, { locationId: req.user.locationId ?? null }],
+      locationId: req.user.locationId,
     },
   });
-  const activePromotions = promotionRows.filter((p) => isPromotionActiveNow(p));
-
-  // Price overrides are only honored for manager+ roles (UI hides the control for
-  // cashiers, but the API must enforce it too)
-  const canOverridePrice = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(req.user.role);
+  const activePromotions = promotionRows.filter((p) => isPromotionActiveNow(p, saleTime));
 
   // Split payments must add up to the amount paid
   if (payments && payments.length > 0) {
     const paymentsSum = Math.round(payments.reduce((sum: number, p: { amount: number }) => sum + p.amount, 0) * 100) / 100;
-    if (Math.abs(paymentsSum - amountPaid) > 0.01) {
+    if (toCents(paymentsSum) !== toCents(amountPaid)) {
       throw new AppError(
         `Split payments sum to $${paymentsSum.toFixed(2)} but amount paid is $${amountPaid.toFixed(2)}`,
         400
@@ -237,14 +229,39 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     user: { select: { id: true, firstName: true, lastName: true } },
   } as const;
 
-  // Sale numbers are count-based, so two registers checking out at the same moment
-  // can generate the same number — retry with a fresh number on unique collision.
-  let sale: any;
+  const saleCalendar = await getReportCalendar({ locationId: req.user.locationId || undefined }, saleTime);
+  // Preserve the checkout's store date across retries, including offline uploads.
+  let sale: any, replayed = false;
   for (let attempt = 1; ; attempt++) {
-    const saleNumber = await generateSaleNumber(req.user.locationId);
+    const saleNumber = generateSaleNumber(saleTime, saleCalendar.timezone, await nextDocumentSequence());
     try {
   // Create sale with transaction — re-fetch products inside to prevent race conditions
   sale = await prisma.$transaction(async (tx) => {
+    if (idempotencyKey) {
+      await lockOfflineCheckout(tx, idempotencyKey);
+      const recorded = await tx.sale.findUnique({ where: { idempotencyKey }, include: saleInclude });
+      if (recorded) {
+        assertOwnsRecord(req, recorded.locationId);
+        if (recorded.userId !== req.user!.id) throw new AppError('Checkout belongs to another cashier', 403);
+        replayed = true;
+        return recorded;
+      }
+      if (await offlineDisposition(tx, req.user!.locationId!, idempotencyKey, true)) throw new AppError('This checkout is held or reconciled by a manager. Review its recorded disposition before saving or taking another payment.', 409);
+    }
+    const lockedShift = await lockDrawer(tx, currentShift.id);
+    if (lockedShift.userId !== req.user!.id || lockedShift.locationId !== req.user!.locationId) throw new AppError('Shift does not belong to this register session', 403);
+    if (lockedShift.isClosed && !offlineCreatedAt) throw new AppError('Your shift has closed. Clock in again before charging this sale.', 409);
+    if (offlineCreatedAt && (saleTime < lockedShift.clockInAt || (lockedShift.clockOutAt && saleTime > lockedShift.clockOutAt))) throw new AppError('Checkout time is outside the original shift', 400);
+    // Use one lock order for sales and reversals: drawer, products, customer, tenders.
+    // Price/stock/loyalty checks below must use facts protected until commit.
+    await lockInventory(tx, regularItems.map((item: any) => item.productId));
+    if (customerId) {
+      await tx.$queryRaw`SELECT id FROM customers WHERE id = ${customerId} FOR UPDATE`;
+      const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { locationId: true, isActive: true } });
+      if (!customer) throw new AppError('Customer not found', 404);
+      assertCanReadRecord(req, customer.locationId);
+      if (!customer.isActive) throw new AppError('This customer is inactive', 400);
+    }
     // Re-fetch all products INSIDE transaction for accurate stock — scoped to
     // the cashier's own store, same as the pre-check fetch above
     const freshProducts = regularItems.length > 0
@@ -257,146 +274,43 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       : [];
     const freshProductMap = new Map(freshProducts.map(p => [p.id, p]));
 
-    // Validate and calculate totals using fresh data
-    let subtotal = 0;
-    let totalTax = 0;
-    let totalDiscount = 0;
+    // Evaluate permission against the same product facts used for pricing.
+    const needsApproval = items.some((item: any) => item.discount > 0 || (item.priceOverride && !freshProductMap.get(item.productId)?.priceEmbedded && !item.productId.startsWith('misc-')));
+    if (needsApproval) await requireTransactionApproval(req, tx, 'checkout.override');
 
-    // Pre-pass: resolve products and verified prices so promotions evaluate
-    // against the same numbers the sale is priced with
-    const pricedItems = items.map((item: any, index: number) => {
-      const isMisc = !item.productId || item.productId.startsWith('misc-');
-      const product = isMisc ? miscProduct : freshProductMap.get(item.productId);
+    const currentLocation = await tx.location.findUniqueOrThrow({ where: { id: req.user!.locationId! }, select: { taxRate: true, cardSurchargePercent: true, settings: true, isActive: true } });
+    if (!currentLocation.isActive) throw new AppError('This store is inactive', 409);
+    let { subtotal, totalTax, totalDiscount, total, itemsWithDetails } = priceSaleItems(items, freshProductMap, miscProduct, activePromotions, Number(currentLocation.taxRate), true);
 
-      if (!product) {
-        throw new AppError(`Product not found: ${item.productId}. It may have been deleted.`, 404);
-      }
-
-      if (!isMisc && product.trackInventory && product.stockQuantity < item.quantity) {
-        throw new AppError(
-          `Insufficient stock for "${product.name}": requested ${item.quantity}, only ${product.stockQuantity} available`,
-          400
-        );
-      }
-
-      // Use the ACTUAL product price from DB, not the frontend-supplied price
-      const verifiedPrice = isMisc ? item.price : product.price;
-      // Honor the override flag for manager+ users, and for price-embedded-barcode
-      // products (deli/scale items whose price comes from the label, any role)
-      const itemPrice =
-        item.priceOverride && (canOverridePrice || product.priceEmbedded)
-          ? item.price
-          : verifiedPrice;
-
-      return { item, isMisc, product, itemPrice, key: String(index) };
-    });
-
-    // Promotions apply to real catalog items only (misc lines have no identity)
-    const promoResults = applyPromotions(
-      pricedItems
-        .filter((pi: any) => !pi.isMisc)
-        .map((pi: any) => ({
-          key: pi.key,
-          productId: pi.product.id,
-          categoryId: pi.product.categoryId,
-          unitPrice: pi.itemPrice,
-          quantity: pi.item.quantity,
-        })),
-      activePromotions
-    );
-
-    // SNAP/EBT can only pay for eligible items — accumulate their share of the total
-    let ebtEligibleTotal = 0;
-
-    const itemsWithDetails = pricedItems.map(({ item, isMisc, product, itemPrice, key }: any) => {
-      const itemSubtotal = itemPrice * item.quantity;
-      const manualDiscount = Math.min(item.discount || 0, itemSubtotal);
-      const promo = promoResults.get(key);
-      // Combined discount can't exceed the line total; the promo portion absorbs the clamp
-      const itemDiscount = Math.min(manualDiscount + (promo?.discount || 0), itemSubtotal);
-      const promoDiscount = Math.round((itemDiscount - manualDiscount) * 100) / 100;
-      const itemTotal = itemSubtotal - itemDiscount;
-
-      let itemTax = 0;
-      if (product.isTaxable) {
-        itemTax = Math.round((itemTotal * locationTaxRate) / 100 * 100) / 100;
-      }
-
-      subtotal += itemSubtotal;
-      totalDiscount += itemDiscount;
-      totalTax += itemTax;
-      if (!isMisc && product.ebtEligible) {
-        ebtEligibleTotal += itemTotal + itemTax;
-      }
-
-      return {
-        productId: product.id,
-        sku: isMisc ? 'MISC' : product.sku,
-        productName: isMisc ? (item.name || 'Misc Item') : product.name,
-        quantity: item.quantity,
-        price: itemPrice,
-        discount: itemDiscount,
-        tax: itemTax,
-        total: itemTotal + itemTax,
-        notes: item.notes,
-        promotionId: promoDiscount > 0 ? promo!.promotionId : null,
-        promotionName: promoDiscount > 0 ? promo!.promotionName : null,
-        promotionDiscount: promoDiscount,
-      };
-    });
-
-    // Round all monetary values to 2 decimal places
-    subtotal = Math.round(subtotal * 100) / 100;
-    totalDiscount = Math.round(totalDiscount * 100) / 100;
-    totalTax = Math.round(totalTax * 100) / 100;
-    let total = Math.round(Math.max(0, subtotal - totalDiscount + totalTax) * 100) / 100;
-
-    // Apply loyalty point redemption as a post-tax discount so the amount due,
-    // change, and payment check all reflect what the customer actually owes
-    if (pointsRedeemed && pointsRedeemed > 0) {
-      if (!customerId) {
-        throw new AppError('A customer must be linked to redeem loyalty points', 400);
-      }
-      const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { loyaltyPoints: true } });
-      if (!customer || customer.loyaltyPoints < pointsRedeemed) {
-        throw new AppError(
-          `Insufficient loyalty points: requested ${pointsRedeemed}, available ${customer?.loyaltyPoints || 0}`,
-          400
-        );
-      }
-      const redemptionValue = Math.round(
-        Math.min(pointsRedeemed / businessConfig.customer.pointsToDollarRatio, total) * 100
-      ) / 100;
-      totalDiscount = Math.round((totalDiscount + redemptionValue) * 100) / 100;
-      total = Math.round((total - redemptionValue) * 100) / 100;
+    const pointBalance = customerId
+      ? await tx.customer.findUnique({ where: { id: customerId }, select: { loyaltyPoints: true } }) : null;
+    const settlement = checkoutTotals({ total, totalDiscount }, { customerId, pointsRedeemed, paymentMethod, payments }, pointBalance?.loyaltyPoints ?? null, Number(currentLocation.cardSurchargePercent));
+    assertConfiguredTenders({ paymentMethod, payments }, currentLocation.settings, settlement.total);
+    total = settlement.total;
+    totalDiscount = settlement.totalDiscount;
+    const { loyaltyDiscount, redeemedPoints, surcharge, earnedPoints } = settlement;
+    const saleId = randomUUID();
+    const allocatedItems = allocateSale(itemsWithDetails, loyaltyDiscount, redeemedPoints, surcharge, earnedPoints)
+      .map(line => ({ ...line,
+        // A queued offline sale has no trusted historical cost quote. Today's
+        // cost cannot establish its cost at the earlier sale time.
+        id: randomUUID(), unitCost: null as number | null,
+        costAmount: null as Prisma.Decimal | null, inventoryEntryId: null as string | null,
+        discount: Math.round((line.discount + line.loyaltyDiscount) * 100) / 100,
+      }));
+    if (typeof expectedTotal === 'number' && Math.abs(total - expectedTotal) > 0.005) {
+      throw new AppError(offlineCreatedAt ? 'Queued sale total differs from current pricing. Manager reconciliation is required; sale remains queued.' : 'Prices or tax changed. Reopen checkout to review the current total before taking payment.', 409);
     }
-
-    // Card surcharge: a % of the card-paid share of the pre-surcharge total.
-    // Splits pay it only on the card portion; cash-only sales pay nothing
-    // (that's the "cash discount"). Mirrored in the payment modal.
-    let surcharge = 0;
-    if (surchargeRate > 0) {
-      const cardIntent =
-        payments && payments.length > 0
-          ? payments
-              .filter((p: { paymentMethod: string }) => p.paymentMethod === 'CARD')
-              .reduce((sum: number, p: { amount: number }) => sum + p.amount, 0)
-          : paymentMethod === 'CARD'
-            ? total
-            : 0;
-      surcharge = Math.round((surchargeRate / 100) * Math.min(cardIntent, total) * 100) / 100;
-      total = Math.round((total + surcharge) * 100) / 100;
-    }
-
     const changeDue = Math.round((amountPaid - total) * 100) / 100;
 
-    // Allow 1 cent tolerance for floating point rounding differences
-    if (amountPaid < total - 0.01) {
+    if (toCents(amountPaid) < toCents(total)) {
       throw new AppError(
         `Insufficient payment: received $${amountPaid.toFixed(2)} but total is $${total.toFixed(2)}${surcharge > 0 ? ` (includes $${surcharge.toFixed(2)} card surcharge)` : ''}. Short by $${(total - amountPaid).toFixed(2)}`,
         400
       );
     }
+
+
 
     // Build split payment records if provided. For the single-payment fallback,
     // non-cash tenders are charged the sale total — change is never drawn from a
@@ -416,10 +330,38 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
             reference: null,
           }];
 
+    if (paymentRecords.some(payment => payment.amount === 0 && (total > 0 || payment.paymentMethod !== 'CASH'))) throw new AppError('Zero payment entries are only valid for a fully paid points purchase with cash settlement', 400);
+    const cardReferences = paymentRecords.filter(payment => payment.paymentMethod === 'CARD' && payment.reference?.trim()).map(payment => payment.reference!.trim());
+    if (new Set(cardReferences).size !== cardReferences.length) throw new AppError('A terminal approval cannot be counted twice in the same sale.', 400);
     // Create sale
+    const cashTender = paymentRecords.filter(p => p.paymentMethod === 'CASH').reduce((sum, p) => sum + p.amount, 0);
+    if (changeDue > 0.005 && cashTender + 0.005 < changeDue) throw new AppError('Change cannot exceed the cash tendered. Correct the payment amounts before charging.', 400);
+    // Record stock and cost together before creating immutable sale snapshots.
+    // The enclosing transaction rolls both back if any later tender check fails.
+    for (const line of [...allocatedItems].sort((a, b) => a.productId.localeCompare(b.productId))) {
+      const product = await tx.product.findUnique({ where: { id: line.productId } });
+      if (!product) throw new AppError('Product is unavailable', 409);
+      if (product.trackInventory) {
+        const updated = await moveInventory(tx, { productId: product.id, locationId: req.user!.locationId!, userId: req.user!.id,
+          type: 'SALE', sourceId: saleId, sourceKey: 'sale-line:' + line.id, quantity: -line.quantity, forceUnknown: !!offlineCreatedAt });
+        line.inventoryEntryId = updated.inventoryEntry.id;
+        line.costAmount = updated.inventoryEntry.cogsAmount;
+        if (updated.stockQuantity <= product.lowStockAlert && product.stockQuantity > product.lowStockAlert)
+          lowStockProducts.push({ name: product.name, sku: product.sku, stock: updated.stockQuantity, threshold: product.lowStockAlert });
+      } else {
+        line.costAmount = offlineCreatedAt ? null : await saleCost(tx, product, line.quantity);
+        const entry = await postNonstockCost(tx, { productId: product.id, locationId: req.user!.locationId!, userId: req.user!.id,
+          sourceId: saleId, sourceKey: 'sale-line:' + line.id, kind: 'SALE', quantity: line.quantity, cost: line.costAmount });
+        line.inventoryEntryId = entry.id;
+      }
+      line.unitCost = line.costAmount === null ? null : line.costAmount.div(line.quantity).toDecimalPlaces(4).toNumber();
+    }
     const newSale = await tx.sale.create({
       data: {
         saleNumber,
+        pricingVersion: 1, pointsEarned: earnedPoints, pointsRedeemed: redeemedPoints, loyaltyDiscount,
+        createdAt: saleTime,
+        id: saleId,
         customerId,
         userId: req.user!.id,
         locationId: req.user!.locationId,
@@ -436,9 +378,9 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
         status: SaleStatus.COMPLETED,
         notes,
         receiptEmail,
-        completedAt: new Date(),
+        completedAt: saleTime,
         items: {
-          create: itemsWithDetails,
+          create: allocatedItems,
         },
         payments: {
           create: paymentRecords,
@@ -461,22 +403,6 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
         },
       },
     });
-
-    // EBT tender is capped at the SNAP-eligible portion of the sale (items
-    // flagged ebtEligible, net of discounts, plus their tax). Computed
-    // server-side — never trusted from the register.
-    ebtEligibleTotal = Math.round(ebtEligibleTotal * 100) / 100;
-    const ebtPaid = Math.round(
-      paymentRecords
-        .filter((p) => p.paymentMethod === 'EBT')
-        .reduce((sum, p) => sum + p.amount, 0) * 100
-    ) / 100;
-    if (ebtPaid > ebtEligibleTotal + 0.01) {
-      throw new AppError(
-        `EBT can only cover eligible items: $${ebtEligibleTotal.toFixed(2)} eligible, $${ebtPaid.toFixed(2)} tendered`,
-        400
-      );
-    }
 
     // Log the age verification against this sale (compliance audit trail)
     if (ageVerificationRecord) {
@@ -507,20 +433,22 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
     // Debit gift card / store credit balances for those payment methods.
     // This validates the tender actually exists and has funds.
-    for (const payment of paymentRecords) {
+    for (const payment of [...paymentRecords].sort((a, b) => (a.paymentMethod + ':' + (a.reference || '')).localeCompare(b.paymentMethod + ':' + (b.reference || '')))) {
       if (payment.amount <= 0) continue;
 
       if (payment.paymentMethod === 'GIFT_CARD') {
         if (!payment.reference) {
           throw new AppError('Gift card number is required for gift card payments', 400);
         }
+        await tx.$queryRaw`SELECT id FROM gift_cards WHERE code = ${payment.reference} OR id = ${payment.reference} FOR UPDATE`;
         const card = await tx.giftCard.findFirst({
           where: { OR: [{ code: payment.reference }, { id: payment.reference }] },
         });
         if (!card) throw new AppError(`Gift card not found: ${payment.reference}`, 400);
+        assertCanReadRecord(req, card.locationId);
         if (!card.isActive) throw new AppError('Gift card is deactivated', 400);
         if (card.expiresAt && card.expiresAt < new Date()) throw new AppError('Gift card has expired', 400);
-        if (card.currentBalance < payment.amount - 0.001) {
+        if (Number(card.currentBalance) < payment.amount - 0.001) {
           throw new AppError(
             `Insufficient gift card balance: $${card.currentBalance.toFixed(2)} available, $${payment.amount.toFixed(2)} required`,
             400
@@ -535,7 +463,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
                 type: 'REDEEM',
                 amount: -payment.amount,
                 balanceBefore: card.currentBalance,
-                balanceAfter: Math.round((card.currentBalance - payment.amount) * 100) / 100,
+                balanceAfter: Math.round((Number(card.currentBalance) - payment.amount) * 100) / 100,
                 saleId: newSale.id,
               },
             },
@@ -547,13 +475,15 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
         if (!customerId) {
           throw new AppError('A customer must be linked to charge to a house account', 400);
         }
+        await tx.$queryRaw`SELECT id FROM house_accounts WHERE "customerId" = ${customerId} FOR UPDATE`;
         const account = await tx.houseAccount.findUnique({ where: { customerId } });
         if (!account || !account.isActive) {
           throw new AppError('This customer has no active house account', 400);
         }
-        const newBalance = Math.round((account.balance + payment.amount) * 100) / 100;
-        if (newBalance > account.creditLimit + 0.001) {
-          const available = Math.max(0, Math.round((account.creditLimit - account.balance) * 100) / 100);
+        assertCanReadRecord(req, account.locationId);
+        const newBalance = Math.round((Number(account.balance) + payment.amount) * 100) / 100;
+        if (newBalance > Number(account.creditLimit) + 0.001) {
+          const available = Math.max(0, Math.round((Number(account.creditLimit) - Number(account.balance)) * 100) / 100);
           throw new AppError(
             `House account credit limit exceeded: $${available.toFixed(2)} available of $${account.creditLimit.toFixed(2)} limit`,
             400
@@ -582,9 +512,11 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
         if (!customerId) {
           throw new AppError('A customer must be linked to pay with store credit', 400);
         }
+        await tx.$queryRaw`SELECT id FROM store_credit_accounts WHERE "customerId" = ${customerId} FOR UPDATE`;
         const account = await tx.storeCreditAccount.findUnique({ where: { customerId } });
         if (!account) throw new AppError('No store credit account found for this customer', 400);
-        if (account.balance < payment.amount - 0.001) {
+        assertCanReadRecord(req, account.locationId);
+        if (Number(account.balance) < payment.amount - 0.001) {
           throw new AppError(
             `Insufficient store credit: $${account.balance.toFixed(2)} available, $${payment.amount.toFixed(2)} required`,
             400
@@ -599,7 +531,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
                 type: 'DEBIT',
                 amount: -payment.amount,
                 balanceBefore: account.balance,
-                balanceAfter: Math.round((account.balance - payment.amount) * 100) / 100,
+                balanceAfter: Math.round((Number(account.balance) - payment.amount) * 100) / 100,
                 saleId: newSale.id,
               },
             },
@@ -608,54 +540,11 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       }
     }
 
-    // Update inventory (skip misc items) — uses fresh product data
-    for (const item of regularItems) {
-      const product = freshProductMap.get(item.productId);
-
-      if (product?.trackInventory) {
-        const newQty = product.stockQuantity - item.quantity;
-
-        // Conditional decrement guards against overselling when two registers
-        // sell the same last units concurrently
-        const decremented = await tx.product.updateMany({
-          where: { id: item.productId, stockQuantity: { gte: item.quantity } },
-          data: {
-            stockQuantity: {
-              decrement: item.quantity,
-            },
-          },
-        });
-        if (decremented.count === 0) {
-          throw new AppError(
-            `Insufficient stock for "${product.name}" — it may have just been sold on another register`,
-            400
-          );
-        }
-
-        // Log inventory change
-        await tx.inventoryLog.create({
-          data: {
-            productId: item.productId,
-            type: 'SALE',
-            quantity: -item.quantity,
-            previousQty: product.stockQuantity,
-            newQty,
-            userId: req.user!.id,
-          },
-        });
-
-        // Check low stock alert (fire-and-forget, don't block sale)
-        if (product.lowStockAlert > 0 && newQty <= product.lowStockAlert && product.stockQuantity > product.lowStockAlert) {
-          lowStockProducts.push({ name: product.name, sku: product.sku, stock: newQty, threshold: product.lowStockAlert });
-        }
-      }
-    }
-
     // Update customer stats and loyalty tier
     if (customerId) {
       // Points earned on this sale minus any redeemed
-      const pointsEarned = Math.floor(total);
-      const pointsUsed = pointsRedeemed || 0;
+      const pointsEarned = earnedPoints;
+      const pointsUsed = redeemedPoints;
       const netPoints = pointsEarned - pointsUsed;
 
       const updatedCust = await tx.customer.update({
@@ -679,15 +568,38 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
     // Update shift totals
     if (currentShift) {
+      const cashKept = dollars(saleTenderAmounts(newSale).CASH || 0);
+      await postDrawerEntry(tx, { sourceKey: 'sale:' + newSale.id, shiftId: currentShift.id, locationId: newSale.locationId, userId: req.user!.id, saleId: newSale.id, type: 'SALE', amount: cashKept, createdAt: saleTime });
       await tx.shift.update({
         where: { id: currentShift.id },
         data: {
           totalSales: { increment: total },
           totalTransactions: { increment: 1 },
+          ...(offlineCreatedAt && lockedShift.isClosed ? {
+            expectedCash: { increment: cashKept }, cashDifference: { decrement: cashKept },
+          } : {}),
         },
       });
     }
 
+  // Log activity
+  await tx.activityLog.create({
+    data: {
+      userId: req.user!.id,
+      action: 'CREATE',
+      entity: 'SALE',
+      entityId: newSale.id,
+      details: { saleNumber: newSale.saleNumber, total: newSale.total },
+      locationId: newSale.locationId,
+    },
+  });
+
+
+    await queueLowStockEmails(tx, newSale.locationId!, newSale.id, lowStockProducts);
+    for (const product of lowStockProducts) await queueWebhook(tx, 'product.low_stock', product, newSale.id + ':' + product.sku, newSale.locationId, newSale.createdAt);
+    await queueWebhook(tx, 'sale.completed', { id: newSale.id, saleNumber: newSale.saleNumber, total: newSale.total, subtotal: newSale.subtotal,
+      tax: newSale.tax, discount: newSale.discount, surcharge: newSale.surcharge, paymentMethod: newSale.paymentMethod, customerId: newSale.customerId,
+      itemCount: newSale.items.length, createdAt: newSale.createdAt }, newSale.id, newSale.locationId, newSale.createdAt);
     return newSale;
   });
       break;
@@ -697,6 +609,8 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       if (uniqueTarget.includes('idempotencyKey') && idempotencyKey) {
         const existing = await prisma.sale.findUnique({ where: { idempotencyKey }, include: saleInclude });
         if (existing) {
+          assertOwnsRecord(req, existing.locationId);
+          if (existing.userId !== req.user.id) throw new AppError('Checkout belongs to another cashier', 403);
           res.status(200).json({ success: true, data: existing });
           return;
         }
@@ -706,50 +620,16 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     }
   }
 
-  // Log activity
-  await prisma.activityLog.create({
-    data: {
-      userId: req.user.id,
-      action: 'CREATE',
-      entity: 'SALE',
-      entityId: sale.id,
-      details: { saleNumber: sale.saleNumber, total: sale.total },
-      locationId: sale.locationId,
-    },
-  });
-
   logger.info(`Sale created: ${sale.saleNumber} - Total: $${sale.total}`);
 
-  res.status(201).json({
+  res.status(replayed ? 200 : 201).json({
     success: true,
     data: sale,
     message: 'Sale completed successfully',
   });
+  if (replayed) return;
 
-  // Fire-and-forget: send low stock alert email if any products dropped below threshold
-  if (lowStockProducts.length > 0) {
-    sendLowStockAlert(lowStockProducts).catch((err) => {
-      logger.error('Failed to send low stock alert email:', err);
-    });
-    for (const p of lowStockProducts) {
-      void emitWebhook('product.low_stock', p);
-    }
-  }
 
-  // Fire-and-forget: notify webhook subscribers
-  void emitWebhook('sale.completed', {
-    id: sale.id,
-    saleNumber: sale.saleNumber,
-    total: sale.total,
-    subtotal: sale.subtotal,
-    tax: sale.tax,
-    discount: sale.discount,
-    surcharge: sale.surcharge,
-    paymentMethod: sale.paymentMethod,
-    customerId: sale.customerId,
-    itemCount: sale.items?.length ?? 0,
-    createdAt: sale.createdAt,
-  });
 });
 
 /**
@@ -785,7 +665,12 @@ export const getSales = asyncHandler(async (req: AuthRequest, res: Response) => 
     where.createdAt = dateFilter;
   }
 
-  if (saleNumber) where.saleNumber = saleNumber;
+  if (saleNumber) {
+    const reference = String(saleNumber).trim();
+    where.saleNumber = /^\d{6,19}$/.test(reference)
+      ? { startsWith: 'S-', endsWith: '-' + reference }
+      : reference;
+  }
   if (customerId) where.customerId = customerId;
   if (userId) where.userId = userId;
   if (status) where.status = status;
@@ -871,6 +756,7 @@ export const getSale = asyncHandler(async (req: AuthRequest, res: Response) => {
       payments: true,
       location: true,
       refunds: { include: { items: true } },
+      voidEvent: true,
     },
   });
 
@@ -878,14 +764,12 @@ export const getSale = asyncHandler(async (req: AuthRequest, res: Response) => {
     throw new AppError('Sale not found', 404);
   }
 
-  // Verify user has access to this sale's location
-  if (req.user?.locationId && sale.locationId !== req.user.locationId) {
-    throw new AppError('Sale not found', 404);
-  }
-
+  assertCanReadRecord(req, sale.locationId, 'Sale not found');
+  let refundTenderOptions:ReturnType<typeof getRefundTenderOptions>=[],refundTenderError:string|null=null;
+  try{refundTenderOptions=getRefundTenderOptions(sale);}catch(error){if(error instanceof AppError)refundTenderError=error.message;else throw error;}
   res.json({
     success: true,
-    data: sale,
+    data: {...sale,refundTenderOptions,refundTenderError},
   });
 });
 
@@ -894,286 +778,8 @@ export const getSale = asyncHandler(async (req: AuthRequest, res: Response) => {
  * POST /api/sales/:id/refund
  */
 export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
-  const { amount, reason, notes, items, restock = true, refundMethod, reference } = req.body;
-
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
-
-  const sale = await prisma.sale.findUnique({
-    where: { id },
-    include: { items: true, refunds: { include: { items: true } }, payments: true },
-  });
-
-  if (!sale) {
-    throw new AppError('Sale not found', 404);
-  }
-
-  // Verify user has access to this sale's location
-  if (req.user?.locationId && sale.locationId !== req.user.locationId) {
-    throw new AppError('Sale not found', 404);
-  }
-
-  if (sale.status === SaleStatus.VOIDED) {
-    throw new AppError('Cannot refund a voided sale', 400);
-  }
-
-  // Calculate already-refunded amount
-  const previouslyRefunded = sale.refunds.reduce((sum, r) => sum + r.amount, 0);
-  const refundableAmount = Math.round((sale.total - previouslyRefunded) * 100) / 100;
-
-  if (refundableAmount <= 0) {
-    throw new AppError('Sale has already been fully refunded', 400);
-  }
-
-  // Per-sale-item quantities already refunded / restocked by earlier item-level refunds
-  const refundedQtyByItem = new Map<string, number>();
-  const restockedQtyByItem = new Map<string, number>();
-  for (const r of sale.refunds) {
-    for (const ri of r.items) {
-      refundedQtyByItem.set(ri.saleItemId, (refundedQtyByItem.get(ri.saleItemId) || 0) + ri.quantity);
-      if (ri.restocked) {
-        restockedQtyByItem.set(ri.saleItemId, (restockedQtyByItem.get(ri.saleItemId) || 0) + ri.quantity);
-      }
-    }
-  }
-
-  // Item-level refunds: compute the amount server-side from the returned lines
-  // (each unit refunds its prorated share of the line total, tax included)
-  let refundAmount: number;
-  const refundLines: { saleItemId: string; productId: string; productName: string; quantity: number; amount: number }[] = [];
-
-  if (items && items.length > 0) {
-    const saleItemMap = new Map(sale.items.map((i) => [i.id, i]));
-    let computed = 0;
-    for (const line of items as { saleItemId: string; quantity: number }[]) {
-      const saleItem = saleItemMap.get(line.saleItemId);
-      if (!saleItem) {
-        throw new AppError(`Sale item not found on this sale: ${line.saleItemId}`, 400);
-      }
-      const refundableQty = saleItem.quantity - (refundedQtyByItem.get(saleItem.id) || 0);
-      if (line.quantity > refundableQty) {
-        throw new AppError(
-          `Cannot refund ${line.quantity} × "${saleItem.productName}": only ${refundableQty} left to refund`,
-          400
-        );
-      }
-      const unitTotal = saleItem.total / saleItem.quantity;
-      const lineAmount = Math.round(unitTotal * line.quantity * 100) / 100;
-      computed += lineAmount;
-      refundLines.push({
-        saleItemId: saleItem.id,
-        productId: saleItem.productId,
-        productName: saleItem.productName,
-        quantity: line.quantity,
-        amount: lineAmount,
-      });
-    }
-    refundAmount = Math.round(computed * 100) / 100;
-  } else {
-    refundAmount = amount;
-  }
-
-  if (refundAmount > refundableAmount + 0.01) {
-    throw new AppError(
-      `Refund amount exceeds refundable balance. Max refundable: $${refundableAmount.toFixed(2)}`,
-      400
-    );
-  }
-
-  // Update sale, credit the refund tender, and restore inventory
-  const refundedSale = await prisma.$transaction(async (tx) => {
-    // Create refund record (with item lines when this is an item-level refund)
-    await tx.refund.create({
-      data: {
-        saleId: id,
-        amount: refundAmount,
-        reason,
-        notes,
-        refundedBy: req.user!.id,
-        method: refundMethod || null,
-        reference: reference || null,
-        items: refundLines.length > 0
-          ? {
-              create: refundLines.map((line) => ({
-                saleItemId: line.saleItemId,
-                quantity: line.quantity,
-                amount: line.amount,
-                restocked: restock !== false,
-              })),
-            }
-          : undefined,
-      },
-    });
-
-    // Credit the money back to the original tender when requested
-    if (refundMethod === 'GIFT_CARD') {
-      const cardRef = reference
-        || sale.payments.find((p) => p.paymentMethod === 'GIFT_CARD' && p.reference)?.reference;
-      if (!cardRef) {
-        throw new AppError('No gift card on this sale — provide the card number to refund to', 400);
-      }
-      const card = await tx.giftCard.findFirst({
-        where: { OR: [{ code: cardRef }, { id: cardRef }] },
-      });
-      if (!card) throw new AppError(`Gift card not found: ${cardRef}`, 400);
-      if (!card.isActive) throw new AppError('Gift card is deactivated', 400);
-      await tx.giftCard.update({
-        where: { id: card.id },
-        data: {
-          currentBalance: { increment: refundAmount },
-          transactions: {
-            create: {
-              type: 'REFUND',
-              amount: refundAmount,
-              balanceBefore: card.currentBalance,
-              balanceAfter: Math.round((card.currentBalance + refundAmount) * 100) / 100,
-              saleId: id,
-            },
-          },
-        },
-      });
-    }
-
-    if (refundMethod === 'STORE_CREDIT') {
-      if (!sale.customerId) {
-        throw new AppError('Sale has no linked customer — store credit refunds need a customer', 400);
-      }
-      let account = await tx.storeCreditAccount.findUnique({ where: { customerId: sale.customerId } });
-      if (!account) {
-        account = await tx.storeCreditAccount.create({ data: { customerId: sale.customerId, balance: 0 } });
-      }
-      await tx.storeCreditAccount.update({
-        where: { id: account.id },
-        data: {
-          balance: { increment: refundAmount },
-          transactions: {
-            create: {
-              type: 'REFUND',
-              amount: refundAmount,
-              balanceBefore: account.balance,
-              balanceAfter: Math.round((account.balance + refundAmount) * 100) / 100,
-              saleId: id,
-            },
-          },
-        },
-      });
-    }
-
-    // Mark fully refunded if total refunds now equal sale total
-    const totalRefundedNow = previouslyRefunded + refundAmount;
-    const isFullyRefunded = totalRefundedNow >= sale.total - 0.01;
-
-    const updated = await tx.sale.update({
-      where: { id },
-      data: {
-        status: isFullyRefunded ? SaleStatus.REFUNDED : SaleStatus.COMPLETED,
-        refundedAt: isFullyRefunded ? new Date() : undefined,
-      },
-      include: {
-        items: true,
-        refunds: { include: { items: true } },
-      },
-    });
-
-    if (refundLines.length > 0 && restock !== false) {
-      // Item-level refund: restock exactly the returned units
-      for (const line of refundLines) {
-        const product = await tx.product.findUnique({ where: { id: line.productId } });
-        if (product?.trackInventory) {
-          await tx.product.update({
-            where: { id: line.productId },
-            data: { stockQuantity: { increment: line.quantity } },
-          });
-          await tx.inventoryLog.create({
-            data: {
-              productId: line.productId,
-              type: 'RETURN',
-              quantity: line.quantity,
-              previousQty: product.stockQuantity,
-              newQty: product.stockQuantity + line.quantity,
-              notes: `Refund for sale ${sale.saleNumber}`,
-              userId: req.user!.id,
-            },
-          });
-        }
-      }
-    } else if (refundLines.length === 0 && isFullyRefunded) {
-      // Money-only refund that completes the full amount: restore whatever
-      // earlier item-level refunds haven't already put back
-      for (const item of sale.items) {
-        const toRestore = item.quantity - (restockedQtyByItem.get(item.id) || 0);
-        if (toRestore <= 0) continue;
-        const product = await tx.product.findUnique({ where: { id: item.productId } });
-        if (product?.trackInventory) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stockQuantity: { increment: toRestore } },
-          });
-          await tx.inventoryLog.create({
-            data: {
-              productId: item.productId,
-              type: 'RETURN',
-              quantity: toRestore,
-              previousQty: product.stockQuantity,
-              newQty: product.stockQuantity + toRestore,
-              notes: `Refund for sale ${sale.saleNumber}`,
-              userId: req.user!.id,
-            },
-          });
-        }
-      }
-    }
-
-    // Update customer stats (floored at 0 so refunds can't drive them negative)
-    if (sale.customerId) {
-      const customer = await tx.customer.findUnique({
-        where: { id: sale.customerId },
-        select: { totalSpent: true, loyaltyPoints: true },
-      });
-      if (customer) {
-        await tx.customer.update({
-          where: { id: sale.customerId },
-          data: {
-            totalSpent: Math.max(0, Math.round((customer.totalSpent - refundAmount) * 100) / 100),
-            loyaltyPoints: Math.max(0, customer.loyaltyPoints - Math.floor(refundAmount)),
-          },
-        });
-      }
-    }
-
-    return updated;
-  });
-
-  // Log activity
-  await prisma.activityLog.create({
-    data: {
-      userId: req.user.id,
-      action: 'REFUND',
-      entity: 'SALE',
-      entityId: id,
-      details: { saleNumber: sale.saleNumber, refundAmount, refundMethod: refundMethod || 'CASH' },
-      locationId: sale.locationId,
-    },
-  });
-
-  logger.info(`Sale refunded: ${sale.saleNumber} - Amount: $${refundAmount}`);
-
-  // Fire-and-forget: notify webhook subscribers
-  void emitWebhook('sale.refunded', {
-    saleId: id,
-    saleNumber: sale.saleNumber,
-    refundAmount,
-    refundMethod: refundMethod || 'CASH',
-    reason,
-  });
-
-  res.json({
-    success: true,
-    data: refundedSale,
-    message: 'Sale refunded successfully',
-  });
+  const { sale, refund, replayed } = await prisma.$transaction(tx => refundSaleInTransaction(req, tx));
+  res.json({ success: true, data: sale, refund: { id: refund.id, amount: refund.amount, pointsRestored: refund.pointsRestored, pointsReversed: refund.pointsReversed, taxAmount: refund.taxAmount,method:refund.method,reference:refund.reference,tenders:refund.tenders }, replayed, message: replayed ? 'Saved refund confirmed' : 'Sale refunded successfully' });
 });
 
 /**
@@ -1181,383 +787,25 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
  * POST /api/sales/:id/void
  */
 export const voidSale = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
-
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
-
-  const sale = await prisma.sale.findUnique({
-    where: { id },
-    include: { items: true, refunds: true },
-  });
-
-  if (!sale) {
-    throw new AppError('Sale not found', 404);
-  }
-
-  // Verify user has access to this sale's location
-  if (req.user?.locationId && sale.locationId !== req.user.locationId) {
-    throw new AppError('Sale not found', 404);
-  }
-
-  if (sale.status === SaleStatus.VOIDED) {
-    throw new AppError('Sale already voided', 400);
-  }
-
-  // Check if sale was already fully refunded — inventory already restored
-  const isFullyRefunded = sale.status === SaleStatus.REFUNDED;
-
-  // Void sale and restore inventory
-  const voidedSale = await prisma.$transaction(async (tx) => {
-    const updated = await tx.sale.update({
-      where: { id },
-      data: { status: SaleStatus.VOIDED },
-    });
-
-    // Reverse customer stats and shift totals recorded at sale time.
-    // Refunds already reversed part of the customer stats, so only the
-    // remaining (unrefunded) amount is backed out here.
-    if (!isFullyRefunded) {
-      const alreadyRefunded = sale.refunds.reduce((sum, r) => sum + r.amount, 0);
-      const remaining = Math.max(0, Math.round((sale.total - alreadyRefunded) * 100) / 100);
-
-      if (sale.customerId && remaining > 0) {
-        const customer = await tx.customer.findUnique({
-          where: { id: sale.customerId },
-          select: { totalSpent: true, loyaltyPoints: true, visitCount: true },
-        });
-        if (customer) {
-          await tx.customer.update({
-            where: { id: sale.customerId },
-            data: {
-              totalSpent: Math.max(0, Math.round((customer.totalSpent - remaining) * 100) / 100),
-              loyaltyPoints: Math.max(0, customer.loyaltyPoints - Math.floor(remaining)),
-              visitCount: Math.max(0, customer.visitCount - 1),
-            },
-          });
-        }
-      }
-
-      if (sale.shiftId) {
-        const shift = await tx.shift.findUnique({
-          where: { id: sale.shiftId },
-          select: { totalSales: true, totalTransactions: true },
-        });
-        if (shift) {
-          await tx.shift.update({
-            where: { id: sale.shiftId },
-            data: {
-              totalSales: Math.max(0, Math.round((shift.totalSales - sale.total) * 100) / 100),
-              totalTransactions: Math.max(0, shift.totalTransactions - 1),
-            },
-          });
-        }
-      }
-    }
-
-    // Only restore inventory if NOT already fully refunded (refund already restored it)
-    if (!isFullyRefunded) {
-      for (const item of sale.items) {
-        const product = await tx.product.findUnique({
-          where: { id: item.productId },
-        });
-
-        if (product?.trackInventory) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              stockQuantity: { increment: item.quantity },
-            },
-          });
-
-          await tx.inventoryLog.create({
-            data: {
-              productId: item.productId,
-              type: 'RETURN',
-              quantity: item.quantity,
-              previousQty: product.stockQuantity,
-              newQty: product.stockQuantity + item.quantity,
-              notes: `Voided sale ${sale.saleNumber}`,
-              userId: req.user!.id,
-            },
-          });
-        }
-      }
-    }
-
-    return updated;
-  });
-
-  // Log activity
-  await prisma.activityLog.create({
-    data: {
-      userId: req.user.id,
-      action: 'VOID',
-      entity: 'SALE',
-      entityId: id,
-      details: { saleNumber: sale.saleNumber, total: sale.total },
-      locationId: sale.locationId,
-    },
-  });
-
-  logger.info(`Sale voided: ${sale.saleNumber}`);
-
-  res.json({
-    success: true,
-    data: voidedSale,
-    message: 'Sale voided successfully',
-  });
+  const sale = await prisma.$transaction(tx => voidSaleInTransaction(req, tx));
+  res.json({ success: true, data: sale, replayed: sale.replayed, message: sale.replayed ? 'Saved void confirmed' : 'Sale voided successfully' });
 });
 
 /**
  * Bulk void sales
  * POST /api/sales/bulk-void
  */
+export const previewBulkRefundSales = asyncHandler(async (req: AuthRequest, res: Response) => res.json({ success: true, data: await previewBulkRefund(req) }));
+
 export const bulkVoidSales = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { saleIds } = req.body;
-
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
-
-  if (!Array.isArray(saleIds) || saleIds.length === 0) {
-    throw new AppError('Sale IDs array is required', 400);
-  }
-
-  if (saleIds.length > 50) {
-    throw new AppError('Cannot void more than 50 sales at once', 400);
-  }
-
-  // Build where clause with location filter
-  const where: any = {
-    id: { in: saleIds },
-  };
-  if (req.user?.locationId) {
-    where.locationId = req.user.locationId;
-  }
-
-  // Fetch all sales to void
-  const sales = await prisma.sale.findMany({
-    where,
-    include: {
-      items: true,
-    },
-  });
-
-  if (sales.length === 0) {
-    throw new AppError('No sales found with provided IDs', 404);
-  }
-
-  // Check if any sales are already voided
-  const alreadyVoided = sales.filter((s) => s.status === SaleStatus.VOIDED);
-  if (alreadyVoided.length > 0) {
-    throw new AppError(
-      `${alreadyVoided.length} sale(s) already voided: ${alreadyVoided.map((s) => s.saleNumber).join(', ')}`,
-      400
-    );
-  }
-
-  // Void all sales in a transaction
-  const voidedSales = await prisma.$transaction(async (tx) => {
-    const results = [];
-
-    for (const sale of sales) {
-      // Update sale status
-      const updated = await tx.sale.update({
-        where: { id: sale.id },
-        data: { status: SaleStatus.VOIDED },
-      });
-
-      // Restore inventory for each item
-      for (const item of sale.items) {
-        const product = await tx.product.findUnique({
-          where: { id: item.productId },
-        });
-
-        if (product?.trackInventory) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              stockQuantity: { increment: item.quantity },
-            },
-          });
-
-          await tx.inventoryLog.create({
-            data: {
-              productId: item.productId,
-              type: 'RETURN',
-              quantity: item.quantity,
-              previousQty: product.stockQuantity,
-              newQty: product.stockQuantity + item.quantity,
-              notes: `Bulk voided sale ${sale.saleNumber}`,
-              userId: req.user!.id,
-            },
-          });
-        }
-      }
-
-      results.push(updated);
-      logger.info(`Sale voided (bulk): ${sale.saleNumber}`);
-    }
-
-    return results;
-  });
-
-  res.json({
-    success: true,
-    data: {
-      voidedCount: voidedSales.length,
-      voidedSales,
-    },
-    message: `${voidedSales.length} sale(s) voided successfully`,
-  });
+  const result = await bulkVoid(req);
+  res.json({ success: true, data: result, replayed: result.replayed, message: result.replayed ? 'Saved bulk void confirmed' : 'Sales voided successfully' });
 });
 
-/**
- * Bulk refund sales
- * POST /api/sales/bulk-refund
- */
 export const bulkRefundSales = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { saleIds } = req.body;
-
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
-
-  if (!Array.isArray(saleIds) || saleIds.length === 0) {
-    throw new AppError('Sale IDs array is required', 400);
-  }
-
-  if (saleIds.length > 50) {
-    throw new AppError('Cannot refund more than 50 sales at once', 400);
-  }
-
-  // Build where clause with location filter
-  const refundWhere: any = {
-    id: { in: saleIds },
-  };
-  if (req.user?.locationId) {
-    refundWhere.locationId = req.user.locationId;
-  }
-
-  // Fetch all sales to refund
-  const sales = await prisma.sale.findMany({
-    where: refundWhere,
-    include: {
-      items: true,
-      customer: true,
-      refunds: true,
-    },
-  });
-
-  if (sales.length === 0) {
-    throw new AppError('No sales found with provided IDs', 404);
-  }
-
-  // Check if any sales are already refunded or voided
-  const invalidSales = sales.filter(
-    (s) => s.status === SaleStatus.REFUNDED || s.status === SaleStatus.VOIDED
-  );
-  if (invalidSales.length > 0) {
-    throw new AppError(
-      `${invalidSales.length} sale(s) cannot be refunded (already refunded or voided): ${invalidSales.map((s) => s.saleNumber).join(', ')}`,
-      400
-    );
-  }
-
-  // Refund all sales in a transaction
-  const refundedSales = await prisma.$transaction(async (tx) => {
-    const results = [];
-
-    for (const sale of sales) {
-      // Refund only what hasn't been refunded yet (partial refunds may exist)
-      const previouslyRefunded = sale.refunds.reduce((sum, r) => sum + r.amount, 0);
-      const refundAmount = Math.max(0, Math.round((sale.total - previouslyRefunded) * 100) / 100);
-
-      // Record the refund so refund history and refundable-balance math stay consistent
-      if (refundAmount > 0) {
-        await tx.refund.create({
-          data: {
-            saleId: sale.id,
-            amount: refundAmount,
-            reason: 'Bulk refund',
-            refundedBy: req.user!.id,
-          },
-        });
-      }
-
-      // Update sale status
-      const updated = await tx.sale.update({
-        where: { id: sale.id },
-        data: { status: SaleStatus.REFUNDED, refundedAt: new Date() },
-      });
-
-      // Restore inventory for each item
-      for (const item of sale.items) {
-        const product = await tx.product.findUnique({
-          where: { id: item.productId },
-        });
-
-        if (product?.trackInventory) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              stockQuantity: { increment: item.quantity },
-            },
-          });
-
-          await tx.inventoryLog.create({
-            data: {
-              productId: item.productId,
-              type: 'RETURN',
-              quantity: item.quantity,
-              previousQty: product.stockQuantity,
-              newQty: product.stockQuantity + item.quantity,
-              notes: `Bulk refunded sale ${sale.saleNumber}`,
-              userId: req.user!.id,
-            },
-          });
-        }
-      }
-
-      // Update customer points and totals if customer exists
-      if (sale.customerId) {
-        const customer = await tx.customer.findUnique({
-          where: { id: sale.customerId },
-        });
-
-        if (customer) {
-          // Deduct points earned from this sale (assuming 1 point per dollar)
-          const pointsToDeduct = Math.floor(refundAmount);
-
-          await tx.customer.update({
-            where: { id: sale.customerId },
-            data: {
-              loyaltyPoints: Math.max(0, customer.loyaltyPoints - pointsToDeduct),
-              totalSpent: Math.max(0, Math.round((customer.totalSpent - refundAmount) * 100) / 100),
-              visitCount: Math.max(0, customer.visitCount - 1),
-            },
-          });
-        }
-      }
-
-      results.push(updated);
-      logger.info(`Sale refunded (bulk): ${sale.saleNumber}`);
-    }
-
-    return results;
-  });
-
-  res.json({
-    success: true,
-    data: {
-      refundedCount: refundedSales.length,
-      refundedSales,
-    },
-    message: `${refundedSales.length} sale(s) refunded successfully`,
-  });
+  res.json({ success: true, ...await bulkRefund(req) });
 });
+
 
 /**
  * Email receipt
@@ -1567,8 +815,8 @@ export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response)
   const { id } = req.params;
   const { email } = req.body;
 
-  if (!email) {
-    throw new AppError('Email address is required', 400);
+  if (!z.string().email().max(254).safeParse(email).success) {
+    throw new AppError('A valid email address is required', 400);
   }
 
   const sale = await prisma.sale.findUnique({
@@ -1586,12 +834,10 @@ export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response)
     throw new AppError('Sale not found', 404);
   }
 
-  // Verify user has access to this sale's location
-  if (req.user?.locationId && sale.locationId !== req.user.locationId) {
-    throw new AppError('Sale not found', 404);
-  }
+  assertCanReadRecord(req, sale.locationId, 'Sale not found');
 
-  const storeName = config.app.name || 'POS System';
+  const storeName = sale.location?.name || config.app.name || 'POS System';
+  const receiptSettings = publicStoreSettings(sale.location?.settings).receiptSettings;
 
   // HTML-escape helper to prevent XSS in email content
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -1599,8 +845,8 @@ export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response)
     `<tr>
       <td style="padding:4px 0;">${esc(item.productName)}</td>
       <td style="padding:4px 0;text-align:center;">${item.quantity}</td>
-      <td style="padding:4px 0;text-align:right;">$${item.price.toFixed(2)}</td>
-      <td style="padding:4px 0;text-align:right;">$${item.total.toFixed(2)}</td>
+      <td style="padding:4px 0;text-align:right;">$${formatUnitPrice(Number(item.price))}</td>
+      <td style="padding:4px 0;text-align:right;">$${lineMoney(Number(item.price), item.quantity).toFixed(2)}</td>
     </tr>`
   ).join('');
 
@@ -1622,9 +868,12 @@ export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response)
     </style></head><body>
     <div class="receipt">
       <div class="header">
-        <h1>${storeName}</h1>
+        <h1>${esc(storeName)}</h1>
+        ${receiptSettings?.showAddress !== false && sale.location?.address ? `<p>${esc([sale.location.address, sale.location.city, sale.location.state].filter(Boolean).join(', '))}</p>` : ''}
+        ${sale.location?.phone ? `<p>${esc(sale.location.phone)}</p>` : ''}
+        ${receiptSettings?.header ? `<p>${esc(receiptSettings.header)}</p>` : ''}
         <p>Receipt #${sale.saleNumber}</p>
-        <p>${new Date(sale.createdAt).toLocaleString()}</p>
+        <p>${new Date(sale.createdAt).toLocaleString('en-US', { timeZone: sale.location?.timezone || 'UTC' })}</p>
         ${sale.user ? `<p>Cashier: ${esc(sale.user.firstName)} ${esc(sale.user.lastName)}</p>` : ''}
       </div>
       <table>
@@ -1634,35 +883,46 @@ export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response)
       <hr>
       <table class="totals">
         <tr><td>Subtotal</td><td style="text-align:right;">$${sale.subtotal.toFixed(2)}</td></tr>
-        <tr><td>Tax</td><td style="text-align:right;">$${sale.tax.toFixed(2)}</td></tr>
-        ${sale.discount > 0 ? `<tr><td>Discount</td><td style="text-align:right;">-$${sale.discount.toFixed(2)}</td></tr>` : ''}
-        ${sale.surcharge > 0 ? `<tr><td>Card Surcharge</td><td style="text-align:right;">$${sale.surcharge.toFixed(2)}</td></tr>` : ''}
+        ${receiptSettings?.showTaxBreakdown !== false ? `<tr><td>Tax</td><td style="text-align:right;">$${sale.tax.toFixed(2)}</td></tr>` : ''}
+        ${Number(sale.discount) > 0 ? `<tr><td>Discount</td><td style="text-align:right;">-$${sale.discount.toFixed(2)}</td></tr>` : ''}
+        ${Number(sale.surcharge) > 0 ? `<tr><td>Card Surcharge</td><td style="text-align:right;">$${sale.surcharge.toFixed(2)}</td></tr>` : ''}
         <tr class="grand-total"><td>Total</td><td style="text-align:right;">$${sale.total.toFixed(2)}</td></tr>
         <tr><td>Paid (${paymentInfo})</td><td style="text-align:right;">$${sale.amountPaid.toFixed(2)}</td></tr>
-        ${sale.changeDue > 0 ? `<tr><td>Change</td><td style="text-align:right;">$${sale.changeDue.toFixed(2)}</td></tr>` : ''}
+        ${Number(sale.changeDue) > 0 ? `<tr><td>Change</td><td style="text-align:right;">$${sale.changeDue.toFixed(2)}</td></tr>` : ''}
       </table>
       ${sale.customer ? `<p>Customer: ${esc(sale.customer.firstName)} ${esc(sale.customer.lastName)}</p>` : ''}
-      <div class="footer"><p>Thank you for your business!</p></div>
+      <div class="footer"><p>${esc(receiptSettings?.footer ?? 'Thank you for your business!')}</p></div>
     </div>
     </body></html>
   `;
 
-  await sendEmail({
-    to: email,
-    subject: `Receipt #${sale.saleNumber} from ${storeName}`,
-    html,
+  const payload: EmailPayload = { type: 'RECEIPT', to: email, subject: 'Receipt #' + sale.saleNumber + ' from ' + storeName, html, saleId: sale.id };
+  const job = await prisma.$transaction(async tx => {
+    await tx.sale.update({ where: { id }, data: { receiptEmail: email } });
+    return queueEmail(tx, sale.locationId!, req.user!.id, 'receipt:' + req.user!.id + ':' + sale.id + ':' + emailContentKey(payload), payload);
   });
+  res.json({ success: true, data: job, message: 'Receipt queued. Delivery status is available to the store owner.' });
+});
 
-  // Save email for reference
-  await prisma.sale.update({
-    where: { id },
-    data: { receiptEmail: email },
-  });
-
-  logger.info(`Receipt emailed: ${sale.saleNumber} to ${email}`);
-
-  res.json({
-    success: true,
-    message: `Receipt emailed to ${email}`,
-  });
+// The register obtains current, server-priced totals before collecting payment.
+export const quoteSale = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationId = req.user?.locationId;
+  if (!locationId) throw new AppError('Sign in to a store to check out', 400);
+  const { items, customerId } = req.body;
+  const [location, products, promotions, customer] = await prisma.$transaction(async tx => Promise.all([
+    tx.location.findUnique({ where: { id: locationId } }),
+    tx.product.findMany({ where: { locationId, id: { in: items.filter((i: any) => !i.productId.startsWith('misc-')).map((i: any) => i.productId) } } }),
+    tx.promotion.findMany({ where: { isActive: true, locationId } }),
+    customerId ? tx.customer.findFirst({ where: { id: customerId, locationId, isActive: true }, select: { loyaltyPoints: true } }) : Promise.resolve(null),
+  ]), { isolationLevel: 'RepeatableRead' });
+  if (!location?.isActive) throw new AppError('Store is unavailable', 400);
+  if (customerId && !customer) throw new AppError('Customer is unavailable in this store', 404);
+  const activePromotions = promotions.filter(p => isPromotionActiveNow(p, new Date()));
+  // A preview may show a proposed override. Committing it requires a manager
+  // capability or exact, single-use approval inside the sale transaction.
+  const pricing = priceSaleItems(items, new Map(products.map(p => [p.id, p])), { id: 'misc', isTaxable: true, trackInventory: false }, activePromotions, Number(location.taxRate), true);
+  const settlement = checkoutTotals(pricing, req.body, customer?.loyaltyPoints ?? null, Number(location.cardSurchargePercent));
+  // The initial catalog quote has no selected tender yet.
+  if (req.body.paymentMethod || req.body.payments?.length) assertConfiguredTenders(req.body, location.settings, settlement.total);
+  res.json({ success: true, data: { ...pricing, ...settlement, products, promotions: activePromotions, taxRate: location.taxRate, cardSurchargePercent: location.cardSurchargePercent } });
 });

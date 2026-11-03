@@ -1,4 +1,7 @@
 import { Response } from 'express';
+import { nextDocumentNumber } from '../services/documentNumber.service';
+import { refundSaleInTransaction, lockSale } from '../services/saleReversal.service';
+import { lockCurrentDrawer } from '../services/drawer.service';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
@@ -46,60 +49,33 @@ export const getExchange = asyncHandler(async (req: AuthRequest, res: Response) 
  */
 export const createExchange = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { originalSaleId, type, reason, returnedItems, notes } = req.body;
-
-  if (!originalSaleId || !type || !reason || !returnedItems?.length) {
-    throw new AppError('Missing required fields', 400);
+  if (type !== 'RETURN_ONLY') throw new AppError('Use a return followed by a new sale for replacement items', 400);
+  if (!originalSaleId || typeof reason !== 'string' || !reason.trim() || !Array.isArray(returnedItems) || !returnedItems.length) {
+    throw new AppError('Original sale, reason and returned items are required', 400);
   }
-
-  // Verify original sale
-  const sale = await prisma.sale.findUnique({
-    where: { id: originalSaleId },
-    include: { items: true },
-  });
-  if (!sale) throw new AppError('Original sale not found', 404);
-  assertOwnsRecord(req, sale.locationId);
-  if (sale.status === 'REFUNDED') throw new AppError('Sale already fully refunded', 400);
-
-  const exchangeNumber = `EX-${Date.now()}`;
-
-  const exchange = await prisma.$transaction(async (tx) => {
-    // Create exchange record
-    const ex = await tx.exchange.create({
-      data: {
-        exchangeNumber,
-        originalSaleId,
-        type,
-        status: 'COMPLETED',
-        reason,
-        returnedItems,
-        notes,
-        processedBy: req.user!.id,
-        locationId: sale.locationId,
-      },
+  const exchange = await prisma.$transaction(async tx => {
+    await lockCurrentDrawer(tx, req);
+    await lockSale(tx, originalSaleId);
+    const sale = await tx.sale.findUnique({ where: { id: originalSaleId }, include: { items: true, refunds: true } });
+    if (!sale) throw new AppError('Original sale not found', 404);
+    assertOwnsRecord(req, sale.locationId);
+    const items = returnedItems.map((item: any) => {
+      const matches = sale.items.filter(line => item.saleItemId ? line.id === item.saleItemId : line.productId === item.productId);
+      if (matches.length !== 1 || !Number.isInteger(item.quantity) || item.quantity <= 0) {
+        throw new AppError('Specify a valid original sale item and positive return quantity', 400);
+      }
+      return { saleItemId: matches[0].id, quantity: item.quantity };
     });
-
-    // Restore inventory for returned items
-    for (const item of returnedItems as Array<{ productId: string; quantity: number; price: number }>) {
-      await tx.product.update({
-        where: { id: item.productId },
-        data: { stockQuantity: { increment: item.quantity } },
-      });
-    }
-
-    // If RETURN_ONLY, calculate refund amount
-    if (type === 'RETURN_ONLY') {
-      const refundAmount = (returnedItems as Array<{ price: number; quantity: number }>)
-        .reduce((sum: number, item: { price: number; quantity: number }) => sum + item.price * item.quantity, 0);
-
-      await tx.exchange.update({
-        where: { id: ex.id },
-        data: { priceDifference: -refundAmount },
-      });
-    }
-
-    return ex;
+    const refundRequest = { user: req.user, params: { id: originalSaleId }, body: { items, reason, notes, refundMethod: 'CASH' } } as unknown as AuthRequest;
+    const { sale: updated } = await refundSaleInTransaction(refundRequest, tx);
+    const priorTotal = sale.refunds.reduce((sum, r) => sum + Number(r.amount), 0);
+    const refunded = updated.refunds.reduce((sum, r) => sum + Number(r.amount), 0) - priorTotal;
+    return tx.exchange.create({ data: {
+      exchangeNumber: await nextDocumentNumber('EX', tx), originalSaleId, type, status: 'COMPLETED', reason,
+      returnedItems: items, notes, processedBy: req.user!.id, locationId: sale.locationId,
+      priceDifference: -Math.round(refunded * 100) / 100,
+    } });
   });
-
-  logger.info(`Exchange processed: ${exchangeNumber} (${type})`);
-  res.status(201).json({ success: true, data: exchange, message: 'Exchange processed' });
+  logger.info('Return processed: ' + exchange.exchangeNumber);
+  res.status(201).json({ success: true, data: exchange, message: 'Return processed' });
 });

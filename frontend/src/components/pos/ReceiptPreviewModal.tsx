@@ -1,3 +1,4 @@
+import { formatUnitPrice } from '@/lib/money';
 import React, { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -6,6 +7,7 @@ import { Receipt, hardware } from '@/services/hardware';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { Printer, Mail, X, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { ReceiptBarcode } from './ReceiptBarcode';
 
 interface ReceiptPreviewModalProps {
   isOpen: boolean;
@@ -22,7 +24,7 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
   onEmailReceipt,
   saleId,
 }) => {
-  const { storeInfo, receiptSettings: storeReceiptSettings } = useStoreSettingsStore();
+  const { storeInfo, receiptSettings: storeReceiptSettings, isLoaded, error: settingsError } = useStoreSettingsStore();
   const [showEmailInput, setShowEmailInput] = useState(false);
   const [email, setEmail] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -37,9 +39,10 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
   const showAddress = storeReceiptSettings.showAddress;
 
   const handlePrint = async () => {
+    if (!isLoaded || settingsError) { toast.error('Reload store settings before printing this receipt.'); return; }
     const success = await hardware.printer.print(receipt);
     if (success) {
-      toast.success('Receipt sent to printer');
+      toast.success('Print requested');
     } else {
       toast.error('Print failed. Check your popup blocker settings.');
     }
@@ -98,7 +101,7 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
               <div key={i}>
                 <div className="font-medium text-[11px]">{item.name}</div>
                 <div className="flex justify-between pl-2 text-gray-700">
-                  <span>{item.quantity} x ${item.price.toFixed(2)}</span>
+                  <span>{item.quantity} x ${formatUnitPrice(item.price)}</span>
                   <span>${item.total.toFixed(2)}</span>
                 </div>
               </div>
@@ -156,6 +159,8 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
               <div className="border-t border-dashed border-gray-400 my-2" />
               <div className="text-center text-[11px]">
                 <div>Customer: {receipt.customerName}</div>
+                {receipt.pointsRedeemed !== undefined && <div>Points redeemed: {receipt.pointsRedeemed}</div>}
+                {receipt.pointsEarned !== undefined && <div>Points earned: {receipt.pointsEarned}</div>}
                 {receipt.loyaltyPoints !== undefined && (
                   <div>Loyalty Points: {receipt.loyaltyPoints}</div>
                 )}
@@ -164,6 +169,7 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
           )}
 
           <div className="border-t border-dashed border-gray-400 my-2" />
+          <ReceiptBarcode reference={receipt.saleNumber} />
           <div className="text-center text-[10px] text-gray-600">
             {footerText}
           </div>
@@ -188,7 +194,7 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
             >
               {isSendingEmail ? 'Sending...' : 'Send'}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setShowEmailInput(false)}>
+            <Button aria-label="Close email receipt form" variant="ghost" size="sm" onClick={() => setShowEmailInput(false)}>
               <X className="h-4 w-4" />
             </Button>
           </div>

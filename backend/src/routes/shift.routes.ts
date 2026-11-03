@@ -16,7 +16,7 @@ router.get('/', shiftController.getShifts);
 router.get('/current', shiftController.getCurrentShift);
 router.get(
   '/employee-performance',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   shiftController.getEmployeePerformance
 );
 

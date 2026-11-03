@@ -1,9 +1,9 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState } from 'react';
-import { X } from 'lucide-react';
 import { productService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 import { Product } from '@/types';
 import toast from 'react-hot-toast';
 
@@ -122,18 +122,8 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
   const newQuantity = getNewQuantity();
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Adjust Stock</CardTitle>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </CardHeader>
-        <CardContent>
+    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting) onClose(); }} title="Adjust Stock" size="sm">
+      <div className="space-y-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
@@ -223,7 +213,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
               <label className="block text-sm font-medium mb-1">
                 Reason <span className="text-destructive">*</span>
               </label>
-              <select
+              <Select
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -234,7 +224,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                     {r.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
 
             {/* Notes */}
@@ -258,8 +248,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
               </Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
-    </div>
+              </div>
+    </Modal>
   );
 };

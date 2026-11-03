@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import * as financialController from '../controllers/financial.controller';
 import { authenticate, authorize } from '../middleware/auth';
+import reconciliationRoutes from './reconciliation.routes';
+import inventoryCostRoutes from './inventoryCost.routes';
 
 const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+router.use('/reconciliation', reconciliationRoutes);
+router.use('/inventory-costs', inventoryCostRoutes);
 
 // ==================== BUDGETS ====================
 
@@ -14,7 +18,7 @@ router.use(authenticate);
  */
 router.get(
   '/budgets/summary',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   financialController.getBudgetSummary
 );
 
@@ -23,7 +27,7 @@ router.get(
  */
 router.get(
   '/budgets',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   financialController.getBudgets
 );
 
@@ -70,7 +74,7 @@ router.post(
  */
 router.get(
   '/recurring-expenses',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   financialController.getRecurringExpenses
 );
 
@@ -108,7 +112,7 @@ router.delete(
  */
 router.get(
   '/exports',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   financialController.getExportHistory
 );
 
@@ -117,7 +121,7 @@ router.get(
  */
 router.get(
   '/export/sales',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   financialController.exportSales
 );
 
@@ -126,7 +130,7 @@ router.get(
  */
 router.get(
   '/export/expenses',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   financialController.exportExpenses
 );
 
@@ -135,7 +139,7 @@ router.get(
  */
 router.get(
   '/reports/pnl',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   financialController.getProfitAndLoss
 );
 

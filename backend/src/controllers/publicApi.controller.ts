@@ -180,7 +180,7 @@ export const getSummary = asyncHandler(async (_req: ApiKeyRequest, res: Response
     success: true,
     data: {
       date: todayStart.toISOString().slice(0, 10),
-      netRevenue: Math.round(((sales._sum.total || 0) - (refunds._sum.amount || 0)) * 100) / 100,
+      netRevenue: Math.round((Number((sales._sum.total || 0)) - Number((refunds._sum.amount || 0))) * 100) / 100,
       transactions: sales._count,
       lowStockProducts: Number(lowStock[0]?.count ?? 0),
     },

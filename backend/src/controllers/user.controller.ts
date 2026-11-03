@@ -1,4 +1,6 @@
 import { Response } from 'express';
+import { resolveUserAssignment } from '../utils/userPermissions';
+import { getLocationFilter } from '../utils/locationFilter.util';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
 import bcrypt from 'bcryptjs';
@@ -11,13 +13,7 @@ export const getAllUsers = asyncHandler(async (req: AuthRequest, res: Response) 
 
   const where: any = {};
 
-  // Filter by location
-  if (locationId) {
-    where.locationId = locationId;
-  } else if (req.user?.role !== 'SUPER_ADMIN') {
-    // Non-super-admins can only see users from their location
-    where.locationId = req.user?.locationId;
-  }
+  Object.assign(where, getLocationFilter(req, locationId as string));
 
   // Filter by role
   if (role) {
@@ -101,16 +97,7 @@ export const createUser = asyncHandler(async (req: AuthRequest, res: Response) =
     throw new AppError('Email already in use', 400);
   }
 
-  // An admin can create managers/cashiers for their own store only — never for
-  // another location, and never with an admin or super-admin role
-  if (req.user?.role !== 'SUPER_ADMIN') {
-    if (locationId && locationId !== req.user?.locationId) {
-      throw new AppError('You can only create users for your own location', 403);
-    }
-    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
-      throw new AppError('Only super-admin can create admin users', 403);
-    }
-  }
+  const assignment = resolveUserAssignment(req, role, locationId);
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -120,8 +107,7 @@ export const createUser = asyncHandler(async (req: AuthRequest, res: Response) =
       lastName,
       email,
       password: hashedPassword,
-      role: role || 'CASHIER',
-      locationId: locationId || req.user?.locationId || null,
+      ...assignment,
     },
     select: {
       id: true,
@@ -253,6 +239,10 @@ export const updateUser = asyncHandler(async (req: AuthRequest, res: Response) =
     if (locationId !== undefined && locationId !== req.user?.locationId) {
       throw new AppError('You can only assign users to your own location', 403);
     }
+  }
+
+  if ((role ?? existingUser.role) !== 'SUPER_ADMIN' && !(locationId === undefined ? existingUser.locationId : locationId)) {
+    throw new AppError('A store assignment is required for this role', 400);
   }
 
   // Check if email is taken by another user
@@ -508,54 +498,5 @@ export const updateProfile = asyncHandler(async (req: AuthRequest, res: Response
   });
 });
 
-// Change current user's password
-export const changePassword = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const userId = req.user?.id;
-  const { currentPassword, newPassword, confirmPassword } = req.body;
-
-  if (!userId) {
-    throw new AppError('Unauthorized', 401);
-  }
-
-  // Validation
-  if (!currentPassword || !newPassword || !confirmPassword) {
-    throw new AppError('All password fields are required', 400);
-  }
-
-  if (newPassword !== confirmPassword) {
-    throw new AppError('New passwords do not match', 400);
-  }
-
-  if (newPassword.length < 6) {
-    throw new AppError('Password must be at least 6 characters', 400);
-  }
-
-  // Get current user with password
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-  });
-
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
-
-  // Verify current password
-  const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
-  if (!isPasswordValid) {
-    throw new AppError('Current password is incorrect', 400);
-  }
-
-  // Hash new password
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-  // Update password
-  await prisma.user.update({
-    where: { id: userId },
-    data: { password: hashedPassword },
-  });
-
-  res.json({
-    success: true,
-    message: 'Password changed successfully',
-  });
-});
+// Use the same password policy and session revocation through both API routes.
+export { changePassword } from './auth.controller';

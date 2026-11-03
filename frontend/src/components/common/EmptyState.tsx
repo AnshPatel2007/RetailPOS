@@ -19,10 +19,10 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   action,
 }) => {
   return (
-    <div className="p-12 text-center">
-      <Icon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-      <h3 className="text-lg font-medium mb-2">{title}</h3>
-      {hint && <p className="text-muted-foreground mb-4">{hint}</p>}
+    <div className="px-4 py-8 sm:py-10 text-center">
+      <Icon className="h-8 w-8 mx-auto text-muted-foreground/70 mb-3" aria-hidden="true" />
+      <h3 className="text-lg font-semibold mb-1">{title}</h3>
+      {hint && <p className="mx-auto max-w-md text-sm text-muted-foreground mb-3">{hint}</p>}
       {action}
     </div>
   );

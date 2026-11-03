@@ -1,9 +1,10 @@
+import { formatUnitPrice } from '@/lib/money';
 /**
  * Hardware Integration Service
  * Handles barcode scanners, receipt printers, cash drawers, and card readers
  */
 
-import QRCode from 'qrcode';
+import { receiptBarcodeSvg, receiptCodeMarkup } from './receiptBarcode';
 
 // Hardware Settings Interface
 export interface HardwareSettings {
@@ -31,6 +32,9 @@ export interface HardwareSettings {
     fontSize?: number | 'small' | 'medium' | 'large';
     showBarcode?: boolean;
     customCss?: string;
+    headerText?: string;
+    showAddress?: boolean;
+    showTaxBreakdown?: boolean;
   };
   cashDrawer: {
     enabled: boolean;
@@ -261,6 +265,8 @@ export interface Receipt {
   employeeName: string;
   customerName?: string;
   loyaltyPoints?: number;
+  pointsEarned?: number;
+  pointsRedeemed?: number;
   /** Promotion savings already reflected in the totals — printed as a callout line */
   savings?: number;
 }
@@ -289,12 +295,12 @@ class ReceiptPrinter {
   async print(receipt: Receipt): Promise<boolean> {
     if (!this.settings.enabled) return false;
 
-    // QR encodes the sale number — scanning a receipt at the register pulls the
-    // sale straight up for refunds/lookups. Generated locally; skipped on failure.
+    // Compact references use Code 128; legacy long references retain QR.
+    // Both encode the exact lookup reference and are generated locally.
     let qrDataUrl = '';
     try {
-      qrDataUrl = await QRCode.toDataURL(receipt.saleNumber, { margin: 0, width: 120 });
-    } catch { /* print without QR */ }
+      qrDataUrl = await receiptCodeMarkup(receipt.saleNumber);
+    } catch { /* The readable reference remains available if code generation fails. */ }
 
     try {
       const printWindow = window.open('', '_blank', 'width=350,height=600');
@@ -353,7 +359,7 @@ class ReceiptPrinter {
   /**
    * Generate HTML for receipt
    */
-  private generateReceiptHTML(receipt: Receipt, qrDataUrl = ''): string {
+  private generateReceiptHTML(receipt: Receipt, qrDataUrl = receiptBarcodeSvg(receipt.saleNumber)): string {
     const widthMm = this.settings.paperWidth === 58 ? '58mm' : '80mm';
     const widthPx = this.settings.paperWidth === 58 ? '220px' : '302px';
     // Escape all dynamic text — product/customer names must not inject HTML into the print window
@@ -371,7 +377,8 @@ class ReceiptPrinter {
   <style>
     @media print {
       @page { margin: 0; size: ${widthMm} auto; }
-      body { margin: 0; padding: 3mm; }
+      body { margin: 0; padding: 3mm; width: ${widthMm}; }
+      body .receipt { width: 100%; padding: 0; }
       .no-print { display: none !important; }
     }
     @media screen {
@@ -405,8 +412,9 @@ class ReceiptPrinter {
 <body>
   <div class="receipt">
     ${this.settings.showLogo ? `<div class="center store-name">${esc(this.settings.storeName)}</div>` : ''}
-    ${this.settings.storeAddress ? `<div class="center store-info">${esc(this.settings.storeAddress)}</div>` : ''}
+    ${this.settings.showAddress !== false && this.settings.storeAddress ? `<div class="center store-info">${esc(this.settings.storeAddress)}</div>` : ''}
     ${this.settings.storePhone ? `<div class="center store-info">Tel: ${esc(this.settings.storePhone)}</div>` : ''}
+    ${this.settings.headerText ? `<div class="center store-info">${esc(this.settings.headerText)}</div>` : ''}
     <div class="line"></div>
     <div class="center">
       <div>Receipt #${esc(receipt.saleNumber)}</div>
@@ -417,13 +425,13 @@ class ReceiptPrinter {
     <table>
       ${receipt.items.map((item) => `
       <tr><td class="item-name" colspan="2">${esc(item.name)}</td></tr>
-      <tr><td class="item-detail">${item.quantity} x $${item.price.toFixed(2)}</td><td class="right">$${item.total.toFixed(2)}</td></tr>
+      <tr><td class="item-detail">${item.quantity} x $${formatUnitPrice(item.price)}</td><td class="right">$${item.total.toFixed(2)}</td></tr>
       `).join('')}
     </table>
     <div class="line"></div>
     <table>
       <tr><td>Subtotal:</td><td class="right">$${receipt.subtotal.toFixed(2)}</td></tr>
-      <tr><td>Tax:</td><td class="right">$${receipt.tax.toFixed(2)}</td></tr>
+      ${this.settings.showTaxBreakdown !== false ? `<tr><td>Tax:</td><td class="right">$${receipt.tax.toFixed(2)}</td></tr>` : ''}
       ${receipt.discount > 0 ? `<tr><td>Discount:</td><td class="right">-$${receipt.discount.toFixed(2)}</td></tr>` : ''}
       ${receipt.surcharge && receipt.surcharge > 0 ? `<tr><td>Card Surcharge:</td><td class="right">$${receipt.surcharge.toFixed(2)}</td></tr>` : ''}
     </table>
@@ -440,11 +448,13 @@ class ReceiptPrinter {
     <div class="center">
       <div>Customer: ${esc(receipt.customerName)}</div>
       ${receipt.loyaltyPoints ? `<div>Loyalty Points: ${receipt.loyaltyPoints}</div>` : ''}
+      ${receipt.pointsRedeemed !== undefined ? `<div>Points redeemed: ${receipt.pointsRedeemed}</div>` : ''}
+      ${receipt.pointsEarned !== undefined ? `<div>Points earned: ${receipt.pointsEarned}</div>` : ''}
     </div>` : ''}
     <div class="line"></div>
     ${qrDataUrl ? `
     <div class="center" style="margin:6px 0;">
-      <img src="${qrDataUrl}" width="72" height="72" alt="" />
+      ${qrDataUrl}
       <div style="font-size:9px;color:#555;">Scan for returns &amp; lookups</div>
     </div>` : ''}
     <div class="center footer">${esc(this.settings.footerText)}</div>
@@ -457,16 +467,8 @@ class ReceiptPrinter {
    * Open cash drawer (connected to printer via RJ11/RJ12)
    */
   async openDrawer(): Promise<boolean> {
-    try {
-      // In a web browser environment, we can't directly send ESC/POS commands
-      // to a cash drawer. This would require a local print server or native app.
-      // For now, just log the action.
-      console.log('Cash drawer open command sent (requires hardware connection)');
-      return true;
-    } catch (error) {
-      console.error('Failed to open drawer:', error);
-      return false;
-    }
+    // Browser printing does not provide a confirmed drawer-control channel.
+    return false;
   }
 
   /**
@@ -501,7 +503,7 @@ class ReceiptPrinter {
    * Check printer connection status
    */
   checkStatus(): { connected: boolean; online: boolean; status: string; error?: string } {
-    return { connected: this.settings.enabled, online: this.settings.enabled, status: this.settings.enabled ? 'ready' : 'disabled' };
+    return { connected: false, online: false, status: this.settings.enabled ? 'browser-printing' : 'disabled' };
   }
 }
 
@@ -600,40 +602,15 @@ class CardReader {
   /**
    * Process card payment
    */
-  async processPayment(amount: number): Promise<CardPaymentResult> {
-    if (!this.settings.enabled) {
-      return { success: false, error: 'Card reader not enabled' };
-    }
-
-    try {
-      // In production, integrate with actual payment processor
-      // (Stripe Terminal, Square Reader, etc.)
-      console.log(`Processing card payment: $${amount}`);
-
-      // Simulate payment processing
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      return {
-        success: true,
-        transactionId: `TXN_${Date.now()}`,
-        amount,
-        cardLast4: '****',
-        cardBrand: 'VISA',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: 'Payment declined',
-      };
-    }
+  async processPayment(_amount: number): Promise<CardPaymentResult> {
+    return { success: false, error: 'No payment processor is connected. Complete payment on your separate terminal before recording it in the POS.' };
   }
 
   /**
    * Cancel payment
    */
   async cancelPayment(): Promise<boolean> {
-    console.log('Cancelling payment...');
-    return true;
+    return false;
   }
 
   /**
@@ -683,7 +660,10 @@ class HardwareManager {
         // Merge with defaults to ensure all fields exist
         return {
           barcodeScanner: { ...defaultHardwareSettings.barcodeScanner, ...parsed.barcodeScanner },
-          receiptPrinter: { ...defaultHardwareSettings.receiptPrinter, ...parsed.receiptPrinter },
+          receiptPrinter: { ...defaultHardwareSettings.receiptPrinter, ...parsed.receiptPrinter,
+            storeName: defaultHardwareSettings.receiptPrinter.storeName, storeAddress: '', storePhone: '',
+            headerText: '', footerText: defaultHardwareSettings.receiptPrinter.footerText, showAddress: true, showTaxBreakdown: true,
+          },
           cashDrawer: { ...defaultHardwareSettings.cashDrawer, ...parsed.cashDrawer },
           cardReader: { ...defaultHardwareSettings.cardReader, ...parsed.cardReader },
         };
@@ -698,12 +678,18 @@ class HardwareManager {
    * Save settings to localStorage
    */
   saveSettings(settings: HardwareSettings): void {
-    this.settings = settings;
-    localStorage.setItem('hardwareSettings', JSON.stringify(settings));
+    const branding = this.settings.receiptPrinter;
+    this.settings = { ...settings, receiptPrinter: { ...settings.receiptPrinter,
+      storeName: branding.storeName, storeAddress: branding.storeAddress, storePhone: branding.storePhone,
+      headerText: branding.headerText, footerText: branding.footerText, showAddress: branding.showAddress, showTaxBreakdown: branding.showTaxBreakdown,
+    } };
+    const devicePrinter = { ...this.settings.receiptPrinter } as Record<string, unknown>;
+    for (const key of ['storeName', 'storeAddress', 'storePhone', 'headerText', 'footerText', 'showAddress', 'showTaxBreakdown']) delete devicePrinter[key];
+    localStorage.setItem('hardwareSettings', JSON.stringify({ ...this.settings, receiptPrinter: devicePrinter }));
 
     // Update all devices
     this.scanner.updateSettings(settings.barcodeScanner);
-    this.printer.updateSettings(settings.receiptPrinter);
+    this.printer.updateSettings(this.settings.receiptPrinter);
     this.drawer.updateSettings(settings.cashDrawer);
     this.cardReader.updateSettings(settings.cardReader);
   }
@@ -713,6 +699,15 @@ class HardwareManager {
    */
   getSettings(): HardwareSettings {
     return this.settings;
+  }
+
+  /** Branding belongs to the store, while scanner/printer transport stays on this register. */
+  applyStoreBranding(store: { storeName: string; address: string; city: string; state: string; phone: string }, receipt: { header: string; footer: string; showAddress: boolean; showTaxBreakdown: boolean }): void {
+    this.settings = { ...this.settings, receiptPrinter: { ...this.settings.receiptPrinter,
+      storeName: store.storeName, storeAddress: [store.address, store.city, store.state].filter(Boolean).join(', '), storePhone: store.phone,
+      headerText: receipt.header, footerText: receipt.footer, showAddress: receipt.showAddress, showTaxBreakdown: receipt.showTaxBreakdown,
+    } };
+    this.printer.updateSettings(this.settings.receiptPrinter);
   }
 
   /**

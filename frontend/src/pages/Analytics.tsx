@@ -1,24 +1,22 @@
+import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
+import { Select } from '@/components/ui/Select';
+import { ForecastPanel, type ForecastData } from '@/components/analytics/ForecastPanel';
+import { InventoryPurchaseSummary } from '@/components/financial/InventoryPurchaseSummary';
 import React, { useState, useEffect } from 'react';
 import {
   TrendingUp,
   TrendingDown,
   BarChart3,
-  PieChart,
-  Package,
   DollarSign,
-  RefreshCw,
   Star,
   AlertTriangle,
   HelpCircle,
   ArrowUpRight,
   ArrowDownRight,
-  Target,
-  Activity,
   Brain,
   Zap,
   Gift,
   Trophy,
-  Heart,
   Calculator,
   ShoppingBag,
   Award,
@@ -26,8 +24,6 @@ import {
   Sparkles,
 } from 'lucide-react';
 import {
-  BarChart,
-  Bar,
   Line,
   Cell,
   XAxis,
@@ -40,13 +36,16 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
-import { analyticsService } from '../services/api';
-import toast from 'react-hot-toast';
+import { api } from '../services/api';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StoreFilterSelect } from '@/components/common/StoreFilterSelect';
-import { AnalyticsChat } from '@/components/analytics/AnalyticsChat';
+import { PageTabs } from '@/components/common/PageTabs';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
+import { useAuthStore } from '@/store/authStore';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { Pagination } from '@/components/common/Pagination';
 import { Badge } from '@/components/ui/Badge';
 import {
   Table,
@@ -57,168 +56,62 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 
-export const Analytics: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'inventory' | 'products' | 'forecast' | 'predictions' | 'anomalies' | 'bundles' | 'employees' | 'health' | 'whatif' | 'ask'>('overview');
-  const [loading, setLoading] = useState(true);
-  const [comparisonData, setComparisonData] = useState<any>(null);
-  const [abcData, setAbcData] = useState<any>(null);
-  const [matrixData, setMatrixData] = useState<any>(null);
-  const [forecastData, setForecastData] = useState<any>(null);
-  const [realtimeData, setRealtimeData] = useState<any>(null);
-  const [inventoryPredictions, setInventoryPredictions] = useState<any>(null);
-  const [anomaliesData, setAnomaliesData] = useState<any>(null);
-  const [bundlesData, setBundlesData] = useState<any>(null);
-  const [employeeData, setEmployeeData] = useState<any>(null);
-  const [healthData, setHealthData] = useState<any>(null);
-  const [whatIfData, setWhatIfData] = useState<any>(null);
-  const [whatIfInputs, setWhatIfInputs] = useState({ priceChange: 0, costChange: 0, volumeChange: 0 });
-  const [abcDays, setAbcDays] = useState('90');
-  const [forecastDays, setForecastDays] = useState('30');
-  const [employeeDays, setEmployeeDays] = useState('30');
+export type AnalysisView = 'overview' | 'inventory' | 'products' | 'forecast' | 'predictions' | 'anomalies' | 'bundles' | 'employees' | 'health' | 'whatif';
+export const Analytics: React.FC<{ view?: AnalysisView }> = ({ view }) => {
+  const role = useAuthStore(state => state.user?.role);
+  const [selectedTab, setActiveTab] = useState<AnalysisView>('overview');
+  const activeTab = view || selectedTab;
+  const [abcDays, setAbcDays] = useState('90'), [abcPage, setAbcPage] = useState(1);
+  const [inventoryPage, setInventoryPage] = useState(1), [forecastDays, setForecastDays] = useState('30'), [employeeDays, setEmployeeDays] = useState('30');
   const [locationId, setLocationId] = useState('');
-
-  useEffect(() => {
-    fetchAllData();
-    const interval = setInterval(fetchRealtime, 30000); // Refresh realtime every 30s
-    return () => clearInterval(interval);
-  }, [locationId]);
-
-  const fetchAllData = async () => {
-    setLoading(true);
-    try {
-      await Promise.all([
-        fetchComparison(),
-        fetchABC(),
-        fetchMatrix(),
-        fetchForecast(),
-        fetchRealtime(),
-        fetchInventoryPredictions(),
-        fetchAnomalies(),
-        fetchBundles(),
-        fetchEmployeePerformance(),
-        fetchBusinessHealth(),
-      ]);
-    } catch (error) {
-      console.error('Failed to fetch analytics:', error);
-      toast.error('Failed to load analytics data');
-    } finally {
-      setLoading(false);
+  const [whatIfInputs, setWhatIfInputs] = useState({ priceChange: 0, costChange: 0, volumeChange: 0 });
+  const [simulation, setSimulation] = useState<typeof whatIfInputs | null>(null);
+  const query = useScopedQuery<any>(['analytics', activeTab, locationId,
+    activeTab === 'inventory' ? [abcDays, abcPage] : activeTab === 'predictions' ? inventoryPage : activeTab === 'forecast' ? forecastDays : activeTab === 'employees' ? employeeDays : activeTab === 'whatif' ? simulation : null], async signal => {
+    const params: Record<string, unknown> = { locationId: locationId || undefined };
+    if (activeTab === 'overview') {
+      const [comparison, realtime] = await Promise.all([api.get('/analytics/comparison', { params, signal }), api.get('/analytics/realtime', { params, signal })]);
+      return { comparison: comparison.data.data, realtime: realtime.data.data };
     }
-  };
+    const paths = { inventory: 'abc-analysis', products: 'product-matrix', forecast: 'forecast', predictions: 'inventory-predictions', anomalies: 'anomalies', bundles: 'bundle-recommendations', employees: 'employee-performance', health: 'business-health' };
+    if (activeTab === 'whatif') return (await api.post('/analytics/what-if', { ...simulation, ...params }, { signal })).data.data;
+    if (activeTab === 'inventory') Object.assign(params, { days: abcDays, page: abcPage });
+    if (activeTab === 'predictions') params.page = inventoryPage;
+    if (activeTab === 'forecast') params.forecastDays = forecastDays;
+    if (activeTab === 'employees') params.days = employeeDays;
+    return (await api.get('/analytics/' + paths[activeTab as keyof typeof paths], { params, signal })).data.data;
+  }, activeTab !== 'whatif' || !!simulation, 30000, { autoRefresh: activeTab !== 'whatif' });
+  const comparisonData = activeTab === 'overview' ? query.data?.comparison : null, realtimeData = activeTab === 'overview' ? query.data?.realtime : null;
+  const abcData = activeTab === 'inventory' ? query.data : null, matrixData = activeTab === 'products' ? query.data : null;
+  const forecastData: ForecastData | null = activeTab === 'forecast' ? query.data : null;
+  const inventoryPredictions = activeTab === 'predictions' ? query.data : null, anomaliesData = activeTab === 'anomalies' ? query.data : null;
+  const bundlesData = activeTab === 'bundles' ? query.data : null, employeeData = activeTab === 'employees' ? query.data : null;
+  const healthData = activeTab === 'health' ? query.data : null, whatIfData = activeTab === 'whatif' ? query.data : null;
+  const loadError = query.stale ? '' : query.error, loading = query.loading && !query.data, forecastRefreshing = query.loading;
+  const fetchAllData = query.refresh;
+  const fetchABC = (days: string) => { setAbcDays(days); setAbcPage(1); };
+  const fetchForecast = (days: string) => setForecastDays(days);
+  const fetchEmployeePerformance = (days: string) => setEmployeeDays(days);
+  const fetchWhatIfAnalysis = () => { setSimulation({ ...whatIfInputs }); query.refresh(); };
+  useEffect(() => { setInventoryPage(1); setAbcPage(1); setSimulation(null); }, [locationId]);
 
-  const fetchComparison = async () => {
-    try {
-      const response = await analyticsService.getComparison({ locationId: locationId || undefined });
-      setComparisonData(response.data.data);
-    } catch (error) {
-      console.error('Failed to fetch comparison:', error);
-    }
-  };
-
-  const fetchABC = async (days: string = abcDays) => {
-    try {
-      const response = await analyticsService.getABCAnalysis({ days, locationId: locationId || undefined });
-      setAbcData(response.data.data);
-    } catch (error) {
-      console.error('Failed to fetch ABC analysis:', error);
-    }
-  };
-
-  const fetchMatrix = async () => {
-    try {
-      const response = await analyticsService.getProductMatrix({ days: 30, locationId: locationId || undefined });
-      setMatrixData(response.data.data);
-    } catch (error) {
-      console.error('Failed to fetch product matrix:', error);
-    }
-  };
-
-  const fetchForecast = async (days: string = forecastDays) => {
-    try {
-      const response = await analyticsService.getForecast({ forecastDays: days, locationId: locationId || undefined });
-      setForecastData(response.data.data);
-    } catch (error) {
-      console.error('Failed to fetch forecast:', error);
-    }
-  };
-
-  const fetchRealtime = async () => {
-    try {
-      const response = await analyticsService.getRealtime({ locationId: locationId || undefined });
-      setRealtimeData(response.data.data);
-    } catch (error) {
-      console.error('Failed to fetch realtime:', error);
-    }
-  };
-
-  const fetchInventoryPredictions = async () => {
-    try {
-      const response = await analyticsService.getInventoryPredictions({ locationId: locationId || undefined });
-      setInventoryPredictions(response.data.data);
-    } catch (error) {
-      console.error('Failed to fetch inventory predictions:', error);
-    }
-  };
-
-  const fetchAnomalies = async () => {
-    try {
-      const response = await analyticsService.getAnomalies({ locationId: locationId || undefined });
-      setAnomaliesData(response.data.data);
-    } catch (error) {
-      console.error('Failed to fetch anomalies:', error);
-    }
-  };
-
-  const fetchBundles = async () => {
-    try {
-      const response = await analyticsService.getBundleRecommendations({ locationId: locationId || undefined });
-      setBundlesData(response.data.data);
-    } catch (error) {
-      console.error('Failed to fetch bundle recommendations:', error);
-    }
-  };
-
-  const fetchEmployeePerformance = async (days: string = employeeDays) => {
-    try {
-      const response = await analyticsService.getEmployeePerformance({ days, locationId: locationId || undefined });
-      setEmployeeData(response.data.data);
-    } catch (error) {
-      console.error('Failed to fetch employee performance:', error);
-    }
-  };
-
-  const fetchBusinessHealth = async () => {
-    try {
-      const response = await analyticsService.getBusinessHealth({ locationId: locationId || undefined });
-      setHealthData(response.data.data);
-    } catch (error) {
-      console.error('Failed to fetch business health:', error);
-    }
-  };
-
-  const fetchWhatIfAnalysis = async () => {
-    try {
-      const response = await analyticsService.getWhatIfAnalysis({ ...whatIfInputs, locationId: locationId || undefined });
-      setWhatIfData(response.data.data);
-    } catch (error) {
-      console.error('Failed to fetch what-if analysis:', error);
-    }
-  };
-
-  const formatCurrency = (value: number) => {
+  const formatCurrency = (value: number | null | undefined) => {
+    if (value == null || !Number.isFinite(value)) return 'Unavailable';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(value);
   };
 
-  const formatPercent = (value: number) => {
+  const formatPercent = (value: number | null | undefined) => {
+    if (value == null || !Number.isFinite(value)) return 'Unavailable';
     return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
   };
 
-  const GrowthIndicator = ({ value }: { value: number }) => {
+  const GrowthIndicator = ({ value }: { value: number | null }) => {
+    if (value === null) return <span className="text-muted-foreground">Unavailable</span>;
     if (value > 0) {
       return (
         <span className="flex items-center text-success text-sm">
@@ -237,183 +130,32 @@ export const Analytics: React.FC = () => {
     return <span className="text-muted-foreground text-sm">0%</span>;
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-8">
-      <PageHeader
-        title="Analytics"
-        subtitle="Deep insights into your business performance"
-        actions={
-          <>
-            <StoreFilterSelect value={locationId} onChange={setLocationId} />
-            <Button variant="outline" onClick={fetchAllData}>
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Refresh
-            </Button>
-          </>
-        }
+    <ManagementPage className="">
+      <PageHeader title="Analytics"
+        tabs={!view && <PageTabs label="Analytics views" value={activeTab} onChange={id => setActiveTab(id as AnalysisView)} items={[
+          { id: 'overview', label: 'Comparison' }, { id: 'health', label: 'Business Health' },
+          { id: 'inventory', label: 'ABC Analysis' }, { id: 'products', label: 'Product Matrix' },
+          { id: 'forecast', label: 'Forecast' }, { id: 'predictions', label: 'Inventory Planning' },
+          { id: 'anomalies', label: 'Anomalies' }, { id: 'bundles', label: 'Bundles' },
+          { id: 'employees', label: 'Employee Performance' },
+        ]} />}
+        toolbar={role === 'SUPER_ADMIN' ? <StoreFilterSelect value={locationId} onChange={setLocationId} /> : undefined}
       />
+      {loading && <p role="status" className="mb-4 text-muted-foreground">Loading analysis...</p>}
+      {query.refreshing && <span className="sr-only" role="status">Updating analysis</span>}
 
-      {/* Real-time Summary */}
-      {realtimeData && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <Card className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Today's Revenue</p>
-                <p className="text-2xl font-bold">{formatCurrency(realtimeData.today.revenue)}</p>
-              </div>
-              <div className="p-3 bg-success/10 rounded-full">
-                <DollarSign className="w-6 h-6 text-success" />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {realtimeData.today.transactions} transactions
-            </p>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Last Hour</p>
-                <p className="text-2xl font-bold">{formatCurrency(realtimeData.lastHour.revenue)}</p>
-              </div>
-              <div className="p-3 bg-info/10 rounded-full">
-                <Activity className="w-6 h-6 text-info" />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {realtimeData.lastHour.transactions} sales
-            </p>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Avg Order Value</p>
-                <p className="text-2xl font-bold">{formatCurrency(realtimeData.today.avgOrderValue)}</p>
-              </div>
-              <div className="p-3 bg-primary/10 rounded-full">
-                <Target className="w-6 h-6 text-primary" />
-              </div>
-            </div>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Alerts</p>
-                <p className="text-2xl font-bold">{realtimeData.alerts.lowStockItems}</p>
-              </div>
-              <div className="p-3 bg-warning/10 rounded-full">
-                <AlertTriangle className="w-6 h-6 text-warning" />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Low stock items
-            </p>
-          </Card>
-        </div>
-      )}
+      <AutoRefreshStatus state={query} />
+      {/* Live figures share the same compact hierarchy as reports. */}
+      {activeTab === 'overview' && realtimeData && <SummaryStrip className="mb-6" items={[
+        { label: "Today's Revenue", value: formatCurrency(realtimeData.today.revenue), detail: (realtimeData.today.transactions ?? 'Unavailable') + ' transactions' },
+        { label: 'Last Hour', value: formatCurrency(realtimeData.lastHour.revenue), detail: (realtimeData.lastHour.transactions ?? 'Unavailable') + ' sales' },
+        { label: 'Avg Order Value', value: formatCurrency(realtimeData.today.avgOrderValue) },
+        { label: 'Alerts', value: realtimeData.alerts.lowStockItems, detail: 'Low stock items', tone: realtimeData.alerts.lowStockItems > 0 ? 'warning' : 'default' },
+      ]} />}
 
-      {/* Tab Navigation */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        <Button
-          variant={activeTab === 'ask' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('ask')}
-          size="sm"
-        >
-          <Sparkles className="w-4 h-4 mr-2" />
-          Ask AI
-        </Button>
-        <Button
-          variant={activeTab === 'overview' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('overview')}
-          size="sm"
-        >
-          <BarChart3 className="w-4 h-4 mr-2" />
-          Comparison
-        </Button>
-        <Button
-          variant={activeTab === 'health' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('health')}
-          size="sm"
-        >
-          <Heart className="w-4 h-4 mr-2" />
-          Business Health
-        </Button>
-        <Button
-          variant={activeTab === 'predictions' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('predictions')}
-          size="sm"
-        >
-          <Brain className="w-4 h-4 mr-2" />
-          Inventory AI
-        </Button>
-        <Button
-          variant={activeTab === 'anomalies' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('anomalies')}
-          size="sm"
-        >
-          <Zap className="w-4 h-4 mr-2" />
-          Anomalies
-        </Button>
-        <Button
-          variant={activeTab === 'bundles' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('bundles')}
-          size="sm"
-        >
-          <Gift className="w-4 h-4 mr-2" />
-          Bundles
-        </Button>
-        <Button
-          variant={activeTab === 'employees' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('employees')}
-          size="sm"
-        >
-          <Trophy className="w-4 h-4 mr-2" />
-          Employees
-        </Button>
-        <Button
-          variant={activeTab === 'whatif' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('whatif')}
-          size="sm"
-        >
-          <Calculator className="w-4 h-4 mr-2" />
-          What-If
-        </Button>
-        <Button
-          variant={activeTab === 'inventory' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('inventory')}
-          size="sm"
-        >
-          <Package className="w-4 h-4 mr-2" />
-          ABC Analysis
-        </Button>
-        <Button
-          variant={activeTab === 'products' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('products')}
-          size="sm"
-        >
-          <PieChart className="w-4 h-4 mr-2" />
-          Product Matrix
-        </Button>
-        <Button
-          variant={activeTab === 'forecast' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('forecast')}
-          size="sm"
-        >
-          <TrendingUp className="w-4 h-4 mr-2" />
-          Forecast
-        </Button>
-      </div>
+      {loadError && <div role="alert" className="rounded border border-destructive p-3 mb-4"><p>{loadError}</p><Button variant="outline" onClick={fetchAllData}>Retry</Button></div>}
 
-      {/* Ask AI Tab */}
-      {activeTab === 'ask' && <AnalyticsChat />}
 
       {/* Comparison Analytics Tab */}
       {activeTab === 'overview' && comparisonData && (
@@ -437,7 +179,7 @@ export const Analytics: React.FC = () => {
                 </div>
                 <div className="pt-2 border-t">
                   <p className="text-sm text-muted-foreground">
-                    {comparisonData.daily.current.transactions} transactions today
+                    {comparisonData.daily.current.transactions ?? 'Unavailable'} transactions today
                   </p>
                 </div>
               </div>
@@ -461,7 +203,7 @@ export const Analytics: React.FC = () => {
                 </div>
                 <div className="pt-2 border-t">
                   <p className="text-sm text-muted-foreground">
-                    {comparisonData.weekly.current.transactions} transactions this week
+                    {comparisonData.weekly.current.transactions ?? 'Unavailable'} transactions this week
                   </p>
                 </div>
               </div>
@@ -505,7 +247,7 @@ export const Analytics: React.FC = () => {
                 </div>
                 <div className="pt-2 border-t">
                   <p className="text-sm text-muted-foreground">
-                    {comparisonData.yearly.current.transactions} transactions YTD
+                    {comparisonData.yearly.current.transactions ?? 'Unavailable'} transactions YTD
                   </p>
                 </div>
               </div>
@@ -523,8 +265,10 @@ export const Analytics: React.FC = () => {
               <p className="text-sm text-muted-foreground">
                 Classify products by revenue contribution
               </p>
+              <p className="text-sm text-muted-foreground">{abcData.basis} {abcData.period?.timezone}</p>
+              {!!abcData.summary.unranked?.count && <p className="text-sm">{abcData.summary.unranked.count} products remain unranked.</p>}
             </div>
-            <select
+            <Select
               value={abcDays}
               onChange={(e) => {
                 setAbcDays(e.target.value);
@@ -536,7 +280,7 @@ export const Analytics: React.FC = () => {
               <option value="60">Last 60 days</option>
               <option value="90">Last 90 days</option>
               <option value="180">Last 180 days</option>
-            </select>
+            </Select>
           </div>
 
           {/* Summary Cards */}
@@ -550,7 +294,7 @@ export const Analytics: React.FC = () => {
                 <Star className="w-8 h-8 text-success" />
               </div>
               <p className="text-sm text-muted-foreground mt-2">
-                {abcData.summary.classA.revenuePercentage.toFixed(0)}% of revenue ({abcData.summary.classA.percentage.toFixed(0)}% of items)
+                {abcData.summary.classA.revenuePercentage?.toFixed(0) ?? 'Unavailable'}% of positive net collections ({abcData.summary.classA.percentage.toFixed(0)}% of items)
               </p>
             </Card>
             <Card className="p-4 border-l-4 border-l-yellow-500">
@@ -562,7 +306,7 @@ export const Analytics: React.FC = () => {
                 <BarChart3 className="w-8 h-8 text-warning" />
               </div>
               <p className="text-sm text-muted-foreground mt-2">
-                {abcData.summary.classB.revenuePercentage.toFixed(0)}% of revenue ({abcData.summary.classB.percentage.toFixed(0)}% of items)
+                {abcData.summary.classB.revenuePercentage?.toFixed(0) ?? 'Unavailable'}% of positive net collections ({abcData.summary.classB.percentage.toFixed(0)}% of items)
               </p>
             </Card>
             <Card className="p-4 border-l-4 border-l-red-500">
@@ -574,7 +318,7 @@ export const Analytics: React.FC = () => {
                 <TrendingDown className="w-8 h-8 text-destructive" />
               </div>
               <p className="text-sm text-muted-foreground mt-2">
-                {abcData.summary.classC.revenuePercentage.toFixed(0)}% of revenue ({abcData.summary.classC.percentage.toFixed(0)}% of items)
+                {abcData.summary.classC.revenuePercentage?.toFixed(0) ?? 'Unavailable'}% of positive net collections ({abcData.summary.classC.percentage.toFixed(0)}% of items)
               </p>
             </Card>
           </div>
@@ -584,7 +328,7 @@ export const Analytics: React.FC = () => {
             <h4 className="font-medium mb-4">Revenue Distribution (Pareto)</h4>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={abcData.products.slice(0, 30)}>
+                <AreaChart data={abcData.pareto || abcData.products.slice(0, 30)}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" tick={false} />
                   <YAxis yAxisId="left" />
@@ -617,7 +361,7 @@ export const Analytics: React.FC = () => {
 
           {/* Product List */}
           <Card>
-            <Table>
+            <Table scrollLabel="Analytics records">
               <TableHeader>
                 <TableRow>
                   <TableHead>Class</TableHead>
@@ -630,7 +374,7 @@ export const Analytics: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {abcData.products.slice(0, 20).map((product: any) => (
+                {abcData.products.map((product: any) => (
                   <TableRow key={product.id}>
                     <TableCell>
                       <Badge
@@ -645,13 +389,14 @@ export const Analytics: React.FC = () => {
                     <TableCell className="font-medium">{product.name}</TableCell>
                     <TableCell className="text-muted-foreground">{product.sku}</TableCell>
                     <TableCell>{formatCurrency(product.revenue)}</TableCell>
-                    <TableCell>{product.revenuePercentage.toFixed(1)}%</TableCell>
+                    <TableCell>{product.revenuePercentage == null ? 'Unavailable' : product.revenuePercentage.toFixed(1) + '%'}</TableCell>
                     <TableCell>{product.quantity}</TableCell>
                     <TableCell>{product.stockQuantity}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            <Pagination page={abcData.pagination.page} totalPages={abcData.pagination.totalPages} onPageChange={setAbcPage} totalItems={abcData.pagination.total} itemName="products" />
           </Card>
         </div>
       )}
@@ -659,6 +404,7 @@ export const Analytics: React.FC = () => {
       {/* Product Performance Matrix Tab */}
       {activeTab === 'products' && matrixData && (
         <div className="space-y-6">
+          {matrixData.unavailableCount > 0 && <p role="status" className="text-sm text-muted-foreground">{matrixData.unavailableCount} products have unavailable historical margin and are excluded from the performance quadrants.</p>}
           <div>
             <h3 className="text-lg font-semibold">Product Performance Matrix</h3>
             <p className="text-sm text-muted-foreground">
@@ -769,10 +515,10 @@ export const Analytics: React.FC = () => {
                     }}
                   />
                   <Scatter
-                    data={matrixData.products}
+                    data={matrixData.products.filter((p: any) => p.margin !== null)}
                     fill="#3b82f6"
                   >
-                    {matrixData.products.map((entry: any, index: number) => (
+                    {matrixData.products.filter((p: any) => p.margin !== null).map((entry: any, index: number) => (
                       <Cell
                         key={`cell-${index}`}
                         fill={
@@ -796,161 +542,14 @@ export const Analytics: React.FC = () => {
         </div>
       )}
 
-      {/* Sales Forecast Tab */}
-      {activeTab === 'forecast' && forecastData && (
-        <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h3 className="text-lg font-semibold">Sales Forecast</h3>
-              <p className="text-sm text-muted-foreground">
-                Predicted revenue based on historical trends
-              </p>
-            </div>
-            <select
-              value={forecastDays}
-              onChange={(e) => {
-                setForecastDays(e.target.value);
-                fetchForecast(e.target.value);
-              }}
-              className="px-3 py-2 border border-input rounded-md bg-background text-foreground"
-            >
-              <option value="7">Next 7 days</option>
-              <option value="14">Next 14 days</option>
-              <option value="30">Next 30 days</option>
-              <option value="60">Next 60 days</option>
-            </select>
-          </div>
-
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="p-4">
-              <p className="text-sm text-muted-foreground">Forecast Total</p>
-              <p className="text-2xl font-bold">{formatCurrency(forecastData.summary.totalForecastRevenue)}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-sm text-muted-foreground">Avg Daily Forecast</p>
-              <p className="text-2xl font-bold">{formatCurrency(forecastData.summary.avgDailyForecast)}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-sm text-muted-foreground">Historical Avg</p>
-              <p className="text-2xl font-bold">{formatCurrency(forecastData.summary.historicalAvgDaily)}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-sm text-muted-foreground">Expected Growth</p>
-              <div className="flex items-center">
-                <p className="text-2xl font-bold">{forecastData.summary.expectedGrowth.toFixed(1)}%</p>
-                {forecastData.trends.direction === 'upward' ? (
-                  <TrendingUp className="w-5 h-5 ml-2 text-success" />
-                ) : forecastData.trends.direction === 'downward' ? (
-                  <TrendingDown className="w-5 h-5 ml-2 text-destructive" />
-                ) : null}
-              </div>
-            </Card>
-          </div>
-
-          {/* Forecast Chart */}
-          <Card className="p-6">
-            <h4 className="font-medium mb-4">Revenue Forecast</h4>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={forecastData.forecast}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" />
-                  <YAxis />
-                  <Tooltip
-                    formatter={(value: any) => formatCurrency(value)}
-                    labelFormatter={(label) => `Date: ${label}`}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="confidenceHigh"
-                    stroke="none"
-                    fill="#3b82f6"
-                    fillOpacity={0.1}
-                    name="Upper Bound"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="revenue"
-                    stroke="#3b82f6"
-                    fill="#3b82f6"
-                    fillOpacity={0.3}
-                    name="Forecast"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="confidenceLow"
-                    stroke="none"
-                    fill="#ffffff"
-                    fillOpacity={1}
-                    name="Lower Bound"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-
-          {/* Day of Week Patterns */}
-          <Card className="p-6">
-            <h4 className="font-medium mb-4">Day of Week Patterns</h4>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={forecastData.dayOfWeekPatterns}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="day" />
-                  <YAxis domain={[0, 2]} />
-                  <Tooltip
-                    formatter={(value: any) => `${(value * 100).toFixed(0)}%`}
-                  />
-                  <Bar dataKey="multiplier" fill="#3b82f6" name="Multiplier">
-                    {forecastData.dayOfWeekPatterns.map((entry: any, index: number) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={entry.multiplier >= 1 ? '#10b981' : '#f59e0b'}
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <p className="text-sm text-muted-foreground text-center mt-2">
-              100% = average daily sales. Above = better than average.
-            </p>
-          </Card>
-
-          {/* Forecast Table */}
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Day</TableHead>
-                  <TableHead>Forecast Revenue</TableHead>
-                  <TableHead>Transactions</TableHead>
-                  <TableHead>Confidence Range</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {forecastData.forecast.slice(0, 14).map((day: any) => (
-                  <TableRow key={day.date}>
-                    <TableCell>{day.date}</TableCell>
-                    <TableCell>{day.dayOfWeek}</TableCell>
-                    <TableCell className="font-medium">{formatCurrency(day.revenue)}</TableCell>
-                    <TableCell>{day.transactions}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatCurrency(day.confidenceLow)} - {formatCurrency(day.confidenceHigh)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
-        </div>
-      )}
+      {activeTab === 'forecast' && <ForecastPanel data={forecastData} days={forecastDays} refreshing={forecastRefreshing}
+        onDaysChange={days => { setForecastDays(days); void fetchForecast(days); }} />}
 
       {/* Business Health Dashboard Tab */}
       {activeTab === 'health' && healthData && (
         <div className="space-y-6">
+          {healthData.profitability.unavailableReason && <p role="status" className="text-sm text-muted-foreground">{healthData.profitability.unavailableReason}</p>}
+          <p className="text-sm text-muted-foreground">{healthData.healthScoreBasis} {healthData.projectionBasis}</p>
           <div>
             <h3 className="text-lg font-semibold">Business Health Dashboard</h3>
             <p className="text-sm text-muted-foreground">
@@ -963,41 +562,41 @@ export const Analytics: React.FC = () => {
             <Card className="p-4 col-span-2 sm:col-span-1">
               <div className="text-center">
                 <p className="text-sm text-muted-foreground mb-2">Overall Health</p>
-                <div className={`text-4xl font-bold ${
-                  healthData.healthScores.overall >= 70 ? 'text-success' :
+                <div className={`${healthData.healthScores.overall == null ? 'text-lg text-muted-foreground' : 'text-4xl'} font-bold ${
+                  healthData.healthScores.overall == null ? '' : healthData.healthScores.overall >= 70 ? 'text-success' :
                   healthData.healthScores.overall >= 40 ? 'text-warning' : 'text-destructive'
                 }`}>
-                  {healthData.healthScores.overall}
+                  {healthData.healthScores.overall ?? 'Unavailable'}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">out of 100</p>
+                <p className="text-xs text-muted-foreground mt-1">{healthData.healthScores.overall == null ? 'More history needed' : 'out of 100'}</p>
               </div>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Revenue Score</p>
-              <p className="text-2xl font-bold">{healthData.healthScores.revenue}</p>
+              <p className={healthData.healthScores.revenue == null ? "text-lg font-medium text-muted-foreground" : "text-2xl font-bold"}>{healthData.healthScores.revenue ?? 'Unavailable'}</p>
               <div className="w-full bg-muted rounded-full h-2 mt-2">
-                <div className="bg-info h-2 rounded-full" style={{ width: `${healthData.healthScores.revenue}%` }}></div>
+                <div className="bg-info h-2 rounded-full" style={{ width: `${healthData.healthScores.revenue ?? 0}%` }}></div>
               </div>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Profitability</p>
-              <p className="text-2xl font-bold">{healthData.healthScores.profitability}</p>
+              <p className={healthData.healthScores.profitability == null ? "text-lg font-medium text-muted-foreground" : "text-2xl font-bold"}>{healthData.healthScores.profitability ?? 'Unavailable'}</p>
               <div className="w-full bg-muted rounded-full h-2 mt-2">
-                <div className="bg-success h-2 rounded-full" style={{ width: `${healthData.healthScores.profitability}%` }}></div>
+                <div className="bg-success h-2 rounded-full" style={{ width: `${healthData.healthScores.profitability ?? 0}%` }}></div>
               </div>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Inventory</p>
-              <p className="text-2xl font-bold">{healthData.healthScores.inventory}</p>
+              <p className={healthData.healthScores.inventory == null ? "text-lg font-medium text-muted-foreground" : "text-2xl font-bold"}>{healthData.healthScores.inventory ?? 'Unavailable'}</p>
               <div className="w-full bg-muted rounded-full h-2 mt-2">
-                <div className="bg-primary h-2 rounded-full" style={{ width: `${healthData.healthScores.inventory}%` }}></div>
+                <div className="bg-primary h-2 rounded-full" style={{ width: `${healthData.healthScores.inventory ?? 0}%` }}></div>
               </div>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Growth</p>
-              <p className="text-2xl font-bold">{healthData.healthScores.growth}</p>
+              <p className={healthData.healthScores.growth == null ? "text-lg font-medium text-muted-foreground" : "text-2xl font-bold"}>{healthData.healthScores.growth ?? 'Unavailable'}</p>
               <div className="w-full bg-muted rounded-full h-2 mt-2">
-                <div className="bg-warning h-2 rounded-full" style={{ width: `${healthData.healthScores.growth}%` }}></div>
+                <div className="bg-warning h-2 rounded-full" style={{ width: `${healthData.healthScores.growth ?? 0}%` }}></div>
               </div>
             </Card>
           </div>
@@ -1027,36 +626,41 @@ export const Analytics: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-3">
                 <div className="flex justify-between">
-                  <span>Gross Revenue</span>
+                  <span>Net sales, excluding tax</span>
                   <span className="font-medium">{formatCurrency(healthData.profitability.grossRevenue)}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
-                  <span>- COGS (Est.)</span>
-                  <span>{formatCurrency(healthData.profitability.estimatedCOGS)}</span>
+                  <span>- Cost of goods sold (recorded)</span>
+                  <span>{formatCurrency(healthData.profitability.costOfGoodsSold)}</span>
                 </div>
                 <div className="flex justify-between border-t pt-2">
                   <span>Gross Profit</span>
-                  <span className="font-medium text-success">{formatCurrency(healthData.profitability.grossProfit)}</span>
+                  <span className={`font-medium ${healthData.profitability.grossProfit == null ? 'text-muted-foreground' : healthData.profitability.grossProfit >= 0 ? 'text-success' : 'text-destructive'}`}>{formatCurrency(healthData.profitability.grossProfit)}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
                   <span>- Operating Expenses</span>
                   <span>{formatCurrency(healthData.profitability.expenses)}</span>
                 </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>+ Other income</span>
+                  <span>{formatCurrency(healthData.profitability.otherIncome)}</span>
+                </div>
                 <div className="flex justify-between border-t pt-2 text-lg">
                   <span className="font-semibold">Net Profit</span>
-                  <span className={`font-bold ${healthData.profitability.netProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
+                  <span className={`font-bold ${healthData.profitability.netProfit == null ? 'text-muted-foreground' : healthData.profitability.netProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
                     {formatCurrency(healthData.profitability.netProfit)}
                   </span>
                 </div>
+                <InventoryPurchaseSummary received={healthData.profitability.receivedInventoryPurchases} purchaseEntries={healthData.profitability.inventoryPurchases} />
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span>Gross Margin</span>
-                  <span className="font-medium">{healthData.profitability.grossMargin.toFixed(1)}%</span>
+                  <span className="font-medium">{formatPercent(healthData.profitability.grossMargin)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Net Margin</span>
-                  <span className="font-medium">{healthData.profitability.netMargin.toFixed(1)}%</span>
+                  <span className="font-medium">{formatPercent(healthData.profitability.netMargin)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Revenue Growth</span>
@@ -1085,7 +689,7 @@ export const Analytics: React.FC = () => {
                 </div>
                 <div className="flex justify-between">
                   <span>Value at Cost</span>
-                  <span className="font-medium">{formatCurrency(healthData.inventory.valueAtCost)}</span>
+                  <span className="font-medium">{healthData.inventory.valueAtCost == null ? 'Unavailable' : formatCurrency(healthData.inventory.valueAtCost)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Value at Retail</span>
@@ -1097,12 +701,13 @@ export const Analytics: React.FC = () => {
                 </div>
                 <div className="flex justify-between">
                   <span>Turnover Ratio</span>
-                  <span className="font-medium">{healthData.inventory.turnoverRatio.toFixed(2)}x</span>
+                  <span className="font-medium">{healthData.inventory.turnoverRatio == null ? 'Unavailable' : healthData.inventory.turnoverRatio.toFixed(2) + 'x'}</span>
                 </div>
               </div>
             </Card>
             <Card className="p-6">
               <h4 className="font-medium mb-4">Cash Flow</h4>
+              {healthData.cashFlow.unavailableReason && <p className="text-sm text-muted-foreground mb-3">{healthData.cashFlow.unavailableReason}</p>}
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span>Cash Inflows</span>
@@ -1121,8 +726,9 @@ export const Analytics: React.FC = () => {
                 <div className="mt-4 p-3 bg-muted rounded">
                   <p className="text-sm">
                     <span className="font-medium">Break-even Progress: </span>
-                    {healthData.kpis.breakEvenProgress}%
+                    {healthData.kpis.breakEvenProgress == null ? 'Unavailable' : healthData.kpis.breakEvenProgress + '%'}
                   </p>
+                  <p className="text-xs text-muted-foreground mt-2">{healthData.kpis.breakEvenReason}</p>
                   <div className="w-full bg-background rounded-full h-2 mt-2">
                     <div
                       className={`h-2 rounded-full ${healthData.kpis.breakEvenProgress >= 100 ? 'bg-success' : 'bg-info'}`}
@@ -1142,11 +748,12 @@ export const Analytics: React.FC = () => {
           <div>
             <h3 className="text-lg font-semibold flex items-center gap-2">
               <Brain className="w-5 h-5 text-primary" />
-              AI Inventory Predictions
+              Inventory Planning
             </h3>
             <p className="text-sm text-muted-foreground">
-              Smart reorder recommendations based on sales velocity, lead times, and stock levels
+              {inventoryPredictions.basis} Store timezone: {inventoryPredictions.period?.timezone}.
             </p>
+            {!!inventoryPredictions.summary.unavailableDemand && <p className="text-sm">Demand estimates are unavailable for {inventoryPredictions.summary.unavailableDemand} products.</p>}
           </div>
 
           {/* Summary Cards */}
@@ -1154,17 +761,17 @@ export const Analytics: React.FC = () => {
             <Card className="p-4 border-l-4 border-l-red-500">
               <p className="text-sm text-muted-foreground">Critical</p>
               <p className="text-2xl font-bold text-destructive">{inventoryPredictions.summary.critical}</p>
-              <p className="text-xs">Order immediately</p>
+              <p className="text-xs">Review stock and delivery</p>
             </Card>
             <Card className="p-4 border-l-4 border-l-orange-500">
               <p className="text-sm text-muted-foreground">Needs Reorder</p>
               <p className="text-2xl font-bold text-warning">{inventoryPredictions.summary.needsReorder}</p>
-              <p className="text-xs">Order within this week</p>
+              <p className="text-xs">Review reorder estimates</p>
             </Card>
             <Card className="p-4 border-l-4 border-l-yellow-500">
               <p className="text-sm text-muted-foreground">Overstock</p>
               <p className="text-2xl font-bold text-warning">{inventoryPredictions.summary.overstock}</p>
-              <p className="text-xs">Stop buying, run promos</p>
+              <p className="text-xs">Review purchasing</p>
             </Card>
             <Card className="p-4 border-l-4 border-l-red-500/50">
               <p className="text-sm text-muted-foreground">Dead Stock</p>
@@ -1173,44 +780,12 @@ export const Analytics: React.FC = () => {
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Inventory Value</p>
-              <p className="text-2xl font-bold">{formatCurrency(inventoryPredictions.summary.totalInventoryValue)}</p>
+              <p className="text-2xl font-bold">{inventoryPredictions.summary.totalInventoryValue == null ? 'Unavailable' : formatCurrency(inventoryPredictions.summary.totalInventoryValue)}</p>
               <p className="text-xs">Total at cost</p>
             </Card>
           </div>
 
-          {/* AI Insights Summary */}
-          {(() => {
-            const deadStockValue = inventoryPredictions.deadStock.reduce((sum: number, d: any) => sum + d.value, 0);
-            const overstockItems = inventoryPredictions.predictions.filter((p: any) => p.status === 'overstock');
-            const overstockValue = overstockItems.reduce((sum: number, p: any) => sum + p.totalValue, 0);
-            const criticalItems = inventoryPredictions.predictions.filter((p: any) => p.status === 'critical');
-            const reorderCost = inventoryPredictions.autoOrderSuggestions.reduce((sum: number, s: any) => sum + s.estimatedCost, 0);
-            const fastMovers = inventoryPredictions.predictions.filter((p: any) => p.dailyVelocity >= 1).sort((a: any, b: any) => b.dailyVelocity - a.dailyVelocity);
-            const insights: string[] = [];
-
-            if (deadStockValue > 0) insights.push(`${formatCurrency(deadStockValue)} tied up in dead stock — consider clearance sales or discontinuing these products`);
-            if (overstockValue > 0) insights.push(`${formatCurrency(overstockValue)} in overstock across ${overstockItems.length} products — stop purchasing these until stock depletes`);
-            if (criticalItems.length > 0) insights.push(`${criticalItems.length} products will run out before next delivery — place orders today`);
-            if (reorderCost > 0) insights.push(`Estimated ${formatCurrency(reorderCost)} needed to restock critical and low-stock items`);
-            if (fastMovers.length > 0) insights.push(`Top seller: ${fastMovers[0].name} at ${fastMovers[0].dailyVelocity} units/day — ensure consistent supply`);
-
-            return insights.length > 0 ? (
-              <Card className="p-4 bg-primary/5 border-primary/20">
-                <h4 className="font-medium mb-2 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-primary" />
-                  AI Recommendations
-                </h4>
-                <ul className="space-y-1.5 text-sm">
-                  {insights.map((insight, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <Brain className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                      {insight}
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            ) : null;
-          })()}
+          <Card className="p-4 text-sm"><p>Storewide totals appear above. Planning suggestions are a bounded review list; the paginated table below contains every product. No purchase order is placed automatically.</p></Card>
 
           {/* Buy More - Auto Order Suggestions */}
           {inventoryPredictions.autoOrderSuggestions.length > 0 && (
@@ -1222,7 +797,7 @@ export const Analytics: React.FC = () => {
               <p className="text-sm text-muted-foreground mb-4">
                 These products are selling fast and need restocking based on velocity and lead time
               </p>
-              <Table>
+              <Table scrollLabel="Analytics records">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Product</TableHead>
@@ -1266,7 +841,7 @@ export const Analytics: React.FC = () => {
               <p className="text-sm text-muted-foreground mb-4">
                 These products are not selling well enough to justify current stock levels
               </p>
-              <Table>
+              <Table scrollLabel="Analytics records">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Status</TableHead>
@@ -1283,8 +858,8 @@ export const Analytics: React.FC = () => {
                     ...inventoryPredictions.deadStock.map((d: any) => ({
                       ...d,
                       status: 'dead',
-                      dailyVelocity: 0,
-                      daysOfStock: 999,
+                      dailyVelocity: null,
+                      daysOfStock: null,
                       totalValue: d.value,
                       action: 'Clearance sale or discontinue — no sales in 60+ days',
                     })),
@@ -1298,8 +873,8 @@ export const Analytics: React.FC = () => {
                       </TableCell>
                       <TableCell className="font-medium">{item.name}</TableCell>
                       <TableCell>{item.stock ?? item.currentStock} units</TableCell>
-                      <TableCell>{item.dailyVelocity?.toFixed(1) ?? '0'} /day</TableCell>
-                      <TableCell>{item.daysOfStock === 999 ? 'Never' : `${item.daysOfStock} days`}</TableCell>
+                      <TableCell>{item.dailyVelocity == null ? 'Unavailable' : item.dailyVelocity.toFixed(1) + ' /day'}</TableCell>
+                      <TableCell>{item.status === 'dead' ? `${item.daysSinceLastSale} days since last sale` : item.daysOfStock == null ? 'Unavailable' : `${item.daysOfStock} days`}</TableCell>
                       <TableCell className="font-medium text-destructive">{formatCurrency(item.totalValue ?? item.value)}</TableCell>
                       <TableCell className="text-sm max-w-xs">
                         {item.action}
@@ -1317,7 +892,7 @@ export const Analytics: React.FC = () => {
               <h4 className="font-medium">Complete Inventory Analysis</h4>
               <p className="text-sm text-muted-foreground">All products sorted by urgency</p>
             </div>
-            <Table>
+            <Table scrollLabel="Analytics records">
               <TableHeader>
                 <TableRow>
                   <TableHead>Status</TableHead>
@@ -1330,7 +905,7 @@ export const Analytics: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {inventoryPredictions.predictions.slice(0, 20).map((item: any) => (
+                {inventoryPredictions.predictions.map((item: any) => (
                   <TableRow key={item.id}>
                     <TableCell>
                       <Badge variant={
@@ -1346,11 +921,11 @@ export const Analytics: React.FC = () => {
                       <p className="text-xs text-muted-foreground">{item.sku} · {item.category}</p>
                     </TableCell>
                     <TableCell>{item.currentStock}</TableCell>
-                    <TableCell>{item.dailyVelocity.toFixed(1)} /day</TableCell>
-                    <TableCell className={item.daysOfStock <= 7 ? 'text-destructive font-bold' : ''}>
-                      {item.daysOfStock === 999 ? '∞' : `${item.daysOfStock}d`}
+                    <TableCell>{item.dailyVelocity == null ? 'Unavailable' : item.dailyVelocity.toFixed(1) + ' /day'}</TableCell>
+                    <TableCell className={item.daysOfStock !== null && item.daysOfStock <= 7 ? 'text-destructive font-bold' : ''}>
+                      {item.daysOfStock == null ? item.demandStatus === 'NO_RECENT_DEMAND' ? 'No recent demand' : 'Unavailable' : `${item.daysOfStock}d`}
                     </TableCell>
-                    <TableCell>{item.reorderPoint}</TableCell>
+                    <TableCell>{item.reorderPoint ?? 'Unavailable'}</TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-xs">
                       {item.action}
                     </TableCell>
@@ -1358,6 +933,7 @@ export const Analytics: React.FC = () => {
                 ))}
               </TableBody>
             </Table>
+            <Pagination page={inventoryPredictions.pagination.page} totalPages={inventoryPredictions.pagination.totalPages} totalItems={inventoryPredictions.pagination.total} itemName="products" onPageChange={setInventoryPage} />
           </Card>
         </div>
       )}
@@ -1371,8 +947,9 @@ export const Analytics: React.FC = () => {
               Sales Anomaly Detection
             </h3>
             <p className="text-sm text-muted-foreground">
-              Unusual patterns in your sales data
+              {anomaliesData.basis} Store timezone: {anomaliesData.period?.timezone}.
             </p>
+            {anomaliesData.status === 'UNAVAILABLE' && <p role="status" className="mt-2 text-sm">Analysis unavailable: {anomaliesData.unavailableReason}</p>}
           </div>
 
           {/* Summary */}
@@ -1387,11 +964,11 @@ export const Analytics: React.FC = () => {
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Avg Daily Revenue</p>
-              <p className="text-2xl font-bold">{formatCurrency(anomaliesData.summary.avgDailyRevenue)}</p>
+              <p className="text-2xl font-bold">{anomaliesData.summary.avgDailyRevenue == null ? 'Unavailable' : formatCurrency(anomaliesData.summary.avgDailyRevenue)}</p>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Std Deviation</p>
-              <p className="text-2xl font-bold">{formatCurrency(anomaliesData.summary.revenueStdDev)}</p>
+              <p className="text-2xl font-bold">{anomaliesData.summary.revenueStdDev == null ? 'Unavailable' : formatCurrency(anomaliesData.summary.revenueStdDev)}</p>
             </Card>
           </div>
 
@@ -1414,7 +991,7 @@ export const Analytics: React.FC = () => {
           {anomaliesData.dailyAnomalies.length > 0 && (
             <Card className="p-6">
               <h4 className="font-medium mb-4">Daily Revenue Anomalies</h4>
-              <Table>
+              <Table scrollLabel="Analytics records">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
@@ -1455,7 +1032,7 @@ export const Analytics: React.FC = () => {
           {anomaliesData.productAnomalies.length > 0 && (
             <Card className="p-6">
               <h4 className="font-medium mb-4">Product Demand Anomalies</h4>
-              <Table>
+              <Table scrollLabel="Analytics records">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Product</TableHead>
@@ -1471,7 +1048,7 @@ export const Analytics: React.FC = () => {
                       <TableCell className="font-medium">{anomaly.productName}</TableCell>
                       <TableCell>{anomaly.lastQuantity}</TableCell>
                       <TableCell>{anomaly.avgQuantity}</TableCell>
-                      <TableCell>{anomaly.zScore}</TableCell>
+                      <TableCell>{anomaly.zScore ?? 'Constant baseline'}</TableCell>
                       <TableCell>
                         <Badge variant={anomaly.type === 'surge' ? 'success' : 'destructive'}>
                           {anomaly.type}
@@ -1587,7 +1164,7 @@ export const Analytics: React.FC = () => {
                 Performance scores and gamification badges
               </p>
             </div>
-            <select
+            <Select
               value={employeeDays}
               onChange={(e) => {
                 setEmployeeDays(e.target.value);
@@ -1599,7 +1176,7 @@ export const Analytics: React.FC = () => {
               <option value="14">Last 14 days</option>
               <option value="30">Last 30 days</option>
               <option value="90">Last 90 days</option>
-            </select>
+            </Select>
           </div>
 
           {/* Team Stats */}
@@ -1610,7 +1187,7 @@ export const Analytics: React.FC = () => {
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Total Transactions</p>
-              <p className="text-2xl font-bold">{employeeData.teamStats.totalTransactions}</p>
+              <p className="text-2xl font-bold">{employeeData.teamStats.totalTransactions ?? 'Unavailable'}</p>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">Avg Score</p>
@@ -1624,8 +1201,8 @@ export const Analytics: React.FC = () => {
 
           {/* Scoring Weights */}
           <Card className="p-4">
-            <h4 className="font-medium mb-2">Scoring Weights</h4>
-            <div className="flex gap-4 text-sm">
+            <h4 className="font-medium mb-2">Scoring Weights</h4><p className="text-sm text-muted-foreground mb-2">{employeeData.basis} Store timezone: {employeeData.period?.timezone}.</p>{employeeData.historyWarning && <p role="status">{employeeData.historyWarning}</p>}
+            <div className="flex flex-wrap gap-4 text-sm">
               <span>Revenue: {employeeData.scoringWeights.revenue}</span>
               <span>Transactions: {employeeData.scoringWeights.transactions}</span>
               <span>Avg Transaction: {employeeData.scoringWeights.avgTransaction}</span>
@@ -1636,7 +1213,7 @@ export const Analytics: React.FC = () => {
 
           {/* Leaderboard */}
           <Card>
-            <Table>
+            <Table scrollLabel="Analytics records">
               <TableHeader>
                 <TableRow>
                   <TableHead>Rank</TableHead>
@@ -1796,7 +1373,7 @@ export const Analytics: React.FC = () => {
                       </div>
                       <div className="flex justify-between">
                         <span>Transactions</span>
-                        <span className="font-medium">{whatIfData.scenarios.current.transactions}</span>
+                        <span className="font-medium">{whatIfData.scenarios.current.transactions ?? 'Unavailable'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Profit</span>
@@ -1804,7 +1381,7 @@ export const Analytics: React.FC = () => {
                       </div>
                       <div className="flex justify-between">
                         <span>Margin</span>
-                        <span className="font-medium">{whatIfData.scenarios.current.margin.toFixed(1)}%</span>
+                        <span className="font-medium">{formatPercent(whatIfData.scenarios.current.margin)}</span>
                       </div>
                     </div>
                   </div>
@@ -1817,7 +1394,7 @@ export const Analytics: React.FC = () => {
                       </div>
                       <div className="flex justify-between">
                         <span>Transactions</span>
-                        <span className="font-medium">{whatIfData.scenarios.projected.transactions}</span>
+                        <span className="font-medium">{whatIfData.scenarios.projected.transactions ?? 'Unavailable'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Profit</span>
@@ -1825,7 +1402,7 @@ export const Analytics: React.FC = () => {
                       </div>
                       <div className="flex justify-between">
                         <span>Margin</span>
-                        <span className="font-medium">{whatIfData.scenarios.projected.margin.toFixed(1)}%</span>
+                        <span className="font-medium">{formatPercent(whatIfData.scenarios.projected.margin)}</span>
                       </div>
                     </div>
                   </div>
@@ -1847,13 +1424,13 @@ export const Analytics: React.FC = () => {
                       <div className="flex justify-between">
                         <span>Profit</span>
                         <span className={`font-medium ${whatIfData.scenarios.difference.profit >= 0 ? 'text-success' : 'text-destructive'}`}>
-                          {whatIfData.scenarios.difference.profit >= 0 ? '+' : ''}{formatCurrency(whatIfData.scenarios.difference.profit)}
+                          {whatIfData.scenarios.difference.profit != null && whatIfData.scenarios.difference.profit >= 0 ? '+' : ''}{formatCurrency(whatIfData.scenarios.difference.profit)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span>Margin</span>
                         <span className={`font-medium ${whatIfData.scenarios.difference.margin >= 0 ? 'text-success' : 'text-destructive'}`}>
-                          {whatIfData.scenarios.difference.margin >= 0 ? '+' : ''}{whatIfData.scenarios.difference.margin.toFixed(1)}%
+                          {formatPercent(whatIfData.scenarios.difference.margin)}
                         </span>
                       </div>
                     </div>
@@ -1879,7 +1456,7 @@ export const Analytics: React.FC = () => {
           )}
         </div>
       )}
-    </div>
+    </ManagementPage>
   );
 };
 

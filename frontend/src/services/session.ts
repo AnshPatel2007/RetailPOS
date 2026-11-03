@@ -3,6 +3,7 @@ import { useStoreSettingsStore } from '../store/storeSettingsStore';
 import { useFavoritesStore } from '../store/favoritesStore';
 import { useAdminViewStore } from '../store/adminViewStore';
 import { offlineDb } from './offlineDb';
+import { cancelApproval } from '../store/approvalStore';
 
 /**
  * Clears every piece of per-account/per-store client state. Called from
@@ -12,6 +13,8 @@ import { offlineDb } from './offlineDb';
  * "viewing store" state left over from the previous session.
  */
 export const clearSessionState = async (): Promise<void> => {
+  cancelApproval();
+  localStorage.removeItem('pos-checkout-attempt');
   useCartStore.getState().resetForLogout();
   useStoreSettingsStore.getState().reset();
   useFavoritesStore.getState().reset();

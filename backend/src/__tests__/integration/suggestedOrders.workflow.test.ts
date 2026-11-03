@@ -32,7 +32,7 @@ describe('Suggested Orders Integration Tests', () => {
     // PO creation validates UUIDs, so use auto-UUID records (the seed fixtures
     // use readable string ids)
     const supplier = await prisma.supplier.create({
-      data: { name: 'UUID Vendor', isActive: true },
+      data: { name: 'UUID Vendor', isActive: true, locationId: testData.location.id },
     });
     const product = await prisma.product.create({
       data: {
@@ -98,5 +98,20 @@ describe('Suggested Orders Integration Tests', () => {
     const item = unassigned.items.find((i: any) => i.productId === testData.product.id);
     expect(item).toBeDefined();
     expect(item.urgent).toBe(true); // out of stock
+  });
+
+  it('does not expose foreign or inactive suppliers through legacy product links or automatic draft orders', async () => {
+    const other = await prisma.location.create({ data: { name: 'Other', address: '2 Test St', city: 'Test', state: 'TS', zipCode: '12345', phone: '555', email: 'other@test.com' } });
+    for (const [locationId, isActive, name] of [[other.id, true, 'Private partner vendor'], [testData.location.id, false, 'Inactive vendor']] as const) {
+      const supplier = await prisma.supplier.create({ data: { name, locationId, isActive } });
+      await prisma.productSupplier.create({ data: { productId: testData.product.id, supplierId: supplier.id, cost: 1 } });
+    }
+    await prisma.product.update({ where: { id: testData.product.id }, data: { stockQuantity: 0, lowStockAlert: 10 } });
+    const suggestions = await api.get('/api/purchase-orders/suggested').withAuth(adminToken).expectStatus(200).execute();
+    expect(suggestions.body.data.suppliers).toHaveLength(1);
+    expect(suggestions.body.data.suppliers[0].supplierId).toBeNull();
+    const drafts = await api.post('/api/purchase-orders/auto-generate').withAuth(adminToken).expectStatus(200).execute();
+    expect(drafts.body.data.ordersCreated).toBe(0);
+    expect(await prisma.purchaseOrder.count()).toBe(0);
   });
 });

@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { z } from 'zod';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
@@ -191,6 +192,9 @@ export const createCustomer = asyncHandler(async (req: AuthRequest, res: Respons
 export const updateCustomer = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const data = req.body;
+  if (req.user?.role === 'CASHIER' && (data.loyaltyPoints !== undefined || data.isActive !== undefined)) {
+    throw new AppError('Manager permission is required to change loyalty balances or customer status', 403);
+  }
 
   // Blank email must be stored as NULL (unique column — '' would collide)
   if (data.email === '') {
@@ -388,7 +392,7 @@ export const searchByPhone = asyncHandler(async (req: AuthRequest, res: Response
   }
 
   // A store shouldn't link a checkout to another store's private customer
-  if (customer && !isSuperAdmin(req) && customer.locationId !== null && customer.locationId !== req.user!.locationId) {
+  if (customer && !isSuperAdmin(req) && customer.locationId !== req.user!.locationId) {
     customer = null;
   }
 
@@ -403,14 +407,14 @@ export const searchByPhone = asyncHandler(async (req: AuthRequest, res: Response
  * POST /api/customers/campaign  { segment, subject, message }
  */
 export const sendCustomerCampaign = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { segment, subject, message } = req.body;
+  const { segment, subject, message, idempotencyKey } = z.object({ segment:z.string().trim().min(1).max(100),subject:z.string().trim().min(1).max(200),message:z.string().trim().min(1).max(10000),idempotencyKey:z.string().uuid() }).strict().parse(req.body);
 
   if (!segment || !subject?.trim() || !message?.trim()) {
     throw new AppError('Segment, subject, and message are required', 400);
   }
 
   const { sendCampaign } = await import('../services/marketing.service');
-  const result = await sendCampaign(String(segment), String(subject).trim(), String(message).trim());
+  const result = await sendCampaign(req, segment, subject, message, idempotencyKey);
 
   await prisma.activityLog.create({
     data: {
@@ -424,11 +428,8 @@ export const sendCustomerCampaign = asyncHandler(async (req: AuthRequest, res: R
 
   res.json({
     success: true,
-    data: result,
-    message:
-      result.matched === 0
-        ? 'No opted-in customers matched this segment'
-        : `Sent to ${result.sent} of ${result.matched} matched customer${result.matched !== 1 ? 's' : ''}${result.failed > 0 ? ` (${result.failed} failed)` : ''}`,
+    ...result,
+    message: 'Campaign queued. Review delivery jobs for provider results.',
   });
 });
 
@@ -442,6 +443,6 @@ export const previewCampaignSegment = asyncHandler(async (req: AuthRequest, res:
     throw new AppError('Segment is required', 400);
   }
   const { resolveSegment } = await import('../services/marketing.service');
-  const recipients = await resolveSegment(String(segment));
+  const recipients = await resolveSegment(String(segment), req.user!.locationId!);
   res.json({ success: true, data: { matched: recipients.length } });
 });

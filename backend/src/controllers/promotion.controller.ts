@@ -4,7 +4,7 @@ import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { isPromotionActiveNow } from '../utils/promotionEngine';
-import { assertOwnsRecord, assertCanReadRecord, isSuperAdmin } from '../utils/locationFilter.util';
+import { assertOwnsRecord, assertCanReadRecord, isSuperAdmin, getSharedOrOwnFilter } from '../utils/locationFilter.util';
 
 const promotionData = (body: any, locationId: string | null) => ({
   name: body.name,
@@ -49,7 +49,7 @@ export const getPromotions = asyncHandler(async (req: AuthRequest, res: Response
   if (isActive === 'false') where.isActive = false;
   // Managers scoped to a location see global promos plus their own location's
   if (req.user?.locationId) {
-    where.OR = [{ locationId: null }, { locationId: req.user.locationId }];
+    where.locationId = req.user.locationId;
   }
 
   const [promotions, total] = await Promise.all([
@@ -82,7 +82,7 @@ export const getActivePromotions = asyncHandler(async (req: AuthRequest, res: Re
   const promotions = await prisma.promotion.findMany({
     where: {
       isActive: true,
-      OR: [{ locationId: null }, { locationId: req.user?.locationId ?? null }],
+      ...getSharedOrOwnFilter(req, req.query.locationId as string),
     },
     orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
   });

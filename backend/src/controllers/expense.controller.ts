@@ -3,9 +3,28 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import { logger } from '../utils/logger';
 import prisma from '../config/database';
-import { createDateFilter } from '../utils/dateFilter.util';
+import { expensePeriod, expenseRecordDates, expenseCalendarDate } from '../services/expenseDates.service';
 import { parseListFilter } from '../utils/queryFilter.util';
-import { assertOwnsRecord, getLocationFilter, isSuperAdmin } from '../utils/locationFilter.util';
+import { assertOwnsRecord, getLocationFilter, isSuperAdmin, resolveWriteLocation } from '../utils/locationFilter.util';
+import { assertReceiptAccess, receiptDirectory, saveReceipt } from '../services/receiptAttachment.service';
+import { assertPayrollAccess, privateExpenseFilter } from '../utils/financialAccess';
+import { z } from 'zod';
+import { ExpenseCategory, ExpenseStatus } from '@prisma/client';
+import { nextDocumentNumber } from '../services/documentNumber.service';
+
+const expenseSchema = z.object({
+  inventoryReceiptId: z.string().min(1).max(100).nullish(),
+  category: z.nativeEnum(ExpenseCategory), description: z.string().trim().min(1).max(1000),
+  amount: z.coerce.number().finite().positive().max(1_000_000_000), vendor: z.string().max(200).nullish(),
+  receiptUrl: z.string().max(500).nullish(), invoiceNumber: z.string().max(200).nullish(),
+  expenseDate: z.string().min(1).max(100).optional(), dueDate: z.string().max(100).nullish(), locationId: z.string().optional(),
+});
+
+async function validateInventoryReceipt(locationId: string, category: ExpenseCategory, receiptId?: string | null) {
+  if (!receiptId) return;
+  if (category !== 'INVENTORY_PURCHASE') throw new AppError('Only an inventory purchase can link to a stock receipt', 400);
+  if (!await prisma.purchaseReceipt.findFirst({ where: { id: receiptId, purchaseOrder: { locationId } } })) throw new AppError('Inventory receipt is unavailable at this store', 400);
+}
 
 /**
  * Get all expenses
@@ -14,7 +33,9 @@ import { assertOwnsRecord, getLocationFilter, isSuperAdmin } from '../utils/loca
 export const getAllExpenses = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { category, status, startDate, endDate, locationId, limit = 50, offset = 0 } = req.query;
 
-  const where: any = { ...getLocationFilter(req, locationId as string) };
+  const scope = getLocationFilter(req, locationId as string);
+  const { range: dateFilter, timezone } = await expensePeriod(scope, startDate, endDate);
+  const where: any = { locationId: scope.locationId || { not: null }, ...privateExpenseFilter(req) };
 
   if (category) {
     where.category = category;
@@ -24,7 +45,6 @@ export const getAllExpenses = asyncHandler(async (req: AuthRequest, res: Respons
     where.status = status;
   }
 
-  const dateFilter = createDateFilter(startDate as string, endDate as string);
   if (dateFilter) {
     where.expenseDate = dateFilter;
   }
@@ -43,15 +63,15 @@ export const getAllExpenses = asyncHandler(async (req: AuthRequest, res: Respons
         location: {
           select: {
             id: true,
-            name: true,
+            name: true, timezone: true,
           },
         },
       },
       orderBy: {
         expenseDate: 'desc',
       },
-      take: Number(limit),
-      skip: Number(offset),
+      take: Math.min(200, Math.max(1, Number(limit) || 50)),
+      skip: Math.max(0, Number(offset) || 0),
     }),
     prisma.expense.count({ where }),
   ]);
@@ -59,6 +79,7 @@ export const getAllExpenses = asyncHandler(async (req: AuthRequest, res: Respons
   res.json({
     success: true,
     data: expenses,
+    period: { timezone },
     meta: {
       total,
       limit: Number(limit),
@@ -88,7 +109,7 @@ export const getExpenseById = asyncHandler(async (req: AuthRequest, res: Respons
       location: {
         select: {
           id: true,
-          name: true,
+          name: true, timezone: true,
         },
       },
     },
@@ -98,6 +119,7 @@ export const getExpenseById = asyncHandler(async (req: AuthRequest, res: Respons
     throw new AppError('Expense not found', 404);
   }
   assertOwnsRecord(req, expense.locationId);
+  assertPayrollAccess(req, expense.category);
 
   res.json({
     success: true,
@@ -111,6 +133,7 @@ export const getExpenseById = asyncHandler(async (req: AuthRequest, res: Respons
  */
 export const createExpense = asyncHandler(async (req: AuthRequest, res: Response) => {
   const {
+    inventoryReceiptId,
     category,
     description,
     amount,
@@ -120,31 +143,34 @@ export const createExpense = asyncHandler(async (req: AuthRequest, res: Response
     expenseDate,
     dueDate,
     locationId,
-  } = req.body;
+  } = expenseSchema.parse(req.body);
 
   if (!req.user) {
     throw new AppError('User not authenticated', 401);
   }
 
   // Non-SUPER_ADMIN is always forced to their own store, regardless of body
-  const resolvedLocationId = isSuperAdmin(req) ? (locationId ?? req.user.locationId) : req.user.locationId;
+  const resolvedLocationId = resolveWriteLocation(req, locationId);
+  await validateInventoryReceipt(resolvedLocationId, category, inventoryReceiptId);
+  assertPayrollAccess(req, category);
+  if (receiptUrl) await assertReceiptAccess(req, receiptUrl);
 
   // Collision-safe expense number (count()+1 raced under concurrent creates)
-  const expenseNumber = `EXP-${Date.now()}-${Math.floor(Math.random() * 1000)
-    .toString()
-    .padStart(3, '0')}`;
+  const expenseNumber = await nextDocumentNumber('EXP');
+  const dates = await expenseRecordDates(resolvedLocationId, expenseDate, dueDate);
 
   const expense = await prisma.expense.create({
     data: {
       expenseNumber,
+      inventoryReceiptId,
       category,
       description,
-      amount: parseFloat(amount),
+      amount,
       vendor,
       receiptUrl,
       invoiceNumber,
-      expenseDate: expenseDate ? new Date(expenseDate) : new Date(),
-      dueDate: dueDate ? new Date(dueDate) : null,
+      expenseDate: new Date(),
+      ...dates,
       userId: req.user.id,
       locationId: resolvedLocationId,
     },
@@ -159,7 +185,7 @@ export const createExpense = asyncHandler(async (req: AuthRequest, res: Response
       location: {
         select: {
           id: true,
-          name: true,
+          name: true, timezone: true,
         },
       },
     },
@@ -181,6 +207,7 @@ export const createExpense = asyncHandler(async (req: AuthRequest, res: Response
 export const updateExpense = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const {
+    inventoryReceiptId,
     category,
     description,
     amount,
@@ -190,7 +217,7 @@ export const updateExpense = asyncHandler(async (req: AuthRequest, res: Response
     expenseDate,
     dueDate,
     status,
-  } = req.body;
+  } = expenseSchema.omit({ locationId: true }).partial().extend({ status: z.nativeEnum(ExpenseStatus).optional() }).parse(req.body);
 
   const existingExpense = await prisma.expense.findUnique({
     where: { id },
@@ -200,18 +227,28 @@ export const updateExpense = asyncHandler(async (req: AuthRequest, res: Response
     throw new AppError('Expense not found', 404);
   }
   assertOwnsRecord(req, existingExpense.locationId);
+  assertPayrollAccess(req, existingExpense.category);
+  if (category) assertPayrollAccess(req, category);
+  if (existingExpense.category === 'PAYROLL' && status !== undefined) throw new AppError('Review payroll status in Team & Time / Payroll', 400);
+  if (receiptUrl) await assertReceiptAccess(req, receiptUrl);
+  if (await prisma.payrollEntry.count({ where: { expenseId: id } })) {
+    if (amount !== undefined || category !== undefined || expenseDate !== undefined) throw new AppError('Payroll amounts and periods come from recorded shifts and cannot be edited as a manual expense',400);
+  }
+  if (!existingExpense.locationId) throw new AppError('Assign this legacy expense to a store before editing it', 409);
+  await validateInventoryReceipt(existingExpense.locationId, category || existingExpense.category, inventoryReceiptId === undefined ? existingExpense.inventoryReceiptId : inventoryReceiptId);
+  const dates = await expenseRecordDates(existingExpense.locationId, expenseDate, dueDate);
 
   const expense = await prisma.expense.update({
     where: { id },
     data: {
       ...(category && { category }),
+      ...(inventoryReceiptId !== undefined && { inventoryReceiptId }),
       ...(description && { description }),
-      ...(amount && { amount: parseFloat(amount) }),
+      ...(amount !== undefined && { amount }),
       ...(vendor !== undefined && { vendor }),
       ...(receiptUrl !== undefined && { receiptUrl }),
       ...(invoiceNumber !== undefined && { invoiceNumber }),
-      ...(expenseDate && { expenseDate: new Date(expenseDate) }),
-      ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
+      ...dates,
       ...(status && { status }),
     },
     include: {
@@ -225,7 +262,7 @@ export const updateExpense = asyncHandler(async (req: AuthRequest, res: Response
       location: {
         select: {
           id: true,
-          name: true,
+          name: true, timezone: true,
         },
       },
     },
@@ -255,6 +292,9 @@ export const deleteExpense = asyncHandler(async (req: AuthRequest, res: Response
     throw new AppError('Expense not found', 404);
   }
   assertOwnsRecord(req, expense.locationId);
+  assertPayrollAccess(req, expense.category);
+
+  if (await prisma.payrollEntry.count({ where: { expenseId: id } })) throw new AppError('Payroll expenses cannot be deleted. Review or reject the expense instead.',400);
 
   await prisma.expense.delete({
     where: { id },
@@ -287,6 +327,8 @@ export const approveExpense = asyncHandler(async (req: AuthRequest, res: Respons
     throw new AppError('Expense not found', 404);
   }
   assertOwnsRecord(req, existingExpense.locationId);
+  assertPayrollAccess(req, existingExpense.category);
+  if (existingExpense.category === 'PAYROLL') throw new AppError('Review payroll in Team & Time / Payroll', 400);
 
   if (existingExpense.status !== 'PENDING') {
     throw new AppError('Only pending expenses can be approved', 400);
@@ -337,6 +379,8 @@ export const rejectExpense = asyncHandler(async (req: AuthRequest, res: Response
     throw new AppError('Expense not found', 404);
   }
   assertOwnsRecord(req, existingExpense.locationId);
+  assertPayrollAccess(req, existingExpense.category);
+  if (existingExpense.category === 'PAYROLL') throw new AppError('Review payroll in Team & Time / Payroll', 400);
 
   if (existingExpense.status !== 'PENDING') {
     throw new AppError('Only pending expenses can be rejected', 400);
@@ -378,7 +422,7 @@ export const uploadReceipt = asyncHandler(async (req: AuthRequest, res: Response
   }
 
   // Return the file URL
-  const fileUrl = `/uploads/receipts/${req.file.filename}`;
+  const fileUrl = await saveReceipt(req, req.file);
 
   res.json({
     success: true,
@@ -390,6 +434,13 @@ export const uploadReceipt = asyncHandler(async (req: AuthRequest, res: Response
     },
     message: 'Receipt uploaded successfully',
   });
+});
+
+export const downloadReceipt = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const filename = await assertReceiptAccess(req, `/api/expenses/receipts/${req.params.filename}`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.download(filename, filename, { root: receiptDirectory });
 });
 
 /**
@@ -410,10 +461,12 @@ export const bulkApproveExpenses = asyncHandler(async (req: AuthRequest, res: Re
   if (!isSuperAdmin(req)) {
     const targets = await prisma.expense.findMany({
       where: { id: { in: expenseIds } },
-      select: { id: true, locationId: true },
+      select: { id: true, locationId: true, category: true },
     });
     for (const t of targets) {
       assertOwnsRecord(req, t.locationId);
+      assertPayrollAccess(req, t.category);
+        if (t.category === 'PAYROLL') throw new AppError('Review payroll in Team & Time / Payroll', 400);
     }
   }
 
@@ -456,10 +509,12 @@ export const bulkRejectExpenses = asyncHandler(async (req: AuthRequest, res: Res
   if (!isSuperAdmin(req)) {
     const targets = await prisma.expense.findMany({
       where: { id: { in: expenseIds } },
-      select: { id: true, locationId: true },
+      select: { id: true, locationId: true, category: true },
     });
     for (const t of targets) {
       assertOwnsRecord(req, t.locationId);
+      assertPayrollAccess(req, t.category);
+        if (t.category === 'PAYROLL') throw new AppError('Review payroll in Team & Time / Payroll', 400);
     }
   }
 
@@ -492,14 +547,15 @@ export const exportExpensesCSV = asyncHandler(async (req: AuthRequest, res: Resp
   const { Parser } = require('json2csv');
   const { category, status, startDate, endDate, locationId } = req.query;
 
-  const where: any = { ...getLocationFilter(req, locationId as string) };
+  const scope = getLocationFilter(req, locationId as string);
+  const { range: dateFilter, timezone } = await expensePeriod(scope, startDate, endDate);
+  const where: any = { locationId: scope.locationId || { not: null }, ...privateExpenseFilter(req) };
 
   const categoryFilter = parseListFilter(category);
   if (categoryFilter) where.category = categoryFilter;
   const statusFilter = parseListFilter(status);
   if (statusFilter) where.status = statusFilter;
 
-  const dateFilter = createDateFilter(startDate as string, endDate as string);
   if (dateFilter) {
     where.expenseDate = dateFilter;
   }
@@ -508,7 +564,7 @@ export const exportExpensesCSV = asyncHandler(async (req: AuthRequest, res: Resp
     where,
     include: {
       user: { select: { firstName: true, lastName: true } },
-      location: { select: { name: true } },
+      location: { select: { name: true, timezone: true } },
     },
     orderBy: { expenseDate: 'desc' },
   });
@@ -516,7 +572,7 @@ export const exportExpensesCSV = asyncHandler(async (req: AuthRequest, res: Resp
   // Transform data for CSV
   const csvData = expenses.map((exp) => ({
     'Expense Number': exp.expenseNumber,
-    'Date': exp.expenseDate.toISOString().split('T')[0],
+    'Date': expenseCalendarDate(exp.expenseDate, timezone),
     'Category': exp.category,
     'Description': exp.description,
     'Vendor': exp.vendor || '',
@@ -525,8 +581,8 @@ export const exportExpensesCSV = asyncHandler(async (req: AuthRequest, res: Resp
     'Status': exp.status,
     'Location': exp.location?.name || '',
     'Created By': `${exp.user.firstName} ${exp.user.lastName}`,
-    'Due Date': exp.dueDate ? exp.dueDate.toISOString().split('T')[0] : '',
-    'Paid Date': exp.paidDate ? exp.paidDate.toISOString().split('T')[0] : '',
+    'Due Date': exp.dueDate ? expenseCalendarDate(exp.dueDate, timezone) : '',
+    'Paid Date': exp.paidDate ? expenseCalendarDate(exp.paidDate, timezone) : '',
   }));
 
   const parser = new Parser();
@@ -545,14 +601,15 @@ export const exportExpensesPDF = asyncHandler(async (req: AuthRequest, res: Resp
   const PDFDocument = require('pdfkit');
   const { category, status, startDate, endDate, locationId } = req.query;
 
-  const where: any = { ...getLocationFilter(req, locationId as string) };
+  const scope = getLocationFilter(req, locationId as string);
+  const { range: dateFilter, timezone } = await expensePeriod(scope, startDate, endDate);
+  const where: any = { locationId: scope.locationId || { not: null }, ...privateExpenseFilter(req) };
 
   const categoryFilter = parseListFilter(category);
   if (categoryFilter) where.category = categoryFilter;
   const statusFilter = parseListFilter(status);
   if (statusFilter) where.status = statusFilter;
 
-  const dateFilter = createDateFilter(startDate as string, endDate as string);
   if (dateFilter) {
     where.expenseDate = dateFilter;
   }
@@ -561,26 +618,26 @@ export const exportExpensesPDF = asyncHandler(async (req: AuthRequest, res: Resp
     where,
     include: {
       user: { select: { firstName: true, lastName: true } },
-      location: { select: { name: true } },
+      location: { select: { name: true, timezone: true } },
     },
     orderBy: { expenseDate: 'desc' },
   });
 
   // Calculate summary
-  const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const totalExpenses = expenses.reduce((sum, exp) => sum + Number(exp.amount), 0);
   const avgExpense = expenses.length > 0 ? totalExpenses / expenses.length : 0;
 
   const byStatus = expenses.reduce((acc: any, exp) => {
     if (!acc[exp.status]) acc[exp.status] = { count: 0, total: 0 };
     acc[exp.status].count++;
-    acc[exp.status].total += exp.amount;
+    acc[exp.status].total += Number(exp.amount);
     return acc;
   }, {});
 
   const byCategory = expenses.reduce((acc: any, exp) => {
     if (!acc[exp.category]) acc[exp.category] = { count: 0, total: 0 };
     acc[exp.category].count++;
-    acc[exp.category].total += exp.amount;
+    acc[exp.category].total += Number(exp.amount);
     return acc;
   }, {});
 
@@ -706,7 +763,7 @@ export const exportExpensesPDF = asyncHandler(async (req: AuthRequest, res: Resp
     if (i % 2 === 0) doc.rect(50, ry - 1, doc.page.width - 100, 15).fill(BG);
     doc.fillColor(DARK).fontSize(7);
     doc.text(exp.expenseNumber, 50, ry + 2, { width: 65 });
-    doc.text(exp.expenseDate.toISOString().split('T')[0], 115, ry + 2, { width: 55 });
+    doc.text(expenseCalendarDate(exp.expenseDate, timezone), 115, ry + 2, { width: 55 });
     doc.text(exp.description.substring(0, 22), 170, ry + 2, { width: 110 });
     doc.text(exp.category.substring(0, 12), 280, ry + 2, { width: 65 });
     doc.text((exp.vendor || '-').substring(0, 12), 345, ry + 2, { width: 70 });

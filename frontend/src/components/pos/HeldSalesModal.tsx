@@ -73,7 +73,7 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
                     </p>
                   </div>
                   <div className="flex gap-2 shrink-0">
-                    <Button
+                    <Button aria-label="Discard held sale"
                       variant="outline"
                       size="sm"
                       onClick={() => {

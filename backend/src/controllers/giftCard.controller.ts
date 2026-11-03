@@ -2,16 +2,9 @@ import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
-import { logger } from '../utils/logger';
-import crypto from 'crypto';
+import { fundAccount, operationReceipt } from '../services/accountFunding.service';
 import { assertOwnsRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
 
-/**
- * Generate unique gift card code
- */
-const generateCode = (): string => {
-  return crypto.randomBytes(8).toString('hex').toUpperCase().match(/.{1,4}/g)!.join('-');
-};
 
 /**
  * Get all gift cards
@@ -54,32 +47,34 @@ export const getGiftCard = asyncHandler(async (req: AuthRequest, res: Response) 
     where: { OR: [{ id: idOrCode }, { code: idOrCode }] },
     include: {
       customer: { select: { firstName: true, lastName: true, phone: true } },
-      transactions: { orderBy: { createdAt: 'desc' }, take: 20 },
+      transactions: { orderBy: { createdAt: 'desc' }, take: 100, include: { operation: true } },
     },
   });
 
   if (!card) throw new AppError('Gift card not found', 404);
-  if (!isSuperAdmin(req) && card.locationId !== null && card.locationId !== req.user!.locationId) {
+  if (!isSuperAdmin(req) && card.locationId !== req.user!.locationId) {
     throw new AppError('Gift card not found', 404);
   }
-  res.json({ success: true, data: card });
+  res.json({ success: true, data: { ...card, transactions: card.transactions.map(t => ({ ...t, operation: t.operation ? operationReceipt(t.operation) : null })) } });
 });
 
 /**
  * Aggregate gift card stats for the dashboard cards
  * GET /api/gift-cards/stats
  */
-export const getGiftCardStats = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const getGiftCardStats = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const scope = getSharedOrOwnFilter(req, req.query.locationId as string);
   const [activeStats, totalCount] = await Promise.all([
     prisma.giftCard.aggregate({
       where: {
+        ...scope,
         isActive: true,
         OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
       },
       _sum: { currentBalance: true },
       _count: true,
     }),
-    prisma.giftCard.count(),
+    prisma.giftCard.count({ where: scope }),
   ]);
 
   res.json({
@@ -87,7 +82,7 @@ export const getGiftCardStats = asyncHandler(async (_req: AuthRequest, res: Resp
     data: {
       totalCards: totalCount,
       activeCards: activeStats._count,
-      outstandingBalance: Math.round((activeStats._sum.currentBalance || 0) * 100) / 100,
+      outstandingBalance: Math.round(Number((activeStats._sum.currentBalance || 0)) * 100) / 100,
     },
   });
 });
@@ -97,37 +92,8 @@ export const getGiftCardStats = asyncHandler(async (_req: AuthRequest, res: Resp
  * POST /api/gift-cards
  */
 export const issueGiftCard = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { amount, customerId, expiresAt } = req.body;
-
-  if (!amount || amount <= 0) throw new AppError('Amount must be positive', 400);
-
-  const code = generateCode();
-  // Non-SUPER_ADMIN is always forced to their own store; SUPER_ADMIN may
-  // leave it unset to issue a chain-wide card
-  const locationId = isSuperAdmin(req) ? (req.body.locationId ?? null) : (req.user!.locationId ?? null);
-
-  const card = await prisma.giftCard.create({
-    data: {
-      code,
-      initialBalance: amount,
-      currentBalance: amount,
-      customerId: customerId || null,
-      expiresAt: expiresAt ? new Date(expiresAt) : null,
-      locationId,
-      transactions: {
-        create: {
-          type: 'ISSUE',
-          amount,
-          balanceBefore: 0,
-          balanceAfter: amount,
-        },
-      },
-    },
-    include: { customer: { select: { firstName: true, lastName: true } } },
-  });
-
-  logger.info(`Gift card issued: ${code} for $${amount}`);
-  res.status(201).json({ success: true, data: card, message: 'Gift card issued' });
+  const result = await prisma.$transaction(tx => fundAccount(req, tx, 'GIFT_ISSUE'));
+  res.status(result.replayed ? 200 : 201).json({ success: true, ...result, message: result.replayed ? 'Saved gift card confirmed' : 'Gift card issued' });
 });
 
 /**
@@ -135,80 +101,16 @@ export const issueGiftCard = asyncHandler(async (req: AuthRequest, res: Response
  * POST /api/gift-cards/:id/reload
  */
 export const reloadGiftCard = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
-  const { amount } = req.body;
-
-  if (!amount || amount <= 0) throw new AppError('Amount must be positive', 400);
-
-  const card = await prisma.giftCard.findUnique({ where: { id } });
-  if (!card) throw new AppError('Gift card not found', 404);
-  assertOwnsRecord(req, card.locationId);
-  if (!card.isActive) throw new AppError('Gift card is deactivated', 400);
-
-  const updated = await prisma.giftCard.update({
-    where: { id },
-    data: {
-      currentBalance: { increment: amount },
-      transactions: {
-        create: {
-          type: 'RELOAD',
-          amount,
-          balanceBefore: card.currentBalance,
-          balanceAfter: card.currentBalance + amount,
-        },
-      },
-    },
-  });
-
-  logger.info(`Gift card reloaded: ${card.code} +$${amount}`);
-  res.json({ success: true, data: updated, message: 'Gift card reloaded' });
+  const result = await prisma.$transaction(tx => fundAccount(req, tx, 'GIFT_RELOAD'));
+  res.json({ success: true, ...result, message: result.replayed ? 'Saved reload confirmed' : 'Gift card reloaded' });
 });
 
 /**
  * Redeem from gift card (called during sale)
  * POST /api/gift-cards/:idOrCode/redeem
  */
-export const redeemGiftCard = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { idOrCode } = req.params;
-  const { amount, saleId } = req.body;
-
-  if (!amount || amount <= 0) throw new AppError('Amount must be positive', 400);
-
-  // Use transaction with atomic balance check to prevent race conditions
-  const updated = await prisma.$transaction(async (tx) => {
-    const card = await tx.giftCard.findFirst({
-      where: { OR: [{ id: idOrCode }, { code: idOrCode }] },
-    });
-
-    if (!card) throw new AppError('Gift card not found', 404);
-    if (!isSuperAdmin(req) && card.locationId !== null && card.locationId !== req.user!.locationId) {
-      throw new AppError('This gift card is not valid at this location', 400);
-    }
-    if (!card.isActive) throw new AppError('Gift card is deactivated', 400);
-    if (card.expiresAt && card.expiresAt < new Date()) throw new AppError('Gift card has expired', 400);
-    if (card.currentBalance < amount) throw new AppError(`Insufficient balance. Available: $${card.currentBalance.toFixed(2)}`, 400);
-
-    const result = await tx.giftCard.update({
-      where: { id: card.id },
-      data: {
-        currentBalance: { decrement: amount },
-        transactions: {
-          create: {
-            type: 'REDEEM',
-            amount: -amount,
-            balanceBefore: card.currentBalance,
-            balanceAfter: card.currentBalance - amount,
-            saleId,
-          },
-        },
-      },
-    });
-
-    return result;
-  });
-
-  logger.info(`Gift card redeemed: ${updated.code} -$${amount}`);
-  res.json({ success: true, data: updated, message: 'Gift card redeemed' });
+export const redeemGiftCard = asyncHandler(async (_req: AuthRequest, _res: Response) => {
+  throw new AppError('Redeem gift cards through checkout so the payment, sale and balance are recorded together.', 409);
 });
 
 /**
@@ -216,18 +118,15 @@ export const redeemGiftCard = asyncHandler(async (req: AuthRequest, res: Respons
  * POST /api/gift-cards/:id/deactivate
  */
 export const deactivateGiftCard = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
-
-  const existing = await prisma.giftCard.findUnique({ where: { id } });
-  if (!existing) throw new AppError('Gift card not found', 404);
-  assertOwnsRecord(req, existing.locationId);
-
-  const card = await prisma.giftCard.update({
-    where: { id },
-    data: { isActive: false },
+  const card = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM gift_cards WHERE id = ${req.params.id} FOR UPDATE`;
+    const existing = await tx.giftCard.findUnique({ where: { id: req.params.id } });
+    if (!existing) throw new AppError('Gift card not found', 404);
+    assertOwnsRecord(req, existing.locationId);
+    const updated = await tx.giftCard.update({ where: { id: existing.id }, data: { isActive: false } });
+    await tx.activityLog.create({ data: { userId: req.user!.id, locationId: existing.locationId, action: 'DEACTIVATE', entity: 'GIFT_CARD', entityId: existing.id } });
+    return updated;
   });
-
-  logger.info(`Gift card deactivated: ${card.code}`);
   res.json({ success: true, data: card, message: 'Gift card deactivated' });
 });
 
@@ -240,7 +139,7 @@ export const checkBalance = asyncHandler(async (req: AuthRequest, res: Response)
 
   const card = await prisma.giftCard.findUnique({ where: { code } });
   if (!card) throw new AppError('Gift card not found', 404);
-  if (!isSuperAdmin(req) && card.locationId !== null && card.locationId !== req.user!.locationId) {
+  if (!isSuperAdmin(req) && card.locationId !== req.user!.locationId) {
     throw new AppError('This gift card is not valid at this location', 400);
   }
 

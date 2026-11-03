@@ -1,10 +1,10 @@
+import { moneyJson } from './utils/money';
 import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
-import path from 'path';
 import { config } from './config';
 import { errorHandler } from './utils/errorHandler';
 import { logger } from './utils/logger';
@@ -14,6 +14,7 @@ import routes from './routes';
  * Create Express application
  */
 const app: Application = express();
+app.set('json replacer', moneyJson);
 
 /**
  * Security middleware
@@ -122,14 +123,14 @@ app.use(sanitizeInput);
  */
 if (config.nodeEnv === 'development') {
   app.use(morgan('dev'));
-} else {
+} else if (config.nodeEnv !== 'test') {
   app.use(morgan('combined'));
 }
 
 /**
  * Serve static files (uploaded receipts)
  */
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Uploaded documents are served by authenticated, record-scoped expense routes.
 
 /**
  * Public API v1 (API-key auth) — must mount before the internal /api router
@@ -180,6 +181,11 @@ if (config.nodeEnv !== 'test') {
     logger.info(`Server running on port ${PORT} in ${config.nodeEnv} mode`);
     logger.info(`API available at http://localhost:${PORT}/api`);
   });
+
+  import('./services/payroll.service').then(({ startPayrollScheduler }) => startPayrollScheduler());
+
+  import('./services/emailDelivery.service').then(({ startEmailDeliveryWorker }) => startEmailDeliveryWorker());
+  import('./services/backgroundWorker.service').then(({ startBackgroundWorker }) => startBackgroundWorker());
 
   // End-of-day digest email (see services/dailyDigest.service.ts)
   import('./services/dailyDigest.service').then(({ startDailyDigestScheduler }) => {

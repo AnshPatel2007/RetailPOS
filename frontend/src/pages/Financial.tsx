@@ -1,9 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
+import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { FilterChips } from '@/components/common/FilterChips';
+import { ActionMenu } from '@/components/ui/ActionMenu';
+import { InventoryCostPanel } from '@/components/financial/InventoryCostPanel';
+import { ProfitAndLossStatement } from '@/components/financial/ProfitAndLossStatement';
+import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
+import { PageTabs } from '@/components/common/PageTabs';
+import { useUrlFilter } from '@/hooks/useUrlFilter';
+import { useAuthStore } from '@/store/authStore';
+import { can } from '@/lib/capabilities';
+import { formatEnumLabel } from '@/lib/utils';
+import type { ProfitAndLossReport } from '@/services/profitAndLossExport';
+import React, { useState, useEffect, useRef } from 'react';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import { sessionGeneration } from '@/services/sessionGeneration';
 import {
   DollarSign,
-  PiggyBank,
   RefreshCw,
-  FileText,
   Download,
   Plus,
   Trash2,
@@ -30,7 +44,7 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import { financialService, expenseService, reportService } from '@/services/api';
-import { formatDate } from '@/lib/utils';
+import { displayStoreDate, storeDateInput } from '@/lib/storeDates';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { StoreFilterSelect } from '@/components/common/StoreFilterSelect';
@@ -45,16 +59,16 @@ import { FilterDropdown } from '@/components/common/FilterDropdown';
 import { BudgetModal } from '@/components/financial/BudgetModal';
 import { RecurringExpenseModal } from '@/components/financial/RecurringExpenseModal';
 
-// Helper to get local date in YYYY-MM-DD format
-const getLocalDateString = (date: Date = new Date()): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
 export const Financial: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'expenses' | 'budgets' | 'recurring' | 'pnl'>('expenses');
+  const scopeUser = useAuthStore(s => s.user);
+  const role = scopeUser?.role;
+  const mayManage = can(role, 'financial.manage');
+  const { locationId: contextLocationId, isAdminViewing } = useEffectiveLocation();
+  const assignedTimezone = useCalendarTimezone();
+  const [tab, setActiveTab] = useUrlFilter('tab', 'expenses', false);
+  const [pnlMonth, setPnlMonth] = useUrlFilter('pnlMonth');
+  const validPnlMonth = /^20\d{2}-(0[1-9]|1[0-2])$/.test(pnlMonth) ? pnlMonth : '';
+  const activeTab = ['expenses', 'budgets', 'recurring', 'pnl', 'inventory'].includes(tab) ? tab : 'expenses';
   const [loading, setLoading] = useState(true);
 
   // Data states
@@ -62,7 +76,9 @@ export const Financial: React.FC = () => {
   const [budgets, setBudgets] = useState<any[]>([]);
   const [budgetSummary, setBudgetSummary] = useState<any>(null);
   const [recurringExpenses, setRecurringExpenses] = useState<any[]>([]);
-  const [pnlData, setPnlData] = useState<any>(null);
+  const [pnlData, setPnlData] = useState<ProfitAndLossReport | null>(null);
+  const [exportingPnl, setExportingPnl] = useState(false);
+  const pnlExportRequest = useRef<AbortController | null>(null);
 
   // Expense-specific state
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -75,8 +91,8 @@ export const Financial: React.FC = () => {
   const [expenseFilters, setExpenseFilters] = useState({
     category: [] as string[],
     status: [] as string[],
-    startDate: getLocalDateString(new Date(new Date().setDate(new Date().getDate() - 30))),
-    endDate: getLocalDateString(),
+    startDate: storeDateInput(new Date(Date.now() - 30 * 86400000), assignedTimezone),
+    endDate: storeDateInput(new Date(), assignedTimezone),
     minAmount: '',
     maxAmount: '',
     showCharts: false,
@@ -88,62 +104,95 @@ export const Financial: React.FC = () => {
   const [editingBudget, setEditingBudget] = useState<any>(null);
   const [editingRecurring, setEditingRecurring] = useState<any>(null);
   const [locationId, setLocationId] = useState('');
+  const activeLocationId = isAdminViewing ? contextLocationId : locationId || contextLocationId;
+  const scopeKey = `${scopeUser?.id}:${role}:${activeLocationId || 'all'}`;
+  const viewKey = `${scopeKey}:${activeTab}:${expenseFilters.startDate}:${expenseFilters.endDate}:${validPnlMonth}`;
+  const currentView = useRef(viewKey);
+  currentView.current = viewKey;
+  const requestVersion = useRef(0);
+  const [loadedView, setLoadedView] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
-    fetchData();
-  }, [activeTab, expenseFilters.startDate, expenseFilters.endDate, locationId]);
+    void fetchData();
+    return () => { requestVersion.current += 1; };
+  }, [viewKey]);
 
-  const fetchData = async () => {
-    setLoading(true);
+  useEffect(() => {
+    setExportingPnl(false);
+    return () => { pnlExportRequest.current?.abort(); pnlExportRequest.current = null; };
+  }, [viewKey]);
+
+  useEffect(() => {
+    setExpenseData(null); setBudgets([]); setBudgetSummary(null); setRecurringExpenses([]); setPnlData(null);
+    setSelectedExpenseIds([]); setSelectedExpense(null); setShowExpenseModal(false); setShowExpenseDetails(false);
+    setEditingBudget(null); setEditingRecurring(null); setShowBudgetModal(false); setShowRecurringModal(false); setShowExportMenu(false);
+  }, [scopeKey]);
+
+  const fetchData = async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++requestVersion.current;
+    const generation = sessionGeneration();
+    const current = () => active() && version === requestVersion.current && generation === sessionGeneration() && viewKey === currentView.current;
+    if (!quiet) { setLoading(true); setLoadError(''); }
     try {
       switch (activeTab) {
-        case 'expenses':
+        case 'expenses': {
           const expRes = await reportService.getExpenses({
             startDate: expenseFilters.startDate,
             endDate: expenseFilters.endDate,
-            locationId: locationId || undefined,
-          });
-          setExpenseData(expRes.data.data);
+            locationId: activeLocationId || undefined,
+          }, signal);
+          if (current()) setExpenseData(expRes.data.data);
           break;
-        case 'budgets':
+        }
+        case 'budgets': {
           const [budgetsRes, summaryRes] = await Promise.all([
-            financialService.getBudgets({ locationId: locationId || undefined }),
-            financialService.getBudgetSummary({ locationId: locationId || undefined }),
+            financialService.getBudgets({ locationId: activeLocationId || undefined }, signal),
+            financialService.getBudgetSummary({ locationId: activeLocationId || undefined }, signal),
           ]);
-          setBudgets(budgetsRes.data.data || []);
-          setBudgetSummary(summaryRes.data.data);
+          if (current()) { setBudgets(budgetsRes.data.data || []); setBudgetSummary(summaryRes.data.data); }
           break;
-        case 'recurring':
-          const recRes = await financialService.getRecurringExpenses();
-          setRecurringExpenses(recRes.data.data || []);
+        }
+        case 'recurring': {
+          const recRes = await financialService.getRecurringExpenses({ locationId: activeLocationId || undefined }, signal);
+          if (current()) setRecurringExpenses(recRes.data.data || []);
           break;
-        case 'pnl':
-          const pnlRes = await financialService.getProfitAndLoss({ locationId: locationId || undefined });
-          setPnlData(pnlRes.data.data);
+        }
+        case 'pnl': {
+          const [year, month] = validPnlMonth.split('-').map(Number);
+          const pnlRes = await financialService.getProfitAndLoss({ locationId: activeLocationId || undefined,
+            ...(validPnlMonth ? { startDate: validPnlMonth + '-01', endDate: `${validPnlMonth}-${new Date(Date.UTC(year, month, 0)).getUTCDate()}` } : {}),
+          }, signal);
+          if (current()) setPnlData(pnlRes.data.data);
           break;
+        }
       }
+      if (current()) { setLoadError(''); setLoadedView(viewKey); }
     } catch (error) {
-      console.error('Failed to fetch data:', error);
-      toast.error('Failed to load data');
+      if (quiet) throw error;
+      if (current()) setLoadError((error as { response?: { data?: { error?: string } } }).response?.data?.error || 'Failed to load financial data.');
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   };
 
   // Expense helper functions
   const handleExport = async (format: 'csv' | 'pdf') => {
+    const generation = sessionGeneration();
+    const current = () => generation === sessionGeneration() && viewKey === currentView.current;
     try {
       const params = {
         ...expenseFilters,
         category: expenseFilters.category.join(','),
         status: expenseFilters.status.join(','),
-        locationId: locationId || undefined,
+        locationId: activeLocationId || undefined,
       };
 
       const response =
         format === 'csv'
           ? await expenseService.exportCSV(params)
           : await expenseService.exportPDF(params);
+      if (!current()) return;
 
       // Create download link
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -153,11 +202,11 @@ export const Financial: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
       setShowExportMenu(false);
       toast.success(`Exported expenses as ${format.toUpperCase()}`);
     } catch (error) {
-      console.error(`Failed to export ${format}:`, error);
-      toast.error(`Failed to export ${format}`);
+      if (current()) toast.error(`Failed to export ${format}`);
     }
   };
 
@@ -210,7 +259,8 @@ export const Financial: React.FC = () => {
     return filtered;
   }, [expenseData?.expenses, searchQuery, expenseFilters]);
 
-  const formatCurrency = (value: number) => {
+  const formatCurrency = (value: number | null | undefined) => {
+    if (value == null || !Number.isFinite(value)) return 'Unavailable';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
@@ -264,69 +314,66 @@ export const Financial: React.FC = () => {
     }
   };
 
+  const autoRefresh = useLegacyPageRefresh((current, signal) => fetchData(true, current, signal), { key: viewKey, paused: loading || exportingPnl || showExpenseModal || showExpenseDetails || showBudgetModal || showRecurringModal });
+  const exportPnl = async () => {
+    if (!pnlData || exportingPnl || pnlExportRequest.current || loading || loadError || loadedView !== currentView.current) return;
+    const controller = new AbortController(), generation = sessionGeneration();
+    pnlExportRequest.current = controller; setExportingPnl(true);
+    const current = () => !controller.signal.aborted && generation === sessionGeneration() && viewKey === currentView.current;
+    try {
+      const [year, month] = validPnlMonth.split('-').map(Number);
+      const response = await financialService.getProfitAndLoss({ workbook: true, locationId: activeLocationId || undefined,
+        ...(validPnlMonth ? { startDate: validPnlMonth + '-01', endDate: `${validPnlMonth}-${new Date(Date.UTC(year, month, 0)).getUTCDate()}` } : {}),
+      }, controller.signal);
+      if (!current()) return;
+      const { prepareProfitAndLossExcel } = await import('@/services/profitAndLossWorkbook');
+      const file = await prepareProfitAndLossExcel(response.data.data);
+      if (!current()) return;
+      setPnlData(response.data.data);
+      const url = URL.createObjectURL(file.blob), link = document.createElement('a');
+      link.href = url; link.download = file.filename; document.body.appendChild(link); link.click(); link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success('Excel report exported');
+    } catch (error) { if (current()) toast.error((error as { response?: { data?: { error?: string } } }).response?.data?.error || 'Excel export failed. Please try again.'); }
+    finally { if (pnlExportRequest.current === controller) { pnlExportRequest.current = null; setExportingPnl(false); } }
+  };
+
   return (
-    <div className="p-8">
+    <ManagementPage>
       <PageHeader
         title="Financial Management"
-        subtitle="Manage expenses, budgets, and financial reports"
-        actions={
-          <Button onClick={fetchData} variant="outline">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
-        }
+        actions={<>
+          {activeTab === 'pnl' && <Button variant="outline" onClick={exportPnl} disabled={exportingPnl || loading || !!loadError || loadedView !== viewKey || !pnlData}><Download className="h-4 w-4 mr-2" />{exportingPnl ? 'Preparing Excel…' : 'Export Excel'}</Button>}
+          {activeTab === 'expenses' && filteredExpenses.length > 0 && <Button variant="outline" onClick={() => setShowExportMenu(true)}><Download className="h-4 w-4 mr-2" />Export</Button>}
+          {activeTab === 'recurring' && mayManage && <Button onClick={handleGenerateRecurring} variant="outline"><RefreshCw className="h-4 w-4 mr-2" />Generate Due Expenses</Button>}
+          {mayManage && ['expenses','budgets','recurring'].includes(activeTab) && <Button onClick={() => { if(activeTab === 'expenses') setShowExpenseModal(true); else if(activeTab === 'budgets') { setEditingBudget(null); setShowBudgetModal(true); } else { setEditingRecurring(null); setShowRecurringModal(true); } }}><Plus className="h-4 w-4 mr-2" />{activeTab === 'expenses' ? 'Add Expense' : activeTab === 'budgets' ? 'Add Budget' : 'Add Recurring Expense'}</Button>}
+        </>}
+        tabs={<PageTabs label="Financial views" value={activeTab} onChange={setActiveTab} items={[
+          {id:'expenses',label:'Expenses'},{id:'budgets',label:'Budgets'},{id:'recurring',label:'Recurring'},{id:'pnl',label:'P&L Report'},{id:'inventory',label:'Inventory costs'},
+          ...(role === 'ADMIN' ? [{id:'reconciliation',label:'Reconciliation',href:'/financial/reconciliation'},{id:'jobs',label:'Email & Export Jobs',href:'/settings/jobs'}] : [])
+        ]} />}
+        toolbar={<>
+          {role === 'SUPER_ADMIN' && !isAdminViewing && <StoreFilterSelect value={locationId} onChange={setLocationId} />}
+          {activeTab === 'pnl' && <><label className="flex flex-wrap items-center gap-2 text-sm">P&L month<Input aria-label="P&L month" type="month" value={validPnlMonth} placeholder="Year to date" onChange={e => setPnlMonth(e.target.value)} className="w-48" /></label><Button variant="outline" onClick={() => setPnlMonth('')} disabled={!validPnlMonth}>Year to date</Button></>}
+        </>}
       />
+      {autoRefresh.notice}
 
-      {/* Tab Navigation */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex gap-2">
-          <Button
-            variant={activeTab === 'expenses' ? 'primary' : 'outline'}
-            onClick={() => setActiveTab('expenses')}
-            size="sm"
-          >
-            <DollarSign className="w-4 h-4 mr-2" />
-            Expenses
-          </Button>
-          <Button
-            variant={activeTab === 'budgets' ? 'primary' : 'outline'}
-            onClick={() => setActiveTab('budgets')}
-            size="sm"
-          >
-            <PiggyBank className="w-4 h-4 mr-2" />
-            Budgets
-          </Button>
-          <Button
-            variant={activeTab === 'recurring' ? 'primary' : 'outline'}
-            onClick={() => setActiveTab('recurring')}
-            size="sm"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Recurring
-          </Button>
-          <Button
-            variant={activeTab === 'pnl' ? 'primary' : 'outline'}
-            onClick={() => setActiveTab('pnl')}
-            size="sm"
-          >
-            <FileText className="w-4 h-4 mr-2" />
-            P&L Report
-          </Button>
-        </div>
-        <StoreFilterSelect value={locationId} onChange={setLocationId} />
-      </div>
-
-      {loading ? (
+      {loading || (!loadError && loadedView !== viewKey) ? (
         <div className="flex justify-center items-center h-64">
           <RefreshCw className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
+      ) : loadError ? (
+        <div role="alert" className="rounded-lg border border-destructive/30 p-4 space-y-3"><p>{loadError}</p><Button onClick={() => void fetchData()}>Retry</Button></div>
       ) : (
         <>
+          {activeTab === 'inventory' && <InventoryCostPanel locationId={activeLocationId || undefined} owner={role === 'ADMIN'} readOnly={role === 'SUPER_ADMIN'} />}
           {/* Expenses Tab */}
           {activeTab === 'expenses' && expenseData && (
             <>
               {/* Search & Filter Bar */}
-              <div className="flex gap-2 mb-4">
+              <div className="report-filter-toolbar flex flex-wrap gap-2 mb-4">
+                <DateRangePicker label="Expense dates" startDate={expenseFilters.startDate} endDate={expenseFilters.endDate} timezone={expenseData.period.timezone || assignedTimezone} onChange={range => setExpenseFilters({ ...expenseFilters, ...range })} />
                 <div className="flex-1 relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -372,8 +419,8 @@ export const Financial: React.FC = () => {
                         setExpenseFilters({
                           category: [],
                           status: [],
-                          startDate: getLocalDateString(new Date(new Date().setDate(new Date().getDate() - 30))),
-                          endDate: getLocalDateString(),
+                          startDate: storeDateInput(new Date(Date.now() - 30 * 86400000), expenseData?.period.timezone || assignedTimezone),
+                          endDate: storeDateInput(new Date(), expenseData?.period.timezone || assignedTimezone),
                           minAmount: '',
                           maxAmount: '',
                           showCharts: false,
@@ -382,60 +429,23 @@ export const Financial: React.FC = () => {
                     />
                   </FilterDropdown>
                 </div>
-                <Button variant="primary" onClick={() => setShowExpenseModal(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Expense
-                </Button>
-                {filteredExpenses.length > 0 && (
-                  <Button variant="outline" onClick={() => setShowExportMenu(true)}>
-                    <Download className="h-4 w-4 mr-2" />
-                    Export
-                  </Button>
-                )}
+
               </div>
 
+              <FilterChips filters={expenseFilters} onChange={setExpenseFilters} count={filteredExpenses.length} itemName="expenses" />
               {/* Bulk Actions Toolbar */}
-              <BulkActionsToolbar
+              {mayManage && <BulkActionsToolbar
                 selectedIds={selectedExpenseIds}
                 onClearSelection={() => setSelectedExpenseIds([])}
                 onSuccess={fetchData}
-              />
+              />}
 
-              {/* Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <Card>
-                  <CardContent className="p-6">
-                    <p className="text-sm text-muted-foreground mb-1">Total Expenses</p>
-                    <p className="text-2xl font-bold text-destructive">
-                      {formatCurrency(expenseData.summary?.totalExpenses || 0)}
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-6">
-                    <p className="text-sm text-muted-foreground mb-1">Pending</p>
-                    <p className="text-2xl font-bold text-warning">
-                      {formatCurrency(expenseData.summary?.pendingExpenses || 0)}
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-6">
-                    <p className="text-sm text-muted-foreground mb-1">Top Category</p>
-                    <p className="text-2xl font-bold">
-                      {expenseData.summary?.topCategory || 'N/A'}
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-6">
-                    <p className="text-sm text-muted-foreground mb-1">Avg Daily</p>
-                    <p className="text-2xl font-bold">
-                      {formatCurrency(expenseData.summary?.avgDailyExpense || 0)}
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
+              <SummaryStrip className="mb-4" items={[
+                { label: 'Total Expenses', value: formatCurrency(expenseData.summary?.totalExpenses || 0) },
+                { label: 'Pending', value: formatCurrency(expenseData.summary?.pendingExpenses || 0), tone: expenseData.summary?.pendingExpenses ? 'warning' : 'default' },
+                { label: 'Top Category', value: expenseData.summary?.topCategory ? formatEnumLabel(expenseData.summary.topCategory) : 'Unavailable' },
+                { label: 'Avg Daily', value: formatCurrency(expenseData.summary?.avgDailyExpense || 0) },
+              ]} />
 
               {/* Category Breakdown Chart */}
               {expenseFilters.showCharts && expenseData.summary?.byCategory && expenseData.summary.byCategory.length > 0 && (
@@ -482,7 +492,7 @@ export const Financial: React.FC = () => {
                           <TableBody>
                             {expenseData.summary.byCategory.map((cat) => (
                               <TableRow key={cat.category}>
-                                <TableCell className="font-medium">{cat.category}</TableCell>
+                                <TableCell className="font-medium">{formatEnumLabel(cat.category)}</TableCell>
                                 <TableCell>{cat.count}</TableCell>
                                 <TableCell className="text-right">
                                   {formatCurrency(cat.total)}
@@ -515,6 +525,7 @@ export const Financial: React.FC = () => {
                       <TableHead className="w-12">
                         <input
                           type="checkbox"
+                              disabled={!mayManage}
                           checked={
                             filteredExpenses.length > 0 &&
                             selectedExpenseIds.length === filteredExpenses.length
@@ -523,10 +534,9 @@ export const Financial: React.FC = () => {
                           className="cursor-pointer"
                         />
                       </TableHead>
-                      <TableHead>Expense #</TableHead>
+                      <TableHead>Expense</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead>Category</TableHead>
-                      <TableHead>Description</TableHead>
                       <TableHead>Vendor</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
@@ -536,7 +546,7 @@ export const Financial: React.FC = () => {
                   <TableBody>
                     {filteredExpenses.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9}>
+                        <TableCell colSpan={8}>
                           <EmptyState
                             icon={DollarSign}
                             title="No expenses found"
@@ -563,24 +573,25 @@ export const Financial: React.FC = () => {
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
+                              disabled={!mayManage}
                               checked={selectedExpenseIds.includes(expense.id)}
                               onChange={() => toggleExpenseSelection(expense.id)}
                               className="cursor-pointer"
                             />
                           </TableCell>
                           <TableCell>
-                            <span className="font-mono text-sm">{expense.expenseNumber}</span>
+                            <span title={expense.description} className="block min-w-32 max-w-60 truncate font-medium">{expense.description}</span>
+                            <span title={expense.expenseNumber} className="block max-w-36 truncate text-xs text-muted-foreground">{expense.expenseNumber}</span>
                           </TableCell>
-                          <TableCell>{formatDate(expense.expenseDate)}</TableCell>
+                          <TableCell className="whitespace-nowrap">{displayStoreDate(expense.expenseDate, expenseData?.period.timezone || assignedTimezone)}</TableCell>
                           <TableCell>
-                            <span className="text-xs px-2 py-1 rounded bg-muted">
-                              {expense.category.replace(/_/g, ' ')}
-                            </span>
+                            <Badge variant="secondary" className="whitespace-normal">
+                              {formatEnumLabel(expense.category)}
+                            </Badge>
                           </TableCell>
-                          <TableCell className="max-w-xs truncate">{expense.description}</TableCell>
                           <TableCell>{expense.vendor || '-'}</TableCell>
                           <TableCell>{getStatusBadge(expense.status)}</TableCell>
-                          <TableCell className="text-right font-medium">
+                          <TableCell className="text-right whitespace-nowrap font-medium">
                             {formatCurrency(expense.amount)}
                           </TableCell>
                           <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
@@ -590,18 +601,18 @@ export const Financial: React.FC = () => {
                                   setSelectedExpense(expense);
                                   setShowExpenseDetails(true);
                                 }}
-                                className="p-1 hover:bg-accent rounded"
+                                className="p-1 hover:bg-accent rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 title="View details"
                               >
                                 <Eye className="h-4 w-4" />
                               </button>
-                              {expense.status === 'PENDING' && (
+                              {mayManage && expense.status === 'PENDING' && (
                                 <button
                                   onClick={() => {
                                     setSelectedExpense(expense);
                                     setShowExpenseModal(true);
                                   }}
-                                  className="p-1 hover:bg-accent rounded"
+                                  className="p-1 hover:bg-accent rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                   title="Edit"
                                 >
                                   <Edit className="h-4 w-4" />
@@ -618,6 +629,7 @@ export const Financial: React.FC = () => {
 
               {/* Modals */}
               <ExpenseModal
+                timezone={expenseData?.period.timezone || assignedTimezone}
                 isOpen={showExpenseModal}
                 onClose={() => {
                   setShowExpenseModal(false);
@@ -628,6 +640,7 @@ export const Financial: React.FC = () => {
               />
 
               <ExpenseDetailsModal
+                timezone={expenseData?.period.timezone || assignedTimezone}
                 isOpen={showExpenseDetails}
                 onClose={() => {
                   setShowExpenseDetails(false);
@@ -648,35 +661,12 @@ export const Financial: React.FC = () => {
             <div className="space-y-6">
               {/* Budget Summary */}
               {budgetSummary && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Card className="p-4">
-                    <p className="text-sm text-muted-foreground">Total Budgeted</p>
-                    <p className="text-2xl font-bold">{formatCurrency(budgetSummary.totals.budgeted)}</p>
-                  </Card>
-                  <Card className="p-4">
-                    <p className="text-sm text-muted-foreground">Total Spent</p>
-                    <p className="text-2xl font-bold">{formatCurrency(budgetSummary.totals.spent)}</p>
-                  </Card>
-                  <Card className="p-4">
-                    <p className="text-sm text-muted-foreground">Remaining</p>
-                    <p className={`text-2xl font-bold ${budgetSummary.totals.remaining >= 0 ? 'text-success' : 'text-destructive'}`}>
-                      {formatCurrency(budgetSummary.totals.remaining)}
-                    </p>
-                  </Card>
-                  <Card className="p-4">
-                    <p className="text-sm text-muted-foreground">% Used</p>
-                    <p className="text-2xl font-bold">{budgetSummary.totals.percentUsed}%</p>
-                    <div className="w-full bg-muted rounded-full h-2 mt-2">
-                      <div
-                        className={`h-2 rounded-full ${
-                          budgetSummary.totals.percentUsed > 100 ? 'bg-destructive' :
-                          budgetSummary.totals.percentUsed > 80 ? 'bg-warning' : 'bg-success'
-                        }`}
-                        style={{ width: `${Math.min(budgetSummary.totals.percentUsed, 100)}%` }}
-                      ></div>
-                    </div>
-                  </Card>
-                </div>
+                <SummaryStrip items={[
+                  { label: 'Total Budgeted', value: formatCurrency(budgetSummary.totals.budgeted) },
+                  { label: 'Total Spent', value: formatCurrency(budgetSummary.totals.spent) },
+                  { label: 'Remaining', value: formatCurrency(budgetSummary.totals.remaining), tone: budgetSummary.totals.remaining < 0 ? 'danger' : 'default' },
+                  { label: '% Used', value: `${budgetSummary.totals.percentUsed}%`, detail: budgetSummary.totals.percentUsed > 100 ? 'Over budget' : undefined, tone: budgetSummary.totals.percentUsed > 100 ? 'danger' : budgetSummary.totals.percentUsed > 80 ? 'warning' : 'default' },
+                ]} />
               )}
 
               {/* Category Budgets */}
@@ -685,9 +675,9 @@ export const Financial: React.FC = () => {
                   <h3 className="font-medium mb-4">Budget by Category</h3>
                   <div className="space-y-4">
                     {budgetSummary.categories.map((cat: any) => (
-                      <div key={cat.category} className="flex items-center gap-4">
-                        <div className="w-32 font-medium">{cat.category}</div>
-                        <div className="flex-1">
+                      <div key={cat.category} className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                        <div className="w-full sm:w-32 font-medium">{formatEnumLabel(cat.category)}</div>
+                        <div className="min-w-0 flex-1">
                           <div className="flex justify-between text-sm mb-1">
                             <span>{formatCurrency(cat.spent)} / {formatCurrency(cat.budgeted)}</span>
                             <span>{cat.percentUsed}%</span>
@@ -715,10 +705,7 @@ export const Financial: React.FC = () => {
               <Card>
                 <div className="p-4 border-b flex justify-between items-center">
                   <h3 className="font-medium">All Budgets</h3>
-                  <Button size="sm" onClick={() => setShowBudgetModal(true)}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Budget
-                  </Button>
+
                 </div>
                 <Table>
                   <TableHeader>
@@ -736,14 +723,14 @@ export const Financial: React.FC = () => {
                     {budgets.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center text-muted-foreground">
-                          No budgets set. Click "Add Budget" to create one.
+                          {mayManage ? 'No budgets set. Click "Add Budget" to create one.' : 'No budgets set for this store.'}
                         </TableCell>
                       </TableRow>
                     ) : (
                       budgets.map((budget) => (
                         <TableRow key={budget.id}>
-                          <TableCell>{budget.category}</TableCell>
-                          <TableCell>{budget.period}</TableCell>
+                          <TableCell>{formatEnumLabel(budget.category)}</TableCell>
+                          <TableCell>{formatEnumLabel(budget.period)}</TableCell>
                           <TableCell>{formatCurrency(budget.amount)}</TableCell>
                           <TableCell>{formatCurrency(budget.spent)}</TableCell>
                           <TableCell className={budget.remaining >= 0 ? 'text-success' : 'text-destructive'}>
@@ -757,7 +744,7 @@ export const Financial: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-1">
-                              <Button
+                              {mayManage && <Button aria-label="Edit budget"
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => {
@@ -766,14 +753,8 @@ export const Financial: React.FC = () => {
                                 }}
                               >
                                 <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleDeleteBudget(budget.id)}
-                              >
-                                <Trash2 className="w-4 h-4 text-destructive" />
-                              </Button>
+                              </Button>}
+                              {can(role, 'financial.delete') && <ActionMenu label="Budget actions" iconOnly items={[{ id: 'delete', label: 'Delete budget', icon: <Trash2 size={16} />, destructive: true, onAction: () => handleDeleteBudget(budget.id) }]} />}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -788,16 +769,7 @@ export const Financial: React.FC = () => {
           {/* Recurring Expenses Tab */}
           {activeTab === 'recurring' && (
             <div className="space-y-6">
-              <div className="flex justify-between">
-                <Button onClick={handleGenerateRecurring} variant="outline">
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Generate Due Expenses
-                </Button>
-                <Button onClick={() => setShowRecurringModal(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Recurring
-                </Button>
-              </div>
+
 
               <Card>
                 <Table>
@@ -829,12 +801,12 @@ export const Financial: React.FC = () => {
                             )}
                           </TableCell>
                           <TableCell>
-                            <Badge variant="secondary">{recurring.category}</Badge>
+                            <Badge variant="secondary">{formatEnumLabel(recurring.category)}</Badge>
                           </TableCell>
                           <TableCell className="font-medium">
                             {formatCurrency(recurring.amount)}
                           </TableCell>
-                          <TableCell>{recurring.frequency}</TableCell>
+                          <TableCell>{formatEnumLabel(recurring.frequency)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Calendar className="w-4 h-4 text-muted-foreground" />
@@ -850,7 +822,7 @@ export const Financial: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-1">
-                              <Button
+                              {mayManage && <Button aria-label="Edit recurring expense"
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => {
@@ -859,14 +831,14 @@ export const Financial: React.FC = () => {
                                 }}
                               >
                                 <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
+                              </Button>}
+                              {can(role, 'financial.delete') && <Button aria-label="Delete recurring expense"
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => handleDeleteRecurring(recurring.id)}
                               >
                                 <Trash2 className="w-4 h-4 text-destructive" />
-                              </Button>
+                              </Button>}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -880,86 +852,7 @@ export const Financial: React.FC = () => {
 
           {/* P&L Report Tab */}
           {activeTab === 'pnl' && pnlData && (
-            <div className="space-y-6">
-              <Card className="p-6">
-                <h3 className="font-medium mb-4">Profit & Loss Statement</h3>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Period: {new Date(pnlData.period.start).toLocaleDateString()} - {new Date(pnlData.period.end).toLocaleDateString()}
-                </p>
-
-                <div className="space-y-4">
-                  {/* Revenue Section */}
-                  <div className="border-b pb-4">
-                    <h4 className="font-medium text-success mb-2">Revenue</h4>
-                    <div className="space-y-2 ml-4">
-                      <div className="flex justify-between">
-                        <span>Gross Sales</span>
-                        <span>{formatCurrency(pnlData.revenue.grossSales)}</span>
-                      </div>
-                      <div className="flex justify-between text-muted-foreground">
-                        <span>Less: Refunds</span>
-                        <span>({formatCurrency(pnlData.revenue.refunds)})</span>
-                      </div>
-                      <div className="flex justify-between font-medium border-t pt-2">
-                        <span>Net Sales</span>
-                        <span>{formatCurrency(pnlData.revenue.netSales)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* COGS Section */}
-                  <div className="border-b pb-4">
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Cost of Goods Sold (Est.)</span>
-                      <span>({formatCurrency(pnlData.costOfGoodsSold)})</span>
-                    </div>
-                    <div className="flex justify-between font-medium mt-2">
-                      <span>Gross Profit</span>
-                      <span className="text-success">{formatCurrency(pnlData.grossProfit)}</span>
-                    </div>
-                  </div>
-
-                  {/* Operating Expenses */}
-                  <div className="border-b pb-4">
-                    <h4 className="font-medium text-destructive mb-2">Operating Expenses</h4>
-                    <div className="space-y-2 ml-4">
-                      {pnlData.operatingExpenses.byCategory.map((exp: any) => (
-                        <div key={exp.category} className="flex justify-between text-muted-foreground">
-                          <span>{exp.category}</span>
-                          <span>{formatCurrency(exp.amount)}</span>
-                        </div>
-                      ))}
-                      <div className="flex justify-between font-medium border-t pt-2">
-                        <span>Total Operating Expenses</span>
-                        <span>({formatCurrency(pnlData.operatingExpenses.total)})</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Net Income */}
-                  <div className="pt-2">
-                    <div className="flex justify-between text-xl font-bold">
-                      <span>Net Income</span>
-                      <span className={pnlData.netIncome >= 0 ? 'text-success' : 'text-destructive'}>
-                        {formatCurrency(pnlData.netIncome)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Margins */}
-                  <div className="grid grid-cols-2 gap-4 pt-4 border-t">
-                    <Card className="p-4">
-                      <p className="text-sm text-muted-foreground">Gross Margin</p>
-                      <p className="text-2xl font-bold">{pnlData.margins.gross}%</p>
-                    </Card>
-                    <Card className="p-4">
-                      <p className="text-sm text-muted-foreground">Net Margin</p>
-                      <p className="text-2xl font-bold">{pnlData.margins.net}%</p>
-                    </Card>
-                  </div>
-                </div>
-              </Card>
-            </div>
+            <ProfitAndLossStatement report={pnlData} month={validPnlMonth} onReviewCosts={() => setActiveTab('inventory')} />
           )}
         </>
       )}
@@ -1003,7 +896,7 @@ export const Financial: React.FC = () => {
           }}
         />
       )}
-    </div>
+    </ManagementPage>
   );
 };
 

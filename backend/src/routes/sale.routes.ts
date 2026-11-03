@@ -2,7 +2,7 @@ import { Router } from 'express';
 import * as saleController from '../controllers/sale.controller';
 import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { createSaleSchema, refundSaleSchema } from '../validators/sale.validator';
+import { createSaleSchema, refundSaleSchema, quoteSaleSchema } from '../validators/sale.validator';
 
 const router = Router();
 
@@ -10,6 +10,7 @@ const router = Router();
  * All routes require authentication
  */
 router.use(authenticate);
+router.post('/quote', validate(quoteSaleSchema), saleController.quoteSale);
 
 /**
  * Static routes MUST come before /:id to avoid being caught by the param route
@@ -25,6 +26,7 @@ router.post(
   authorize('ADMIN', 'MANAGER'),
   saleController.bulkRefundSales
 );
+router.post('/bulk-refund/preview', authorize('ADMIN', 'MANAGER'), saleController.previewBulkRefundSales);
 
 /**
  * Parameterized routes
@@ -36,14 +38,14 @@ router.post('/', validate(createSaleSchema), saleController.createSale);
 
 router.post(
   '/:id/refund',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('ADMIN', 'MANAGER', 'CASHIER'),
   validate(refundSaleSchema),
   saleController.refundSale
 );
 
 router.post(
   '/:id/void',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('ADMIN', 'MANAGER', 'CASHIER'),
   saleController.voidSale
 );
 

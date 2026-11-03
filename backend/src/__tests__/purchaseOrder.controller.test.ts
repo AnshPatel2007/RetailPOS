@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { Prisma } from '@prisma/client';
 import * as purchaseOrderController from '../controllers/purchaseOrder.controller';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
@@ -20,7 +21,14 @@ jest.mock('../config/database', () => ({
     purchaseOrderItem: {
       deleteMany: jest.fn(),
       createMany: jest.fn(),
+      update: jest.fn(),
     },
+    purchaseReceipt: { findUnique: jest.fn(), create: jest.fn(), count: jest.fn() },
+    purchaseReceiptItem: { update: jest.fn() },
+    inventoryValuation: { findUnique: jest.fn(), update: jest.fn() },
+    inventoryValueEntry: { create: jest.fn() },
+    activityLog: { create: jest.fn() },
+    $queryRaw: jest.fn(),
     product: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
@@ -65,7 +73,17 @@ describe('Purchase Order Controller', () => {
     mockResponse = createMockResponse();
     mockNext = createMockNext();
     jest.clearAllMocks();
-    (prisma.$transaction as jest.Mock).mockResolvedValue([]);
+    (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ value: 100001n }]);
+    (prisma.$transaction as jest.Mock).mockImplementation(callback => callback(prisma));
+    (prisma.purchaseReceipt.findUnique as jest.Mock).mockResolvedValue(null);
+    (prisma.purchaseReceipt.count as jest.Mock).mockResolvedValue(0);
+    (prisma.purchaseReceipt.create as jest.Mock).mockResolvedValue({ id: 'receipt-1', items: [{ id: 'receipt-line', purchaseOrderItemId: 'poi-1' }] });
+    (prisma.inventoryValuation.findUnique as jest.Mock).mockResolvedValue({ quantity: 5, value: null });
+    (prisma.inventoryValueEntry.create as jest.Mock).mockImplementation(async ({ data }) => ({ id: 'value-entry', ...data }));
+    const product = { id: 'product-1', stockQuantity: 5, trackInventory: true, locationId: 'location-123', stockVersion: 0 };
+    (prisma.product.findMany as jest.Mock).mockResolvedValue([product]);
+    (prisma.product.findUnique as jest.Mock).mockResolvedValue(product);
+    (prisma.product.update as jest.Mock).mockResolvedValue({ ...product, stockVersion: 1 });
   });
 
   describe('getPurchaseOrders', () => {
@@ -299,7 +317,10 @@ describe('Purchase Order Controller', () => {
           sku: 'SKU001',
           productName: 'Product 1',
           quantity: 10,
-          cost: 5.0,
+          receivedQty: 0,
+          damagedQty: 0,
+          rejectedQty: 0,
+          cost: new Prisma.Decimal(5),
           total: 50.0,
         },
       ],
@@ -315,6 +336,7 @@ describe('Purchase Order Controller', () => {
       (prisma.product.findUnique as jest.Mock).mockResolvedValue({
         id: 'product-1',
         stockQuantity: 5,
+        locationId: 'location-123', trackInventory: true, stockVersion: 0,
       });
 
       await purchaseOrderController.receivePurchaseOrder(
@@ -343,21 +365,22 @@ describe('Purchase Order Controller', () => {
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: true,
-          message: 'Purchase order received and inventory updated',
+          message: 'Delivery recorded and order closed',
         })
       );
     });
 
-    it('should report variances when received quantity differs', async () => {
+    it('should keep a partial delivery open with the remaining quantity', async () => {
       const mockRequest = createMockAuthRequest({
         params: { id: 'po-123' },
-        body: { receivedItems: [{ productId: 'product-1', quantity: 8 }] },
+        body: { idempotencyKey: 'b7ea08b2-8fb9-4b24-a88d-551231b96ade', receivedItems: [{ productId: 'product-1', quantity: 8 }] },
       });
 
       (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(orderWithItems);
       (prisma.product.findUnique as jest.Mock).mockResolvedValue({
         id: 'product-1',
         stockQuantity: 5,
+        locationId: 'location-123', trackInventory: true, stockVersion: 0,
       });
 
       await purchaseOrderController.receivePurchaseOrder(
@@ -369,9 +392,8 @@ describe('Purchase Order Controller', () => {
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            variances: [
-              expect.objectContaining({ ordered: 10, received: 8, variance: -2 }),
-            ],
+            remaining: 2,
+            status: 'PARTIALLY_RECEIVED',
           }),
         })
       );

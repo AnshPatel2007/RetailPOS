@@ -13,17 +13,17 @@ export const Badge: React.FC<BadgeProps> = ({
   className,
 }) => {
   const variants = {
-    default: 'bg-primary text-primary-foreground',
-    success: 'bg-success text-success-foreground',
-    warning: 'bg-warning text-warning-foreground',
-    destructive: 'bg-destructive text-destructive-foreground',
-    secondary: 'bg-secondary text-secondary-foreground',
+    default: 'bg-primary/10 text-primary',
+    success: 'bg-success/10 text-success',
+    warning: 'bg-warning/15 text-warning',
+    destructive: 'bg-destructive/10 text-destructive',
+    secondary: 'bg-muted text-muted-foreground',
   };
 
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors',
+        'inline-flex w-fit max-w-full items-center whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium leading-4 transition-colors',
         variants[variant],
         className
       )}

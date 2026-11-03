@@ -33,7 +33,7 @@ router.post(
  */
 router.get(
   '/suggested',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   purchaseOrderController.getSuggestedOrders
 );
 

@@ -1,14 +1,21 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
+import { ManagementPage } from '@/components/common/Workspace';
+import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { FilterDropdown } from '@/components/common/FilterDropdown';
+import { FilterChips } from '@/components/common/FilterChips';
+import { formatEnumLabel } from '@/lib/utils';
+import { Select } from '@/components/ui/Select';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auditLogService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import {
   Search,
   Filter,
-  RefreshCw,
   Shield,
 } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { useAuthStore } from '@/store/authStore';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -33,7 +40,25 @@ interface AuditEntry {
   } | null;
 }
 
+
+function ActivityFilters({ filters, onFilterChange, onClear, actions, entities }: {
+  filters: { action: string; entity: string }; onFilterChange: (value: { action: string; entity: string }) => void;
+  onClear: () => void; actions: string[]; entities: string[];
+}) {
+  return <div className="space-y-4"><div className="flex items-center justify-between"><h3 className="text-sm font-medium">Activity filters</h3><Button type="button" variant="ghost" onClick={onClear}>Clear</Button></div>
+    <Select label="Action" value={filters.action} onChange={event => onFilterChange({ ...filters, action: event.target.value })}><option value="">All actions</option>{actions.map(action => <option key={action} value={action}>{formatEnumLabel(action)}</option>)}</Select>
+    <Select label="Entity" value={filters.entity} onChange={event => onFilterChange({ ...filters, entity: event.target.value })}><option value="">All entities</option>{entities.map(entity => <option key={entity} value={entity}>{formatEnumLabel(entity)}</option>)}</Select>
+  </div>;
+}
+
 export const AuditLog: React.FC = () => {
+  const user = useAuthStore(state => state.user);
+  const requests = useRef(0);
+  const [error, setError] = useState('');
+  const [timezone, setTimezone] = useState('UTC');
+  const [loadedScope, setLoadedScope] = useState('');
+  const [filterScope, setFilterScope] = useState('');
+  const [filterError, setFilterError] = useState('');
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -51,8 +76,12 @@ export const AuditLog: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
+  const scopeKey = `${user?.id}:${user?.role}:${locationId || user?.locationId || ''}`;
+  const visibleLogs = loadedScope === scopeKey ? logs : [];
+
+  const fetchLogs = useCallback(async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const current = ++requests.current;
+    if (!quiet) { setLoading(true); setError(''); }
     try {
       const params: any = { page, limit: 50 };
       if (debouncedSearch) params.search = debouncedSearch;
@@ -62,16 +91,20 @@ export const AuditLog: React.FC = () => {
       if (endDate) params.endDate = endDate;
       if (locationId) params.locationId = locationId;
 
-      const res = await auditLogService.getAll(params);
+      const res = await auditLogService.getAll(params, signal);
+      if (current !== requests.current || !active()) return;
+      setError('');
+      setLoadedScope(scopeKey); setTimezone(res.data.timezone);
       setLogs(res.data.data);
       setTotalPages(res.data.pagination.totalPages);
       setTotal(res.data.pagination.total);
-    } catch {
-      toast.error('Failed to load audit logs');
+    } catch (failure) {
+      if (quiet) throw failure;
+      if (current === requests.current) setError('Activity could not be loaded. Try again.');
     } finally {
-      setLoading(false);
+      if (current === requests.current) setLoading(false);
     }
-  }, [page, debouncedSearch, actionFilter, entityFilter, startDate, endDate, locationId]);
+  }, [page, debouncedSearch, actionFilter, entityFilter, startDate, endDate, locationId, scopeKey]);
 
   // Debounce search input so we don't fetch on every keystroke
   useEffect(() => {
@@ -82,26 +115,20 @@ export const AuditLog: React.FC = () => {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const fetchFilters = async () => {
-    try {
-      const [actRes, entRes] = await Promise.all([
-        auditLogService.getActions(),
-        auditLogService.getEntities(),
-      ]);
-      setActions(actRes.data.data);
-      setEntities(entRes.data.data);
-    } catch {
-      // non-critical
-    }
-  };
-
   useEffect(() => {
-    fetchLogs();
+    void fetchLogs();
+    return () => { requests.current++; };
   }, [fetchLogs]);
 
   useEffect(() => {
-    fetchFilters();
-  }, []);
+    let cancelled = false; setFilterError(''); setExpandedRow(null);
+    void Promise.all([auditLogService.getActions(locationId || undefined), auditLogService.getEntities(locationId || undefined)])
+      .then(([actionsResponse, entitiesResponse]) => {
+        if (cancelled) return;
+        setActions(actionsResponse.data.data); setEntities(entitiesResponse.data.data); setFilterScope(scopeKey);
+      }).catch(() => { if (!cancelled) setFilterError('Filter options could not be loaded. You can still search or refresh the page.'); });
+    return () => { cancelled = true; };
+  }, [locationId, scopeKey]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,37 +150,39 @@ export const AuditLog: React.FC = () => {
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    return d.toLocaleDateString(undefined, { timeZone: timezone, month: 'short', day: 'numeric', year: 'numeric' });
   };
 
   const formatTime = (dateStr: string) => {
     const d = new Date(dateStr);
-    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return d.toLocaleTimeString(undefined, { timeZone: timezone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
+  const autoRefresh = useLegacyPageRefresh((current, signal) => fetchLogs(true, current, signal), { key: JSON.stringify([scopeKey, page, debouncedSearch, actionFilter, entityFilter, startDate, endDate]), paused: loading });
+
   return (
-    <div className="p-8 space-y-4">
+    <ManagementPage className=" space-y-4">
       <PageHeader
         title="Audit Log"
-        subtitle={`${total} total entries`}
+        subtitle={loadedScope === scopeKey && !error ? `${total} total entries | ${timezone}` : 'Store activity'}
         icon={Shield}
-        actions={
-          <>
-            <StoreFilterSelect value={locationId} onChange={(v) => { setLocationId(v); setPage(1); }} />
-            <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
-              <Filter className="h-4 w-4 mr-1" />
-              Filters
-            </Button>
-            <Button variant="outline" size="sm" onClick={fetchLogs} title="Refresh">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          </>
-        }
       />
+      {autoRefresh.notice}
 
+      {error && <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-destructive"><p>{error}</p><Button variant="outline" onClick={() => void fetchLogs()}>Retry</Button></div>}
+      {filterError && <p role="status" className="text-sm text-muted-foreground">{filterError}</p>}
       {/* Search & Filters */}
       <div className="space-y-3">
-        <form onSubmit={handleSearch} className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <DateRangePicker label="Activity dates" timezone={timezone} startDate={startDate} endDate={endDate} onChange={range => { setStartDate(range.startDate); setEndDate(range.endDate); setPage(1); }} />
+          <StoreFilterSelect value={locationId} onChange={v => { setLocationId(v); setPage(1); setActionFilter(''); setEntityFilter(''); }} />
+          <div className="relative"><Button type="button" variant="outline" onClick={() => setShowFilters(!showFilters)} aria-expanded={showFilters}><Filter size={16} />Filters</Button>
+            <FilterDropdown isOpen={showFilters} onClose={() => setShowFilters(false)} title="Activity filters">
+              <ActivityFilters filters={{ action: actionFilter, entity: entityFilter }} onFilterChange={filters => { setActionFilter(filters.action); setEntityFilter(filters.entity); setPage(1); }} onClear={() => { setActionFilter(''); setEntityFilter(''); setPage(1); }} actions={filterScope === scopeKey ? actions : []} entities={filterScope === scopeKey ? entities : []} />
+            </FilterDropdown>
+          </div>
+        </div>
+        <form role="search" onSubmit={handleSearch} className="flex gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -166,142 +195,95 @@ export const AuditLog: React.FC = () => {
           <Button type="submit" variant="primary" size="sm">Search</Button>
         </form>
 
-        {showFilters && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-3 border rounded-lg bg-muted/50">
-            <div>
-              <label className="text-xs font-medium mb-1 block">Action</label>
-              <select
-                value={actionFilter}
-                onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
-                className="w-full rounded-md border px-2 py-1.5 text-sm bg-background"
-              >
-                <option value="">All Actions</option>
-                {actions.map((a) => (
-                  <option key={a} value={a}>{a}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium mb-1 block">Entity</label>
-              <select
-                value={entityFilter}
-                onChange={(e) => { setEntityFilter(e.target.value); setPage(1); }}
-                className="w-full rounded-md border px-2 py-1.5 text-sm bg-background"
-              >
-                <option value="">All Entities</option>
-                {entities.map((e) => (
-                  <option key={e} value={e}>{e}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium mb-1 block">From</label>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
-                className="text-sm h-8"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium mb-1 block">To</label>
-              <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
-                className="text-sm h-8"
-              />
-            </div>
-          </div>
-        )}
+<FilterChips filters={{ action: actionFilter, entity: entityFilter }} onChange={filters => { setActionFilter(filters.action); setEntityFilter(filters.entity); setPage(1); }} count={loadedScope === scopeKey && !error ? total : undefined} itemName="entries" />
       </div>
 
       {/* Table */}
-      <div className="border rounded-lg overflow-hidden">
+      <div className="border rounded-lg bg-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 border-b">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium">Time</th>
-                <th className="text-left px-4 py-2 font-medium">User</th>
-                <th className="text-left px-4 py-2 font-medium">Action</th>
-                <th className="text-left px-4 py-2 font-medium">Entity</th>
-                <th className="text-left px-4 py-2 font-medium">Entity ID</th>
-                <th className="text-left px-4 py-2 font-medium">Details</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="text-center py-8 text-muted-foreground">
+          <Table scrollLabel="Audit Log records" className="w-full text-sm">
+            <TableHeader className="bg-muted/50 border-b">
+              <TableRow>
+                <TableHead className="text-left px-4 py-2 font-medium">Time</TableHead>
+                <TableHead className="text-left px-4 py-2 font-medium">User</TableHead>
+                <TableHead className="text-left px-4 py-2 font-medium">Action</TableHead>
+                <TableHead className="text-left px-4 py-2 font-medium">Entity</TableHead>
+                <TableHead className="text-left px-4 py-2 font-medium">Entity ID</TableHead>
+                <TableHead className="text-left px-4 py-2 font-medium">Details</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="divide-y">
+              {loading || (!error && loadedScope !== scopeKey) ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                     Loading...
-                  </td>
-                </tr>
-              ) : logs.length === 0 ? (
-                <tr>
-                  <td colSpan={6}>
+                  </TableCell>
+                </TableRow>
+              ) : error ? <TableRow><TableCell colSpan={6} className="p-8 text-center">Activity unavailable</TableCell></TableRow> : visibleLogs.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6}>
                     <EmptyState
                       icon={Shield}
                       title="No audit log entries found"
                       hint="Try widening the date range or clearing filters"
                     />
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
-                logs.map((log) => (
+                visibleLogs.map((log) => (
                   <React.Fragment key={log.id}>
-                    <tr
+                    <TableRow
                       className="hover:bg-muted/30 cursor-pointer"
                       onClick={() => setExpandedRow(expandedRow === log.id ? null : log.id)}
                     >
-                      <td className="px-4 py-2 whitespace-nowrap">
+                      <TableCell className="px-4 py-2 whitespace-nowrap">
                         <div className="text-xs">{formatDate(log.createdAt)}</div>
                         <div className="text-xs text-muted-foreground">{formatTime(log.createdAt)}</div>
-                      </td>
-                      <td className="px-4 py-2">
+                      </TableCell>
+                      <TableCell className="px-4 py-2">
                         {log.user ? (
                           <div>
-                            <div className="font-medium text-xs">{log.user.firstName} {log.user.lastName}</div>
-                            <div className="text-xs text-muted-foreground">{log.user.role}</div>
+                            <div className="font-medium">{log.user.firstName} {log.user.lastName}</div>
+                            <div className="text-xs text-muted-foreground">{log.user.role === 'ADMIN' ? 'Owner' : formatEnumLabel(log.user.role)}</div>
                           </div>
                         ) : (
                           <span className="text-xs text-muted-foreground">System</span>
                         )}
-                      </td>
-                      <td className="px-4 py-2">
+                      </TableCell>
+                      <TableCell className="px-4 py-2">
                         <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${getActionColor(log.action)}`}>
-                          {log.action}
+                          {formatEnumLabel(log.action)}
                         </span>
-                      </td>
-                      <td className="px-4 py-2 text-xs">{log.entity || '-'}</td>
-                      <td className="px-4 py-2 text-xs font-mono text-muted-foreground">
+                      </TableCell>
+                      <TableCell className="px-4 py-2 text-xs">{log.entity ? formatEnumLabel(log.entity) : '-'}</TableCell>
+                      <TableCell className="px-4 py-2 text-xs font-mono text-muted-foreground" title={log.entityId || undefined}>
                         {log.entityId ? log.entityId.slice(0, 8) + '...' : '-'}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-muted-foreground">
-                        {log.details ? 'Click to expand' : '-'}
-                      </td>
-                    </tr>
+                      </TableCell>
+                      <TableCell className="px-4 py-2 text-xs text-muted-foreground">
+                        {log.details ? <button type="button" className="min-h-11 underline" aria-expanded={expandedRow === log.id} aria-controls={'audit-details-' + log.id} onClick={event => { event.stopPropagation(); setExpandedRow(expandedRow === log.id ? null : log.id); }}>{expandedRow === log.id ? 'Hide details' : 'View details'}</button> : '-'}
+                      </TableCell>
+                    </TableRow>
                     {expandedRow === log.id && log.details && (
-                      <tr>
-                        <td colSpan={6} className="px-4 py-3 bg-muted/20">
-                          <pre className="text-xs overflow-x-auto whitespace-pre-wrap max-w-full">
+                      <TableRow>
+                        <TableCell colSpan={6} className="px-4 py-3 bg-muted/20">
+                          <pre id={'audit-details-' + log.id} className="text-xs overflow-x-auto whitespace-pre-wrap max-w-full">
                             {JSON.stringify(log.details, null, 2)}
                           </pre>
                           {log.ipAddress && (
                             <p className="text-xs text-muted-foreground mt-2">IP: {log.ipAddress}</p>
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     )}
                   </React.Fragment>
                 ))
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </div>
 
-      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} totalItems={total} itemName="entries" />
-    </div>
+      <Pagination page={page} totalPages={loadedScope === scopeKey && !error ? totalPages : 0} onPageChange={setPage} totalItems={total} itemName="entries" />
+    </ManagementPage>
   );
 };

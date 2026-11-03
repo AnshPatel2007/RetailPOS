@@ -20,11 +20,16 @@ const transporter = nodemailer.createTransport({
   socketTimeout: 15000,
 });
 
+export class EmailSendError extends Error {
+  constructor(public code: 'NOT_CONFIGURED' | 'PROVIDER_REJECTED' | 'DELIVERY_UNKNOWN') { super(code === 'NOT_CONFIGURED' ? 'Email delivery is not configured' : code === 'PROVIDER_REJECTED' ? 'The email provider rejected this delivery' : 'Email delivery could not be confirmed'); }
+}
+
 interface EmailOptions {
   to: string;
   subject: string;
   html: string;
   text?: string;
+  correlationId?:string;
 }
 
 // SendGrid's HTTPS API, used in place of SMTP when SENDGRID_API_KEY is set.
@@ -32,10 +37,12 @@ const sendViaSendGrid = async (
   to: string,
   subject: string,
   html: string,
-  text: string
+  text: string,
+  correlationId?:string
 ): Promise<void> => {
   const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: {
       Authorization: `Bearer ${config.email.sendgridApiKey}`,
       'Content-Type': 'application/json',
@@ -44,6 +51,7 @@ const sendViaSendGrid = async (
       personalizations: [{ to: [{ email: to }] }],
       from: { email: config.email.from, name: config.app.name },
       subject,
+      ...(correlationId?{custom_args:{pos_job_id:correlationId},headers:{'X-POS-Job-ID':correlationId}}:{}),
       content: [
         { type: 'text/plain', value: text },
         { type: 'text/html', value: html },
@@ -52,8 +60,7 @@ const sendViaSendGrid = async (
   });
 
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`SendGrid API error ${res.status}: ${body}`);
+    throw new EmailSendError(res.status < 500 ? 'PROVIDER_REJECTED' : 'DELIVERY_UNKNOWN');
   }
 };
 
@@ -64,28 +71,26 @@ export const sendEmail = async (options: EmailOptions): Promise<void> => {
   try {
     const text = options.text || options.html.replace(/<[^>]*>/g, '');
 
-    if (config.nodeEnv === 'development' && !config.email.user && !config.email.sendgridApiKey) {
-      logger.info(`[DEV] Email would be sent to ${options.to}: ${options.subject}`);
-      logger.info(`[DEV] Email content: ${options.html}`);
-      return;
-    }
+    if (!config.email.sendgridApiKey && !(config.email.user && config.email.pass)) throw new EmailSendError('NOT_CONFIGURED');
 
     if (config.email.sendgridApiKey) {
-      await sendViaSendGrid(options.to, options.subject, options.html, text);
+      await sendViaSendGrid(options.to, options.subject, options.html, text,options.correlationId);
     } else {
-      await transporter.sendMail({
+      const result = await transporter.sendMail({
         from: `"${config.app.name}" <${config.email.from}>`,
         to: options.to,
         subject: options.subject,
         html: options.html,
         text,
+        ...(options.correlationId?{headers:{'X-POS-Job-ID':options.correlationId}}:{}),
       });
+      if (!result.accepted?.length || result.rejected?.length) throw new EmailSendError('PROVIDER_REJECTED');
     }
-    logger.info(`Email sent to ${options.to}: ${options.subject}`);
+    logger.info('Email accepted by provider');
   } catch (error) {
-    logger.error('Error sending email:', error);
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to send email: ${reason}`);
+    const failure = error instanceof EmailSendError ? error : new EmailSendError('DELIVERY_UNKNOWN');
+    logger.warn(`Email delivery failed: ${failure.code}`);
+    throw failure;
   }
 };
 

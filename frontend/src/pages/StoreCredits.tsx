@@ -1,3 +1,6 @@
+import { ManagementPage } from '@/components/common/Workspace';
+import { Select } from '@/components/ui/Select';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { storeCreditService, customerService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
@@ -20,9 +23,13 @@ import {
   Plus,
   Wallet,
   History,
-  RefreshCw,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuthStore } from '@/store/authStore';
+import { useUrlFilter, useUrlPage } from '@/hooks/useUrlFilter';
+import { can } from '@/lib/capabilities';
+import { AccountReceipt, useAccountOperation } from '@/hooks/useAccountOperation';
+import { AccountOperationFeedback } from '@/components/accounts/AccountFunding';
 
 interface StoreCreditAccount {
   id: string;
@@ -40,6 +47,7 @@ interface StoreCreditAccount {
 }
 
 interface Transaction {
+  operation?: AccountReceipt;
   id: string;
   type: string;
   amount: number;
@@ -51,18 +59,24 @@ interface Transaction {
 }
 
 export const StoreCredits: React.FC = () => {
+  const role = useAuthStore(state => state.user?.role);
+  const manage = can(role, 'account.manage');
   const [accounts, setAccounts] = useState<StoreCreditAccount[]>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const requestVersion = useRef(0);
+  const [loadError, setLoadError] = useState('');
+  const [page, setPage] = useUrlPage();
   const [totalPages, setTotalPages] = useState(1);
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [search, setSearch] = useUrlFilter('search');
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<StoreCreditAccount | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [txLoading, setTxLoading] = useState(false);
+  const [txError, setTxError] = useState('');
+  const historyVersion = useRef(0);
 
   // Add credit form
   const [customerSearch, setCustomerSearch] = useState('');
@@ -71,33 +85,39 @@ export const StoreCredits: React.FC = () => {
   const [selectedCustomerName, setSelectedCustomerName] = useState('');
   const [creditAmount, setCreditAmount] = useState('');
   const [creditNotes, setCreditNotes] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [source, setSource] = useState<'GOODWILL' | 'CORRECTION'>('GOODWILL');
+  const operation = useAccountOperation('credit', () => { setShowAddModal(false); resetAddForm(); void fetchAccounts(); });
 
-  const fetchAccounts = useCallback(async () => {
-    setLoading(true);
+  const fetchAccounts = useCallback(async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++requestVersion.current; if (!quiet) setLoadError('');
+    if (!quiet) setLoading(true);
     try {
       const params: any = { page, limit: 25 };
       if (debouncedSearch) params.search = debouncedSearch;
-      const res = await storeCreditService.getAll(params);
+      const res = await storeCreditService.getAll(params, signal);
+      if (version !== requestVersion.current || !active()) return;
+      setLoadError('');
       setAccounts(res.data.data);
       setTotalPages(res.data.pagination.totalPages);
-    } catch {
-      toast.error('Failed to load store credits');
+    } catch (failure) {
+      if (quiet) throw failure;
+      if (version === requestVersion.current) setLoadError('Unable to load accounts. Try again.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [page, debouncedSearch]);
 
   useEffect(() => {
     fetchAccounts();
+    return () => { requestVersion.current++; };
   }, [fetchAccounts]);
+  useEffect(() => () => { historyVersion.current++; }, []);
 
   // Live search, debounced — no submit button needed
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => {
       setDebouncedSearch(search);
-      setPage(1);
     }, 300);
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -105,16 +125,17 @@ export const StoreCredits: React.FC = () => {
   }, [search]);
 
   const openHistory = async (account: StoreCreditAccount) => {
+    const version = ++historyVersion.current;
     setSelectedAccount(account);
     setShowHistoryModal(true);
-    setTxLoading(true);
+    setTransactions([]); setTxError(''); setTxLoading(true);
     try {
       const res = await storeCreditService.getTransactions(account.customerId);
-      setTransactions(res.data.data);
+      if (version === historyVersion.current) setTransactions(res.data.data);
     } catch {
-      toast.error('Failed to load transactions');
+      if (version === historyVersion.current) setTxError('Unable to load this account activity. Retry when connected.');
     } finally {
-      setTxLoading(false);
+      if (version === historyVersion.current) setTxLoading(false);
     }
   };
 
@@ -147,21 +168,9 @@ export const StoreCredits: React.FC = () => {
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      await storeCreditService.addCredit(selectedCustomerId, {
-        amount,
-        notes: creditNotes || undefined,
-      });
-      toast.success(`${formatCurrency(amount)} credit added for ${selectedCustomerName}`);
-      setShowAddModal(false);
-      resetAddForm();
-      fetchAccounts();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to add credit');
-    } finally {
-      setIsSubmitting(false);
-    }
+    if (creditNotes.trim().length < 3) { toast.error('Enter a reason for the credit'); return; }
+    const result = await operation.submit({ path: '/store-credit/' + selectedCustomerId + '/credit', label: selectedCustomerName, payload: { amount, source, notes: creditNotes.trim() } });
+    if (result === 'unconfirmed') setShowAddModal(false);
   };
 
   const resetAddForm = () => {
@@ -170,29 +179,30 @@ export const StoreCredits: React.FC = () => {
     setSelectedCustomerId('');
     setSelectedCustomerName('');
     setCreditAmount('');
-    setCreditNotes('');
+    setCreditNotes(''); setSource('GOODWILL');
   };
 
+  const autoRefresh = useLegacyPageRefresh((current, signal) => fetchAccounts(true, current, signal), { key: JSON.stringify([page, debouncedSearch]), paused: loading });
+
   return (
-    <div className="p-8">
+    <ManagementPage className="">
       <PageHeader
         title="Store Credits"
         subtitle="Issue and track customer store credit balances"
         icon={Wallet}
         actions={
           <>
-            <Button variant="outline" size="sm" onClick={fetchAccounts} title="Refresh">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => setShowAddModal(true)}>
+            {manage && <Button variant="primary" size="sm" disabled={operation.blocked} onClick={() => setShowAddModal(true)}>
               <Plus className="h-4 w-4 mr-1" />
               Issue Credit
-            </Button>
+            </Button>}
           </>
         }
       />
+      {autoRefresh.notice}
 
       {/* Search */}
+      <AccountOperationFeedback operation={operation} />
       <div className="relative max-w-md mb-6">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -209,14 +219,14 @@ export const StoreCredits: React.FC = () => {
           <div className="flex justify-center py-12">
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
           </div>
-        ) : accounts.length === 0 ? (
+        ) : loadError ? (<div role="alert" className="p-4"><p>{loadError}</p><Button onClick={() => void fetchAccounts()} variant="outline" className="mt-3">Retry</Button></div>) : accounts.length === 0 ? (
           <EmptyState
             icon={Wallet}
             title="No store credit accounts found"
             hint={search ? 'Try adjusting your search' : 'Issue a credit to create the first account'}
           />
         ) : (
-          <Table>
+          <Table scrollLabel="Store Credits records">
             <TableHeader>
               <TableRow>
                 <TableHead>Customer</TableHead>
@@ -246,7 +256,8 @@ export const StoreCredits: React.FC = () => {
                       <Button variant="outline" size="sm" onClick={() => openHistory(acc)}>
                         <History className="h-3 w-3 mr-1" /> History
                       </Button>
-                      <Button
+                      {manage && <Button
+                        disabled={operation.blocked}
                         variant="primary"
                         size="sm"
                         onClick={() => {
@@ -257,7 +268,7 @@ export const StoreCredits: React.FC = () => {
                         }}
                       >
                         <Plus className="h-3 w-3 mr-1" /> Add
-                      </Button>
+                      </Button>}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -270,7 +281,7 @@ export const StoreCredits: React.FC = () => {
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
 
       {/* Add Credit Modal */}
-      <Modal isOpen={showAddModal} onClose={() => { setShowAddModal(false); resetAddForm(); }} title="Issue Store Credit" size="md">
+      <Modal isOpen={showAddModal} onClose={() => { if (!operation.busy) { setShowAddModal(false); resetAddForm(); } }} title="Issue Store Credit" size="md">
         <div className="space-y-4">
           {/* Customer search */}
           <div>
@@ -309,8 +320,7 @@ export const StoreCredits: React.FC = () => {
 
           {/* Amount */}
           <div>
-            <label className="block text-sm font-medium mb-1">Amount ($)</label>
-            <Input
+            <Input label="Amount ($)"
               type="number"
               min="0.01"
               step="0.01"
@@ -320,10 +330,15 @@ export const StoreCredits: React.FC = () => {
             />
           </div>
 
+          <p className="text-sm text-muted-foreground">For a returned purchase, issue credit from the original sale refund. This form records a goodwill credit or an owner-approved correction.</p>
+          <label className="block text-sm font-medium">Credit source
+            <Select className="block w-full h-11 mt-1 rounded border bg-background px-3" value={source} onChange={e => setSource(e.target.value as 'GOODWILL' | 'CORRECTION')}>
+              <option value="GOODWILL">Goodwill credit</option>{can(role, 'account.grant') && <option value="CORRECTION">Balance correction</option>}
+            </Select>
+          </label>
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium mb-1">Notes (optional)</label>
-            <Input
+            <Input label="Credit reason" required minLength={3} maxLength={500}
               placeholder="Reason for credit..."
               value={creditNotes}
               onChange={(e) => setCreditNotes(e.target.value)}
@@ -331,13 +346,13 @@ export const StoreCredits: React.FC = () => {
           </div>
 
           <div className="flex gap-2 justify-end pt-2">
-            <Button variant="outline" onClick={() => { setShowAddModal(false); resetAddForm(); }}>Cancel</Button>
+            <Button variant="outline" disabled={operation.busy} onClick={() => { setShowAddModal(false); resetAddForm(); }}>Cancel</Button>
             <Button
               variant="primary"
               onClick={handleAddCredit}
-              disabled={!selectedCustomerId || !creditAmount || isSubmitting}
+              disabled={!selectedCustomerId || !creditAmount || creditNotes.trim().length < 3 || operation.blocked}
             >
-              {isSubmitting ? 'Processing...' : 'Issue Credit'}
+              {operation.busy ? 'Processing...' : 'Issue Credit'}
             </Button>
           </div>
         </div>
@@ -346,7 +361,7 @@ export const StoreCredits: React.FC = () => {
       {/* Transaction History Modal */}
       <Modal
         isOpen={showHistoryModal}
-        onClose={() => { setShowHistoryModal(false); setSelectedAccount(null); }}
+        onClose={() => { historyVersion.current++; setShowHistoryModal(false); setSelectedAccount(null); setTransactions([]); setTxError(''); }}
         title={`Transaction History - ${selectedAccount?.customer.firstName} ${selectedAccount?.customer.lastName}`}
         size="lg"
       >
@@ -361,6 +376,8 @@ export const StoreCredits: React.FC = () => {
           <div className="max-h-[400px] overflow-y-auto border rounded-lg divide-y">
             {txLoading ? (
               <p className="text-center py-8 text-muted-foreground">Loading...</p>
+            ) : txError ? (
+              <div role="alert" className="p-4 space-y-3"><p>{txError}</p><Button variant="outline" onClick={() => { if (selectedAccount) void openHistory(selectedAccount); }}>Retry account activity</Button></div>
             ) : transactions.length === 0 ? (
               <p className="text-center py-8 text-muted-foreground">No transactions yet</p>
             ) : (
@@ -375,6 +392,8 @@ export const StoreCredits: React.FC = () => {
                       }`}>
                         {tx.type}
                       </span>
+                      {tx.operation && <Button variant="outline" size="sm" onClick={() => operation.showReceipt(tx.operation!, selectedAccount ? selectedAccount.customer.firstName + ' ' + selectedAccount.customer.lastName : 'Store credit')}>Receipt</Button>}
+                      {!tx.operation && tx.type === 'CREDIT' && !tx.saleId && <p className="text-xs text-muted-foreground">Original source details unavailable</p>}
                       {tx.notes && <span className="text-xs text-muted-foreground">{tx.notes}</span>}
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
@@ -395,6 +414,6 @@ export const StoreCredits: React.FC = () => {
           </div>
         </div>
       </Modal>
-    </div>
+    </ManagementPage>
   );
 };

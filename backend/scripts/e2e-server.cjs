@@ -1,0 +1,17 @@
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+const operational = process.env.DATABASE_URL;
+const target = new URL(process.env.DATABASE_URL_E2E || operational);
+if (!process.env.DATABASE_URL_E2E) target.pathname += '_e2e';
+if (!target.searchParams.has('connection_limit')) target.searchParams.set('connection_limit', '5');
+process.env.NODE_ENV = 'test';
+delete process.env.ANTHROPIC_API_KEY;
+process.env.SMTP_USER = ''; process.env.SMTP_PASS = ''; process.env.SENDGRID_API_KEY = '';
+process.env.DATABASE_URL_TEST = target.toString();
+process.env.JWT_SECRET = 'browser-fixture-secret-with-at-least-32-characters';
+process.env.FRONTEND_URL = 'http://127.0.0.1:5174';
+process.env.TS_NODE_PROJECT = path.resolve(__dirname, '../tsconfig.json');
+require('ts-node/register');
+const { assertDisposableDatabase } = require('../src/utils/testDatabase');
+assertDisposableDatabase(target.toString(), operational);
+require('../src/server').default.listen(5001, '127.0.0.1', () => console.log('Isolated browser-test API ready on 5001'));

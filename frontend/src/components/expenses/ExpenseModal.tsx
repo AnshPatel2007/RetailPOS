@@ -1,16 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { X, Upload, Link as LinkIcon } from 'lucide-react';
-import { expenseService } from '@/services/api';
+import { Select } from '@/components/ui/Select';
+import React, { useState, useEffect, useId } from 'react';
+import { Upload } from 'lucide-react';
+import { expenseService, api } from '@/services/api';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { Expense } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
+import { formatEnumLabel } from '@/lib/utils';
+import { storeDateInput } from '@/lib/storeDates';
+import { useAuthStore } from '@/store/authStore';
 
 interface ExpenseModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
   expense?: Expense | null;
+  timezone: string;
 }
 
 const EXPENSE_CATEGORIES = [
@@ -34,18 +40,26 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
   onClose,
   onSuccess,
   expense,
+  timezone,
 }) => {
+  const role = useAuthStore(s => s.user?.role);
+  const recordTimezone = expense?.location?.timezone || timezone;
+  const formId = useId();
   const [formData, setFormData] = useState({
+    inventoryReceiptId: '',
     category: '',
     description: '',
     amount: '',
     vendor: '',
     receiptUrl: '',
     invoiceNumber: '',
-    expenseDate: new Date().toISOString().split('T')[0],
+    expenseDate: storeDateInput(new Date(), recordTimezone),
     dueDate: '',
     locationId: '',
   });
+  const receipts = useScopedQuery<{ id: string; invoiceNumber: string | null; purchaseOrder: { orderNumber: string; supplier: { name: string } } }[]>(['expense-inventory-receipts'],
+    async signal => (await api.get('/financial/inventory-costs/receipts', { signal })).data.data,
+    isOpen && formData.category === 'INVENTORY_PURCHASE' && role !== 'CASHIER');
 
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [uploadedReceiptUrl, setUploadedReceiptUrl] = useState('');
@@ -56,34 +70,36 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
   useEffect(() => {
     if (expense) {
       setFormData({
+        inventoryReceiptId: expense.inventoryReceiptId || '',
         category: expense.category,
         description: expense.description,
         amount: expense.amount.toString(),
         vendor: expense.vendor || '',
         receiptUrl: expense.receiptUrl || '',
         invoiceNumber: expense.invoiceNumber || '',
-        expenseDate: expense.expenseDate.split('T')[0],
-        dueDate: expense.dueDate ? expense.dueDate.split('T')[0] : '',
+        expenseDate: storeDateInput(expense.expenseDate, recordTimezone),
+        dueDate: expense.dueDate ? storeDateInput(expense.dueDate, recordTimezone) : '',
         locationId: expense.locationId || '',
       });
       setUploadedReceiptUrl(expense.receiptUrl || '');
     } else {
       // Reset form for new expense
       setFormData({
+        inventoryReceiptId: '',
         category: '',
         description: '',
         amount: '',
         vendor: '',
         receiptUrl: '',
         invoiceNumber: '',
-        expenseDate: new Date().toISOString().split('T')[0],
+        expenseDate: storeDateInput(new Date(), recordTimezone),
         dueDate: '',
         locationId: '',
       });
       setUploadedReceiptUrl('');
       setReceiptFile(null);
     }
-  }, [expense]);
+  }, [expense, isOpen, recordTimezone]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -134,8 +150,12 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
     try {
       const data = {
         ...formData,
+        inventoryReceiptId: formData.category === 'INVENTORY_PURCHASE' ? formData.inventoryReceiptId || null : null,
         amount: parseFloat(formData.amount),
         receiptUrl: uploadedReceiptUrl || formData.receiptUrl,
+        // Preserve an existing timestamp unless its calendar date was actually edited.
+        expenseDate: expense && formData.expenseDate === storeDateInput(expense.expenseDate, recordTimezone) ? expense.expenseDate : formData.expenseDate,
+        dueDate: !formData.dueDate ? null : expense?.dueDate && formData.dueDate === storeDateInput(expense.dueDate, recordTimezone) ? expense.dueDate : formData.dueDate,
       };
 
       if (expense) {
@@ -156,21 +176,18 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>{expense ? 'Edit Expense' : 'Add New Expense'}</CardTitle>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting && !isUploading) onClose(); }} title={expense ? 'Edit Expense' : 'Add New Expense'} size="lg" footer={<div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting || isUploading}>
+                Cancel
+              </Button>
+              <Button type="submit" form={formId} disabled={isSubmitting || isUploading}>
+                {isSubmitting ? 'Saving...' : expense ? 'Update Expense' : 'Create Expense'}
+              </Button>
+            </div>}>
+          <form id={formId} onSubmit={handleSubmit} className="space-y-4">
+            <p className="text-xs text-muted-foreground">Dates use {recordTimezone}.</p>
             {error && (
-              <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
+              <div role="alert" className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
                 {error}
               </div>
             )}
@@ -181,19 +198,21 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
                 <label className="block text-sm font-medium mb-1">
                   Category <span className="text-destructive">*</span>
                 </label>
-                <select
+                <Select
+                  aria-label="Category"
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                   className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
                   required
                 >
                   <option value="">Select category</option>
-                  {EXPENSE_CATEGORIES.map((cat) => (
+                  {EXPENSE_CATEGORIES.filter(cat => cat !== 'PAYROLL' || role === 'ADMIN').map((cat) => (
                     <option key={cat} value={cat}>
-                      {cat.replace(/_/g, ' ')}
+                      {formatEnumLabel(cat)}
                     </option>
                   ))}
-                </select>
+                </Select>
+                {formData.category === 'INVENTORY_PURCHASE' && <div className="mt-3 space-y-2"><label className="block text-sm">Inventory receipt (optional)<Select className="mt-1 h-9 w-full rounded-md border bg-background px-3 text-sm" value={formData.inventoryReceiptId} onChange={e => setFormData({ ...formData, inventoryReceiptId: e.target.value })}><option value="">Not linked to a receipt</option>{receipts.data?.map(receipt => <option key={receipt.id} value={receipt.id}>{receipt.invoiceNumber || receipt.purchaseOrder.orderNumber} · {receipt.purchaseOrder.supplier.name}</option>)}</Select></label><p className="text-xs text-muted-foreground">Purchases enter inventory when received. This record tracks the expense document and is not deducted again from profit.</p></div>}
               </div>
 
               {/* Amount */}
@@ -204,6 +223,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
                 <Input
                   type="number"
                   step="0.01"
+                  aria-label="Amount"
                   value={formData.amount}
                   onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                   placeholder="0.00"
@@ -218,6 +238,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
                 Description <span className="text-destructive">*</span>
               </label>
               <textarea
+                aria-label="Description"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 placeholder="Enter expense description"
@@ -256,6 +277,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
                 <label className="block text-sm font-medium mb-1">Expense Date</label>
                 <Input
                   type="date"
+                  aria-label="Expense Date"
                   value={formData.expenseDate}
                   onChange={(e) => setFormData({ ...formData, expenseDate: e.target.value })}
                 />
@@ -266,6 +288,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
                 <label className="block text-sm font-medium mb-1">Due Date</label>
                 <Input
                   type="date"
+                  aria-label="Due Date"
                   value={formData.dueDate}
                   onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
                 />
@@ -301,34 +324,11 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
                   )}
                 </div>
 
-                {/* Or URL */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">OR</span>
-                </div>
-                <div className="flex gap-2">
-                  <LinkIcon className="h-4 w-4 mt-2 text-muted-foreground" />
-                  <Input
-                    type="url"
-                    value={formData.receiptUrl}
-                    onChange={(e) => setFormData({ ...formData, receiptUrl: e.target.value })}
-                    placeholder="Enter receipt URL"
-                  />
-                </div>
+                <p className="text-xs text-muted-foreground">Uploaded receipts are private to your store.</p>
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting || isUploading}>
-                {isSubmitting ? 'Saving...' : expense ? 'Update Expense' : 'Create Expense'}
-              </Button>
-            </div>
           </form>
-        </CardContent>
-      </Card>
-    </div>
+    </Modal>
   );
 };

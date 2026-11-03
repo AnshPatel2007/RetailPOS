@@ -81,9 +81,27 @@ export const updateStatusSchema = z.object({
 
 export const receivePurchaseOrderSchema = z.object({
   body: z.object({
+    invoiceNumber: z.string().trim().min(1).max(100).optional(),
+    invoiceDate: z.string().datetime().optional(),
+    freight: z.number().finite().min(0).max(1000000).default(0),
+    acquisitionTax: z.number().finite().min(0).max(1000000).default(0),
+    invoiceDiscount: z.number().finite().min(0).max(1000000).default(0),
     receivedItems: z.array(z.object({
-      productId: z.string().uuid('Invalid product ID'),
-      quantity: z.number().int().min(0, 'Quantity must be non-negative'),
-    })).optional(),
+      unitCost: z.number().finite().min(0).max(1000000).optional(),
+      zeroCostConfirmed: z.boolean().default(false),
+      packSize: z.number().int().min(1).max(100000).default(1),
+      packQuantity: z.number().int().min(0).max(1000000).optional(),
+      sellingUnitId: z.string().uuid().optional(),
+      receivedPackageQuantity: z.number().int().min(0).max(1000000).optional(),
+      lineDiscount: z.number().finite().min(0).max(1000000).default(0),
+      productId: z.string().min(1).optional(),
+      purchaseOrderItemId: z.string().min(1).optional(),
+      quantity: z.number().int().min(0).max(2147483647),
+      damagedQty: z.number().int().min(0).max(2147483647).default(0),
+      rejectedQty: z.number().int().min(0).max(2147483647).default(0),
+    }).refine(item => !!item.productId || !!item.purchaseOrderItemId, { message: 'Select an order item' })).max(1000).optional(),
+    idempotencyKey: z.string().uuid().optional(),
+    finalDelivery: z.boolean().default(false),
+    notes: z.string().trim().max(2000).optional(),
   }),
 });

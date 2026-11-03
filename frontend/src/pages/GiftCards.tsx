@@ -1,3 +1,5 @@
+import { ManagementPage } from '@/components/common/Workspace';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Gift, Plus, Search, RefreshCw, CreditCard, Ban, DollarSign } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
@@ -20,6 +22,12 @@ import {
 import { giftCardService } from '@/services/api';
 import { formatCurrency } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { useAuthStore } from '@/store/authStore';
+import { useUrlFilter, useUrlPage } from '@/hooks/useUrlFilter';
+import { can } from '@/lib/capabilities';
+import { AccountReceipt, useAccountOperation } from '@/hooks/useAccountOperation';
+import { AccountOperationFeedback, FundingFields, FundingMethod } from '@/components/accounts/AccountFunding';
+import { AccountCustomer, AccountCustomerPicker } from '@/components/accounts/AccountCustomerPicker';
 
 interface GiftCard {
   id: string;
@@ -35,56 +43,80 @@ interface GiftCard {
 export const GiftCards: React.FC = () => {
   const [giftCards, setGiftCards] = useState<GiftCard[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const requestVersion = useRef(0);
+  const [loadError, setLoadError] = useState('');
+  const [search, setSearch] = useUrlFilter('search');
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [showReloadModal, setShowReloadModal] = useState(false);
   const [selectedCard, setSelectedCard] = useState<GiftCard | null>(null);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useUrlPage();
   const [total, setTotal] = useState(0);
-  const [stats, setStats] = useState({ totalCards: 0, activeCards: 0, outstandingBalance: 0 });
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [stats, setStats] = useState<{ totalCards: number; activeCards: number; outstandingBalance: number } | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Debounce search
   useEffect(() => {
     debounceRef.current = setTimeout(() => {
       setDebouncedSearch(search);
-      setPage(1);
     }, 300);
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
   // Issue form
   const [issueAmount, setIssueAmount] = useState('');
-  const [issueCustomerId, setIssueCustomerId] = useState('');
+  const [issueCustomer, setIssueCustomer] = useState<AccountCustomer | null>(null);
   const [issueExpiry, setIssueExpiry] = useState('');
 
   // Reload form
   const [reloadAmount, setReloadAmount] = useState('');
+  const role = useAuthStore(state => state.user?.role);
+  const manage = can(role, 'account.manage');
+  const [fundingMethod, setFundingMethod] = useState<FundingMethod>('CASH');
+  const [reference, setReference] = useState('');
+  const [reason, setReason] = useState('');
+  const [history, setHistory] = useState<{ card: GiftCard; transactions: { id: string; type: string; amount: number; createdAt: string; operation?: AccountReceipt }[] } | null>(null);
+  const operation = useAccountOperation('gift', () => {
+    setShowIssueModal(false); setShowReloadModal(false); setIssueAmount(''); setReloadAmount('');
+    setIssueCustomer(null); setIssueExpiry(''); setReference(''); setReason('');
+    void fetchGiftCards(); void fetchStats();
+  });
+  const funding = () => ({ paymentMethod: fundingMethod, ...(fundingMethod === 'CARD' ? { reference: reference.trim() } : {}), ...(fundingMethod === 'PROMOTIONAL' ? { notes: reason.trim() } : {}) });
+  const openHistory = async (card: GiftCard) => {
+    try { const response = await giftCardService.getById(card.id); setHistory({ card, transactions: response.data.data.transactions }); }
+    catch { toast.error('Unable to load card history. Try again.'); }
+  };
 
-  const fetchGiftCards = useCallback(async () => {
-    setLoading(true);
+  const fetchGiftCards = useCallback(async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++requestVersion.current; if (!quiet) setLoadError('');
+    if (!quiet) setLoading(true);
     try {
-      const { data } = await giftCardService.getAll({ page, limit: 20, search: debouncedSearch });
+      const { data } = await giftCardService.getAll({ page, limit: 20, search: debouncedSearch }, signal);
+      if (version !== requestVersion.current || !active()) return;
+      setLoadError('');
       setGiftCards(data.data);
       setTotal(data.total);
-    } catch {
-      toast.error('Failed to load gift cards');
+    } catch (failure) {
+      if (quiet) throw failure;
+      if (version === requestVersion.current) setLoadError('Unable to load accounts. Try again.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [page, debouncedSearch]);
 
   useEffect(() => {
     fetchGiftCards();
+    return () => { requestVersion.current++; };
   }, [fetchGiftCards]);
 
-  const fetchStats = useCallback(async () => {
+  const fetchStats = useCallback(async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
     try {
-      const { data } = await giftCardService.getStats();
+      const { data } = await giftCardService.getStats(signal);
+      if (!active()) return;
       setStats(data.data);
-    } catch {
-      // Stat cards fall back to zeros; the table error toast covers load failures
+    } catch (failure) {
+      if (quiet) throw failure;
+      setStats(null);
     }
   }, []);
 
@@ -94,38 +126,15 @@ export const GiftCards: React.FC = () => {
 
   const handleIssue = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      const { data } = await giftCardService.issue({
-        amount: parseFloat(issueAmount),
-        customerId: issueCustomerId || undefined,
-        expiresAt: issueExpiry || undefined,
-      });
-      toast.success(`Gift card issued: ${data.data.code}`);
-      setShowIssueModal(false);
-      setIssueAmount('');
-      setIssueCustomerId('');
-      setIssueExpiry('');
-      fetchGiftCards();
-      fetchStats();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to issue gift card');
-    }
+    const result = await operation.submit({ path: '/gift-cards', label: 'New gift card', payload: {
+      amount: Number(issueAmount), ...funding(), ...(issueCustomer ? { customerId: issueCustomer.id } : {}), ...(issueExpiry ? { expiresAt: issueExpiry } : {}),
+    } });
+    if (result === 'unconfirmed') setShowIssueModal(false);
   };
-
   const handleReload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedCard) return;
-    try {
-      await giftCardService.reload(selectedCard.id, { amount: parseFloat(reloadAmount) });
-      toast.success('Gift card reloaded');
-      setShowReloadModal(false);
-      setReloadAmount('');
-      setSelectedCard(null);
-      fetchGiftCards();
-      fetchStats();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to reload');
-    }
+    e.preventDefault(); if (!selectedCard) return;
+    const result = await operation.submit({ path: '/gift-cards/' + selectedCard.id + '/reload', label: selectedCard.code, payload: { amount: Number(reloadAmount), ...funding() } });
+    if (result === 'unconfirmed') setShowReloadModal(false);
   };
 
   const [deactivateTarget, setDeactivateTarget] = useState<GiftCard | null>(null);
@@ -143,19 +152,23 @@ export const GiftCards: React.FC = () => {
 
   const totalPages = Math.ceil(total / 20);
 
+  const autoRefresh = useLegacyPageRefresh((current, signal) => Promise.all([fetchGiftCards(true, current, signal), fetchStats(true, current, signal)]), { key: JSON.stringify([page, debouncedSearch]), paused: loading });
+
   return (
-    <div className="p-8">
+    <ManagementPage className="">
       <PageHeader
         title="Gift Cards"
         subtitle="Issue, manage, and track gift cards"
-        actions={
-          <Button variant="primary" onClick={() => setShowIssueModal(true)}>
+        actions={manage &&
+          <Button variant="primary" disabled={operation.blocked} onClick={() => { setFundingMethod('CASH'); setReference(''); setReason(''); setShowIssueModal(true); }}>
             <Plus className="w-4 h-4 mr-2" />
             Issue Gift Card
           </Button>
         }
       />
+      {autoRefresh.notice}
 
+      <AccountOperationFeedback operation={operation} />
       {/* Search */}
       <div className="relative max-w-md mb-6">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -168,37 +181,37 @@ export const GiftCards: React.FC = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="metric-grid grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg">
+            <div className="metric-icon p-2 bg-primary/10 rounded-lg">
               <Gift className="w-5 h-5 text-primary" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Cards</p>
-              <p className="text-xl font-bold">{stats.totalCards}</p>
+              <p className="metric-value text-2xl font-semibold">{stats?.totalCards ?? 'Unavailable'}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 bg-success/10 rounded-lg">
+            <div className="metric-icon p-2 bg-success/10 rounded-lg">
               <CreditCard className="w-5 h-5 text-success" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Active</p>
-              <p className="text-xl font-bold">{stats.activeCards}</p>
+              <p className="metric-value text-2xl font-semibold">{stats?.activeCards ?? 'Unavailable'}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 bg-info/10 rounded-lg">
+            <div className="metric-icon p-2 bg-info/10 rounded-lg">
               <DollarSign className="w-5 h-5 text-info" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Outstanding Balance</p>
-              <p className="text-xl font-bold">{formatCurrency(stats.outstandingBalance)}</p>
+              <p className="metric-value text-2xl font-semibold">{stats ? formatCurrency(stats.outstandingBalance) : 'Unavailable'}</p>
             </div>
           </CardContent>
         </Card>
@@ -214,19 +227,19 @@ export const GiftCards: React.FC = () => {
             <div className="flex justify-center py-8">
               <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
             </div>
-          ) : giftCards.length === 0 ? (
+          ) : loadError ? (<div role="alert" className="p-4"><p>{loadError}</p><Button onClick={() => void fetchGiftCards()} variant="outline" className="mt-3">Retry</Button></div>) : giftCards.length === 0 ? (
             <EmptyState
               icon={Gift}
               title="No gift cards found"
               hint={search ? 'Try a different code' : 'Issue your first gift card to get started'}
             />
           ) : (
-            <Table>
+            <Table scrollLabel="Gift Cards records">
               <TableHeader>
                 <TableRow>
                   <TableHead>Code</TableHead>
-                  <TableHead>Initial</TableHead>
-                  <TableHead>Balance</TableHead>
+                  <TableHead className="text-right">Initial</TableHead>
+                  <TableHead className="text-right">Balance</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Expires</TableHead>
                   <TableHead>Created</TableHead>
@@ -237,8 +250,8 @@ export const GiftCards: React.FC = () => {
                 {giftCards.map((card) => (
                   <TableRow key={card.id}>
                     <TableCell className="font-mono font-medium">{card.code}</TableCell>
-                    <TableCell>{formatCurrency(card.initialBalance)}</TableCell>
-                    <TableCell className="font-medium">{formatCurrency(card.currentBalance)}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap">{formatCurrency(card.initialBalance)}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap font-medium">{formatCurrency(card.currentBalance)}</TableCell>
                     <TableCell>
                       <Badge className={card.isActive ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}>
                         {card.isActive ? 'Active' : 'Inactive'}
@@ -252,12 +265,13 @@ export const GiftCards: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        {card.isActive && (
+                        <Button variant="outline" size="sm" onClick={() => void openHistory(card)}>History</Button>
+                        {manage && card.isActive && (
                           <>
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => { setSelectedCard(card); setShowReloadModal(true); }}
+                              disabled={operation.blocked || (!!card.expiresAt && new Date(card.expiresAt) <= new Date())} onClick={() => { setFundingMethod('CASH'); setReference(''); setReason(''); setSelectedCard(card); setShowReloadModal(true); }}
                               title="Reload"
                             >
                               <RefreshCw className="w-4 h-4" />
@@ -286,41 +300,33 @@ export const GiftCards: React.FC = () => {
       </Card>
 
       {/* Issue Modal */}
-      <Modal isOpen={showIssueModal} onClose={() => setShowIssueModal(false)} title="Issue Gift Card">
+      <Modal isOpen={showIssueModal} onClose={() => { if (!operation.busy) setShowIssueModal(false); }} title="Issue Gift Card">
         <form onSubmit={handleIssue} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Amount *</label>
-            <Input
+            <Input label="Amount"
               type="number"
               step="0.01"
-              min="1"
+              min="0.01"
               value={issueAmount}
               onChange={(e) => setIssueAmount(e.target.value)}
               required
               placeholder="50.00"
             />
           </div>
+          <AccountCustomerPicker value={issueCustomer} onChange={setIssueCustomer} />
           <div>
-            <label className="block text-sm font-medium mb-1">Customer ID (optional)</label>
-            <Input
-              value={issueCustomerId}
-              onChange={(e) => setIssueCustomerId(e.target.value)}
-              placeholder="Leave blank for anonymous"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Expiry Date (optional)</label>
-            <Input
+            <Input label="Expiry date (optional)"
               type="date"
               value={issueExpiry}
               onChange={(e) => setIssueExpiry(e.target.value)}
             />
           </div>
+          <FundingFields method={fundingMethod} setMethod={setFundingMethod} reference={reference} setReference={setReference} reason={reason} setReason={setReason} allowGrant={can(role, 'account.grant')} />
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" type="button" onClick={() => setShowIssueModal(false)}>
+            <Button variant="outline" type="button" disabled={operation.busy} onClick={() => setShowIssueModal(false)}>
               Cancel
             </Button>
-            <Button variant="primary" type="submit">
+            <Button variant="primary" type="submit" disabled={operation.blocked}>
               Issue Card
             </Button>
           </div>
@@ -328,7 +334,7 @@ export const GiftCards: React.FC = () => {
       </Modal>
 
       {/* Reload Modal */}
-      <Modal isOpen={showReloadModal} onClose={() => { setShowReloadModal(false); setSelectedCard(null); }} title="Reload Gift Card">
+      <Modal isOpen={showReloadModal} onClose={() => { if (!operation.busy) { setShowReloadModal(false); setSelectedCard(null); } }} title="Reload Gift Card">
         <form onSubmit={handleReload} className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Card: <span className="font-mono font-medium text-foreground">{selectedCard?.code}</span>
@@ -336,27 +342,38 @@ export const GiftCards: React.FC = () => {
             Current Balance: <span className="font-medium text-foreground">{selectedCard && formatCurrency(selectedCard.currentBalance)}</span>
           </p>
           <div>
-            <label className="block text-sm font-medium mb-1">Reload Amount *</label>
-            <Input
+            <Input label="Reload amount"
               type="number"
               step="0.01"
-              min="1"
+              min="0.01"
               value={reloadAmount}
               onChange={(e) => setReloadAmount(e.target.value)}
               required
             />
           </div>
+          <FundingFields method={fundingMethod} setMethod={setFundingMethod} reference={reference} setReference={setReference} reason={reason} setReason={setReason} allowGrant={can(role, 'account.grant')} />
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" type="button" onClick={() => { setShowReloadModal(false); setSelectedCard(null); }}>
+            <Button variant="outline" type="button" disabled={operation.busy} onClick={() => { setShowReloadModal(false); setSelectedCard(null); }}>
               Cancel
             </Button>
-            <Button variant="primary" type="submit">
+            <Button variant="primary" type="submit" disabled={operation.blocked}>
               Reload
             </Button>
           </div>
         </form>
       </Modal>
 
+      <Modal isOpen={!!history} onClose={() => setHistory(null)} title="Gift card history" size="lg">
+        <p className="font-mono mb-4">{history?.card.code}</p>
+        <p className="text-sm text-muted-foreground mb-4">Latest 100 transactions</p>
+        {history?.transactions.map(tx => <div key={tx.id} className="border-b py-3 flex justify-between items-center gap-3">
+          <div><p>{tx.type} {formatCurrency(tx.amount)}</p><p className="text-sm text-muted-foreground">{new Date(tx.createdAt).toLocaleString()}</p>
+            {!tx.operation && ['ISSUE', 'RELOAD'].includes(tx.type) && <p className="text-sm text-muted-foreground">Original funding details unavailable</p>}
+          </div>
+          {tx.operation && <Button variant="outline" size="sm" onClick={() => operation.showReceipt(tx.operation!, history.card.code)}>Receipt</Button>}
+        </div>)}
+        {history?.transactions.length === 0 && <p>No transactions recorded.</p>}
+      </Modal>
       <ConfirmDialog
         isOpen={deactivateTarget !== null}
         onClose={() => setDeactivateTarget(null)}
@@ -366,6 +383,6 @@ export const GiftCards: React.FC = () => {
         destructive
         confirmLabel="Deactivate"
       />
-    </div>
+    </ManagementPage>
   );
 };

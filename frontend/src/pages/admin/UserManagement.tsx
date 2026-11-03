@@ -1,3 +1,7 @@
+import { ManagementPage } from '@/components/common/Workspace';
+import { Select } from '@/components/ui/Select';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
 import React, { useState, useEffect, useRef } from 'react';
 import { userService, locationService } from '@/services/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -44,9 +48,6 @@ interface Location {
 }
 
 export const UserManagement: React.FC = () => {
-  const [users, setUsers] = useState<User[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
   const [filterRole, setFilterRole] = useState('');
@@ -77,30 +78,13 @@ export const UserManagement: React.FC = () => {
     return () => clearTimeout(searchTimer.current);
   }, [search]);
 
-  useEffect(() => {
-    loadData();
-  }, [debouncedSearch, filterLocation, filterRole]);
 
-  const loadData = async () => {
-    setIsLoading(true);
-    try {
-      const [usersResponse, locationsResponse] = await Promise.all([
-        userService.getAll({
-          search: debouncedSearch,
-          locationId: filterLocation || undefined,
-          role: filterRole || undefined,
-        }),
-        locationService.getAll(),
-      ]);
-      setUsers(usersResponse.data.data);
-      setLocations(locationsResponse.data.data);
-    } catch (error) {
-      console.error('Failed to load data:', error);
-      toast.error('Failed to load users');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const query = useScopedQuery<{ users: User[]; locations: Location[] }>(['admin-users', debouncedSearch, filterLocation, filterRole], async signal => {
+    const [users, locations] = await Promise.all([userService.getAll({ search: debouncedSearch, locationId: filterLocation || undefined, role: filterRole || undefined }, signal), locationService.getAll(signal)]);
+    return { users: users.data.data, locations: locations.data.data };
+  });
+  const users = query.data?.users || [], locations = query.data?.locations || [], isLoading = query.loading, loadData = query.refresh;
+  const loadError = query.stale ? '' : query.error;
 
   const handleEdit = (user: User) => {
     setEditingUser(user);
@@ -208,8 +192,9 @@ export const UserManagement: React.FC = () => {
     }
   };
 
+
   return (
-    <div className="space-y-6">
+    <ManagementPage className="space-y-6">
       <PageHeader
         title="User Management"
         subtitle="Manage users across all stores"
@@ -220,6 +205,47 @@ export const UserManagement: React.FC = () => {
           </Button>
         }
       />
+      <AutoRefreshStatus state={query} />
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-wrap gap-4">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search users..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select
+              aria-label="Store filter"
+              value={filterLocation}
+              onChange={(e) => setFilterLocation(e.target.value)}
+              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
+            >
+              <option value="">All Stores</option>
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name}
+                </option>
+              ))}
+            </Select>
+            <Select
+              aria-label="Role filter"
+              value={filterRole}
+              onChange={(e) => setFilterRole(e.target.value)}
+              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
+            >
+              <option value="">All Roles</option>
+              <option value="SUPER_ADMIN">Super Admin</option>
+              <option value="ADMIN">Admin</option>
+              <option value="MANAGER">Manager</option>
+              <option value="CASHIER">Cashier</option>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -271,44 +297,7 @@ export const UserManagement: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-4">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search users..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <select
-              value={filterLocation}
-              onChange={(e) => setFilterLocation(e.target.value)}
-              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
-            >
-              <option value="">All Stores</option>
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name}
-                </option>
-              ))}
-            </select>
-            <select
-              value={filterRole}
-              onChange={(e) => setFilterRole(e.target.value)}
-              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
-            >
-              <option value="">All Roles</option>
-              <option value="SUPER_ADMIN">Super Admin</option>
-              <option value="ADMIN">Admin</option>
-              <option value="MANAGER">Manager</option>
-              <option value="CASHIER">Cashier</option>
-            </select>
-          </div>
-        </CardContent>
-      </Card>
+
 
       {/* Users Table */}
       <Card>
@@ -319,14 +308,14 @@ export const UserManagement: React.FC = () => {
           <div className="p-8 text-center">
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
           </div>
-        ) : users.length === 0 ? (
+        ) : loadError ? (<div role="alert" className="p-4 space-y-3"><p>Users could not be loaded.</p><Button variant="outline" onClick={loadData}>Retry</Button></div>) : users.length === 0 ? (
           <EmptyState
             icon={Users}
             title="No users found"
             hint="Try adjusting your filters"
           />
         ) : (
-          <Table>
+          <Table scrollLabel="User Management records">
             <TableHeader>
               <TableRow>
                 <TableHead>User</TableHead>
@@ -385,6 +374,7 @@ export const UserManagement: React.FC = () => {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleEdit(user)}
+                        aria-label={`Edit user ${user.firstName} ${user.lastName}`}
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
@@ -393,6 +383,7 @@ export const UserManagement: React.FC = () => {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDelete(user.id)}
+                          aria-label={`Deactivate user ${user.firstName} ${user.lastName}`}
                           className="text-destructive"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -443,7 +434,7 @@ export const UserManagement: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Role</label>
-              <select
+              <Select
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -455,11 +446,11 @@ export const UserManagement: React.FC = () => {
                 {editingUser?.role === 'SUPER_ADMIN' && (
                   <option value="SUPER_ADMIN">Super Admin</option>
                 )}
-              </select>
+              </Select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Store</label>
-              <select
+              <Select
                 value={formData.locationId}
                 onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -470,7 +461,7 @@ export const UserManagement: React.FC = () => {
                     {loc.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           </div>
 
@@ -591,7 +582,7 @@ export const UserManagement: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Role</label>
-              <select
+              <Select
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -600,11 +591,11 @@ export const UserManagement: React.FC = () => {
                 <option value="MANAGER">Manager</option>
                 <option value="ADMIN">Admin</option>
                 <option value="SUPER_ADMIN">Super Admin</option>
-              </select>
+              </Select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Store</label>
-              <select
+              <Select
                 value={formData.locationId}
                 onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -615,7 +606,7 @@ export const UserManagement: React.FC = () => {
                     {loc.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           </div>
 
@@ -634,6 +625,6 @@ export const UserManagement: React.FC = () => {
           </div>
         </form>
       </Modal>
-    </div>
+    </ManagementPage>
   );
 };

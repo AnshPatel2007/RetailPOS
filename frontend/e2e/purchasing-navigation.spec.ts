@@ -1,0 +1,36 @@
+import { test, expect } from '@playwright/test';
+import { login, TEST_USER } from './utils/auth-helper';
+
+test('purchasing requests only the active view and searches suppliers when creating an order', async ({ page }, testInfo) => {
+  await login(page, TEST_USER.email);
+  const requests: string[] = [];
+  page.on('request', request => requests.push(new URL(request.url()).pathname));
+  await page.goto('/suppliers?search=Fixture');
+  await expect(page).toHaveURL(/\/inventory\/purchasing\/suppliers\?search=Fixture$/);
+  await expect(page.getByRole('cell', { name: 'Fixture Supplier', exact: true })).toBeVisible();
+  expect(requests.filter(path => path === '/api/purchase-orders')).toHaveLength(0);
+  await page.getByRole('button', { name: 'Add Supplier', exact: true }).click();
+  const supplierForm = page.getByRole('dialog', { name: 'Add Supplier', exact: true });
+  await expect(supplierForm.getByLabel('Supplier Name')).toBeVisible();
+  await supplierForm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const navigation = page.getByRole('navigation', { name: 'Inventory / Purchasing views' });
+  requests.length = 0;
+  await navigation.getByRole('link', { name: 'Orders', exact: true }).click();
+  await expect(page.getByText('PO-FIXTURE', { exact: true })).toBeVisible();
+  expect(requests.filter(path => path === '/api/suppliers')).toHaveLength(0);
+  await page.getByPlaceholder('Search orders...').fill('PO-FIXTURE');
+  await page.reload(); await expect(page.getByPlaceholder('Search orders...')).toHaveValue('PO-FIXTURE');
+  await page.getByRole('button', { name: 'New Order', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New Purchase Order', exact: true });
+  await dialog.getByLabel('Search suppliers to select').fill('Fixture Supplier');
+  await dialog.getByRole('button', { name: 'Fixture Supplier', exact: true }).click();
+  await expect(dialog.getByText('Selected supplier: Fixture Supplier')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath('purchasing-orders-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath('purchasing-orders-phone.png'), animations: 'disabled' });
+  await navigation.getByRole('link', { name: 'Reorder Suggestions', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Purchasing', exact: true })).toBeVisible();
+  await expect(navigation.getByRole('link', { name: 'Reorder Suggestions', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.goBack(); await expect(page.getByPlaceholder('Search orders...')).toHaveValue('PO-FIXTURE');
+});

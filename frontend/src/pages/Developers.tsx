@@ -1,4 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { ManagementPage } from '@/components/common/Workspace';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { developerService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -36,10 +40,6 @@ const copyToClipboard = (text: string, what: string) => {
  * webhook endpoints for sale/stock events. Secrets show exactly once.
  */
 export const Developers: React.FC = () => {
-  const [apiKeys, setApiKeys] = useState<any[]>([]);
-  const [webhooks, setWebhooks] = useState<any[]>([]);
-  const [availableEvents, setAvailableEvents] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
 
   // Create-key flow
   const [showKeyModal, setShowKeyModal] = useState(false);
@@ -55,26 +55,12 @@ export const Developers: React.FC = () => {
   const [deleteHookTarget, setDeleteHookTarget] = useState<any | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [keysRes, hooksRes] = await Promise.all([
-        developerService.listApiKeys(),
-        developerService.listWebhooks(),
-      ]);
-      setApiKeys(keysRes.data.data);
-      setWebhooks(hooksRes.data.data);
-      setAvailableEvents(hooksRes.data.availableEvents || []);
-    } catch {
-      toast.error('Failed to load developer settings');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const query = useScopedQuery<{ apiKeys: any[]; webhooks: any[]; availableEvents: string[] }>(['integrations'], async signal => {
+    const [keys, hooks] = await Promise.all([developerService.listApiKeys(signal), developerService.listWebhooks(signal)]);
+    return { apiKeys: keys.data.data, webhooks: hooks.data.data, availableEvents: hooks.data.availableEvents || [] };
+  });
+  const apiKeys = query.data?.apiKeys || [], webhooks = query.data?.webhooks || [], availableEvents = query.data?.availableEvents || [], loading = query.loading, load = query.refresh;
+  const loadError = query.stale ? '' : query.error;
 
   const handleCreateKey = async () => {
     if (!keyName.trim()) return;
@@ -110,27 +96,33 @@ export const Developers: React.FC = () => {
   const handleTest = async (id: string) => {
     try {
       const res = await developerService.testWebhook(id);
-      if (res.data.data.delivered) toast.success(res.data.message);
-      else toast.error(res.data.message);
+      toast.success(res.data.message);
       load();
     } catch {
       toast.error('Test failed');
     }
   };
 
+
   return (
-    <div className="p-8">
+    <ManagementPage className="">
       <PageHeader
-        title="Developers"
+        title="Integrations"
         subtitle="API keys for the read-only /api/v1 endpoints, and webhooks for live events — see API.md in the project root"
         icon={Code2}
+        actions={<>
+          <Link className="page-action" to="/settings/jobs">Delivery Jobs</Link>
+          <Button variant="outline" onClick={() => { setNewKey(null); setShowKeyModal(true); }}><Plus className="h-4 w-4 mr-2" />New API Key</Button>
+          <Button onClick={() => { setNewSecret(null); setShowHookModal(true); }}><Plus className="h-4 w-4 mr-2" />Add Webhook</Button>
+        </>}
       />
+      <AutoRefreshStatus state={query} />
 
       {loading ? (
         <div className="flex justify-center py-12">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
         </div>
-      ) : (
+      ) : loadError ? (<div role="alert" className="p-4 space-y-3"><p>Integrations could not be loaded.</p><Button variant="outline" onClick={load}>Retry</Button></div>) : (
         <div className="space-y-8">
           {/* ─── API keys ─── */}
           <Card>
@@ -145,9 +137,6 @@ export const Developers: React.FC = () => {
                     <code className="bg-muted px-1 rounded ml-1">/api/v1/…</code> (products, sales, customers, summary — read-only)
                   </p>
                 </div>
-                <Button variant="primary" size="sm" onClick={() => { setNewKey(null); setShowKeyModal(true); }}>
-                  <Plus className="h-4 w-4 mr-1" /> New Key
-                </Button>
               </div>
 
               {apiKeys.length === 0 ? (
@@ -211,9 +200,6 @@ export const Developers: React.FC = () => {
                     <code className="bg-muted px-1 rounded ml-1">X-Webhook-Signature</code> header
                   </p>
                 </div>
-                <Button variant="primary" size="sm" onClick={() => { setNewSecret(null); setShowHookModal(true); }}>
-                  <Plus className="h-4 w-4 mr-1" /> Add Endpoint
-                </Button>
               </div>
 
               {webhooks.length === 0 ? (
@@ -238,7 +224,7 @@ export const Developers: React.FC = () => {
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
                             {w.events.map((e: string) => (
-                              <span key={e} className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                              <span key={e} className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
                                 {EVENT_LABELS[e] || e}
                               </span>
                             ))}
@@ -313,7 +299,7 @@ export const Developers: React.FC = () => {
             </p>
             <div className="flex gap-2 items-center p-3 bg-muted rounded-lg">
               <code className="text-xs font-mono flex-1 break-all">{newKey}</code>
-              <Button variant="outline" size="sm" onClick={() => copyToClipboard(newKey, 'API key')}>
+              <Button aria-label="Copy API key" variant="outline" size="sm" onClick={() => copyToClipboard(newKey, 'API key')}>
                 <Copy className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -355,7 +341,7 @@ export const Developers: React.FC = () => {
             </p>
             <div className="flex gap-2 items-center p-3 bg-muted rounded-lg">
               <code className="text-xs font-mono flex-1 break-all">{newSecret}</code>
-              <Button variant="outline" size="sm" onClick={() => copyToClipboard(newSecret, 'Signing secret')}>
+              <Button aria-label="Copy webhook secret" variant="outline" size="sm" onClick={() => copyToClipboard(newSecret, 'Signing secret')}>
                 <Copy className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -388,7 +374,7 @@ export const Developers: React.FC = () => {
                       className="rounded border-input"
                     />
                     <span className="text-sm">{EVENT_LABELS[e] || e}</span>
-                    <code className="text-[10px] text-muted-foreground">{e}</code>
+                    <code className="text-xs text-muted-foreground">{e}</code>
                   </label>
                 ))}
               </div>
@@ -440,6 +426,6 @@ export const Developers: React.FC = () => {
         destructive
         confirmLabel="Delete"
       />
-    </div>
+    </ManagementPage>
   );
 };

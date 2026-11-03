@@ -193,24 +193,24 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
                 <p className="text-xs text-muted-foreground">{item.product.sku} {item.product.barcode ? `| ${item.product.barcode}` : ''}</p>
               </div>
               <div className="flex items-center gap-1 ml-3">
-                <button
+                <button aria-label="Decrease label quantity"
                   onClick={() => updateQuantity(index, item.quantity - 1)}
-                  className="p-1 rounded hover:bg-accent"
+                  className="dialog-close inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <Minus className="h-3 w-3" />
+                  <Minus className="h-4 w-4" />
                 </button>
                 <Input
                   type="number"
                   min="0"
                   value={item.quantity}
                   onChange={(e) => updateQuantity(index, parseInt(e.target.value) || 0)}
-                  className="w-14 text-center text-sm h-7"
+                  aria-label="Label quantity" className="w-14 text-center text-sm"
                 />
-                <button
+                <button aria-label="Increase label quantity"
                   onClick={() => updateQuantity(index, item.quantity + 1)}
-                  className="p-1 rounded hover:bg-accent"
+                  className="dialog-close inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <Plus className="h-3 w-3" />
+                  <Plus className="h-4 w-4" />
                 </button>
               </div>
             </div>

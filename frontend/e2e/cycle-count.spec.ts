@@ -1,0 +1,34 @@
+import { chooseOption, selectField } from './utils/select-helper';
+import { test, expect } from '@playwright/test';
+import { login, TEST_USER } from './utils/auth-helper';
+
+test('owner selects products for a partial count and approves a verified adjustment', async ({ page }) => {
+  await login(page, TEST_USER.email); await page.goto('/cycle-counts');
+  await page.getByRole('button', { name: 'New Count', exact: true }).click();
+  const create = page.getByRole('dialog', { name: 'Start Cycle Count', exact: true });
+  await expect(selectField(create, 'Count location').locator('button')).toBeDisabled();
+  await chooseOption(selectField(create, 'Count type'), 'Partial');
+  await create.getByLabel('Search products to add').fill('Fixture Low');
+  await create.getByRole('button', { name: /Fixture Low.*2 in stock/ }).click();
+  const created = page.waitForResponse(r => r.url().endsWith('/api/cycle-counts') && r.request().method() === 'POST');
+  await create.getByRole('button', { name: 'Start Count', exact: true }).click();
+  const result = await (await created).json();
+  expect(result.success).toBe(true); expect(result.data.items).toHaveLength(1);
+  await page.getByText(result.data.countNumber, { exact: true }).click();
+  const detail = page.getByRole('dialog', { name: 'Cycle Count ' + result.data.countNumber, exact: true });
+  await detail.getByLabel('Count for Fixture Low').fill('1');
+  const saved = page.waitForResponse(r => r.url().endsWith('/items') && r.request().method() === 'PUT');
+  await detail.getByRole('button', { name: 'Save Progress', exact: true }).click();
+  expect((await saved).status()).toBe(200);
+  await detail.getByRole('button', { name: 'Submit for Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Submit', exact: true }).click();
+  await expect(detail).toHaveCount(0);
+  await page.getByText(result.data.countNumber, { exact: true }).click();
+  await detail.getByRole('button', { name: 'Approve & Adjust', exact: true }).click();
+  const approved = page.waitForResponse(r => r.url().endsWith('/approve') && r.request().method() === 'POST');
+  await page.getByRole('dialog').filter({ hasText: 'Approve cycle count?' }).getByRole('button', { name: 'Approve & Adjust', exact: true }).click();
+  expect((await approved).status()).toBe(200);
+  await expect(detail).toHaveCount(0);
+  await page.getByText(result.data.countNumber, { exact: true }).click();
+  await expect(detail.getByText('Approved', { exact: true })).toBeVisible();
+});

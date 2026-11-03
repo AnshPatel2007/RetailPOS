@@ -1,8 +1,20 @@
 import { Response } from 'express';
-import { asyncHandler } from '../utils/errorHandler';
+import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { assertOwnsRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
+
+async function validateParent(parentId: string | null | undefined, locationId: string | null, ownId?: string) {
+  const seen = new Set<string>(ownId ? [ownId] : []);
+  let current = parentId;
+  while (current) {
+    if (seen.has(current)) throw new AppError('Category hierarchy cannot contain a cycle', 400);
+    seen.add(current);
+    const parent = await prisma.category.findUnique({ where: { id: current } });
+    if (!parent || !locationId || parent.locationId !== locationId) throw new AppError('Parent category not found at this store', 404);
+    current = parent.parentId;
+  }
+}
 
 /**
  * Get all categories
@@ -64,7 +76,7 @@ export const getCategory = asyncHandler(async (req: AuthRequest, res: Response) 
     });
     return;
   }
-  if (!isSuperAdmin(req) && category.locationId !== null && category.locationId !== req.user!.locationId) {
+  if (!isSuperAdmin(req) && category.locationId !== req.user!.locationId) {
     res.status(404).json({
       success: false,
       error: 'Category not found',
@@ -96,6 +108,7 @@ export const createCategory = asyncHandler(async (req: AuthRequest, res: Respons
   // Non-SUPER_ADMIN is always forced to their own store; SUPER_ADMIN may
   // leave it unset for a chain-wide category
   const locationId = isSuperAdmin(req) ? (req.body.locationId ?? null) : (req.user!.locationId ?? null);
+  await validateParent(parentId, locationId);
 
   // Check if category with same name exists in the same scope (shared or this store)
   const existing = await prisma.category.findFirst({
@@ -104,7 +117,7 @@ export const createCategory = asyncHandler(async (req: AuthRequest, res: Respons
         equals: name,
         mode: 'insensitive',
       },
-      OR: [{ locationId: null }, { locationId }],
+      locationId,
     },
   });
 
@@ -153,6 +166,7 @@ export const updateCategory = asyncHandler(async (req: AuthRequest, res: Respons
     return;
   }
   assertOwnsRecord(req, category.locationId);
+  await validateParent(parentId, category.locationId, id);
 
   // Check if new name conflicts with existing category in the same scope
   if (name && name !== category.name) {
@@ -162,7 +176,7 @@ export const updateCategory = asyncHandler(async (req: AuthRequest, res: Respons
           equals: name,
           mode: 'insensitive',
         },
-        OR: [{ locationId: null }, { locationId: category.locationId }],
+        locationId: category.locationId,
         id: { not: id },
       },
     });

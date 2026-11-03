@@ -29,6 +29,7 @@ module.exports = {
       statements: 70,
     },
   },
+  setupFiles: ['<rootDir>/src/__tests__/testEnvironment.cjs'],
   setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
   testTimeout: 30000,
   // Integration suites truncate the shared test database — must run serially

@@ -1,6 +1,10 @@
 import { Router } from 'express';
+import { previewInventoryImport, applyInventoryImport } from '../services/inventoryImport.service';
+import { asyncHandler } from '../utils/errorHandler';
+import { AuthRequest } from '../types';
 import * as productController from '../controllers/product.controller';
-import { identifyProduct } from '../controllers/productIdentify.controller';
+import { identifyProduct, productIdentifyLimiter } from '../controllers/productIdentify.controller';
+import { getInventoryHistory } from '../controllers/inventoryHistory.controller';
 import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { createProductSchema, updateProductSchema } from '../validators/product.validator';
@@ -16,8 +20,12 @@ router.use(authenticate);
 /**
  * Static routes MUST come before /:id to avoid being caught by the param route
  */
+router.post('/imports/csv/preview', authorize('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: import('express').Response) => res.json({ success: true, data: await previewInventoryImport(req, 'CSV') })));
+router.post('/imports/receipt/preview', authorize('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: import('express').Response) => res.json({ success: true, data: await previewInventoryImport(req, 'RECEIPT') })));
+router.post('/imports/:id/apply', authorize('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: import('express').Response) => res.json({ success: true, data: await applyInventoryImport(req) })));
 router.get('/low-stock', productController.getLowStockProducts);
-router.get('/stats', productController.getProductStats);
+router.get('/movements', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), getInventoryHistory);
+router.get('/stats', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), productController.getProductStats);
 
 router.post(
   '/scan-receipt',
@@ -35,6 +43,7 @@ router.post(
 router.post(
   '/identify',
   authorize('ADMIN', 'MANAGER'),
+  productIdentifyLimiter,
   identifyProduct
 );
 

@@ -89,9 +89,9 @@ export const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <Card className="w-full max-w-md mx-4 shadow-lg">
-        <CardHeader className="text-center">
+    <div className="auth-page min-h-screen flex items-center justify-center py-10">
+      <Card className="w-full max-w-md mx-4">
+        <CardHeader className="text-center p-6 pb-4">
           <div className="flex justify-center mb-4">
             <div className="p-3 bg-primary rounded-full">
               {step === 'twoFactor' ? (
@@ -101,7 +101,7 @@ export const Login: React.FC = () => {
               )}
             </div>
           </div>
-          <CardTitle className="text-3xl">POS System</CardTitle>
+          <CardTitle className="text-2xl font-semibold">POS System</CardTitle>
           <p className="text-muted-foreground mt-2">
             {step === 'credentials' && 'Sign in to your account'}
             {step === 'twoFactor' && 'Two-factor authentication'}
@@ -109,7 +109,7 @@ export const Login: React.FC = () => {
           </p>
         </CardHeader>
 
-        <CardContent>
+        <CardContent className="px-6 pb-6">
           {error && (
             <div className="p-3 mb-4 bg-destructive/10 border border-destructive rounded-md">
               <p className="text-sm text-destructive">{error}</p>
@@ -166,7 +166,7 @@ export const Login: React.FC = () => {
             <form onSubmit={handleTwoFactorSubmit} className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Enter the 6-digit code from your authenticator app, or one of
-                your 8-character backup codes.
+                your backup codes.
               </p>
 
               <Input
@@ -177,7 +177,7 @@ export const Login: React.FC = () => {
                 onChange={(e) => setTwoFactorCode(e.target.value)}
                 autoComplete="one-time-code"
                 inputMode="text"
-                maxLength={8}
+                maxLength={64}
                 required
                 autoFocus
               />

@@ -1,3 +1,4 @@
+import { SidebarUserFooter } from './common/SidebarUserFooter';
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -8,9 +9,6 @@ import {
   Clock,
   BarChart3,
   Settings,
-  LogOut,
-  Moon,
-  Sun,
   Truck,
   TrendingUp,
   DollarSign,
@@ -19,25 +17,22 @@ import {
   PanelLeftOpen,
   Menu,
   X,
-  Gift,
   ArrowLeftRight,
-  ClipboardCheck,
   Ticket,
   ChevronDown,
   FileText,
   Wallet,
   Tag,
-  ClipboardList,
-  BookUser,
-  Code2,
-  UserCog,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useLayoutStore } from '@/store/layoutStore';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { cn } from '@/lib/utils';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import { AdminViewBanner } from './AdminViewBanner';
 import { OfflineIndicator } from './common/OfflineIndicator';
+import { isTopFocusTrap, useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -70,40 +65,31 @@ const navigation: NavEntry[] = [
     roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'],
     children: [
       { name: 'Products', href: '/inventory', icon: Package, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Suppliers', href: '/suppliers', icon: Truck, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Transfers', href: '/inventory-transfers', icon: ArrowLeftRight, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Cycle Count', href: '/cycle-counts', icon: ClipboardCheck, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Suggested Orders', href: '/suggested-orders', icon: ClipboardList, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+      { name: 'Purchasing', href: '/inventory/purchasing', icon: Truck, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+      { name: 'Stock Control', href: '/inventory/stock-control', icon: ArrowLeftRight, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
     ],
   },
-  {
-    name: 'Sales',
-    icon: Gift,
-    roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'],
-    children: [
-      { name: 'Promotions', href: '/promotions', icon: Tag, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Gift Cards', href: '/gift-cards', icon: Gift, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Store Credits', href: '/store-credits', icon: Wallet, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'House Accounts', href: '/house-accounts', icon: BookUser, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Lottery', href: '/lottery', icon: Ticket, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-    ],
-  },
-  { name: 'Customers', href: '/customers', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-  { name: 'My Team', href: '/team', icon: UserCog, roles: ['ADMIN'] },
-  { name: 'Shifts', href: '/shifts', icon: Clock, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
+  { name: 'Promotions', href: '/promotions', icon: Tag, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+  { name: 'Lottery', href: '/lottery', icon: Ticket, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
+  { name: 'Customers', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'], children: [
+    { name: 'Directory', href: '/customers', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
+    { name: 'Accounts', href: '/customers/accounts', icon: Wallet, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Customer Insights', href: '/customers/insights', icon: TrendingUp, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+  ] },
+  { name: 'Team & Time', href: '/team-time', icon: Clock, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+  { name: 'My Shift', href: '/my-shift', icon: Clock, roles: ['CASHIER'] },
   {
     name: 'Insights',
     icon: BarChart3,
     roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'],
     children: [
-      { name: 'Financial', href: '/financial', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Reports', href: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Analytics', href: '/analytics', icon: TrendingUp, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+      { name: 'Financial Management', href: '/financial', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+      { name: 'Reports & Analysis', href: '/insights/reports', icon: BarChart3, roles: ['ADMIN', 'MANAGER'] },
+      { name: 'Analytics', href: '/analytics', icon: TrendingUp, roles: ['SUPER_ADMIN'] },
       { name: 'Audit Log', href: '/audit-log', icon: FileText, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
     ],
   },
   { name: 'Settings', href: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-  { name: 'Developers', href: '/developers', icon: Code2, roles: ['SUPER_ADMIN', 'ADMIN'] },
   { name: 'Admin Panel', href: '/admin', icon: Shield, roles: ['SUPER_ADMIN'] },
 ];
 
@@ -134,10 +120,25 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   // Show which store you're operating — mirrors the POS top bar
   const settingsStoreName = useStoreSettingsStore((s) => s.storeInfo.storeName);
-  const storeName = settingsStoreName || user?.location?.name || '';
+  const { isAdminViewing, storeName: previewStoreName } = useEffectiveLocation();
+  const storeName = isAdminViewing ? previewStoreName || '' : settingsStoreName || user?.location?.name || '';
 
   // Full-screen routes with no sidebar/chrome (register + second screen)
   const isPOSPage = location.pathname === '/pos' || location.pathname === '/customer-display';
+  const mobileMenuRef = useFocusTrap(isMobileMenuOpen && !isPOSPage);
+  useEffect(() => {
+    if (!isMobileMenuOpen || isPOSPage) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && isTopFocusTrap(mobileMenuRef.current)) {
+        event.preventDefault(); event.stopImmediatePropagation(); setMobileMenuOpen(false);
+      }
+    };
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const closeOnDesktop = () => { if (desktop.matches) setMobileMenuOpen(false); };
+    closeOnDesktop();
+    document.addEventListener('keydown', escape); desktop.addEventListener('change', closeOnDesktop);
+    return () => { document.removeEventListener('keydown', escape); desktop.removeEventListener('change', closeOnDesktop); };
+  }, [isMobileMenuOpen, isPOSPage, setMobileMenuOpen]);
 
   // Auto-expand groups that contain the active route
   useEffect(() => {
@@ -193,12 +194,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       <Link
         key={item.href}
         to={item.href}
-        title={isSidebarCollapsed ? item.name : undefined}
+        title={item.name}
         className={cn(
           'flex items-center rounded-md text-sm font-medium transition-colors',
           isSidebarCollapsed ? 'justify-center px-2 py-2.5' : nested ? 'px-3 py-2 pl-10' : 'px-3 py-2.5',
           isActive
-            ? 'bg-primary text-primary-foreground'
+            ? 'bg-primary/10 text-primary'
             : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
         )}
       >
@@ -250,23 +251,18 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     <>
       {/* Logo + collapse toggle */}
       <div className={cn(
-        'h-16 flex items-center border-b border-border shrink-0',
-        isSidebarCollapsed ? 'justify-center px-2' : 'justify-between gap-3 px-4'
+        'min-h-16 py-2 flex flex-wrap items-center border-b border-border shrink-0',
+        isSidebarCollapsed ? 'justify-center px-2' : 'justify-between gap-x-1 gap-y-0.5 px-3'
       )}>
         {isSidebarCollapsed ? (
           <span className="text-lg font-bold text-primary">P</span>
         ) : (
           <>
             <div className="min-w-0">
-              <h1 className="text-base font-bold text-primary whitespace-nowrap">POS System</h1>
-              {storeName && (
-                <p className="text-xs text-muted-foreground truncate" title={storeName}>
-                  {storeName}
-                </p>
-              )}
+              <p className="text-base font-semibold text-primary whitespace-nowrap">POS System</p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <OfflineIndicator variant="badge" showDetails tooltipAlign="left" />
+              <OfflineIndicator variant="badge" compact showDetails tooltipAlign="left" />
               <button
                 onClick={toggleSidebar}
                 className="hidden lg:flex p-1.5 rounded-md hover:bg-accent transition-colors text-muted-foreground"
@@ -275,6 +271,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 <PanelLeftClose className="h-4 w-4" />
               </button>
             </div>
+            {storeName && <p className="basis-full text-xs leading-5 text-muted-foreground break-words" data-sidebar-store-name>{storeName}</p>}
           </>
         )}
       </div>
@@ -299,34 +296,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         )}
       </nav>
 
-      {/* User info */}
-      <div className="p-3 border-t border-border shrink-0">
-        {isSidebarCollapsed ? (
-          <div className="flex flex-col items-center gap-2">
-            <button onClick={toggleTheme} className="p-2 rounded-md hover:bg-accent transition-colors" title="Toggle theme">
-              {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-            </button>
-            <button onClick={handleLogout} className="p-2 rounded-md hover:bg-accent transition-colors" title="Logout">
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between">
-            <div className="min-w-0">
-              <p className="text-sm font-medium truncate">{user?.firstName} {user?.lastName}</p>
-              <p className="text-xs text-muted-foreground">{user?.role?.replace(/_/g, ' ')}</p>
-            </div>
-            <div className="flex gap-1 shrink-0">
-              <button onClick={toggleTheme} className="p-2 rounded-md hover:bg-accent transition-colors" title="Toggle theme">
-                {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-              </button>
-              <button onClick={handleLogout} className="p-2 rounded-md hover:bg-accent transition-colors" title="Logout">
-                <LogOut className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      <SidebarUserFooter name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} role={user?.role || ''} theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout} collapsed={isSidebarCollapsed} />
     </>
   );
 
@@ -351,13 +321,19 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* Sidebar — mobile drawer */}
       <aside
+        ref={mobileMenuRef}
+        role={isMobileMenuOpen ? 'dialog' : undefined}
+        aria-label={isMobileMenuOpen ? 'Main menu' : undefined}
+        aria-modal={isMobileMenuOpen ? true : undefined}
+        aria-hidden={!isMobileMenuOpen}
         className={cn(
           'lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-background border-r border-border flex flex-col transition-transform duration-300 shadow-2xl',
-          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+          isMobileMenuOpen ? 'visible translate-x-0' : 'invisible pointer-events-none -translate-x-full'
         )}
       >
         <button
           onClick={() => setMobileMenuOpen(false)}
+          aria-label="Close menu"
           className="absolute top-4 right-4 p-1.5 rounded-md hover:bg-accent bg-muted"
         >
           <X className="h-5 w-5" />
@@ -369,15 +345,16 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       <aside
         className={cn(
           'hidden lg:flex flex-col bg-card border-r border-border transition-all duration-300',
-          isSidebarCollapsed ? 'w-16' : 'w-64'
+          isSidebarCollapsed ? 'w-16' : 'w-60'
         )}
       >
         {sidebarContent}
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto lg:ml-0">
+      <main className="management-content flex-1 min-w-0 overflow-auto lg:ml-0">
         <div className="lg:hidden h-12" /> {/* Spacer for mobile menu button */}
+        {isAdminViewing && <AdminViewBanner storeName={previewStoreName || 'Selected store'} />}
         {children}
       </main>
     </div>

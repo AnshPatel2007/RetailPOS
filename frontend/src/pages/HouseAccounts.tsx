@@ -1,3 +1,5 @@
+import { ManagementPage } from '@/components/common/Workspace';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { houseAccountService, customerService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
@@ -15,8 +17,13 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
-import { Search, Plus, BookUser, History, RefreshCw, Mail, DollarSign } from 'lucide-react';
+import { Search, Plus, BookUser, History, Mail, DollarSign } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuthStore } from '@/store/authStore';
+import { useUrlFilter, useUrlPage } from '@/hooks/useUrlFilter';
+import { can } from '@/lib/capabilities';
+import { AccountReceipt, useAccountOperation } from '@/hooks/useAccountOperation';
+import { AccountOperationFeedback, FundingFields, FundingMethod } from '@/components/accounts/AccountFunding';
 
 interface HouseAccount {
   id: string;
@@ -34,6 +41,7 @@ interface HouseAccount {
 }
 
 interface Transaction {
+  operation?: AccountReceipt;
   id: string;
   type: string;
   amount: number;
@@ -50,12 +58,16 @@ interface Transaction {
  * Charging happens at the register via the House Account tender.
  */
 export const HouseAccounts: React.FC = () => {
+  const role = useAuthStore(state => state.user?.role);
+  const manage = can(role, 'account.manage');
   const [accounts, setAccounts] = useState<HouseAccount[]>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const requestVersion = useRef(0);
+  const [loadError, setLoadError] = useState('');
+  const [page, setPage] = useUrlPage();
   const [totalPages, setTotalPages] = useState(1);
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [search, setSearch] = useUrlFilter('search');
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Open-account modal
@@ -70,36 +82,48 @@ export const HouseAccounts: React.FC = () => {
   const [paymentAccount, setPaymentAccount] = useState<HouseAccount | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<FundingMethod>('CASH');
+  const [reference, setReference] = useState('');
+  const operation = useAccountOperation('house', () => {
+    setPaymentAccount(null); setPaymentAmount(''); setPaymentNotes(''); setReference(''); void fetchAccounts();
+  });
 
   // History modal
   const [historyAccount, setHistoryAccount] = useState<HouseAccount | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [txLoading, setTxLoading] = useState(false);
+  const [txError, setTxError] = useState('');
+  const historyVersion = useRef(0);
 
-  const fetchAccounts = useCallback(async () => {
-    setLoading(true);
+  const fetchAccounts = useCallback(async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++requestVersion.current; if (!quiet) setLoadError('');
+    if (!quiet) setLoading(true);
     try {
       const params: any = { page, limit: 25 };
       if (debouncedSearch) params.search = debouncedSearch;
-      const res = await houseAccountService.getAll(params);
+      const res = await houseAccountService.getAll(params, signal);
+      if (version !== requestVersion.current || !active()) return;
+      setLoadError('');
       setAccounts(res.data.data);
       setTotalPages(res.data.pagination.totalPages);
-    } catch {
-      toast.error('Failed to load house accounts');
+    } catch (failure) {
+      if (quiet) throw failure;
+      if (version === requestVersion.current) setLoadError('Unable to load accounts. Try again.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [page, debouncedSearch]);
 
   useEffect(() => {
     fetchAccounts();
+    return () => { requestVersion.current++; };
   }, [fetchAccounts]);
+  useEffect(() => () => { historyVersion.current++; }, []);
 
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => {
       setDebouncedSearch(search);
-      setPage(1);
     }, 300);
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -139,34 +163,24 @@ export const HouseAccounts: React.FC = () => {
     if (!paymentAccount) return;
     const amount = parseFloat(paymentAmount);
     if (!amount || amount <= 0) { toast.error('Enter a valid amount'); return; }
-    setSubmitting(true);
-    try {
-      const res = await houseAccountService.recordPayment(paymentAccount.id, {
-        amount,
-        notes: paymentNotes.trim() || undefined,
-      });
-      toast.success(res.data.message);
-      setPaymentAccount(null);
-      setPaymentAmount('');
-      setPaymentNotes('');
-      fetchAccounts();
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to record payment');
-    } finally {
-      setSubmitting(false);
-    }
+    if (paymentMethod === 'CARD' && !reference.trim()) { toast.error('Enter the terminal approval reference'); return; }
+    const result = await operation.submit({ path: '/house-accounts/' + paymentAccount.id + '/payment', label: paymentAccount.customer.firstName + ' ' + paymentAccount.customer.lastName, payload: {
+      amount, paymentMethod, ...(paymentMethod === 'CARD' ? { reference: reference.trim() } : {}), ...(paymentNotes.trim() ? { notes: paymentNotes.trim() } : {}),
+    } });
+    if (result === 'unconfirmed') setPaymentAccount(null);
   };
 
   const openHistory = async (account: HouseAccount) => {
+    const version = ++historyVersion.current;
     setHistoryAccount(account);
-    setTxLoading(true);
+    setTransactions([]); setTxError(''); setTxLoading(true);
     try {
       const res = await houseAccountService.getTransactions(account.id);
-      setTransactions(res.data.data);
+      if (version === historyVersion.current) setTransactions(res.data.data);
     } catch {
-      toast.error('Failed to load transactions');
+      if (version === historyVersion.current) setTxError('Unable to load this account activity. Retry when connected.');
     } finally {
-      setTxLoading(false);
+      if (version === historyVersion.current) setTxLoading(false);
     }
   };
 
@@ -181,25 +195,26 @@ export const HouseAccounts: React.FC = () => {
 
   const totalOutstanding = Math.round(accounts.reduce((s, a) => s + a.balance, 0) * 100) / 100;
 
+  const autoRefresh = useLegacyPageRefresh((current, signal) => fetchAccounts(true, current, signal), { key: JSON.stringify([page, debouncedSearch]), paused: loading });
+
   return (
-    <div className="p-8">
+    <ManagementPage className="">
       <PageHeader
         title="House Accounts"
         subtitle={`Charge-to-account for trusted customers${totalOutstanding > 0 ? ` · ${formatCurrency(totalOutstanding)} outstanding on this page` : ''}`}
         icon={BookUser}
         actions={
           <>
-            <Button variant="outline" size="sm" onClick={fetchAccounts} title="Refresh">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => setShowOpenModal(true)}>
+            {manage && <Button variant="primary" size="sm" onClick={() => setShowOpenModal(true)}>
               <Plus className="h-4 w-4 mr-1" />
               Open Account
-            </Button>
+            </Button>}
           </>
         }
       />
+      {autoRefresh.notice}
 
+      <AccountOperationFeedback operation={operation} />
       <div className="relative max-w-md mb-6">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -215,19 +230,19 @@ export const HouseAccounts: React.FC = () => {
           <div className="flex justify-center py-12">
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
           </div>
-        ) : accounts.length === 0 ? (
+        ) : loadError ? (<div role="alert" className="p-4"><p>{loadError}</p><Button onClick={() => void fetchAccounts()} variant="outline" className="mt-3">Retry</Button></div>) : accounts.length === 0 ? (
           <EmptyState
             icon={BookUser}
             title="No house accounts"
             hint="Open an account to let a trusted customer or business charge purchases"
-            action={
+            action={manage &&
               <Button variant="primary" size="sm" onClick={() => setShowOpenModal(true)}>
                 <Plus className="h-4 w-4 mr-1" /> Open Account
               </Button>
             }
           />
         ) : (
-          <Table>
+          <Table scrollLabel="House Accounts records">
             <TableHeader>
               <TableRow>
                 <TableHead>Customer</TableHead>
@@ -254,6 +269,7 @@ export const HouseAccounts: React.FC = () => {
                     <TableCell className="text-right tabular-nums text-muted-foreground">{formatCurrency(available)}</TableCell>
                     <TableCell>
                       <button
+                        disabled={!manage}
                         onClick={async () => {
                           try {
                             await houseAccountService.update(acc.id, { isActive: !acc.isActive });
@@ -273,7 +289,7 @@ export const HouseAccounts: React.FC = () => {
                         <Button variant="outline" size="sm" onClick={() => openHistory(acc)} title="History">
                           <History className="h-3 w-3" />
                         </Button>
-                        <Button
+                        {manage && <Button
                           variant="outline"
                           size="sm"
                           onClick={() => handleEmailStatement(acc)}
@@ -281,15 +297,15 @@ export const HouseAccounts: React.FC = () => {
                           disabled={!acc.customer.email}
                         >
                           <Mail className="h-3 w-3" />
-                        </Button>
-                        <Button
+                        </Button>}
+                        {manage && <Button
                           variant="primary"
                           size="sm"
-                          onClick={() => setPaymentAccount(acc)}
-                          disabled={acc.balance <= 0}
+                          onClick={() => { setPaymentMethod('CASH'); setReference(''); setPaymentAmount(''); setPaymentNotes(''); setPaymentAccount(acc); }}
+                          disabled={acc.balance <= 0 || operation.blocked}
                         >
                           <DollarSign className="h-3 w-3 mr-1" /> Payment
-                        </Button>
+                        </Button>}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -368,7 +384,7 @@ export const HouseAccounts: React.FC = () => {
       {/* Record Payment Modal */}
       <Modal
         isOpen={paymentAccount !== null}
-        onClose={() => setPaymentAccount(null)}
+        onClose={() => { if (!operation.busy) setPaymentAccount(null); }}
         title={paymentAccount ? `Payment — ${paymentAccount.customer.firstName} ${paymentAccount.customer.lastName}` : 'Payment'}
         size="sm"
       >
@@ -396,16 +412,17 @@ export const HouseAccounts: React.FC = () => {
                 Full balance ({formatCurrency(paymentAccount.balance)})
               </Button>
             </div>
+            <FundingFields method={paymentMethod} setMethod={setPaymentMethod} reference={reference} setReference={setReference} />
             <Input
               label="Notes (optional)"
-              placeholder="Check #1042..."
+              placeholder="Payment notes..."
               value={paymentNotes}
               onChange={(e) => setPaymentNotes(e.target.value)}
             />
             <div className="flex gap-2 justify-end pt-2">
-              <Button variant="outline" onClick={() => setPaymentAccount(null)}>Cancel</Button>
-              <Button variant="primary" onClick={handleRecordPayment} disabled={!paymentAmount || submitting}>
-                {submitting ? 'Saving...' : 'Record Payment'}
+              <Button variant="outline" disabled={operation.busy} onClick={() => setPaymentAccount(null)}>Cancel</Button>
+              <Button variant="primary" onClick={handleRecordPayment} disabled={!paymentAmount || operation.blocked || (paymentMethod === 'CARD' && !reference.trim())}>
+                {operation.busy ? 'Saving...' : 'Record Payment'}
               </Button>
             </div>
           </div>
@@ -415,13 +432,15 @@ export const HouseAccounts: React.FC = () => {
       {/* History Modal */}
       <Modal
         isOpen={historyAccount !== null}
-        onClose={() => setHistoryAccount(null)}
+        onClose={() => { historyVersion.current++; setHistoryAccount(null); setTransactions([]); setTxError(''); }}
         title={historyAccount ? `Activity — ${historyAccount.customer.firstName} ${historyAccount.customer.lastName}` : 'Activity'}
         size="lg"
       >
         <div className="max-h-[420px] overflow-y-auto border rounded-lg divide-y">
           {txLoading ? (
             <p className="text-center py-8 text-muted-foreground">Loading...</p>
+          ) : txError ? (
+            <div role="alert" className="p-4 space-y-3"><p>{txError}</p><Button variant="outline" onClick={() => { if (historyAccount) void openHistory(historyAccount); }}>Retry account activity</Button></div>
           ) : transactions.length === 0 ? (
             <p className="text-center py-8 text-muted-foreground">No activity yet</p>
           ) : (
@@ -433,6 +452,8 @@ export const HouseAccounts: React.FC = () => {
                   }`}>
                     {tx.type}
                   </span>
+                  {tx.operation && <Button variant="outline" size="sm" onClick={() => operation.showReceipt(tx.operation!, historyAccount ? historyAccount.customer.firstName + ' ' + historyAccount.customer.lastName : 'House account')}>Receipt</Button>}
+                  {!tx.operation && tx.type === 'PAYMENT' && <p className="text-xs text-muted-foreground">Original payment details unavailable</p>}
                   {tx.notes && <span className="text-xs text-muted-foreground ml-2">{tx.notes}</span>}
                   <div className="text-xs text-muted-foreground mt-0.5">{formatDateTime(tx.createdAt)}</div>
                 </div>
@@ -447,6 +468,6 @@ export const HouseAccounts: React.FC = () => {
           )}
         </div>
       </Modal>
-    </div>
+    </ManagementPage>
   );
 };

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { Select } from '@/components/ui/Select';
+import React, { useEffect, useState } from 'react';
 import { Package, DollarSign, Tag, Power, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -27,6 +28,17 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
   const [priceUpdate, setPriceUpdate] = useState('');
   const [costUpdate, setCostUpdate] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
+  const [stockVersions, setStockVersions] = useState<Record<string, number>>({});
+  const selectionKey = selectedIds.join(',');
+  useEffect(() => {
+    if (!showStockInput) return;
+    let active = true;
+    setStockVersions({});
+    productService.getAll({ ids: selectionKey, limit: 1000 }).then(({ data }) => {
+      if (active) setStockVersions(Object.fromEntries(data.data.map((p: { id: string; stockVersion: number }) => [p.id, p.stockVersion])));
+    }).catch(() => { if (active) setError('Could not load current stock. Close and reopen stock adjustment to retry.'); });
+    return () => { active = false; };
+  }, [showStockInput, selectionKey]);
 
   const handleBulkStockUpdate = async () => {
     if (!stockQuantity) {
@@ -34,9 +46,13 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
       return;
     }
 
-    const quantity = parseInt(stockQuantity);
-    if (isNaN(quantity)) {
+    const quantity = Number(stockQuantity);
+    if (!Number.isSafeInteger(quantity)) {
       setError('Invalid stock quantity');
+      return;
+    }
+    if (stockType === 'set' && selectedIds.some(id => stockVersions[id] === undefined)) {
+      setError('Current stock is still loading. Close and reopen stock adjustment if it cannot load.');
       return;
     }
 
@@ -51,6 +67,7 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
         productId,
         quantity,
         type: stockType,
+        expectedVersion: stockType === 'set' ? stockVersions[productId] : undefined,
       }));
       await productService.bulkUpdateStock(updates);
       onSuccess();
@@ -227,14 +244,14 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
         {showStockInput && (
           <div className="border-t pt-3 space-y-2">
             <div className="flex gap-2">
-              <select
+              <Select
                 value={stockType}
                 onChange={(e) => setStockType(e.target.value as 'set' | 'add')}
                 className="px-3 py-1 border rounded-md text-sm"
               >
                 <option value="add">Add to existing</option>
                 <option value="set">Set quantity</option>
-              </select>
+              </Select>
               <Input
                 type="number"
                 value={stockQuantity}
@@ -278,7 +295,7 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
         {showCategoryInput && (
           <div className="border-t pt-3 space-y-2">
             <div className="flex gap-2">
-              <select
+              <Select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 className="flex-1 px-3 py-2 border rounded-md text-sm"
@@ -289,7 +306,7 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
                     {cat.name}
                   </option>
                 ))}
-              </select>
+              </Select>
               <Button size="sm" onClick={handleBulkCategoryUpdate} disabled={isLoading}>
                 Apply
               </Button>

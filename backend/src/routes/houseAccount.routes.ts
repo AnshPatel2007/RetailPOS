@@ -6,7 +6,7 @@ const router = Router();
 
 router.use(authenticate);
 // Managing credit accounts is manager+ across the board
-router.use(authorize('ADMIN', 'MANAGER'));
+router.use(authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'));
 
 router.get('/', houseAccountController.getHouseAccounts);
 router.post('/', houseAccountController.createHouseAccount);

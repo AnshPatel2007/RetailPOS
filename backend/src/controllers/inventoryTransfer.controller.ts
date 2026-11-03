@@ -1,243 +1,82 @@
 import { Response } from 'express';
+import { nextDocumentNumber } from '../services/documentNumber.service';
+import { z } from 'zod';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
-import { logger } from '../utils/logger';
 import { assertOwnsOneOfLocations, isSuperAdmin } from '../utils/locationFilter.util';
 
-/**
- * Get all transfers
- * GET /api/inventory-transfers
- */
+const include = { items: { include: { product: { select: { id: true, name: true, sku: true } }, destinationProduct: { select: { id: true, name: true, sku: true } } } } };
+const ownStore = (req: AuthRequest) => {
+  const id = isSuperAdmin(req) ? (req.query.locationId as string || req.user?.locationId) : req.user?.locationId;
+  if (!id) throw new AppError('Select a store or sign in with a store account', 400);
+  return id;
+};
+const connectionKey = (a: string, b: string) => { const [locationAId, locationBId] = [a, b].sort(); return { locationAId, locationBId }; };
+const requireConnection = async (db: any, a: string, b: string) => {
+  const connected = await db.storeConnection.findUnique({ where: { locationAId_locationBId: connectionKey(a,b) } });
+  if (!connected) throw new AppError('These stores are not connected for inventory transfers. Ask a super-admin to link them.', 403);
+};
+const attachNames = async (transfers: any[]) => {
+  const ids = [...new Set(transfers.flatMap(t => [t.fromLocationId, t.toLocationId]))];
+  const locations = await prisma.location.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  return transfers.map(t => ({ ...t, fromLocation: locations.find(l => l.id === t.fromLocationId), toLocation: locations.find(l => l.id === t.toLocationId) }));
+};
+
+export const getTransferOptions = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const id = ownStore(req);
+  const connections = await prisma.storeConnection.findMany({ where: { OR: [{ locationAId: id }, { locationBId: id }] } });
+  const ids = connections.map(c => c.locationAId === id ? c.locationBId : c.locationAId);
+  const locations = await prisma.location.findMany({ where: { id: { in: [id,...ids] }, isActive: true }, select: { id: true, name: true } });
+  res.json({ success: true, data: { source: locations.find(l => l.id === id), destinations: locations.filter(l => l.id !== id) } });
+});
+
+export const getConnections = asyncHandler(async (_req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: await prisma.storeConnection.findMany({ include: { locationA: { select: { id: true, name: true } }, locationB: { select: { id: true, name: true } } } }) });
+});
+export const createConnection = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { fromLocationId, toLocationId } = z.object({ fromLocationId: z.string().min(1), toLocationId: z.string().min(1) }).parse(req.body);
+  if (fromLocationId === toLocationId) throw new AppError('Select two different stores', 400);
+  const count = await prisma.location.count({ where: { id: { in: [fromLocationId,toLocationId] }, isActive: true } });
+  if (count !== 2) throw new AppError('Both stores must be active', 400);
+  const key = connectionKey(fromLocationId,toLocationId);
+  const connection = await prisma.storeConnection.upsert({ where: { locationAId_locationBId: key }, create: { ...key, createdBy: req.user!.id }, update: {} });
+  res.status(201).json({ success: true, data: connection });
+});
+export const deleteConnection = asyncHandler(async (req: AuthRequest, res: Response) => {
+  await prisma.storeConnection.deleteMany({ where: { id: req.params.id } });
+  res.json({ success: true });
+});
+
 export const getTransfers = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { page = '1', limit = '20', status, locationId } = req.query;
-  const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
-
-  const where: any = {};
-  if (status) where.status = status;
-  // Location-bound users only see transfers touching their own location
-  const scopeLocationId = req.user?.locationId || locationId;
-  if (scopeLocationId) {
-    where.OR = [{ fromLocationId: scopeLocationId }, { toLocationId: scopeLocationId }];
-  }
-
-  const [transfers, total] = await Promise.all([
-    prisma.inventoryTransfer.findMany({
-      where,
-      include: { items: { include: { product: { select: { id: true, name: true, sku: true } } } } },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: parseInt(limit as string),
-    }),
-    prisma.inventoryTransfer.count({ where }),
-  ]);
-
-  res.json({ success: true, data: transfers, total });
+  const page = Math.max(1, parseInt(String(req.query.page)) || 1), limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit)) || 20));
+  const scope = isSuperAdmin(req) ? req.query.locationId as string : ownStore(req);
+  const where = { ...(req.query.status ? { status: String(req.query.status) } : {}), ...(scope ? { OR: [{ fromLocationId: scope }, { toLocationId: scope }] } : {}) };
+  const [transfers, total] = await Promise.all([prisma.inventoryTransfer.findMany({ where, include, orderBy: { createdAt: 'desc' }, skip: (page-1)*limit, take: limit }), prisma.inventoryTransfer.count({ where })]);
+  res.json({ success: true, data: await attachNames(transfers), total });
 });
-
-/**
- * Get transfer by ID
- * GET /api/inventory-transfers/:id
- */
 export const getTransfer = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const transfer = await prisma.inventoryTransfer.findUnique({
-    where: { id: req.params.id },
-    include: { items: { include: { product: { select: { id: true, name: true, sku: true } } } } },
-  });
+  const transfer = await prisma.inventoryTransfer.findUnique({ where: { id: req.params.id }, include });
   if (!transfer) throw new AppError('Transfer not found', 404);
-  assertOwnsOneOfLocations(req, [transfer.fromLocationId, transfer.toLocationId]);
-  res.json({ success: true, data: transfer });
+  assertOwnsOneOfLocations(req,[transfer.fromLocationId, transfer.toLocationId]);
+  res.json({ success: true, data: (await attachNames([transfer]))[0] });
 });
-
-/**
- * Create a new inventory transfer
- * POST /api/inventory-transfers
- */
 export const createTransfer = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { fromLocationId, toLocationId, items, notes } = req.body;
-
-  if (!fromLocationId || !toLocationId || !items?.length) {
-    throw new AppError('Missing required fields', 400);
+  const body = z.object({ fromLocationId: z.string().min(1).optional(), toLocationId: z.string().min(1), notes: z.string().max(2000).optional(), items: z.array(z.object({ productId: z.string().min(1), quantity: z.number().int().positive() })).min(1).max(100) }).parse(req.body);
+  const fromLocationId = isSuperAdmin(req) ? body.fromLocationId : ownStore(req);
+  if (!fromLocationId || (body.fromLocationId && body.fromLocationId !== fromLocationId)) throw new AppError('Transfers must start from your current store', 403);
+  if (fromLocationId === body.toLocationId) throw new AppError('Source and destination must differ', 400);
+  const ids = body.items.map(i => i.productId);
+  if (new Set(ids).size !== ids.length) throw new AppError('Add each product only once', 400);
+  await requireConnection(prisma, fromLocationId, body.toLocationId);
+  const locations = await prisma.location.count({ where: { id: { in: [fromLocationId,body.toLocationId] }, isActive: true } });
+  if (locations !== 2) throw new AppError('Both stores must be active',400);
+  const products = await prisma.product.findMany({ where: { id: { in: ids }, locationId: fromLocationId, isActive: true, trackInventory: true, sku: { not: 'MISC-001' } } });
+  for (const item of body.items) {
+    const product = products.find(p => p.id === item.productId);
+    if (!product || item.quantity > product.stockQuantity) throw new AppError('Insufficient source stock for ' + (product?.name || item.productId),400);
   }
-  if (fromLocationId === toLocationId) {
-    throw new AppError('Source and destination must be different', 400);
-  }
-  // A store can only initiate a transfer that involves its own location
-  if (!isSuperAdmin(req) && req.user!.locationId !== fromLocationId && req.user!.locationId !== toLocationId) {
-    throw new AppError('You can only create transfers involving your own location', 403);
-  }
-
-  const transferNumber = `TRF-${Date.now()}`;
-
-  const transfer = await prisma.$transaction(async (tx) => {
-    const t = await tx.inventoryTransfer.create({
-      data: {
-        transferNumber,
-        fromLocationId,
-        toLocationId,
-        status: 'PENDING',
-        notes,
-        createdBy: req.user!.id,
-        items: {
-          create: items.map((item: { productId: string; quantity: number }) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-          })),
-        },
-      },
-      include: { items: true },
-    });
-
-    return t;
-  });
-
-  logger.info(`Transfer created: ${transferNumber}`);
-  res.status(201).json({ success: true, data: transfer, message: 'Transfer created' });
+  const transfer = await prisma.inventoryTransfer.create({ data: { fromLocationId, toLocationId: body.toLocationId, transferNumber: await nextDocumentNumber('TRF'), createdBy: req.user!.id, notes: body.notes, items: { create: body.items } }, include });
+  res.status(201).json({ success: true, data: transfer });
 });
-
-/**
- * Ship a transfer (deduct from source location)
- * POST /api/inventory-transfers/:id/ship
- */
-export const shipTransfer = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
-
-  const transfer = await prisma.inventoryTransfer.findUnique({
-    where: { id },
-    include: { items: true },
-  });
-  if (!transfer) throw new AppError('Transfer not found', 404);
-  assertOwnsOneOfLocations(req, [transfer.fromLocationId, transfer.toLocationId]);
-  if (transfer.status !== 'PENDING') throw new AppError('Transfer is not in PENDING status', 400);
-
-  // Validate stock before shipping
-  for (const item of transfer.items) {
-    const product = await prisma.product.findFirst({
-      where: { id: item.productId, locationId: transfer.fromLocationId },
-      select: { stockQuantity: true, name: true },
-    });
-    if (!product || product.stockQuantity < item.quantity) {
-      throw new AppError(
-        `Insufficient stock for ${product?.name || item.productId}: available ${product?.stockQuantity ?? 0}, required ${item.quantity}`,
-        400
-      );
-    }
-  }
-
-  await prisma.$transaction(async (tx) => {
-    // Deduct stock from source products
-    for (const item of transfer.items) {
-      await tx.product.updateMany({
-        where: { id: item.productId, locationId: transfer.fromLocationId },
-        data: { stockQuantity: { decrement: item.quantity } },
-      });
-    }
-
-    await tx.inventoryTransfer.update({
-      where: { id },
-      data: { status: 'IN_TRANSIT', shippedAt: new Date() },
-    });
-  });
-
-  logger.info(`Transfer shipped: ${transfer.transferNumber}`);
-  res.json({ success: true, message: 'Transfer shipped' });
-});
-
-/**
- * Receive a transfer (add to destination location)
- * POST /api/inventory-transfers/:id/receive
- */
-export const receiveTransfer = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
-  const { receivedItems } = req.body; // [{productId, receivedQty}]
-
-  const transfer = await prisma.inventoryTransfer.findUnique({
-    where: { id },
-    include: { items: true },
-  });
-  if (!transfer) throw new AppError('Transfer not found', 404);
-  assertOwnsOneOfLocations(req, [transfer.fromLocationId, transfer.toLocationId]);
-  if (transfer.status !== 'IN_TRANSIT') throw new AppError('Transfer is not in transit', 400);
-
-  await prisma.$transaction(async (tx) => {
-    for (const item of transfer.items) {
-      const received = receivedItems?.find((r: any) => r.productId === item.productId);
-      const qty = received?.receivedQty ?? item.quantity;
-
-      // Update received qty on transfer item
-      await tx.transferItem.update({
-        where: { id: item.id },
-        data: { receivedQty: qty },
-      });
-
-      // Add stock to destination products
-      await tx.product.updateMany({
-        where: { id: item.productId, locationId: transfer.toLocationId },
-        data: { stockQuantity: { increment: qty } },
-      });
-    }
-
-    await tx.inventoryTransfer.update({
-      where: { id },
-      data: { status: 'RECEIVED', receivedAt: new Date() },
-    });
-  });
-
-  logger.info(`Transfer received: ${transfer.transferNumber}`);
-  res.json({ success: true, message: 'Transfer received' });
-});
-
-/**
- * Cancel a transfer
- * POST /api/inventory-transfers/:id/cancel
- */
-export const cancelTransfer = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
-
-  const transfer = await prisma.inventoryTransfer.findUnique({
-    where: { id },
-    include: { items: true },
-  });
-  if (!transfer) throw new AppError('Transfer not found', 404);
-  assertOwnsOneOfLocations(req, [transfer.fromLocationId, transfer.toLocationId]);
-  if (transfer.status === 'RECEIVED') throw new AppError('Cannot cancel a received transfer', 400);
-  if (transfer.status === 'CANCELLED') throw new AppError('Transfer is already cancelled', 400);
-
-  await prisma.$transaction(async (tx) => {
-    // Shipped stock was already deducted from the source — put it back
-    if (transfer.status === 'IN_TRANSIT') {
-      for (const item of transfer.items) {
-        const product = await tx.product.findFirst({
-          where: { id: item.productId, locationId: transfer.fromLocationId },
-          select: { stockQuantity: true },
-        });
-        if (!product) continue;
-
-        await tx.product.updateMany({
-          where: { id: item.productId, locationId: transfer.fromLocationId },
-          data: { stockQuantity: { increment: item.quantity } },
-        });
-
-        await tx.inventoryLog.create({
-          data: {
-            productId: item.productId,
-            type: 'ADJUSTMENT',
-            quantity: item.quantity,
-            previousQty: product.stockQuantity,
-            newQty: product.stockQuantity + item.quantity,
-            notes: `Transfer ${transfer.transferNumber} cancelled after shipping — stock restored`,
-            userId: req.user?.id,
-          },
-        });
-      }
-    }
-
-    await tx.inventoryTransfer.update({
-      where: { id },
-      data: { status: 'CANCELLED' },
-    });
-  });
-
-  logger.info(`Transfer cancelled: ${transfer.transferNumber}`);
-  res.json({ success: true, message: 'Transfer cancelled' });
-});
+export { shipTransfer, receiveTransfer, cancelTransfer, receiveTransferReturn, requestTransferReturn, getTransferMappingOptions, getTransferReceipts } from './transferWorkflow.controller';

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as analyticsController from '../controllers/analytics.controller';
 import { analyticsChat } from '../controllers/aiChat.controller';
 import { authenticate, authorize } from '../middleware/auth';
+import { storeAssistantLimiter } from '../services/assistant.service';
 
 const router = Router();
 
@@ -13,7 +14,7 @@ router.use(authenticate);
  */
 router.get(
   '/comparison',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   analyticsController.getComparisonAnalytics
 );
 
@@ -22,7 +23,7 @@ router.get(
  */
 router.get(
   '/abc-analysis',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   analyticsController.getABCAnalysis
 );
 
@@ -31,7 +32,7 @@ router.get(
  */
 router.get(
   '/product-matrix',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   analyticsController.getProductPerformanceMatrix
 );
 
@@ -40,7 +41,7 @@ router.get(
  */
 router.get(
   '/forecast',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   analyticsController.getSalesForecast
 );
 
@@ -49,7 +50,7 @@ router.get(
  */
 router.get(
   '/customer-insights',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   analyticsController.getCustomerInsights
 );
 
@@ -66,7 +67,7 @@ router.get(
  */
 router.get(
   '/inventory-predictions',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   analyticsController.getInventoryPredictions
 );
 
@@ -75,7 +76,7 @@ router.get(
  */
 router.get(
   '/anomalies',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   analyticsController.getSalesAnomalies
 );
 
@@ -84,7 +85,7 @@ router.get(
  */
 router.get(
   '/bundle-recommendations',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   analyticsController.getBundleRecommendations
 );
 
@@ -93,7 +94,7 @@ router.get(
  */
 router.get(
   '/employee-performance',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   analyticsController.getEmployeePerformance
 );
 
@@ -102,7 +103,7 @@ router.get(
  */
 router.get(
   '/business-health',
-  authorize('ADMIN', 'MANAGER'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
   analyticsController.getBusinessHealth
 );
 
@@ -121,6 +122,7 @@ router.post(
 router.post(
   '/chat',
   authorize('ADMIN', 'MANAGER'),
+  storeAssistantLimiter,
   analyticsChat
 );
 

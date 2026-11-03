@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { ManagementPage } from '@/components/common/Workspace';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
+import React, { useState, useEffect, useRef } from 'react';
 import { shiftService } from '@/services/api';
 import { Shift } from '@/types';
 import { formatCurrency, formatDateTime, formatTime } from '@/lib/utils';
@@ -16,12 +18,26 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Clock, LogIn, LogOut, Banknote, Printer, ArrowDownToLine, ArrowUpFromLine, Landmark } from 'lucide-react';
+import { Clock, LogIn, LogOut, Printer } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import { useUrlPage } from '@/hooks/useUrlFilter';
+import { can } from '@/lib/capabilities';
+import { useAuthStore } from '@/store/authStore';
+import { cashOperationKey, cashOperationRejected, readCashOperation, PendingCashOperation } from '@/services/pendingCashOperation';
+import { currentPaymentSession } from '@/services/paymentSession';
 
 export const Shifts: React.FC = () => {
+  const user = useAuthStore(state => state.user);
+  const { locationId } = useEffectiveLocation();
+  const canClock = can(user?.role, 'shift.own');
+  const requestVersion = useRef(0);
+  const [loadError, setLoadError] = useState('');
+  const pendingKey = cashOperationKey('movement', user?.id, user?.locationId);
+  const [pendingMovement, setPendingMovement] = useState<PendingCashOperation | null>(() => readCashOperation(pendingKey));
+  useEffect(() => { setPendingMovement(readCashOperation(pendingKey)); }, [pendingKey]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -29,29 +45,33 @@ export const Shifts: React.FC = () => {
   const [showClockOutModal, setShowClockOutModal] = useState(false);
   const [startingCash, setStartingCash] = useState('0');
   const [endingCash, setEndingCash] = useState('0');
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useUrlPage();
   const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
     loadData();
-  }, [page]);
+    return () => { requestVersion.current++; };
+  }, [page, locationId]);
 
-  const loadData = async () => {
-    setIsLoading(true);
+  const loadData = async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++requestVersion.current; if (!quiet) setLoadError('');
+    if (!quiet) setIsLoading(true);
     try {
       const [currentResponse, shiftsResponse] = await Promise.all([
-        shiftService.getCurrent().catch(() => ({ data: { data: null } })),
-        shiftService.getAll({ page, limit: 20 }),
+        canClock ? shiftService.getCurrent(signal) : Promise.resolve({ data: { data: null } }),
+        shiftService.getAll({ locationId, page, limit: 20 }, signal),
       ]);
 
+      if (version !== requestVersion.current || !active()) return;
+      setLoadError('');
       setCurrentShift(currentResponse.data.data || null);
       setShifts(shiftsResponse.data.data);
       setTotalPages(shiftsResponse.data.pagination?.totalPages || 1);
     } catch (error) {
-      console.error('Failed to load shifts:', error);
-      toast.error('Failed to load shifts');
+      if (quiet) throw error;
+      if (version === requestVersion.current) { setCurrentShift(null); setShifts([]); setLoadError('Unable to load shifts. Try again.'); }
     } finally {
-      setIsLoading(false);
+      if (version === requestVersion.current) setIsLoading(false);
     }
   };
 
@@ -72,37 +92,23 @@ export const Shifts: React.FC = () => {
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [shiftSummary, setShiftSummary] = useState<any>(null);
 
-  // Cash movement modal (safe drop / paid in / paid out on the open shift)
-  const [showMovementModal, setShowMovementModal] = useState(false);
-  const [movementType, setMovementType] = useState<'SAFE_DROP' | 'PAID_IN' | 'PAID_OUT'>('SAFE_DROP');
-  const [movementAmount, setMovementAmount] = useState('');
-  const [movementReason, setMovementReason] = useState('');
+  // Keep recovery available for requests saved before the movement control was removed.
   const [movementSubmitting, setMovementSubmitting] = useState(false);
 
-  const MOVEMENT_TYPES = [
-    { value: 'SAFE_DROP' as const, label: 'Safe Drop', icon: Landmark, hint: 'Cash pulled from the drawer to the safe' },
-    { value: 'PAID_IN' as const, label: 'Paid In', icon: ArrowDownToLine, hint: 'Cash added to the drawer' },
-    { value: 'PAID_OUT' as const, label: 'Paid Out', icon: ArrowUpFromLine, hint: 'Cash removed for an expense (vendor, supplies...)' },
-  ];
-
-  const handleCashMovement = async () => {
-    const amount = parseFloat(movementAmount);
-    if (!amount || amount <= 0) { toast.error('Enter a valid amount'); return; }
-    if (!movementReason.trim()) { toast.error('A reason is required'); return; }
+  const submitCashMovement = async (operation: PendingCashOperation) => {
+    if (movementSubmitting) return;
     setMovementSubmitting(true);
     try {
-      const res = await shiftService.cashMovement({
-        type: movementType,
-        amount,
-        reason: movementReason.trim(),
-      });
+      localStorage.setItem(pendingKey, JSON.stringify(operation));
+      setPendingMovement(operation);
+      const res = await shiftService.cashMovement(operation.payload as { type: string; amount: number; reason: string; idempotencyKey: string });
+      localStorage.removeItem(pendingKey);
+      setPendingMovement(null);
       toast.success(res.data.message || 'Movement recorded');
-      setShowMovementModal(false);
-      setMovementAmount('');
-      setMovementReason('');
       loadData();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to record movement');
+      if (cashOperationRejected(error)) { localStorage.removeItem(pendingKey); setPendingMovement(null); }
+      toast.error(error.response?.data?.error || 'Movement result is unconfirmed. Retry the saved request; do not move the cash again.');
     } finally {
       setMovementSubmitting(false);
     }
@@ -113,8 +119,9 @@ export const Shifts: React.FC = () => {
     try {
       const res = await shiftService.getZReport(shiftId);
       const z = res.data.data;
+      const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
       const line = (label: string, value: string, bold = false) =>
-        `<tr${bold ? ' style="font-weight:bold;border-top:1px solid #000;"' : ''}><td>${label}</td><td style="text-align:right;">${value}</td></tr>`;
+        `<tr${bold ? ' style="font-weight:bold;border-top:1px solid #000;"' : ''}><td>${escapeHtml(label)}</td><td style="text-align:right;">${escapeHtml(value)}</td></tr>`;
       const money = (n: number | null | undefined) => (n === null || n === undefined ? '—' : `$${n.toFixed(2)}`);
 
       const tenderRows = Object.entries(z.tenderBreakdown as Record<string, { count: number; total: number }>)
@@ -138,29 +145,34 @@ export const Shifts: React.FC = () => {
         .center { text-align: center; }
       </style></head><body>
         <h2>Z-REPORT</h2>
-        <p class="center">${z.location || ''}<br/>${z.cashier}<br/>
+        <p class="center">${escapeHtml(z.location || '')}<br/>${escapeHtml(z.cashier)}<br/>
         ${new Date(z.clockInAt).toLocaleString()} — ${z.clockOutAt ? new Date(z.clockOutAt).toLocaleString() : 'OPEN'}</p>
         <div class="rule"></div>
         <table>
           ${line('Transactions', String(z.totalTransactions))}
-          ${line('Gross Sales', money(z.totalSales))}
-          ${line('Tax Collected', money(z.totalTax))}
+          ${line('Original sales (incl. tax)', money(z.totalSales))}
+          ${line('Original sale tax', money(z.totalTax))}
           ${line('Discounts', money(z.totalDiscount))}
         </table>
         <div class="rule"></div>
-        <h3>TENDERS</h3>
+        <h3>ORIGINAL SALE TENDERS</h3>
         <table>${tenderRows || line('No sales', '')}</table>
         ${movementRows ? `<div class="rule"></div><h3>CASH MOVEMENTS</h3><table>${movementRows}</table>` : ''}
         <div class="rule"></div>
         <h3>DRAWER</h3>
         <table>
           ${line('Starting Cash', money(z.startingCash))}
-          ${line('Cash Sales (net)', money(z.cashSales))}
+          ${line('Cash Sales (after change)', money(z.cashSales))}
+          ${line('Cash Refunds', '-' + money(z.cashRefunds))}
+          ${line('Cash Voids', '-' + money(z.cashVoids))}
+          ${line('Gift Card Cash Funding', money(z.cashGiftFunding))}
+          ${line('House Account Cash Payments', money(z.cashHousePayments))}
           ${line('Movements (net)', money(z.cashMovementNet))}
           ${line('Expected', money(z.expectedCash), true)}
           ${line('Counted', money(z.endingCash))}
           ${line('Over / Short', money(z.cashDifference), true)}
         </table>
+        ${z.reconciliationWarning ? `<p>${escapeHtml(z.reconciliationWarning)}</p>` : ''}
         <div class="rule"></div>
         <p class="center">Printed ${new Date().toLocaleString()}</p>
         <script>window.onload = function() { window.print(); }</script>
@@ -180,8 +192,14 @@ export const Shifts: React.FC = () => {
 
   const handleClockOut = async () => {
     if (!currentShift) return;
+    if (!endingCash.trim() || !Number.isFinite(Number(endingCash)) || Number(endingCash) < 0) {
+      toast.error('Enter the actual cash count, including 0 for an empty drawer.'); return;
+    }
 
     try {
+      if (user?.id && locationId && await currentPaymentSession(user.id, locationId)) {
+        toast.error('Finish or reverse the unfinished payment in POS before closing this drawer.'); return;
+      }
       const response = await shiftService.clockOut({
         endingCash: parseFloat(endingCash) || 0,
       });
@@ -201,33 +219,35 @@ export const Shifts: React.FC = () => {
     }
   };
 
+  const autoRefresh = useLegacyPageRefresh((current, signal) => loadData(true, current, signal), { key: JSON.stringify([locationId, page]), paused: isLoading });
+
   return (
-    <div className="p-8">
+    <ManagementPage className="">
       <PageHeader
-        title="Time & Shifts"
+        title={user?.role === 'CASHIER' ? 'My Shift' : 'Time & Shifts'}
         subtitle="Manage employee shifts and cash drawers"
-        actions={!currentShift ? (
+        actions={!canClock || isLoading || loadError ? null : !currentShift ? (
           <Button variant="primary" onClick={() => setShowClockInModal(true)}>
             <LogIn className="h-4 w-4 mr-2" />
             Clock In
           </Button>
         ) : (
-          <>
-            <Button variant="outline" onClick={() => setShowMovementModal(true)}>
-              <Banknote className="h-4 w-4 mr-2" />
-              Cash Movement
-            </Button>
-            <Button variant="destructive" onClick={() => setShowClockOutModal(true)}>
-              <LogOut className="h-4 w-4 mr-2" />
-              Clock Out
-            </Button>
-          </>
+          <Button variant="destructive" onClick={() => setShowClockOutModal(true)}>
+            <LogOut className="h-4 w-4 mr-2" />
+            Clock Out
+          </Button>
         )}
       />
+      {autoRefresh.notice}
+      {pendingMovement && <div role="status" className="mb-4 p-3 rounded-lg border border-warning/40 bg-warning/10 space-y-2">
+        <p>Saved cash movement: {pendingMovement.label.replace(/_/g, ' ')} {formatCurrency(pendingMovement.amount)}. Retry to confirm the recorded result. Do not move the cash twice.</p>
+        <Button onClick={() => submitCashMovement(pendingMovement)} disabled={movementSubmitting}>Retry saved cash movement</Button>
+      </div>}
 
       {/* Shift Content */}
       <>
-          {/* Current Shift */}
+          {loadError && <div role="alert" className="border rounded p-4 mb-4"><p>{loadError}</p><Button onClick={() => void loadData()} variant="outline">Retry</Button></div>}
+      {/* Current Shift */}
       {currentShift && (
         <Card className="mb-6 bg-primary/5 border-primary">
           <CardHeader>
@@ -237,6 +257,7 @@ export const Shifts: React.FC = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {currentShift.reconciliationWarning && <p role="status" className="mb-4 text-sm text-warning">{currentShift.reconciliationWarning}</p>}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Clocked In</p>
@@ -249,7 +270,7 @@ export const Shifts: React.FC = () => {
                 </p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground mb-1">Total Sales</p>
+                <p className="text-sm text-muted-foreground mb-1">Original Sales (incl. tax)</p>
                 <p className="text-lg font-bold text-success">
                   {formatCurrency(currentShift.totalSales)}
                 </p>
@@ -264,8 +285,16 @@ export const Shifts: React.FC = () => {
                   {formatCurrency((currentShift as any).expectedDrawer ?? currentShift.startingCash)}
                 </p>
               </div>
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Cash Refunds &amp; Voids Paid</p>
+                <p className="text-lg font-bold tabular-nums">{formatCurrency((currentShift.cashRefunds || 0) + (currentShift.cashVoids || 0))}</p>
+              </div>
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t pt-4 mt-4">
+              <div><p className="text-sm text-muted-foreground">Gift Card Cash Funding</p><p className="font-bold tabular-nums">{formatCurrency(currentShift.cashGiftFunding || 0)}</p></div>
+              <div><p className="text-sm text-muted-foreground">House Account Cash Payments</p><p className="font-bold tabular-nums">{formatCurrency(currentShift.cashHousePayments || 0)}</p></div>
+            </div>
             {/* Cash movements this shift */}
             {((currentShift as any).cashMovements?.length ?? 0) > 0 && (
               <div className="mt-4 pt-3 border-t">
@@ -305,7 +334,7 @@ export const Shifts: React.FC = () => {
             hint="Clock in to start your first shift"
           />
         ) : (
-          <Table>
+          <Table scrollLabel="Shifts records">
             <TableHeader>
               <TableRow>
                 <TableHead>Employee</TableHead>
@@ -446,6 +475,7 @@ export const Shifts: React.FC = () => {
       >
         {currentShift && (
           <div className="space-y-4">
+            {currentShift.reconciliationWarning && <p className="text-sm text-warning">{currentShift.reconciliationWarning}</p>}
             <div className="p-4 bg-muted rounded-lg space-y-2">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Starting Cash:</span>
@@ -454,17 +484,23 @@ export const Shifts: React.FC = () => {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Total Sales:</span>
+                <span className="text-muted-foreground">Original Sales (incl. tax):</span>
                 <span className="font-medium text-success">
                   {formatCurrency(currentShift.totalSales)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Cash Sales (net):</span>
+                <span className="text-muted-foreground">Cash Sales (after change):</span>
                 <span className="font-medium">
                   {formatCurrency((currentShift as any).totalCashSales ?? currentShift.totalSales)}
                 </span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Cash Refunds &amp; Voids Paid:</span>
+                <span>-{formatCurrency((currentShift.cashRefunds || 0) + (currentShift.cashVoids || 0))}</span>
+              </div>
+              <div className="flex justify-between"><span>Gift Card Cash Funding:</span><span>{formatCurrency(currentShift.cashGiftFunding || 0)}</span></div>
+              <div className="flex justify-between"><span>House Account Cash Payments:</span><span>{formatCurrency(currentShift.cashHousePayments || 0)}</span></div>
               {((currentShift as any).cashMovementNet ?? 0) !== 0 && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Cash Movements (net):</span>
@@ -526,66 +562,6 @@ export const Shifts: React.FC = () => {
         )}
       </Modal>
 
-      {/* Cash Movement Modal */}
-      <Modal
-        isOpen={showMovementModal}
-        onClose={() => setShowMovementModal(false)}
-        title="Cash Movement"
-      >
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-2">
-            {MOVEMENT_TYPES.map(({ value, label, icon: Icon }) => (
-              <button
-                key={value}
-                onClick={() => setMovementType(value)}
-                className={`p-3 border-2 rounded-lg transition-all ${
-                  movementType === value
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border hover:border-primary/50'
-                }`}
-              >
-                <Icon className="h-5 w-5 mx-auto mb-1" />
-                <p className="font-medium text-xs">{label}</p>
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {MOVEMENT_TYPES.find((t) => t.value === movementType)?.hint}
-          </p>
-
-          <Input
-            type="number"
-            label="Amount"
-            value={movementAmount}
-            onChange={(e) => setMovementAmount(e.target.value)}
-            step="0.01"
-            min="0"
-            placeholder="0.00"
-            autoFocus
-          />
-          <Input
-            label="Reason"
-            value={movementReason}
-            onChange={(e) => setMovementReason(e.target.value)}
-            placeholder={movementType === 'SAFE_DROP' ? 'e.g. Drawer over $200' : 'e.g. Windex from vendor'}
-          />
-
-          <div className="flex gap-3">
-            <Button variant="outline" className="flex-1" onClick={() => setShowMovementModal(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              className="flex-1"
-              onClick={handleCashMovement}
-              disabled={movementSubmitting || !movementAmount || !movementReason.trim()}
-            >
-              {movementSubmitting ? 'Saving...' : 'Record'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
       {/* Shift Summary Modal */}
       <Modal
         isOpen={showSummaryModal}
@@ -605,7 +581,7 @@ export const Shifts: React.FC = () => {
                 <p className="text-xl font-bold">{shiftSummary.totalTransactions}</p>
               </div>
               <div className="p-3 bg-muted rounded-lg">
-                <p className="text-sm text-muted-foreground">Total Sales</p>
+                <p className="text-sm text-muted-foreground">Original Sales (incl. tax)</p>
                 <p className="text-xl font-bold text-success">{formatCurrency(shiftSummary.totalSales)}</p>
               </div>
               <div className="p-3 bg-muted rounded-lg">
@@ -618,7 +594,7 @@ export const Shifts: React.FC = () => {
 
             {/* Payment Breakdown */}
             <div className="border rounded-lg overflow-hidden">
-              <div className="p-3 bg-muted font-medium text-sm">Payment Breakdown</div>
+              <div className="p-3 bg-muted font-medium text-sm">Original Sale Tenders</div>
               <div className="divide-y">
                 {Object.entries(shiftSummary.paymentBreakdown).map(([method, data]: [string, any]) => (
                   <div key={method} className="flex justify-between items-center px-3 py-2 text-sm">
@@ -637,7 +613,11 @@ export const Shifts: React.FC = () => {
               <div className="p-3 bg-muted font-medium text-sm">Cash Reconciliation</div>
               <div className="p-3 space-y-1 text-sm">
                 <div className="flex justify-between"><span>Starting Cash</span><span>{formatCurrency(shiftSummary.startingCash)}</span></div>
-                <div className="flex justify-between"><span>Cash Sales (net)</span><span>+{formatCurrency(shiftSummary.cashSales)}</span></div>
+                <div className="flex justify-between"><span>Cash Sales (after change)</span><span>+{formatCurrency(shiftSummary.cashSales)}</span></div>
+                <div className="flex justify-between"><span>Cash Refunds Paid</span><span>-{formatCurrency(shiftSummary.cashRefunds)}</span></div>
+                <div className="flex justify-between"><span>Cash Voids Paid</span><span>-{formatCurrency(shiftSummary.cashVoids)}</span></div>
+                <div className="flex justify-between"><span>Gift Card Cash Funding</span><span>{formatCurrency(shiftSummary.cashGiftFunding || 0)}</span></div>
+                <div className="flex justify-between"><span>House Account Cash Payments</span><span>{formatCurrency(shiftSummary.cashHousePayments || 0)}</span></div>
                 {(shiftSummary.cashMovementNet ?? 0) !== 0 && (
                   <div className="flex justify-between"><span>Cash Movements (net)</span><span>{formatCurrency(shiftSummary.cashMovementNet)}</span></div>
                 )}
@@ -651,7 +631,7 @@ export const Shifts: React.FC = () => {
                 </div>
               </div>
             </div>
-
+            {shiftSummary.reconciliationWarning && <p className="text-sm text-warning">{shiftSummary.reconciliationWarning}</p>}
             <Button variant="primary" className="w-full" onClick={() => setShowSummaryModal(false)}>
               Done
             </Button>
@@ -659,6 +639,6 @@ export const Shifts: React.FC = () => {
         )}
       </Modal>
       </>
-    </div>
+    </ManagementPage>
   );
 };

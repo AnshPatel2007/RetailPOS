@@ -1,4 +1,5 @@
 import Dexie, { Table } from 'dexie';
+import type { PaymentSession } from './paymentSession';
 
 // Types for offline data
 export interface OfflineProduct {
@@ -16,6 +17,10 @@ export interface OfflineProduct {
   image?: string;
   isActive: boolean;
   isTaxable: boolean;
+  trackInventory?: boolean;
+  minimumAge?: number;
+  ebtEligible?: boolean;
+  priceEmbedded?: boolean;
   syncedAt: number;
 }
 
@@ -33,7 +38,9 @@ export interface OfflineCustomer {
 
 export interface PendingSale {
   id?: number;  // Auto-incremented
-  localId: string;  // UUID for tracking
+  localId: string;  // Stable checkout idempotency key
+  userId?: string;
+  payload?: Record<string, any>;
   locationId?: string | null; // store this sale was rung up at, tagged at queue-time
   customerId?: string;
   items: PendingSaleItem[];
@@ -51,6 +58,8 @@ export interface PendingSale {
   lastSyncAttempt?: number;
   syncError?: string;
   serverId?: string;  // ID from server after sync
+  reconciliation?: { receiptId: string; status: 'HOLD' | 'FINAL'; disposition: string; recordedAt: number };
+  originalReceipt?: Record<string, any>;
 }
 
 export interface PendingSaleItem {
@@ -81,6 +90,22 @@ export interface OfflineSettings {
   value: any;
 }
 
+/** A terminal has already taken payment; retry only this exact POS submission. */
+export interface TerminalCheckout {
+  paymentSessionId?: string;
+  key: string;
+  userId: string;
+  locationId: string;
+  createdAt: number;
+  payload: Record<string, unknown>;
+  cartSnapshot: string;
+  total: number;
+  references: string[];
+  reconciliation?: { receiptId: string; status: 'HOLD' | 'FINAL'; disposition: string; recordedAt: number };
+}
+
+export interface OfflineCacheScope { userId: string; locationId: string }
+
 // Dexie Database Class
 export class POSDatabase extends Dexie {
   products!: Table<OfflineProduct, string>;
@@ -88,6 +113,8 @@ export class POSDatabase extends Dexie {
   pendingSales!: Table<PendingSale, number>;
   syncLogs!: Table<SyncLog, number>;
   settings!: Table<OfflineSettings, string>;
+  terminalCheckouts!: Table<TerminalCheckout, string>;
+  paymentSessions!: Table<PaymentSession, string>;
 
   constructor() {
     super('POSOfflineDB');
@@ -99,6 +126,10 @@ export class POSDatabase extends Dexie {
       syncLogs: '++id, type, localId, timestamp',
       settings: 'key',
     });
+    this.version(2).stores({
+      terminalCheckouts: 'key, [userId+locationId], createdAt',
+    });
+    this.version(3).stores({ paymentSessions: 'id, [userId+locationId], status, createdAt' });
   }
 }
 
@@ -108,7 +139,7 @@ export const db = new POSDatabase();
 // Database operations
 export const offlineDb = {
   // Products
-  async cacheProducts(products: any[]): Promise<void> {
+  async cacheProducts(products: any[], scope: OfflineCacheScope, isCurrent: () => boolean): Promise<void> {
     const offlineProducts: OfflineProduct[] = products.map(p => ({
       id: p.id,
       sku: p.sku,
@@ -124,24 +155,33 @@ export const offlineDb = {
       image: p.image,
       isActive: p.isActive ?? false,
       isTaxable: p.isTaxable ?? false,
+      trackInventory: p.trackInventory,
+      minimumAge: p.minimumAge,
+      ebtEligible: p.ebtEligible,
+      priceEmbedded: p.priceEmbedded,
       syncedAt: Date.now(),
     }));
 
-    await db.transaction('rw', db.products, async () => {
+    await db.transaction('rw', db.products, db.settings, async () => {
+      if (!isCurrent()) throw new Error('Cache session changed');
       await db.products.clear();
       await db.products.bulkPut(offlineProducts);
+      await db.settings.put({ key: 'products_cache_scope', value: { ...scope, cachedAt: Date.now() } });
+      if (!isCurrent()) throw new Error('Cache session changed');
     });
-
-    await this.setSetting('products_cached_at', Date.now());
     console.log(`Cached ${products.length} products to IndexedDB`);
   },
 
   async getProducts(): Promise<OfflineProduct[]> {
-    return db.products.where('isActive').equals(1).toArray();
+    return db.products.filter(p => p.isActive).toArray();
   },
 
-  async getAllProducts(): Promise<OfflineProduct[]> {
-    return db.products.toArray();
+  async getAllProducts(scope: OfflineCacheScope): Promise<OfflineProduct[]> {
+    return db.transaction('r', db.products, db.settings, async () => {
+      const cached = (await db.settings.get('products_cache_scope'))?.value;
+      if (cached?.userId !== scope.userId || cached?.locationId !== scope.locationId) return [];
+      return db.products.toArray();
+    });
   },
 
   async getProductById(id: string): Promise<OfflineProduct | undefined> {
@@ -173,7 +213,7 @@ export const offlineDb = {
   },
 
   // Customers
-  async cacheCustomers(customers: any[]): Promise<void> {
+  async cacheCustomers(customers: any[], scope: OfflineCacheScope, isCurrent: () => boolean): Promise<void> {
     const offlineCustomers: OfflineCustomer[] = customers.map(c => ({
       id: c.id,
       email: c.email,
@@ -186,12 +226,13 @@ export const offlineDb = {
       syncedAt: Date.now(),
     }));
 
-    await db.transaction('rw', db.customers, async () => {
+    await db.transaction('rw', db.customers, db.settings, async () => {
+      if (!isCurrent()) throw new Error('Cache session changed');
       await db.customers.clear();
       await db.customers.bulkPut(offlineCustomers);
+      await db.settings.put({ key: 'customers_cache_scope', value: { ...scope, cachedAt: Date.now() } });
+      if (!isCurrent()) throw new Error('Cache session changed');
     });
-
-    await this.setSetting('customers_cached_at', Date.now());
     console.log(`Cached ${customers.length} customers to IndexedDB`);
   },
 
@@ -209,28 +250,32 @@ export const offlineDb = {
 
   // Pending Sales
   async savePendingSale(sale: Omit<PendingSale, 'id'>): Promise<number> {
-    const id = await db.pendingSales.add(sale as PendingSale);
+    return db.transaction('rw', db.pendingSales, db.products, db.syncLogs, async () => {
+      const existing = await db.pendingSales.where('localId').equals(sale.localId).first();
+      if (existing?.id) return existing.id;
+      const id = await db.pendingSales.add(sale as PendingSale);
 
-    // Update local stock
-    for (const item of sale.items) {
-      await this.updateProductStock(item.productId, -item.quantity);
-    }
+      // Update local stock
+      for (const item of sale.items) {
+        await this.updateProductStock(item.productId, -item.quantity);
+      }
 
-    // Log the action
-    await this.addSyncLog({
-      type: 'sale',
-      action: 'create',
-      localId: sale.localId,
-      timestamp: Date.now(),
-      success: true,
+      // Log the action
+      await this.addSyncLog({
+        type: 'sale',
+        action: 'create',
+        localId: sale.localId,
+        timestamp: Date.now(),
+        success: true,
+      });
+
+      console.log(`Saved pending sale with local ID: ${sale.localId}`);
+      return id;
     });
-
-    console.log(`Saved pending sale with local ID: ${sale.localId}`);
-    return id;
   },
 
   async getPendingSales(): Promise<PendingSale[]> {
-    return db.pendingSales.where('synced').equals(0).toArray();
+    return db.pendingSales.filter(sale => !sale.synced).toArray();
   },
 
   async getAllPendingSales(): Promise<PendingSale[]> {
@@ -238,7 +283,11 @@ export const offlineDb = {
   },
 
   async getPendingSaleCount(): Promise<number> {
-    return db.pendingSales.where('synced').equals(0).count();
+    return db.pendingSales.filter(sale => !sale.synced).count();
+  },
+
+  async resetSaleAttempts(id: number): Promise<void> {
+    await db.pendingSales.update(id, { syncAttempts: 0, syncError: undefined });
   },
 
   async markSaleAsSynced(id: number, serverId: string): Promise<void> {
@@ -262,7 +311,9 @@ export const offlineDb = {
   },
 
   async deleteSyncedSales(): Promise<number> {
-    return db.pendingSales.where('synced').equals(1).delete();
+    // Keep original checkout evidence on this register. Explicit clearing remains
+    // available only after every unresolved payment has been reconciled.
+    return 0;
   },
 
   // Sync Logs
@@ -308,7 +359,7 @@ export const offlineDb = {
     const [products, customers, pendingSales, syncLogs] = await Promise.all([
       db.products.count(),
       db.customers.count(),
-      db.pendingSales.where('synced').equals(0).count(),
+      db.pendingSales.filter(sale => !sale.synced).count(),
       db.syncLogs.count(),
     ]);
 
@@ -323,13 +374,20 @@ export const offlineDb = {
   },
 
   async clearAll(): Promise<void> {
+    await db.transaction('rw', db.tables, async () => {
+    if (await db.pendingSales.filter(record => !record.synced).count() || await db.terminalCheckouts.filter(record=>record.reconciliation?.status!=='FINAL').count() || await db.paymentSessions.where('status').anyOf('OPEN', 'SUBMITTED').count()) {
+      throw new Error('Unconfirmed payments must be reconciled before clearing register data');
+    }
     await Promise.all([
       db.products.clear(),
       db.customers.clear(),
       db.pendingSales.clear(),
       db.syncLogs.clear(),
       db.settings.clear(),
+      db.terminalCheckouts.clear(),
+      db.paymentSessions.clear(),
     ]);
+    });
     console.log('All offline data cleared');
   },
 
@@ -350,15 +408,19 @@ export const offlineDb = {
     customers: OfflineCustomer[];
     pendingSales: PendingSale[];
     syncLogs: SyncLog[];
+    terminalCheckouts: TerminalCheckout[];
+    paymentSessions: PaymentSession[];
   }> {
-    const [products, customers, pendingSales, syncLogs] = await Promise.all([
+    const [products, customers, pendingSales, syncLogs, terminalCheckouts, paymentSessions] = await Promise.all([
       db.products.toArray(),
       db.customers.toArray(),
       db.pendingSales.toArray(),
       db.syncLogs.toArray(),
+      db.terminalCheckouts.toArray(),
+      db.paymentSessions.toArray(),
     ]);
 
-    return { products, customers, pendingSales, syncLogs };
+    return { products, customers, pendingSales, syncLogs, terminalCheckouts, paymentSessions };
   },
 };
 

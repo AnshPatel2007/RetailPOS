@@ -4,7 +4,7 @@ import { formatCurrency } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CategoryTabs } from '@/components/pos/CategoryTabs';
-import { Search, Scan, Star, PackageSearch } from 'lucide-react';
+import { Search, Scan, Star, PackageSearch, Package } from 'lucide-react';
 import { hardware } from '@/services/hardware';
 
 interface Category {
@@ -21,16 +21,14 @@ interface ProductGridProps {
   search: string;
   onSearchChange: (value: string) => void;
   isLoading: boolean;
+  error?: string;
+  onRetry?: () => void;
   onProductClick: (product: Product) => void;
   getCartQty: (productId: string) => number;
   isFavorite: (productId: string) => boolean;
   toggleFavorite: (productId: string) => void;
   searchInputRef: React.RefObject<HTMLInputElement>;
 }
-
-/** Deterministic hue per product so no-image tiles are distinguishable but stable */
-const nameHue = (name: string): number =>
-  name.split('').reduce((acc, c) => acc + c.charCodeAt(0) * 31, 7) % 360;
 
 const StockLine = ({ product }: { product: Product }) => {
   if (!product.trackInventory) return <div className="h-4" />;
@@ -61,44 +59,37 @@ const ProductCard: React.FC<ProductCardProps> = ({
   onClick,
   onToggleFavorite,
 }) => {
-  const [imgError, setImgError] = useState(false);
-  const hue = nameHue(product.name);
-  const showImage = product.image && !imgError;
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const showImage = product.image && product.image !== failedImage;
 
   return (
-    <div className="relative group">
+    <div className="pos-product-tile relative group">
       <button
         onClick={onClick}
         disabled={outOfStock}
-        className={`w-full text-left p-3 border border-border rounded-lg bg-card transition-all ${
+        type="button"
+        title={product.name}
+        className={`pos-product-button w-full text-left border border-border rounded-lg bg-card transition-colors ${
           outOfStock
             ? 'opacity-50 cursor-not-allowed'
-            : 'hover:border-primary hover:shadow-md active:scale-[0.98]'
+            : 'hover:border-primary/50 hover:bg-accent/30'
         }`}
       >
-        <div className="aspect-square rounded mb-3 overflow-hidden">
+        <div className="pos-product-image">
           {showImage ? (
             <img
               src={product.image!}
-              alt={product.name}
+              alt=""
               loading="lazy"
-              onError={() => setImgError(true)}
-              className="w-full h-full object-cover"
+              onError={() => setFailedImage(product.image || null)}
+              className="w-full h-full object-contain"
             />
           ) : (
-            <div
-              className="w-full h-full flex items-center justify-center text-3xl font-semibold"
-              style={{
-                backgroundColor: `hsl(${hue} 70% 45% / 0.15)`,
-                color: `hsl(${hue} 70% 45%)`,
-              }}
-            >
-              {product.name.charAt(0).toUpperCase()}
-            </div>
+            <div className="pos-product-placeholder" aria-hidden="true"><Package size={28} strokeWidth={1.3} /></div>
           )}
         </div>
-        <h3 className="font-medium text-sm truncate">{product.name}</h3>
-        <p className="text-lg font-bold text-primary tabular-nums">
+        <h3 className="pos-product-name">{product.name}</h3>
+        <p className="pos-product-price tabular-nums">
           {formatCurrency(product.price)}
         </p>
         <StockLine product={product} />
@@ -113,8 +104,11 @@ const ProductCard: React.FC<ProductCardProps> = ({
 
       {/* Favorite toggle — sibling button, comfortable touch target */}
       <button
+        type="button"
         onClick={onToggleFavorite}
-        className="absolute top-1 right-1 h-9 w-9 flex items-center justify-center rounded-full bg-card/70 backdrop-blur-sm hover:bg-accent transition-colors"
+        className="pos-product-favorite"
+        aria-label={`${favorite ? 'Remove from' : 'Add to'} favorites: ${product.name}`}
+        aria-pressed={favorite}
         title={favorite ? 'Remove from favorites' : 'Add to favorites'}
       >
         <Star className={`h-4 w-4 ${favorite ? 'fill-warning text-warning' : 'text-muted-foreground/50'}`} />
@@ -123,7 +117,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
   );
 };
 
-const GRID_CLASSES = 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3';
+const GRID_CLASSES = 'pos-product-grid';
 
 export const ProductGrid: React.FC<ProductGridProps> = ({
   products,
@@ -133,6 +127,8 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
   search,
   onSearchChange,
   isLoading,
+  error,
+  onRetry,
   onProductClick,
   getCartQty,
   isFavorite,
@@ -142,9 +138,9 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
   const isOutOfStock = (product: Product) => product.trackInventory && product.stockQuantity <= 0;
 
   return (
-    <div className="flex-1 flex flex-col bg-background min-h-0">
+    <div className="pos-catalog">
       {/* Search bar */}
-      <div className="p-4 border-b border-border">
+      <div className="pos-product-search">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
           <Input
@@ -172,16 +168,21 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
       />
 
       {/* Products grid */}
-      <div className="flex-1 overflow-auto p-4">
+      <div className="pos-catalog-scroll">
         {isLoading ? (
           <div className={GRID_CLASSES}>
             {[...Array(10)].map((_, i) => (
               <div key={i} className="rounded-lg border border-border p-3 animate-pulse">
-                <div className="aspect-square rounded bg-muted mb-3" />
+                <div className="pos-product-image rounded bg-muted" />
                 <div className="h-4 w-3/4 bg-muted rounded mb-2" />
                 <div className="h-5 w-1/2 bg-muted rounded" />
               </div>
             ))}
+          </div>
+        ) : error ? (
+          <div role="alert" className="space-y-3 p-4 text-center">
+            <p className="text-destructive">{error}</p>
+            <Button variant="outline" onClick={onRetry}>Retry products</Button>
           </div>
         ) : products.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">

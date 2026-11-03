@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { changeStoreContextGeneration } from '@/services/storeContextGeneration';
 
 interface AdminViewState {
   isAdminViewing: boolean;
@@ -22,6 +23,7 @@ export const useAdminViewStore = create<AdminViewState>()(
       viewingStoreName: null,
 
       enterAdminView: (locationId: string, storeName: string) => {
+        changeStoreContextGeneration();
         set({
           isAdminViewing: true,
           viewingLocationId: locationId,
@@ -30,6 +32,7 @@ export const useAdminViewStore = create<AdminViewState>()(
       },
 
       exitAdminView: () => {
+        changeStoreContextGeneration();
         set({
           isAdminViewing: false,
           viewingLocationId: null,

@@ -1,5 +1,9 @@
+import { ManagementPage } from '@/components/common/Workspace';
+import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { promotionService, productService, categoryService } from '@/services/api';
+import { api, promotionService, productService, categoryService } from '@/services/api';
+import { useAuthStore } from '@/store/authStore';
+import { can } from '@/lib/capabilities';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -13,6 +17,8 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import { PageHeader } from '@/components/common/PageHeader';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
 import { formatCurrency } from '@/lib/utils';
@@ -24,7 +30,6 @@ import {
   Pencil,
   Trash2,
   Power,
-  RefreshCw,
   X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -108,6 +113,12 @@ const emptyForm: FormState = {
 };
 
 export const Promotions: React.FC = () => {
+  const role = useAuthStore(state => state.user?.role);
+  const manage = can(role, 'inventory.manage');
+  const request = useRef<AbortController | null>(null);
+  const editVersion = useRef(0), productSearchVersion = useRef(0);
+  useEffect(() => () => { editVersion.current++; productSearchVersion.current++; }, []);
+  const [loadError, setLoadError] = useState('');
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -127,24 +138,27 @@ export const Promotions: React.FC = () => {
   const [productResults, setProductResults] = useState<any[]>([]);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
 
-  const fetchPromotions = useCallback(async () => {
-    setLoading(true);
+  const fetchPromotions = useCallback(async (quiet = false, active: () => boolean = () => true) => {
+    request.current?.abort(); const controller = new AbortController(); request.current = controller;
+    if (!quiet) { setLoading(true); setLoadError(''); setPromotions([]); }
     try {
       const params: any = { page, limit: 25 };
       if (debouncedSearch) params.search = debouncedSearch;
-      const res = await promotionService.getAll(params);
+      const res = await api.get('/promotions', { params, signal: controller.signal });
+      if (controller.signal.aborted || !active()) return;
       setPromotions(res.data.data);
+      setLoadError('');
       setTotalPages(res.data.pagination.totalPages);
-    } catch {
-      toast.error('Failed to load promotions');
+    } catch (error) {
+      if (quiet) throw error;
+      if (!controller.signal.aborted && active()) setLoadError('Unable to load promotions. Retry when connected.');
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted && active()) setLoading(false);
     }
   }, [page, debouncedSearch]);
 
-  useEffect(() => {
-    fetchPromotions();
-  }, [fetchPromotions]);
+  const promotionUpdates = useAutoRefresh(ctx => fetchPromotions(ctx.quiet, ctx.current), { key: ['promotions', page, debouncedSearch] });
+  useEffect(() => () => request.current?.abort(), []);
 
   useEffect(() => {
     categoryService.getAll().then((res) => setCategories(res.data.data || [])).catch(() => {});
@@ -162,13 +176,16 @@ export const Promotions: React.FC = () => {
   }, [search]);
 
   const searchProducts = async (query: string) => {
+    const version = ++productSearchVersion.current;
     setProductSearch(query);
+    setProductResults([]);
     if (query.length < 2) {
       setProductResults([]);
       return;
     }
     try {
       const res = await productService.getAll({ search: query, isActive: true, limit: 8 });
+      if (version !== productSearchVersion.current) return;
       setProductResults((res.data.data || []).filter((p: any) => p.sku !== 'MISC-001'));
     } catch {
       // ignore
@@ -184,13 +201,16 @@ export const Promotions: React.FC = () => {
   };
 
   const openCreate = () => {
+    if (!manage) return;
+    editVersion.current++; productSearchVersion.current++;
     setEditingId(null);
     setForm(emptyForm);
     setShowFormModal(true);
   };
 
   const openEdit = async (p: Promotion) => {
-    setEditingId(p.id);
+    if (!manage) return;
+    const version = ++editVersion.current;
     // Resolve product names for the chips (ids alone are unreadable)
     let products: { id: string; name: string }[] = p.productIds.map((id) => ({ id, name: id }));
     if (p.productIds.length > 0) {
@@ -202,6 +222,8 @@ export const Promotions: React.FC = () => {
         // fall back to raw ids
       }
     }
+    if (version !== editVersion.current) return;
+    setEditingId(p.id);
     setForm({
       name: p.name,
       description: p.description || '',
@@ -250,6 +272,7 @@ export const Promotions: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (!manage) return;
     if (!form.name.trim()) { toast.error('Name is required'); return; }
     if (form.products.length === 0 && form.categoryIds.length === 0) {
       toast.error('Select at least one product or category');
@@ -265,7 +288,7 @@ export const Promotions: React.FC = () => {
         toast.success('Promotion created');
       }
       setShowFormModal(false);
-      fetchPromotions();
+      promotionUpdates.refresh();
     } catch (err: any) {
       const details = err.response?.data?.errors?.[0]?.message;
       toast.error(details || err.response?.data?.error || 'Failed to save promotion');
@@ -275,21 +298,22 @@ export const Promotions: React.FC = () => {
   };
 
   const handleToggle = async (p: Promotion) => {
+    if (!manage) return;
     try {
       await promotionService.toggle(p.id);
       toast.success(p.isActive ? `"${p.name}" deactivated` : `"${p.name}" activated`);
-      fetchPromotions();
+      promotionUpdates.refresh();
     } catch {
       toast.error('Failed to update promotion');
     }
   };
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    if (!manage || !deleteTarget) return;
     try {
       await promotionService.delete(deleteTarget.id);
       toast.success(`"${deleteTarget.name}" deleted`);
-      fetchPromotions();
+      promotionUpdates.refresh();
     } catch {
       toast.error('Failed to delete promotion');
     } finally {
@@ -316,24 +340,22 @@ export const Promotions: React.FC = () => {
   };
 
   return (
-    <div className="p-8">
+    <ManagementPage className="">
       <PageHeader
         title="Promotions"
         subtitle="Automatic deals applied at the register — bundles, BOGO, and happy-hour pricing"
         icon={Tag}
         actions={
           <>
-            <Button variant="outline" size="sm" onClick={fetchPromotions} title="Refresh">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-            <Button variant="primary" size="sm" onClick={openCreate}>
+            {manage && <Button variant="primary" size="sm" onClick={openCreate}>
               <Plus className="h-4 w-4 mr-1" />
               New Promotion
-            </Button>
+            </Button>}
           </>
         }
       />
 
+      <AutoRefreshStatus state={promotionUpdates} />
       <div className="relative max-w-md mb-6">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -349,21 +371,14 @@ export const Promotions: React.FC = () => {
           <div className="flex justify-center py-12">
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
           </div>
-        ) : promotions.length === 0 ? (
+        ) : loadError ? <div role="alert" className="p-6 space-y-3"><p>{loadError}</p><Button variant="outline" onClick={() => void promotionUpdates.refresh()}>Retry promotions</Button></div> : promotions.length === 0 ? (
           <EmptyState
             icon={Tag}
             title="No promotions yet"
             hint={search ? 'Try adjusting your search' : 'Create your first deal — e.g. "2 energy drinks for $6"'}
-            action={
-              !search ? (
-                <Button variant="primary" size="sm" onClick={openCreate}>
-                  <Plus className="h-4 w-4 mr-1" /> New Promotion
-                </Button>
-              ) : undefined
-            }
           />
         ) : (
-          <Table>
+          <Table scrollLabel="Promotions records">
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
@@ -396,7 +411,7 @@ export const Promotions: React.FC = () => {
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex gap-1 justify-end">
+                    {manage && <div className="flex gap-1 justify-end">
                       <Button variant="outline" size="sm" onClick={() => openEdit(p)} title="Edit">
                         <Pencil className="h-3 w-3" />
                       </Button>
@@ -417,7 +432,7 @@ export const Promotions: React.FC = () => {
                       >
                         <Trash2 className="h-3 w-3" />
                       </Button>
-                    </div>
+                    </div>}
                   </TableCell>
                 </TableRow>
               ))}
@@ -430,8 +445,8 @@ export const Promotions: React.FC = () => {
 
       {/* Create / Edit Modal */}
       <Modal
-        isOpen={showFormModal}
-        onClose={() => setShowFormModal(false)}
+        isOpen={manage && showFormModal}
+        onClose={() => { editVersion.current++; setShowFormModal(false); }}
         title={editingId ? 'Edit Promotion' : 'New Promotion'}
         size="lg"
       >
@@ -445,7 +460,7 @@ export const Promotions: React.FC = () => {
             />
             <div>
               <label className="block text-sm font-medium mb-1">Deal type</label>
-              <select
+              <Select
                 value={form.type}
                 onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as PromotionType }))}
                 className="w-full h-10 px-3 border border-input rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -453,7 +468,7 @@ export const Promotions: React.FC = () => {
                 {(Object.keys(TYPE_LABELS) as PromotionType[]).map((t) => (
                   <option key={t} value={t}>{TYPE_LABELS[t]}</option>
                 ))}
-              </select>
+              </Select>
             </div>
           </div>
 
@@ -671,6 +686,6 @@ export const Promotions: React.FC = () => {
         destructive
         confirmLabel="Delete"
       />
-    </div>
+    </ManagementPage>
   );
 };

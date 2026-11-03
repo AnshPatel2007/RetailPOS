@@ -17,7 +17,9 @@ const saleItemSchema = z.object({
 
 const paymentEntrySchema = z.object({
   paymentMethod: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'EBT', 'HOUSE_ACCOUNT', 'OTHER']),
-  amount: z.number().min(0.01, 'Payment amount must be greater than 0'),
+  // A fully redeemed purchase may have a zero cash settlement. The pricing
+  // transaction rejects zero entries whenever an amount is still due.
+  amount: z.number().finite().min(0, 'Payment amount cannot be negative').multipleOf(0.01, 'Payment amounts must use whole cents'),
   reference: z.string().optional(),
 });
 
@@ -31,34 +33,53 @@ export const createSaleSchema = z.object({
     customerId: z.string().uuid().optional(),
     items: z.array(saleItemSchema).min(1, 'At least one item is required'),
     paymentMethod: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'EBT', 'HOUSE_ACCOUNT', 'OTHER']),
-    amountPaid: z.number().min(0, 'Amount paid must be 0 or greater'),
-    payments: z.array(paymentEntrySchema).optional(), // Split payment support
+    amountPaid: z.number().finite().min(0, 'Amount paid must be 0 or greater').multipleOf(0.01, 'Amount paid must use whole cents'),
+    payments: z.array(paymentEntrySchema).max(20).optional(), // Successive payments for the same sale
     pointsRedeemed: z.number().int().min(0).optional(), // Loyalty points to redeem
     ageVerification: ageVerificationSchema.optional(), // required when cart has age-restricted items
     notes: z.string().optional(),
     receiptEmail: z.string().email().optional(),
     idempotencyKey: z.string().uuid().optional(),
+    offlineCreatedAt: z.string().datetime().optional(),
+    offlineShiftId: z.string().uuid().optional(),
+    expectedShiftId: z.string().uuid().optional(),
+    expectedTotal: z.number().finite().min(0).optional(),
   }),
 });
 
 const refundItemSchema = z.object({
   saleItemId: z.string().min(1, 'Sale item ID is required'),
   quantity: z.number().int().min(1, 'Refund quantity must be at least 1'),
+  restockAsSealed: z.boolean().optional(),
 });
 
 export const refundSaleSchema = z.object({
   body: z.object({
+    idempotencyKey: z.string().uuid().optional(),
+    expectedAmount: z.number().finite().min(0).multipleOf(0.01).optional(),
     // Amount is required for money-only refunds; when items are provided the
     // server computes the amount from the item lines instead
-    amount: z.number().min(0.01, 'Refund amount must be greater than 0').optional(),
-    reason: z.string().min(1, 'Refund reason is required'),
-    notes: z.string().optional(),
-    items: z.array(refundItemSchema).optional(),
+    amount: z.number().finite().min(0.01, 'Refund amount must be greater than 0').multipleOf(0.01).optional(),
+    reason: z.string().trim().min(1, 'Refund reason is required').max(500),
+    notes: z.string().max(2000).optional(),
+    items: z.array(refundItemSchema).max(500).optional(),
     restock: z.boolean().optional(), // restock returned items (default true, item refunds only)
-    refundMethod: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT']).optional(),
-    reference: z.string().optional(), // gift card code when refundMethod = GIFT_CARD
+    refundMethod: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'HOUSE_ACCOUNT']).optional(),
+    reference: z.string().trim().max(150).optional(),
+    refundTenders: z.array(z.object({ sourcePaymentId: z.string().min(1).max(100),
+      method: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'HOUSE_ACCOUNT']),
+      amount: z.number().finite().positive().multipleOf(0.01), reference: z.string().trim().max(150).optional(),
+    }).strict()).max(20).optional(),
   }).refine(
     (data) => data.amount !== undefined || (data.items && data.items.length > 0),
     { message: 'Either a refund amount or refund items must be provided' }
   ),
 });
+
+export const quoteSaleSchema = z.object({ body: z.object({
+  items: z.array(saleItemSchema).min(1).max(500),
+  customerId: z.string().uuid().optional(),
+  pointsRedeemed: z.number().int().min(0).optional(),
+  paymentMethod: paymentEntrySchema.shape.paymentMethod.optional(),
+  payments: z.array(paymentEntrySchema).max(20).optional(),
+}) });

@@ -1,4 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import { ManagementPage } from '@/components/common/Workspace';
+import { Select } from '@/components/ui/Select';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
+import { useNavigate } from 'react-router-dom';
+import { useAdminViewStore } from '@/store/adminViewStore';
+import { StoreConnections } from '@/components/StoreConnections';
+import { LotteryConfiguration } from '@/components/lottery/LotteryConfiguration';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useFocusTrap, isTopFocusTrap } from '@/hooks/useFocusTrap';
 import { locationService } from '@/services/api';
 import { formatCurrency, CHART_COLORS } from '@/lib/utils';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -26,6 +35,7 @@ import {
   ShoppingCart,
   Package,
   Eye,
+  Link2,
   X,
 } from 'lucide-react';
 import {
@@ -73,10 +83,12 @@ interface StoreDetails {
 const COLORS = CHART_COLORS;
 
 export const StoreManagement: React.FC = () => {
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const navigate = useNavigate();
+  const enterAdminView = useAdminViewStore(state => state.enterAdminView);
   const [showModal, setShowModal] = useState(false);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
+  const [connectionStore, setConnectionStore] = useState<Location | null>(null);
+  const [lotteryStore, setLotteryStore] = useState<Location | null>(null);
 
   // Store detail modal state
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -84,6 +96,19 @@ export const StoreManagement: React.FC = () => {
   const [storeDetails, setStoreDetails] = useState<StoreDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [detailPeriod, setDetailPeriod] = useState(30);
+  const [detailError, setDetailError] = useState('');
+  const detailVersion = useRef(0);
+  const detailRef = useFocusTrap(showDetailModal);
+  const closeDetails = useCallback(() => {
+    detailVersion.current++; setShowDetailModal(false); setStoreDetails(null); setDetailError('');
+  }, []);
+  useEffect(() => {
+    if (!showDetailModal) return;
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && isTopFocusTrap(detailRef.current)) { event.preventDefault(); closeDetails(); } };
+    document.addEventListener('keydown', escape);
+    return () => document.removeEventListener('keydown', escape);
+  }, [showDetailModal, closeDetails]);
+  useEffect(() => () => { detailVersion.current++; }, []);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -100,39 +125,28 @@ export const StoreManagement: React.FC = () => {
     timezone: 'America/New_York',
   });
 
-  useEffect(() => {
-    loadLocations();
-  }, []);
 
-  const loadLocations = async () => {
-    setIsLoading(true);
-    try {
-      const response = await locationService.getAll();
-      setLocations(response.data.data);
-    } catch (error) {
-      console.error('Failed to load locations:', error);
-      toast.error('Failed to load stores');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const query = useScopedQuery<Location[]>(['admin-stores'], async signal => (await locationService.getAll(signal)).data.data);
+  const locations = query.data || [], isLoading = query.loading, loadLocations = query.refresh;
+  const loadError = query.stale ? '' : query.error;
 
   const loadStoreDetails = async (store: Location, period: number = detailPeriod) => {
-    setIsLoadingDetails(true);
+    const version = ++detailVersion.current;
+    setIsLoadingDetails(true); setStoreDetails(null); setDetailError('');
     try {
       const [locationResponse, statsResponse] = await Promise.all([
         locationService.getById(store.id),
         locationService.getStats(store.id, period),
       ]);
+      if (version !== detailVersion.current) return;
       setStoreDetails({
         location: locationResponse.data.data,
         stats: statsResponse.data.data,
       });
     } catch (error) {
-      console.error('Failed to load store details:', error);
-      toast.error('Failed to load store details');
+      if (version === detailVersion.current) setDetailError('Unable to load this store and period. Retry when connected.');
     } finally {
-      setIsLoadingDetails(false);
+      if (version === detailVersion.current) setIsLoadingDetails(false);
     }
   };
 
@@ -229,8 +243,9 @@ export const StoreManagement: React.FC = () => {
     setShowModal(true);
   };
 
+
   return (
-    <div className="space-y-6">
+    <ManagementPage className="space-y-6">
       <PageHeader
         title="Store Management"
         subtitle="Manage all store locations"
@@ -241,18 +256,22 @@ export const StoreManagement: React.FC = () => {
           </Button>
         }
       />
+      <AutoRefreshStatus state={query} />
+
+      {connectionStore && <StoreConnections key={connectionStore.id} stores={locations} store={connectionStore} onClose={() => setConnectionStore(null)} />}
+      {lotteryStore && <LotteryConfiguration key={lotteryStore.id} store={lotteryStore} onClose={() => setLotteryStore(null)} />}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="metric-grid grid grid-cols-2 md:grid-cols-3 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded-lg">
+              <div className="metric-icon p-2 bg-primary/10 rounded-lg">
                 <Store className="h-5 w-5 text-primary" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Stores</p>
-                <p className="text-2xl font-bold">{locations.length}</p>
+                <p className="metric-value text-2xl font-semibold">{locations.length}</p>
               </div>
             </div>
           </CardContent>
@@ -261,12 +280,12 @@ export const StoreManagement: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-success/10 rounded-lg">
+              <div className="metric-icon p-2 bg-success/10 rounded-lg">
                 <Store className="h-5 w-5 text-success" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Active Stores</p>
-                <p className="text-2xl font-bold">
+                <p className="metric-value text-2xl font-semibold">
                   {locations.filter(l => l.isActive).length}
                 </p>
               </div>
@@ -277,12 +296,12 @@ export const StoreManagement: React.FC = () => {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-info/10 rounded-lg">
+              <div className="metric-icon p-2 bg-info/10 rounded-lg">
                 <Users className="h-5 w-5 text-info" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Users</p>
-                <p className="text-2xl font-bold">
+                <p className="metric-value text-2xl font-semibold">
                   {locations.reduce((sum, l) => sum + l._count.users, 0)}
                 </p>
               </div>
@@ -300,7 +319,7 @@ export const StoreManagement: React.FC = () => {
           <div className="p-8 text-center">
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
           </div>
-        ) : locations.length === 0 ? (
+        ) : loadError ? (<div role="alert" className="p-4 space-y-3"><p>Stores could not be loaded.</p><Button variant="outline" onClick={loadLocations}>Retry</Button></div>) : locations.length === 0 ? (
           <div className="p-12 text-center">
             <Store className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-2">No stores yet</h3>
@@ -311,14 +330,14 @@ export const StoreManagement: React.FC = () => {
             </Button>
           </div>
         ) : (
-          <Table>
+          <Table scrollLabel="Store Management records">
             <TableHeader>
               <TableRow>
                 <TableHead>Store Name</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>Contact</TableHead>
-                <TableHead>Users</TableHead>
-                <TableHead>Revenue</TableHead>
+                <TableHead className="text-right">Users</TableHead>
+                <TableHead className="text-right">Revenue</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -346,8 +365,8 @@ export const StoreManagement: React.FC = () => {
                     <p>{location.phone}</p>
                     <p className="text-sm text-muted-foreground">{location.email}</p>
                   </TableCell>
-                  <TableCell>{location._count.users}</TableCell>
-                  <TableCell>
+                  <TableCell className="text-right">{location._count.users}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap">
                     <p className="font-medium">{formatCurrency(location.totalRevenue)}</p>
                     <p className="text-sm text-muted-foreground">
                       Today: {formatCurrency(location.todayRevenue)}
@@ -361,10 +380,15 @@ export const StoreManagement: React.FC = () => {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button variant="outline" aria-label={`Configure lottery for ${location.name}`} onClick={(e) => { e.stopPropagation(); setLotteryStore(location); }}>Lottery</Button>
+                      <Button variant="outline" size="sm" aria-label={`Manage connections for ${location.name}`} onClick={(e) => { e.stopPropagation(); setConnectionStore(location); }}>
+                        <Link2 className="h-4 w-4 mr-2" />Connections
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label={`View details for ${location.name}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           handleViewDetails(location);
@@ -375,6 +399,7 @@ export const StoreManagement: React.FC = () => {
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label={`Edit store ${location.name}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           handleEdit(location);
@@ -386,6 +411,7 @@ export const StoreManagement: React.FC = () => {
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label={`Deactivate store ${location.name}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDelete(location.id);
@@ -492,7 +518,7 @@ export const StoreManagement: React.FC = () => {
             />
             <div>
               <label className="block text-sm font-medium mb-1">Timezone</label>
-              <select
+              <Select
                 value={formData.timezone}
                 onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -501,7 +527,7 @@ export const StoreManagement: React.FC = () => {
                 <option value="America/Chicago">Central</option>
                 <option value="America/Denver">Mountain</option>
                 <option value="America/Los_Angeles">Pacific</option>
-              </select>
+              </Select>
             </div>
           </div>
 
@@ -529,18 +555,19 @@ export const StoreManagement: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
             className="absolute inset-0 bg-black/50"
-            onClick={() => setShowDetailModal(false)}
+            onClick={closeDetails}
           />
-          <div className="relative bg-background rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto m-4">
+          <div ref={detailRef} role="dialog" aria-modal="true" aria-label="Store Details" className="relative bg-background rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto m-4">
             {/* Header */}
-            <div className="sticky top-0 bg-background border-b p-4 flex justify-between items-center">
+            <div className="sticky top-0 bg-background border-b p-4 flex flex-wrap gap-3 justify-between items-center">
               <div>
                 <h2 className="text-2xl font-bold">{selectedStore.name}</h2>
                 <p className="text-muted-foreground">
                   {selectedStore.city}, {selectedStore.state}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 max-w-full">
+                <Button variant="outline" onClick={() => { enterAdminView(selectedStore.id, selectedStore.name); closeDetails(); navigate('/dashboard'); }}>Preview store</Button>
                 {[7, 30, 90].map((p) => (
                   <Button
                     key={p}
@@ -554,7 +581,8 @@ export const StoreManagement: React.FC = () => {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setShowDetailModal(false)}
+                  onClick={closeDetails}
+                  aria-label="Close store details"
                 >
                   <X className="h-5 w-5" />
                 </Button>
@@ -566,7 +594,7 @@ export const StoreManagement: React.FC = () => {
                 <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
                 <p className="mt-4 text-muted-foreground">Loading store details...</p>
               </div>
-            ) : storeDetails ? (
+            ) : detailError ? <div role="alert" className="p-6 space-y-3"><p>{detailError}</p><Button onClick={() => void loadStoreDetails(selectedStore)}>Retry store details</Button></div> : storeDetails ? (
               <div className="p-6 space-y-6">
                 {/* Key Metrics */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -576,7 +604,7 @@ export const StoreManagement: React.FC = () => {
                         <DollarSign className="h-8 w-8 text-success" />
                         <div>
                           <p className="text-sm text-muted-foreground">Revenue</p>
-                          <p className="text-2xl font-bold">
+                          <p className="metric-value text-2xl font-semibold">
                             {formatCurrency(storeDetails.stats?.periodRevenue || 0)}
                           </p>
                         </div>
@@ -590,8 +618,8 @@ export const StoreManagement: React.FC = () => {
                         <TrendingUp className="h-8 w-8 text-success" />
                         <div>
                           <p className="text-sm text-muted-foreground">Profit</p>
-                          <p className="text-2xl font-bold">
-                            {formatCurrency(storeDetails.stats?.periodProfit || 0)}
+                          <p className="metric-value text-2xl font-semibold">
+                            {typeof storeDetails.stats?.periodProfit === 'number' ? formatCurrency(storeDetails.stats.periodProfit) : 'Unavailable'}
                           </p>
                         </div>
                       </div>
@@ -604,7 +632,7 @@ export const StoreManagement: React.FC = () => {
                         <ShoppingCart className="h-8 w-8 text-info" />
                         <div>
                           <p className="text-sm text-muted-foreground">Transactions</p>
-                          <p className="text-2xl font-bold">
+                          <p className="metric-value text-2xl font-semibold">
                             {storeDetails.stats?.periodTransactions || 0}
                           </p>
                         </div>
@@ -618,7 +646,7 @@ export const StoreManagement: React.FC = () => {
                         <Package className="h-8 w-8 text-primary" />
                         <div>
                           <p className="text-sm text-muted-foreground">Products</p>
-                          <p className="text-2xl font-bold">
+                          <p className="metric-value text-2xl font-semibold">
                             {storeDetails.location?._count?.products || 0}
                           </p>
                         </div>
@@ -721,7 +749,7 @@ export const StoreManagement: React.FC = () => {
                       <CardTitle>Store Users ({storeDetails.location.users.length})</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <Table>
+                      <Table scrollLabel="Store Management records">
                         <TableHeader>
                           <TableRow>
                             <TableHead>Name</TableHead>
@@ -762,7 +790,7 @@ export const StoreManagement: React.FC = () => {
                       <CardTitle>Recent Sales</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <Table>
+                      <Table scrollLabel="Store Management records">
                         <TableHeader>
                           <TableRow>
                             <TableHead>Sale #</TableHead>
@@ -831,6 +859,6 @@ export const StoreManagement: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </ManagementPage>
   );
 };

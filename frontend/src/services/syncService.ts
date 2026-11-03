@@ -1,7 +1,17 @@
-import { v4 as uuidv4 } from 'uuid';
-import { offlineDb, PendingSale, PendingSaleItem } from './offlineDb';
+import { offlineDb, PendingSale } from './offlineDb';
 import { saleService, productService, customerService } from './api';
 import { useAuthStore } from '../store/authStore';
+import { useAdminViewStore } from '../store/adminViewStore';
+import { sessionGeneration } from './sessionGeneration';
+import { storeContextGeneration } from './storeContextGeneration';
+
+function currentCacheScope() {
+  const user = useAuthStore.getState().user;
+  if (!user?.locationId || user.role === 'SUPER_ADMIN' || useAdminViewStore.getState().isAdminViewing) return null;
+  const session = sessionGeneration(), store = storeContextGeneration();
+  return { scope: { userId: user.id, locationId: user.locationId },
+    isCurrent: () => session === sessionGeneration() && store === storeContextGeneration() && useAuthStore.getState().user?.id === user.id };
+}
 
 type SyncStatus = 'idle' | 'syncing' | 'success' | 'error';
 type ConnectionStatus = 'online' | 'offline';
@@ -30,11 +40,21 @@ class SyncService {
   constructor() {
     this.setupNetworkListeners();
     this.initializeState();
+    useAuthStore.subscribe((state, previous) => {
+      if (state.user?.id !== previous.user?.id || state.user?.locationId !== previous.user?.locationId) {
+        this.updateState({ pendingSalesCount: 0, lastError: undefined, lastSyncTime: undefined, status: 'idle' });
+        void this.initializeState();
+      }
+    });
   }
 
   private async initializeState(): Promise<void> {
-    const pendingSalesCount = await offlineDb.getPendingSaleCount();
-    this.updateState({ pendingSalesCount });
+    const context = currentCacheScope();
+    if (!context) return;
+    try {
+      const pending = await offlineDb.getPendingSales();
+      if (context.isCurrent()) this.updateState({ pendingSalesCount: pending.filter(record => record.userId === context.scope.userId && record.locationId === context.scope.locationId).length });
+    } catch { if (context.isCurrent()) this.updateState({ status: 'error', lastError: 'Unable to read saved register transactions.' }); }
   }
 
   private setupNetworkListeners(): void {
@@ -102,15 +122,23 @@ class SyncService {
 
   // Cache data from server
   async cacheProducts(): Promise<void> {
-    if (!this.isOnline) {
+    if (!this.isOnline || !useAuthStore.getState().isAuthenticated || useAdminViewStore.getState().isAdminViewing) {
       console.log('Cannot cache products: offline');
       return;
     }
 
+    const context = currentCacheScope();
+    if (!context) return;
     try {
-      const response = await productService.getAll({ limit: 1000, isActive: true });
-      const products = response.data.data;
-      await offlineDb.cacheProducts(products);
+      const products: any[] = [];
+      for (let page = 1; ; page++) {
+        const response = await productService.getAll({ limit: 100, page, isActive: true });
+        if (!context.isCurrent()) return;
+        const batch = response.data.data;
+        products.push(...batch);
+        if (batch.length < 100) break;
+      }
+      await offlineDb.cacheProducts(products, context.scope, context.isCurrent);
       console.log(`Cached ${products.length} products`);
     } catch (error) {
       console.error('Failed to cache products:', error);
@@ -124,10 +152,18 @@ class SyncService {
       return;
     }
 
+    const context = currentCacheScope();
+    if (!context) return;
     try {
-      const response = await customerService.getAll({ limit: 1000 });
-      const customers = response.data.data;
-      await offlineDb.cacheCustomers(customers);
+      const customers: any[] = [];
+      for (let page = 1; ; page++) {
+        const response = await customerService.getAll({ limit: 100, page });
+        if (!context.isCurrent()) return;
+        const batch = response.data.data;
+        customers.push(...batch);
+        if (batch.length < 100) break;
+      }
+      await offlineDb.cacheCustomers(customers, context.scope, context.isCurrent);
       console.log(`Cached ${customers.length} customers`);
     } catch (error) {
       console.error('Failed to cache customers:', error);
@@ -142,126 +178,36 @@ class SyncService {
     ]);
   }
 
-  // Create offline sale
-  async createOfflineSale(saleData: {
-    customerId?: string;
-    items: Array<{
-      productId: string;
-      sku: string;
-      productName: string;
-      quantity: number;
-      price: number;
-      discount: number;
-      isTaxable?: boolean;
-    }>;
-    paymentMethod: string;
-    amountPaid: number;
-    notes?: string;
-    taxRate?: number; // fraction, e.g. 0.0825
-  }): Promise<PendingSale> {
-    const taxRate = saleData.taxRate ?? 0.0825; // Default 8.25% tax
-
-    // Calculate totals
-    let subtotal = 0;
-    let totalDiscount = 0;
-    let totalTax = 0;
-
-    const items: PendingSaleItem[] = saleData.items.map(item => {
-      const itemSubtotal = item.price * item.quantity;
-      const itemDiscount = item.discount || 0;
-      const taxableAmount = itemSubtotal - itemDiscount;
-      // Non-taxable items (isTaxable === false) carry no tax
-      const itemTax = item.isTaxable === false ? 0 : taxableAmount * taxRate;
-      const itemTotal = taxableAmount + itemTax;
-
-      subtotal += itemSubtotal;
-      totalDiscount += itemDiscount;
-      totalTax += itemTax;
-
-      return {
-        productId: item.productId,
-        sku: item.sku,
-        productName: item.productName,
-        quantity: item.quantity,
-        price: item.price,
-        discount: itemDiscount,
-        tax: itemTax,
-        total: itemTotal,
-        isTaxable: item.isTaxable,
-      };
-    });
-
-    const total = subtotal - totalDiscount + totalTax;
-    const changeDue = saleData.amountPaid - total;
-
-    const pendingSale: Omit<PendingSale, 'id'> = {
-      localId: uuidv4(),
-      locationId: useAuthStore.getState().user?.locationId ?? null,
-      customerId: saleData.customerId,
-      items,
-      subtotal,
-      tax: totalTax,
-      discount: totalDiscount,
-      total,
-      paymentMethod: saleData.paymentMethod,
-      amountPaid: saleData.amountPaid,
-      changeDue: Math.max(0, changeDue),
-      notes: saleData.notes,
-      createdAt: Date.now(),
-      synced: false,
-      syncAttempts: 0,
-    };
-
-    const id = await offlineDb.savePendingSale(pendingSale);
-    const savedSale = { ...pendingSale, id };
-
-    // Update state
-    const pendingSalesCount = await offlineDb.getPendingSaleCount();
-    this.updateState({ pendingSalesCount });
-
-    // Try to sync immediately if online
-    if (this.isOnline) {
-      this.syncSale(savedSale);
+  // Preserve the exact checkout payload, cashier, shift and original timestamp.
+  async queueCheckout(data: { payload: Record<string, any>; userId: string; locationId: string; shiftId: string; createdAt: number; originalReceipt?: Record<string, any>; snapshot: { subtotal: number; tax: number; discount: number }; expectedTotal: number }): Promise<PendingSale> {
+    const { payload, expectedTotal } = data;
+    if (payload.paymentMethod !== 'CASH' || payload.payments?.some((p: any) => p.paymentMethod !== 'CASH') || payload.pointsRedeemed) {
+      throw new Error('Offline checkout supports cash only without loyalty redemption');
     }
-
-    return savedSale;
+    const pending: Omit<PendingSale, 'id'> = {
+      localId: payload.idempotencyKey, userId: data.userId, locationId: data.locationId,
+      originalReceipt: data.originalReceipt,
+      payload: { ...payload, offlineCreatedAt: new Date(data.createdAt).toISOString(), offlineShiftId: data.shiftId, expectedTotal },
+      customerId: payload.customerId, items: payload.items, ...data.snapshot,
+      total: expectedTotal, paymentMethod: 'CASH', amountPaid: payload.amountPaid,
+      changeDue: Math.max(0, payload.amountPaid - expectedTotal), notes: payload.notes,
+      createdAt: data.createdAt, synced: false, syncAttempts: 0,
+    };
+    const id = await offlineDb.savePendingSale(pending);
+    await this.initializeState();
+    return { ...pending, id };
   }
 
   // Sync single sale
   private async syncSale(sale: PendingSale): Promise<boolean> {
     if (!sale.id) return false;
 
-    // Defense-in-depth: don't silently sync a sale that was rung up under a
-    // different store's login than the one currently authenticated — the
-    // backend stamps locationId from the current JWT, so syncing here would
-    // misattribute the sale to the wrong store. Flag it and leave it queued
-    // for whoever logs back in as the right store instead.
-    const currentLocationId = useAuthStore.getState().user?.locationId ?? null;
-    if (sale.locationId && sale.locationId !== currentLocationId) {
-      const errorMessage = 'Queued under a different store login — sign in as that store to sync';
-      await offlineDb.markSaleSyncFailed(sale.id, errorMessage);
-      console.warn(`Skipping sale ${sale.localId}: ${errorMessage}`);
-      return false;
-    }
-
+    const user = useAuthStore.getState().user;
+    // A different login must not consume retries or change the attribution.
+    if (!user || user.id !== sale.userId || user.locationId !== sale.locationId) return false;
     try {
-      // Transform to API format. The localId doubles as the idempotency key so
-      // a retry after an ambiguous failure can't create a duplicate sale.
-      const apiSale = {
-        idempotencyKey: sale.localId,
-        customerId: sale.customerId,
-        items: sale.items.map(item => ({
-          productId: item.productId,
-          quantity: item.quantity,
-          price: item.price,
-          discount: item.discount,
-        })),
-        paymentMethod: sale.paymentMethod,
-        amountPaid: sale.amountPaid,
-        notes: sale.notes,
-        offlineCreatedAt: new Date(sale.createdAt).toISOString(),
-      };
-
+      if (!sale.payload) throw new Error('Legacy queued sale needs manual reconciliation; checkout details are missing');
+      const apiSale = sale.payload;
       const response = await saleService.create(apiSale);
       const serverId = response.data.data.id;
 
@@ -278,6 +224,8 @@ class SyncService {
       console.log(`Sale synced: ${sale.localId} -> ${serverId}`);
       return true;
     } catch (error: any) {
+      // Changing cashier cancels a request; retain its exact retry key and budget.
+      if (error.code === 'ERR_CANCELED') return false;
       const errorMessage = error.response?.data?.error || error.message || 'Unknown error';
       await offlineDb.markSaleSyncFailed(sale.id, errorMessage);
       await offlineDb.addSyncLog({
@@ -296,7 +244,9 @@ class SyncService {
 
   // Sync all pending sales
   async syncPendingSales(): Promise<{ synced: number; failed: number }> {
-    const pendingSales = await offlineDb.getPendingSales();
+    const context = currentCacheScope();
+    if (!context) return { synced: 0, failed: 0 };
+    const pendingSales = (await offlineDb.getPendingSales()).filter(record => record.userId === context.scope.userId && record.locationId === context.scope.locationId && record.reconciliation?.status !== 'HOLD');
 
     if (pendingSales.length === 0) {
       return { synced: 0, failed: 0 };
@@ -311,6 +261,7 @@ class SyncService {
     pendingSales.sort((a, b) => a.createdAt - b.createdAt);
 
     for (const sale of pendingSales) {
+      if (!context.isCurrent()) break;
       // Skip sales with too many failed attempts
       if (sale.syncAttempts >= 5) {
         console.warn(`Skipping sale ${sale.localId}: too many failed attempts`);
@@ -330,42 +281,47 @@ class SyncService {
     }
 
     // Update state
-    const pendingSalesCount = await offlineDb.getPendingSaleCount();
-    this.updateState({ pendingSalesCount });
+    await this.initializeState();
 
     return { synced, failed };
   }
 
   // Full sync
   async syncAll(): Promise<void> {
-    if (!this.isOnline || this.isSyncing) {
+    if (!this.isOnline || this.isSyncing || !useAuthStore.getState().isAuthenticated || useAdminViewStore.getState().isAdminViewing) {
       return;
     }
 
+    const context = currentCacheScope();
+    if (!context) return;
     this.isSyncing = true;
     this.updateState({ status: 'syncing' });
 
     try {
       // Sync pending sales
       const result = await this.syncPendingSales();
+      if (!context.isCurrent()) return;
 
       // Refresh cache
       await this.cacheAllData();
+      if (!context.isCurrent()) return;
 
       // Clean up old sync logs
       await offlineDb.clearOldSyncLogs(7);
 
       // Delete synced sales older than 24 hours
       await offlineDb.deleteSyncedSales();
+      if (!context.isCurrent()) return;
 
       this.updateState({
-        status: 'success',
+        status: result.failed ? 'error' : 'success',
         lastSyncTime: Date.now(),
-        lastError: undefined,
+        lastError: result.failed ? 'Some sales remain queued. Sign in as the original cashier and retry, or review the sync log.' : undefined,
       });
 
       console.log(`Sync complete: ${result.synced} synced, ${result.failed} failed`);
     } catch (error: any) {
+      if (!context.isCurrent()) return;
       const errorMessage = error.message || 'Sync failed';
       this.updateState({
         status: 'error',
@@ -382,12 +338,18 @@ class SyncService {
     if (!this.isOnline) {
       throw new Error('Cannot sync while offline');
     }
+    const user = useAuthStore.getState().user;
+    for (const sale of await offlineDb.getPendingSales()) {
+      if (sale.userId === user?.id && sale.locationId === user?.locationId && sale.id) {
+        await offlineDb.resetSaleAttempts(sale.id);
+      }
+    }
     await this.syncAll();
   }
 
   // Check if we can process sales offline
   canProcessOffline(): boolean {
-    return true; // IndexedDB is always available
+    return typeof indexedDB !== 'undefined';
   }
 
   // Get sync statistics

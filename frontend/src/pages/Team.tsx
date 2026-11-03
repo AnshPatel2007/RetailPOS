@@ -1,3 +1,7 @@
+import { ManagementPage } from '@/components/common/Workspace';
+import { Select } from '@/components/ui/Select';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
 import React, { useState, useEffect, useRef } from 'react';
 import { userService } from '@/services/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -41,8 +45,6 @@ const STAFF_ROLES = ['MANAGER', 'CASHIER'] as const;
  * doesn't offer the options that would be rejected anyway.
  */
 export const Team: React.FC = () => {
-  const [users, setUsers] = useState<StaffUser[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterRole, setFilterRole] = useState('');
@@ -70,26 +72,10 @@ export const Team: React.FC = () => {
     return () => clearTimeout(searchTimer.current);
   }, [search]);
 
-  useEffect(() => {
-    loadUsers();
-  }, [debouncedSearch, filterRole]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadUsers = async () => {
-    setIsLoading(true);
-    try {
-      // No locationId param — the backend scopes non-super-admins to their
-      // own store automatically
-      const res = await userService.getAll({
-        search: debouncedSearch || undefined,
-        role: filterRole || undefined,
-      });
-      setUsers(res.data.data);
-    } catch {
-      toast.error('Failed to load staff');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const query = useScopedQuery<StaffUser[]>(['team', debouncedSearch, filterRole], async signal => (await userService.getAll({ search: debouncedSearch || undefined, role: filterRole || undefined }, signal)).data.data);
+  const users = query.data || [], isLoading = query.loading, loadUsers = query.refresh;
+  const loadError = query.stale ? '' : query.error;
 
   /** Only managers/cashiers are ever editable here — admin accounts are hands-off */
   const isManageable = (u: StaffUser) => (STAFF_ROLES as readonly string[]).includes(u.role);
@@ -191,8 +177,9 @@ export const Team: React.FC = () => {
 
   const activeCount = users.filter((u) => u.isActive).length;
 
+
   return (
-    <div className="p-8">
+    <ManagementPage className="">
       <PageHeader
         title="My Team"
         subtitle="Add and manage managers and cashiers for your store"
@@ -203,6 +190,32 @@ export const Team: React.FC = () => {
           </Button>
         }
       />
+      <AutoRefreshStatus state={query} />
+      <Card className="mb-6">
+        <CardContent className="p-4">
+          <div className="flex flex-wrap gap-4">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search team..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select
+              aria-label="Staff role filter"
+              value={filterRole}
+              onChange={(e) => setFilterRole(e.target.value)}
+              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
+            >
+              <option value="">All Roles</option>
+              <option value="MANAGER">Manager</option>
+              <option value="CASHIER">Cashier</option>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         <Card>
@@ -225,30 +238,7 @@ export const Team: React.FC = () => {
         </Card>
       </div>
 
-      <Card className="mb-6">
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-4">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search team..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <select
-              value={filterRole}
-              onChange={(e) => setFilterRole(e.target.value)}
-              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
-            >
-              <option value="">All Roles</option>
-              <option value="MANAGER">Manager</option>
-              <option value="CASHIER">Cashier</option>
-            </select>
-          </div>
-        </CardContent>
-      </Card>
+
 
       <Card>
         <CardHeader><CardTitle>Staff</CardTitle></CardHeader>
@@ -256,7 +246,7 @@ export const Team: React.FC = () => {
           <div className="p-8 text-center">
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
           </div>
-        ) : users.length === 0 ? (
+        ) : loadError ? (<div role="alert" className="p-4 space-y-3"><p>Staff could not be loaded.</p><Button variant="outline" onClick={loadUsers}>Retry</Button></div>) : users.length === 0 ? (
           <EmptyState
             icon={Users}
             title="No team members yet"
@@ -268,7 +258,7 @@ export const Team: React.FC = () => {
             }
           />
         ) : (
-          <Table>
+          <Table scrollLabel="Team records">
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
@@ -343,14 +333,14 @@ export const Team: React.FC = () => {
           />
           <div>
             <label className="block text-sm font-medium mb-1">Role</label>
-            <select
+            <Select
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
             >
               <option value="CASHIER">Cashier</option>
               <option value="MANAGER">Manager</option>
-            </select>
+            </Select>
           </div>
           <p className="text-xs text-muted-foreground">
             They'll be assigned to your store automatically.
@@ -374,14 +364,14 @@ export const Team: React.FC = () => {
           <Input label="Email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required />
           <div>
             <label className="block text-sm font-medium mb-1">Role</label>
-            <select
+            <Select
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
             >
               <option value="CASHIER">Cashier</option>
               <option value="MANAGER">Manager</option>
-            </select>
+            </Select>
           </div>
           <label className="flex items-center space-x-2">
             <input type="checkbox" checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} className="rounded border-input" />
@@ -428,6 +418,6 @@ export const Team: React.FC = () => {
         destructive
         confirmLabel="Deactivate"
       />
-    </div>
+    </ManagementPage>
   );
 };

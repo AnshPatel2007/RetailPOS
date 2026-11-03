@@ -1,13 +1,19 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState, useRef } from 'react';
-import { X, Upload, Camera, Loader2, Check, AlertTriangle, Trash2 } from 'lucide-react';
-import { productService } from '@/services/api';
+import { Upload, Camera, Loader2, Check, AlertTriangle, Trash2 } from 'lucide-react';
+import { productService, purchaseOrderService } from '@/services/api';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
+import { sessionGeneration } from '@/services/sessionGeneration';
 import { formatCurrency } from '@/lib/utils';
-import toast from 'react-hot-toast';
+import { useInventoryImport } from '@/hooks/useInventoryImport';
+import { ImportReview } from './ImportReview';
 
 interface ScannedItem {
+  zeroCostConfirmed?: boolean;
+  lineDiscount?: number; damagedQty?: number; rejectedQty?: number;
   name: string;
   quantity: number;
   packSize: number;
@@ -20,6 +26,7 @@ interface ScannedItem {
   matchedProductSku: string | null;
   existingPrice: number | null;
   existingCost: number | null;
+  price: number;
   // User-editable fields
   sku: string;
   categoryId: string;
@@ -53,10 +60,17 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [supplier, setSupplier] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [purchaseOrderId, setPurchaseOrderId] = useState(''), [invoiceDate, setInvoiceDate] = useState('');
+  const [charges, setCharges] = useState({ freight: '0', acquisitionTax: '0', invoiceDiscount: '0' });
+  const [deliveryNotes, setDeliveryNotes] = useState('');
+  const orders = useScopedQuery<{ id: string; orderNumber: string; status: string; supplier: { name: string } }[]>(['invoice-open-orders'],
+    async signal => (await purchaseOrderService.getAll({ limit: 100 }, signal)).data.data, isOpen && step === 'review');
   const [items, setItems] = useState<ScannedItem[]>([]);
   const [existingProducts, setExistingProducts] = useState<ExistingProduct[]>([]);
-  const [isApplying, setIsApplying] = useState(false);
+  const workflow = useInventoryImport('RECEIPT', onSuccess, isOpen);
+  const isApplying = workflow.busy;
   const [error, setError] = useState('');
+  const scanRevision = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,11 +96,14 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
   const handleScan = async () => {
     if (!selectedFile) return;
 
+    const revision = ++scanRevision.current;
+    const generation = sessionGeneration();
     setStep('scanning');
     setError('');
 
     try {
       const response = await productService.scanReceipt(selectedFile);
+      if (revision !== scanRevision.current || generation !== sessionGeneration()) return;
       const data = response.data.data;
 
       setSupplier(data.supplier || '');
@@ -107,6 +124,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
         matchedProductSku: item.matchedProductSku || null,
         existingPrice: item.existingPrice || null,
         existingCost: item.existingCost || null,
+        price: item.existingPrice || 0,
         sku: '',
         categoryId: '',
         isNew: !item.matchedProductId,
@@ -115,6 +133,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
       setItems(scannedItems);
       setStep('review');
     } catch (err: any) {
+      if (revision !== scanRevision.current || generation !== sessionGeneration()) return;
       setError(err.response?.data?.error || 'Failed to scan receipt. Please try again with a clearer image.');
       setStep('upload');
     }
@@ -174,48 +193,31 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
       return;
     }
 
-    setIsApplying(true);
     setError('');
-
-    try {
-      const payload = {
-        supplier,
-        invoiceNumber: invoiceNumber || undefined,
-        items: items.map(item => ({
-          matchedProductId: item.matchedProductId,
-          name: item.name,
-          unitQuantity: item.unitQuantity,
-          unitCost: item.unitCost,
-          barcode: item.barcode,
-          sku: item.sku || undefined,
-          categoryId: item.categoryId || undefined,
-        })),
-      };
-
-      const response = await productService.applyReceipt(payload);
-      const result = response.data.data;
-
-      toast.success(`${result.processedCount} product(s) updated from receipt`);
-      resetAndClose();
-      onSuccess();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to apply receipt data');
-    } finally {
-      setIsApplying(false);
-    }
+    await workflow.review({ supplier, invoiceNumber: invoiceNumber || undefined,
+      notes: deliveryNotes || undefined,
+      purchaseOrderId: purchaseOrderId || undefined, invoiceDate: invoiceDate ? invoiceDate + 'T12:00:00.000Z' : undefined,
+      freight: Number(charges.freight), acquisitionTax: Number(charges.acquisitionTax), invoiceDiscount: Number(charges.invoiceDiscount),
+      items: items.map(item => ({ matchedProductId: item.matchedProductId, name: item.name,
+        packSize: item.packSize, lineDiscount: item.lineDiscount || 0, damagedQty: item.damagedQty || 0, rejectedQty: item.rejectedQty || 0,
+        unitQuantity: item.unitQuantity - (item.damagedQty || 0) - (item.rejectedQty || 0), unitCost: item.unitCost, zeroCostConfirmed: item.zeroCostConfirmed || false, price: item.isNew && item.price > 0 ? item.price : undefined,
+        barcode: item.barcode, sku: item.sku || undefined, categoryId: item.categoryId || undefined })) });
   };
 
   const resetAndClose = () => {
+    if (workflow.busy) return;
+    scanRevision.current += 1;
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setStep('upload');
     setSelectedFile(null);
     setPreviewUrl(null);
     setSupplier('');
     setInvoiceNumber('');
+    setPurchaseOrderId(''); setInvoiceDate(''); setCharges({ freight: '0', acquisitionTax: '0', invoiceDiscount: '0' });
     setItems([]);
     setExistingProducts([]);
     setError('');
-    setIsApplying(false);
+
     onClose();
   };
 
@@ -225,31 +227,23 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-5xl max-h-[90vh] flex flex-col">
-        <CardHeader className="flex flex-row items-center justify-between shrink-0">
-          <CardTitle className="flex items-center gap-2">
-            <Camera className="h-5 w-5" />
-            {step === 'upload' && 'Scan Supplier Receipt'}
-            {step === 'scanning' && 'Analyzing Receipt...'}
-            {step === 'review' && 'Review Scanned Items'}
-          </CardTitle>
-          <button onClick={resetAndClose} className="text-muted-foreground hover:text-foreground">
-            <X className="h-5 w-5" />
-          </button>
-        </CardHeader>
-        <CardContent className="flex-1 overflow-y-auto">
-          {error && (
-            <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm mb-4 flex items-center gap-2">
+    <Modal isOpen={isOpen} onClose={resetAndClose} size="xl" title={step === 'review' ? 'Review Scanned Items' : step === 'scanning' ? 'Analyzing Receipt...' : 'Scan Supplier Receipt'}>
+          {(error || workflow.error) && (
+            <div role="alert" className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm mb-4 flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              {error}
+              {error || workflow.error}
             </div>
           )}
 
+          {workflow.pending && <div className="space-y-3"><p>A saved receipt import needs confirmation.</p><Button disabled={workflow.busy} onClick={workflow.commit}>Retry saved import</Button></div>}
+          {workflow.result && <div role="status"><p>Import complete: {workflow.result.created} created, {workflow.result.updated} updated.</p><Button className="mt-3" onClick={resetAndClose}>Done</Button></div>}
+          {workflow.preview && !workflow.pending && <div className="space-y-4"><ImportReview preview={workflow.preview} /><div className="flex flex-wrap gap-2 justify-end"><Button variant="outline" disabled={workflow.busy} onClick={workflow.resetPreview}>Back to edit</Button>{workflow.preview.id && <Button disabled={workflow.busy} onClick={workflow.commit}>Apply reviewed import</Button>}</div></div>}
           {/* Step 1: Upload */}
-          {step === 'upload' && (
+          {step === 'upload' && !workflow.pending && !workflow.result && (
             <div className="space-y-6">
               <div
+                role="button" tabIndex={0} aria-label="Choose receipt image"
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
                 className="border-2 border-dashed border-input rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -270,13 +264,14 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                       <p className="font-medium">Upload supplier receipt or invoice</p>
                       <p className="text-sm text-muted-foreground mt-1">
                         Take a photo or upload an image of your supplier receipt/invoice.
-                        The system will read and extract all products automatically.
+                        Review the suggested products, quantities and costs before importing.
                       </p>
                     </div>
                     <p className="text-xs text-muted-foreground">JPEG, PNG up to 5MB</p>
                   </div>
                 )}
                 <input
+                  aria-label="Receipt image"
                   ref={fileInputRef}
                   type="file"
                   accept="image/*"
@@ -316,13 +311,14 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
           )}
 
           {/* Step 3: Review */}
-          {step === 'review' && (
+          {step === 'review' && !workflow.preview && !workflow.pending && !workflow.result && (
             <div className="space-y-4">
               {/* Supplier Info */}
               <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">Supplier</label>
                   <Input
+                    aria-label="Supplier"
                     value={supplier}
                     onChange={(e) => setSupplier(e.target.value)}
                     placeholder="Supplier name"
@@ -331,6 +327,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">Invoice #</label>
                   <Input
+                    aria-label="Invoice number"
                     value={invoiceNumber}
                     onChange={(e) => setInvoiceNumber(e.target.value)}
                     placeholder="Invoice number"
@@ -339,6 +336,9 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
               </div>
 
               {/* Summary bar */}
+              <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm">Purchase order<Select className="mt-1 h-9 w-full rounded-md border bg-background px-3 text-sm" value={purchaseOrderId} onChange={e => { setPurchaseOrderId(e.target.value); const order = orders.data?.find(order => order.id === e.target.value); if (order) setSupplier(order.supplier.name); }}><option value="">New invoice receipt</option>{orders.data?.filter(order => ['ORDERED','PARTIALLY_RECEIVED'].includes(order.status)).map(order => <option key={order.id} value={order.id}>{order.orderNumber} · {order.supplier.name}</option>)}</Select></label><Input label="Invoice date" type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></div>
+              <div className="grid gap-3 sm:grid-cols-3">{(['freight','acquisitionTax','invoiceDiscount'] as const).map((field, index) => <Input key={field} label={['Freight','Nonrecoverable acquisition tax','Invoice discount'][index]} type="number" min={0} step="0.01" value={charges[field]} onChange={e => setCharges(old => ({ ...old, [field]: e.target.value }))} />)}</div>
+              <p className="text-sm text-muted-foreground">Enter accepted sellable units. Shared invoice charges apply to accepted merchandise; damaged and rejected goods remain outside available inventory.</p>
               <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg text-sm">
                 <span>{items.length} item{items.length !== 1 ? 's' : ''} found</span>
                 <span>{totalUnits} total units</span>
@@ -364,16 +364,22 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
 
                         {/* Product name */}
                         <Input
+                          aria-label={'Product name for item ' + (index + 1)}
                           value={item.name}
                           onChange={(e) => updateItem(index, { name: e.target.value })}
                           placeholder="Product name"
                           className="mb-2 font-medium"
                         />
 
+                        {item.isNew && <div className="grid grid-cols-2 gap-3 mb-3">
+                          <label className="text-xs">SKU<Input aria-label={'SKU for item ' + (index + 1)} value={item.sku} onChange={e => updateItem(index, { sku: e.target.value })} /></label>
+                          <label className="text-xs">Retail price<Input aria-label={'Retail price for item ' + (index + 1)} type="number" min="0.01" step="0.01" value={item.price || ''} onChange={e => updateItem(index, { price: Number(e.target.value) })} /></label>
+                        </div>}
                         {/* Match to existing product */}
                         {item.isNew && (
                           <div className="mb-2">
-                            <select
+                            <Select
+                              aria-label={'Match item ' + (index + 1) + ' to existing product'}
                               value=""
                               onChange={(e) => {
                                 if (e.target.value) matchToExisting(index, e.target.value);
@@ -386,7 +392,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                                   {p.name} ({p.sku})
                                 </option>
                               ))}
-                            </select>
+                            </Select>
                           </div>
                         )}
 
@@ -403,6 +409,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label={'Remove item ' + (index + 1)}
                         onClick={() => removeItem(index)}
                         className="text-destructive shrink-0"
                       >
@@ -411,7 +418,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                     </div>
 
                     {/* Quantity fields */}
-                    <div className="grid grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1">
                           Cases/Packs
@@ -419,6 +426,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                         <Input
                           type="number"
                           min="1"
+                          aria-label={'Cases or packs for item ' + (index + 1)}
                           value={item.quantity}
                           onChange={(e) => updateItem(index, { quantity: Math.max(1, parseInt(e.target.value) || 1) })}
                         />
@@ -430,6 +438,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                         <Input
                           type="number"
                           min="1"
+                          aria-label={'Units per pack for item ' + (index + 1)}
                           value={item.packSize}
                           onChange={(e) => updateItem(index, { packSize: Math.max(1, parseInt(e.target.value) || 1) })}
                         />
@@ -450,12 +459,14 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                           type="number"
                           min="0"
                           step="0.01"
+                          aria-label={'Unit cost for item ' + (index + 1)}
                           value={item.unitCost}
                           onChange={(e) => updateItem(index, { unitCost: parseFloat(e.target.value) || 0 })}
                         />
                       </div>
                     </div>
 
+                    {item.unitCost === 0 && <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={item.zeroCostConfirmed || false} onChange={e => updateItem(index, { zeroCostConfirmed: e.target.checked })} />These goods are confirmed free</label>}
                     {/* Line total */}
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">
@@ -466,6 +477,8 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                       </span>
                     </div>
 
+                    <div className="grid gap-3 sm:grid-cols-3">{(['lineDiscount','damagedQty','rejectedQty'] as const).map((field, fieldIndex) => <Input key={field} label={['Line discount (accepted goods)','Damaged units','Rejected units'][fieldIndex]} type="number" min={0} step={field === 'lineDiscount' ? '0.01' : '1'} value={item[field] || 0} onChange={e => updateItem(index, { [field]: Number(e.target.value) })} />)}</div>
+                    {(!!item.damagedQty || !!item.rejectedQty) && <Input label="Delivery discrepancy reason" value={deliveryNotes} onChange={e => setDeliveryNotes(e.target.value)} />}
                     {!item.isNew && item.existingCost != null && item.unitCost > 0 && Math.abs(item.unitCost - item.existingCost) > 0.01 && (
                       <p className="text-xs text-warning flex items-center gap-1">
                         <AlertTriangle className="h-3 w-3" />
@@ -483,11 +496,11 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
               )}
 
               {/* Actions */}
-              <div className="flex items-center justify-between pt-4 border-t">
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t">
                 <Button variant="outline" onClick={() => { setStep('upload'); setItems([]); }}>
                   Re-scan
                 </Button>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={resetAndClose}>
                     Cancel
                   </Button>
@@ -499,12 +512,12 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                     {isApplying ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Applying...
+                        Reviewing...
                       </>
                     ) : (
                       <>
                         <Check className="h-4 w-4 mr-2" />
-                        Confirm & Apply ({items.length} item{items.length !== 1 ? 's' : ''})
+                        Review import ({items.length} item{items.length !== 1 ? 's' : ''})
                       </>
                     )}
                   </Button>
@@ -512,8 +525,6 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
-    </div>
+    </Modal>
   );
 };

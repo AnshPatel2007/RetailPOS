@@ -3,7 +3,6 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { FilterSection } from '@/components/common/FilterSection';
-import { DatePresetsSelect } from '@/components/common/DatePresetsSelect';
 
 interface InventoryFiltersProps {
   filters: {
@@ -52,11 +51,6 @@ export const InventoryFilters: React.FC<InventoryFiltersProps> = ({
     filters.trackInventory !== null ||
     filters.isActive !== null;
 
-  const getDateSummary = () => {
-    if (!filters.startDate && !filters.endDate) return '';
-    if (filters.startDate === filters.endDate) return filters.startDate;
-    return `${filters.startDate || '...'} to ${filters.endDate || '...'}`;
-  };
 
   return (
     <div className="space-y-2">
@@ -73,42 +67,6 @@ export const InventoryFilters: React.FC<InventoryFiltersProps> = ({
 
       {/* Single Column Filter Layout with Vertical Scroll */}
       <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
-        {/* Date Range Section */}
-        <FilterSection
-          title="Date Range"
-          summary={getDateSummary()}
-          defaultOpen={false}
-        >
-          <div className="space-y-1.5">
-            <label className="block text-xs text-muted-foreground">Quick Select</label>
-            <DatePresetsSelect
-              onSelect={(start, end) =>
-                onFilterChange({ ...filters, startDate: start, endDate: end })
-              }
-            />
-            <div className="space-y-1.5 pt-1">
-              <Input
-                type="date"
-                value={filters.startDate}
-                onChange={(e) =>
-                  onFilterChange({ ...filters, startDate: e.target.value })
-                }
-                placeholder="Start date"
-                className="text-xs"
-              />
-              <Input
-                type="date"
-                value={filters.endDate}
-                onChange={(e) =>
-                  onFilterChange({ ...filters, endDate: e.target.value })
-                }
-                placeholder="End date"
-                className="text-xs"
-              />
-            </div>
-          </div>
-        </FilterSection>
-
         {/* Price Range Section */}
         <FilterSection
           title="Price Range"

@@ -8,11 +8,16 @@ import { AppError } from '../utils/errorHandler';
 export const validate = (schema: AnyZodObject) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      await schema.parseAsync({
+      const parsed = await schema.parseAsync({
         body: req.body,
         query: req.query,
         params: req.params,
       });
+      // Controllers must receive the validated fields, not the original object
+      // containing arbitrary Prisma fields or nested relation writes.
+      if (Object.prototype.hasOwnProperty.call(parsed, 'body')) req.body = parsed.body;
+      if (Object.prototype.hasOwnProperty.call(parsed, 'query')) req.query = parsed.query;
+      if (Object.prototype.hasOwnProperty.call(parsed, 'params')) req.params = parsed.params;
 
       return next(); // ✅ FIXED: always return
     } catch (error) {
@@ -24,7 +29,7 @@ export const validate = (schema: AnyZodObject) => {
 
         return res.status(400).json({
           success: false,
-          error: 'Validation failed',
+          error: errors.map(err => err.message).join('; '),
           errors,
         }); // already returned
       }

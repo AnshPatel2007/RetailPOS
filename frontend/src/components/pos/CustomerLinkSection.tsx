@@ -55,7 +55,7 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [customerPhone]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [customerPhone]);
 
   const handlePhoneLookup = async () => {
     if (!customerPhone) return;
@@ -117,7 +117,7 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
                   {(() => {
                     const tier = getLoyaltyTier(linkedCustomer.loyaltyPoints);
                     return (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex items-center gap-0.5 ${tier.css}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex items-center gap-0.5 ${tier.css}`}>
                         <Award className="h-2.5 w-2.5" />
                         {tier.name}
                       </span>
@@ -140,9 +140,9 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
                   </div>
                 </div>
               </div>
-              <button
+              <button aria-label="Remove linked customer"
                 onClick={handleClear}
-                className="p-1 hover:bg-destructive/10 rounded"
+                className="dialog-close inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <X className="h-4 w-4 text-destructive" />
               </button>

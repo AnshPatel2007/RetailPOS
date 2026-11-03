@@ -1,3 +1,13 @@
+import { ManagementPage } from '@/components/common/Workspace';
+import { Select } from '@/components/ui/Select';
+import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import { useUrlFilter, useUrlPage } from '@/hooks/useUrlFilter';
+import { SupplierPicker, PickableSupplier } from '@/components/common/SupplierPicker';
+import { useAuthStore } from '@/store/authStore';
+import { can } from '@/lib/capabilities';
+import { PurchaseReceiptModal } from '@/components/inventory/PurchaseReceiptModal';
+import { PurchaseOrder, outstandingQuantity } from '@/types/purchasing';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Plus,
@@ -21,6 +31,7 @@ import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { PageTabs } from '@/components/common/PageTabs';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -54,34 +65,6 @@ interface Supplier {
   };
 }
 
-interface PurchaseOrder {
-  id: string;
-  orderNumber: string;
-  status: string;
-  totalAmount: number;
-  notes?: string;
-  expectedAt?: string;
-  orderedAt?: string;
-  receivedAt?: string;
-  createdAt: string;
-  supplier: {
-    id: string;
-    name: string;
-  };
-  items?: Array<{
-    id: string;
-    productId: string;
-    productName: string;
-    sku: string;
-    quantity: number;
-    cost: number;
-    total: number;
-  }>;
-  _count?: {
-    items: number;
-  };
-}
-
 interface Product {
   id: string;
   name: string;
@@ -94,21 +77,27 @@ interface Product {
 
 const PAGE_SIZE = 20;
 
-export const Suppliers: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'suppliers' | 'orders'>('suppliers');
+export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: activeTab }) => {
+  const { locationId } = useEffectiveLocation();
+  const requestVersion = useRef(0);
+  const [loadError, setLoadError] = useState('');
+  const [chosenSupplier, setChosenSupplier] = useState<PickableSupplier | null>(null);
+  const role = useAuthStore(s => s.user?.role);
+  const canManage = can(role, 'inventory.manage');
+  const [receivingOrder, setReceivingOrder] = useState<PurchaseOrder | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [productSuggestions, setProductSuggestions] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [orderStatusFilter, setOrderStatusFilter] = useState('');
+  const [search, setSearch] = useUrlFilter('search');
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const [orderStatusFilter, setOrderStatusFilter] = useUrlFilter('status');
 
   // Pagination (server-side)
-  const [supplierPage, setSupplierPage] = useState(1);
+  const [supplierPage, setSupplierPage] = useUrlPage();
   const [supplierTotal, setSupplierTotal] = useState(0);
   const [supplierTotalPages, setSupplierTotalPages] = useState(1);
-  const [orderPage, setOrderPage] = useState(1);
+  const [orderPage, setOrderPage] = useUrlPage();
   const [orderTotal, setOrderTotal] = useState(0);
   const [orderTotalPages, setOrderTotalPages] = useState(1);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -165,70 +154,72 @@ export const Suppliers: React.FC = () => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => {
       setDebouncedSearch(search);
-      setSupplierPage(1);
     }, 300);
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
   }, [search]);
 
-  const fetchSuppliers = async () => {
+  const fetchSuppliers = async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++requestVersion.current; if (!quiet) setLoadError('');
     try {
-      setLoading(true);
+      if (!quiet) setLoading(true);
       const res = await supplierService.getAll({
-        page: supplierPage,
+        locationId, page: supplierPage,
         limit: PAGE_SIZE,
         search: debouncedSearch || undefined,
-      });
+      }, signal);
+      if (version !== requestVersion.current || !active()) return;
+      setLoadError('');
       setSuppliers(res.data.data);
       setSupplierTotal(res.data.pagination?.total ?? res.data.data.length);
       setSupplierTotalPages(res.data.pagination?.totalPages ?? 1);
     } catch (error) {
-      console.error('Failed to fetch suppliers:', error);
-      toast.error('Failed to load suppliers');
+      if (quiet) throw error;
+      if (version === requestVersion.current) setLoadError('Unable to load suppliers. Try again.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   };
 
-  const fetchOrders = async () => {
+  const fetchOrders = async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
+    const version = ++requestVersion.current; if (!quiet) setLoadError('');
     try {
-      setLoading(true);
+      if (!quiet) setLoading(true);
       const res = await purchaseOrderService.getAll({
-        page: orderPage,
+        locationId, search: debouncedSearch || undefined, page: orderPage,
         limit: PAGE_SIZE,
         status: orderStatusFilter || undefined,
-      });
+      }, signal);
+      if (version !== requestVersion.current || !active()) return;
+      setLoadError('');
       setOrders(res.data.data);
       setOrderTotal(res.data.pagination?.total ?? res.data.data.length);
       setOrderTotalPages(res.data.pagination?.totalPages ?? 1);
     } catch (error) {
-      console.error('Failed to fetch purchase orders:', error);
-      toast.error('Failed to load purchase orders');
+      if (quiet) throw error;
+      if (version === requestVersion.current) setLoadError('Unable to load orders. Try again.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchSuppliers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supplierPage, debouncedSearch]);
-
+    if (activeTab === 'suppliers') fetchSuppliers(); else fetchOrders();
+    return () => { requestVersion.current++; };
+  }, [activeTab, supplierPage, orderPage, debouncedSearch, orderStatusFilter, locationId]);
   useEffect(() => {
-    fetchOrders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderPage, orderStatusFilter]);
-
-  const fetchData = () => {
-    fetchSuppliers();
-    fetchOrders();
-  };
+    setSuppliers([]); setOrders([]); setReceivingOrder(null); setShowSupplierModal(false); setShowOrderModal(false);
+    setShowNewProductModal(false); setShowOrderDetailModal(false); resetOrderForm(); resetSupplierForm(); setChosenSupplier(null);
+    return () => { if (productSearchDebounceRef.current) clearTimeout(productSearchDebounceRef.current); };
+  }, [locationId]);
+  const fetchData = () => { if (activeTab === 'suppliers') fetchSuppliers(); else fetchOrders(); };
 
   const handleCreateSupplier = async () => {
     try {
       const supplierData = {
         ...supplierForm,
+        email: supplierForm.email.trim() || null,
         leadTimeDays: supplierForm.leadTimeDays ? parseInt(supplierForm.leadTimeDays) : undefined,
         minimumOrder: supplierForm.minimumOrder ? parseFloat(supplierForm.minimumOrder) : undefined,
       };
@@ -301,30 +292,21 @@ export const Suppliers: React.FC = () => {
     }
   };
 
-  const confirmOrderAction = (orderId: string, action: 'receive' | 'cancel') => {
-    if (action === 'receive') {
-      setConfirmState({
-        title: 'Receive order?',
-        message: 'This will update inventory quantities for all items in the order.',
-        confirmLabel: 'Receive',
-        action: () => handleOrderAction(orderId, 'receive'),
-      });
-    } else {
-      setConfirmState({
-        title: 'Cancel order?',
-        message: 'This action cannot be undone.',
-        destructive: true,
-        confirmLabel: 'Cancel Order',
-        action: () => handleOrderAction(orderId, 'cancel'),
-      });
-    }
+  const openReceiving = async (orderId: string) => {
+    try {
+      const response = await purchaseOrderService.getById(orderId);
+      setReceivingOrder(response.data.data);
+    } catch { toast.error('Could not load the order. Please try again.'); }
   };
+
+  const confirmOrderAction = (orderId: string) => setConfirmState({
+    title: 'Cancel order?', message: 'This action cannot be undone.', destructive: true,
+    confirmLabel: 'Cancel Order', action: () => handleOrderAction(orderId, 'cancel'),
+  });
 
   const handleOrderAction = async (orderId: string, action: string) => {
     try {
-      if (action === 'receive') {
-        await purchaseOrderService.receive(orderId);
-      } else if (action === 'cancel') {
+      if (action === 'cancel') {
         await purchaseOrderService.cancel(orderId);
       } else {
         await purchaseOrderService.updateStatus(orderId, action);
@@ -468,6 +450,7 @@ export const Suppliers: React.FC = () => {
   };
 
   const resetOrderForm = () => {
+    setChosenSupplier(null);
     setOrderForm({
       supplierId: '',
       items: [{ productId: '', quantity: 1, cost: 0, productName: '' }],
@@ -511,6 +494,7 @@ export const Suppliers: React.FC = () => {
       const orderData = response.data.data;
       setSelectedOrder(orderData);
       setEditingOrder(true);
+      setChosenSupplier(orderData.supplier);
 
       setOrderForm({
         supplierId: orderData.supplier.id,
@@ -559,8 +543,10 @@ export const Suppliers: React.FC = () => {
         return <Badge variant="warning">Pending</Badge>;
       case 'ORDERED':
         return <Badge variant="default">Ordered</Badge>;
+      case 'PARTIALLY_RECEIVED':
+        return <Badge variant="warning">Partially received</Badge>;
       case 'RECEIVED':
-        return <Badge variant="success">Received</Badge>;
+        return <Badge variant="success">Closed</Badge>;
       case 'CANCELLED':
         return <Badge variant="destructive">Cancelled</Badge>;
       default:
@@ -568,15 +554,8 @@ export const Suppliers: React.FC = () => {
     }
   };
 
-  // Suppliers are searched and status-filtered server-side; the order search
-  // box still narrows within the current page (no order search endpoint yet)
   const filteredSuppliers = suppliers;
-
-  const filteredOrders = orders.filter(o =>
-    !search ||
-    o.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
-    o.supplier.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredOrders = orders;
 
   // Loading is rendered inside the tab cards so the page chrome (tabs,
   // search box) stays mounted — otherwise typing in search loses focus
@@ -586,42 +565,17 @@ export const Suppliers: React.FC = () => {
     </div>
   );
 
+  const autoRefresh = useLegacyPageRefresh((current, signal) => activeTab === 'suppliers' ? fetchSuppliers(true, current, signal) : fetchOrders(true, current, signal), { key: JSON.stringify([locationId, activeTab, supplierPage, orderPage, debouncedSearch, orderStatusFilter]), paused: loading });
+
   return (
-    <div className="p-8">
+    <ManagementPage className="">
       <PageHeader
-        title="Supplier Management"
-        subtitle="Manage suppliers and create purchase orders"
-      />
-
-      <div className="flex gap-4 mb-6">
-        <Button
-          variant={activeTab === 'suppliers' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('suppliers')}
-        >
-          <Truck className="w-4 h-4 mr-2" />
-          Suppliers ({supplierTotal})
-        </Button>
-        <Button
-          variant={activeTab === 'orders' ? 'primary' : 'outline'}
-          onClick={() => setActiveTab('orders')}
-        >
-          <FileText className="w-4 h-4 mr-2" />
-          Purchase Orders ({orderTotal})
-        </Button>
-      </div>
-
-      <div className="flex justify-between items-center mb-6">
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder={activeTab === 'suppliers' ? 'Search suppliers...' : 'Search orders...'}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <div className="flex gap-2">
+        title={activeTab === 'suppliers' ? 'Suppliers' : 'Purchase Orders'}
+        secondaryTabs={activeTab === 'orders' ? <PageTabs secondary label="Order status" value={orderStatusFilter} onChange={setOrderStatusFilter} items={[
+          { id: '', label: 'All' }, { id: 'PENDING', label: 'Pending' }, { id: 'ORDERED', label: 'Ordered' },
+          { id: 'PARTIALLY_RECEIVED', label: 'Partially received' }, { id: 'RECEIVED', label: 'Closed' }, { id: 'CANCELLED', label: 'Cancelled' },
+        ]} /> : undefined}
+        actions={<>{canManage && <>
           {activeTab === 'orders' && (
             <Button variant="secondary" onClick={handleAutoGenerate}>
               <RefreshCw className="w-4 h-4 mr-2" />
@@ -642,22 +596,37 @@ export const Suppliers: React.FC = () => {
           >
             <Plus className="w-4 h-4 mr-2" />
             {activeTab === 'suppliers' ? 'Add Supplier' : 'New Order'}
-          </Button>
+          </Button></>}</>}
+        subtitle={activeTab === 'suppliers' ? 'Manage your store suppliers and purchasing terms.' : 'Create orders and record deliveries as they arrive.'}
+      />
+      {autoRefresh.notice}
+
+      <div className="flex flex-wrap gap-3 justify-between items-center mb-6">
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder={activeTab === 'suppliers' ? 'Search suppliers...' : 'Search orders...'}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
         </div>
+
       </div>
 
       {activeTab === 'suppliers' && (
         <Card>
           {loading ? (
             loadingRow
-          ) : filteredSuppliers.length === 0 ? (
+          ) : loadError ? (<div className="p-6" role="alert"><p>{loadError}</p><Button className="mt-3" variant="outline" onClick={fetchData}>Retry</Button></div>) : filteredSuppliers.length === 0 ? (
             <EmptyState
               icon={Truck}
               title="No suppliers found"
               hint={search ? 'Try adjusting your search' : 'Get started by adding your first supplier'}
             />
           ) : (
-            <Table>
+            <Table scrollLabel="Suppliers records">
               <TableHeader>
                 <TableRow>
                   <TableHead>Supplier</TableHead>
@@ -715,12 +684,12 @@ export const Suppliers: React.FC = () => {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => openEditSupplier(supplier)}>
+                        {canManage && <Button variant="ghost" size="sm" aria-label={`Edit supplier ${supplier.name}`} onClick={() => openEditSupplier(supplier)}>
                           <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => setConfirmState({ title: 'Delete supplier?', message: 'This will remove the supplier. Suppliers with purchase orders cannot be deleted.', destructive: true, confirmLabel: 'Delete', action: () => handleDeleteSupplier(supplier.id) })} className="text-destructive">
+                        </Button>}
+                        {can(role, 'financial.delete') && <Button variant="ghost" size="sm" aria-label={`Delete supplier ${supplier.name}`} onClick={() => setConfirmState({ title: 'Delete supplier?', message: 'This will remove the supplier. Suppliers with purchase orders cannot be deleted.', destructive: true, confirmLabel: 'Delete', action: () => handleDeleteSupplier(supplier.id) })} className="text-destructive">
                           <Trash2 className="h-4 w-4" />
-                        </Button>
+                        </Button>}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -741,45 +710,26 @@ export const Suppliers: React.FC = () => {
         />
       )}
 
-      {activeTab === 'orders' && (
-        <div className="flex gap-2 mb-4">
-          {[
-            { value: '', label: 'All' },
-            { value: 'PENDING', label: 'Pending' },
-            { value: 'ORDERED', label: 'Ordered' },
-            { value: 'RECEIVED', label: 'Received' },
-            { value: 'CANCELLED', label: 'Cancelled' },
-          ].map((status) => (
-            <Button
-              key={status.value}
-              variant={orderStatusFilter === status.value ? 'primary' : 'outline'}
-              size="sm"
-              onClick={() => { setOrderStatusFilter(status.value); setOrderPage(1); }}
-            >
-              {status.label}
-            </Button>
-          ))}
-        </div>
-      )}
+
 
       {activeTab === 'orders' && (
         <Card>
           {loading ? (
             loadingRow
-          ) : filteredOrders.length === 0 ? (
+          ) : loadError ? (<div className="p-6" role="alert"><p>{loadError}</p><Button className="mt-3" variant="outline" onClick={fetchData}>Retry</Button></div>) : filteredOrders.length === 0 ? (
             <EmptyState
               icon={FileText}
               title="No purchase orders found"
               hint={search ? 'Try adjusting your search' : 'Create a new purchase order to get started'}
             />
           ) : (
-            <Table>
+            <Table scrollLabel="Suppliers records">
               <TableHeader>
                 <TableRow>
                   <TableHead>Order #</TableHead>
                   <TableHead>Supplier</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Total</TableHead>
+                  <TableHead className="text-right">Items</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -792,8 +742,8 @@ export const Suppliers: React.FC = () => {
                       <span className="font-mono text-sm">{order.orderNumber}</span>
                     </TableCell>
                     <TableCell>{order.supplier.name}</TableCell>
-                    <TableCell>{order._count?.items || 0} items</TableCell>
-                    <TableCell className="font-medium">{formatCurrency(order.totalAmount)}</TableCell>
+                    <TableCell className="text-right">{order._count?.items || 0} {(order._count?.items || 0) === 1 ? 'item' : 'items'}</TableCell>
+                    <TableCell className="text-right font-medium whitespace-nowrap">{formatCurrency(order.totalAmount)}</TableCell>
                     <TableCell>{getStatusBadge(order.status)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {new Date(order.createdAt).toLocaleDateString()}
@@ -803,7 +753,7 @@ export const Suppliers: React.FC = () => {
                         <Button variant="ghost" size="sm" onClick={() => openOrderDetail(order)} title="View Details">
                           <Eye className="w-4 h-4" />
                         </Button>
-                        {order.status === 'PENDING' && (
+                        {canManage && order.status === 'PENDING' && (
                           <>
                             <Button variant="ghost" size="sm" onClick={() => openEditOrder(order)} title="Edit Order">
                               <Edit className="w-4 h-4" />
@@ -813,13 +763,13 @@ export const Suppliers: React.FC = () => {
                             </Button>
                           </>
                         )}
-                        {order.status === 'ORDERED' && (
-                          <Button variant="ghost" size="sm" onClick={() => confirmOrderAction(order.id, 'receive')} className="text-success" title="Receive Order">
+                        {canManage && ['ORDERED', 'PARTIALLY_RECEIVED'].includes(order.status) && (
+                          <Button variant="ghost" size="sm" onClick={() => openReceiving(order.id)} className="text-success" title="Receive Delivery">
                             <CheckCircle className="w-4 h-4" />
                           </Button>
                         )}
-                        {(order.status === 'PENDING' || order.status === 'ORDERED') && (
-                          <Button variant="ghost" size="sm" onClick={() => confirmOrderAction(order.id, 'cancel')} className="text-destructive" title="Cancel Order">
+                        {canManage && (order.status === 'PENDING' || order.status === 'ORDERED') && (
+                          <Button variant="ghost" size="sm" onClick={() => confirmOrderAction(order.id)} className="text-destructive" title="Cancel Order">
                             <XCircle className="w-4 h-4" />
                           </Button>
                         )}
@@ -856,9 +806,8 @@ export const Suppliers: React.FC = () => {
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Basic Information</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium mb-1">Supplier Name <span className="text-destructive">*</span></label>
-                  <Input type="text" value={supplierForm.name} onChange={(e) => setSupplierForm({ ...supplierForm, name: e.target.value })} placeholder="Enter supplier name" required />
-                </div>
+                  <Input label="Supplier Name" type="text" value={supplierForm.name} onChange={(event) => setSupplierForm({ ...supplierForm, name: event.target.value })} placeholder="Enter supplier name" required />
+            </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Contact Name</label>
                   <Input type="text" value={supplierForm.contactName} onChange={(e) => setSupplierForm({ ...supplierForm, contactName: e.target.value })} placeholder="Contact person" />
@@ -890,14 +839,14 @@ export const Suppliers: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Payment Terms</label>
-                  <select value={supplierForm.paymentTerms} onChange={(e) => setSupplierForm({ ...supplierForm, paymentTerms: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-sm text-foreground">
+                  <Select value={supplierForm.paymentTerms} onChange={(e) => setSupplierForm({ ...supplierForm, paymentTerms: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-sm text-foreground">
                     <option value="">Select...</option>
                     <option value="NET15">Net 15</option>
                     <option value="NET30">Net 30</option>
                     <option value="NET60">Net 60</option>
                     <option value="COD">COD</option>
                     <option value="PREPAID">Prepaid</option>
-                  </select>
+                  </Select>
                 </div>
               </div>
             </div>
@@ -923,13 +872,7 @@ export const Suppliers: React.FC = () => {
         <div className="max-h-[70vh] overflow-y-auto pr-2">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Supplier <span className="text-destructive">*</span></label>
-              <select value={orderForm.supplierId} onChange={(e) => setOrderForm({ ...orderForm, supplierId: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground" required disabled={editingOrder}>
-                <option value="">Select supplier...</option>
-                {suppliers.filter(s => s.isActive).map((supplier) => (
-                  <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.minimumOrder ? ` (Min: $${supplier.minimumOrder})` : ''}</option>
-                ))}
-              </select>
+              {editingOrder ? <p className="text-sm">Supplier: {chosenSupplier?.name || selectedOrder?.supplier.name}</p> : <SupplierPicker locationId={locationId || undefined} selected={chosenSupplier} onSelect={supplier => { setChosenSupplier(supplier); setOrderForm(current => ({ ...current, supplierId: supplier.id })); }} />}
             </div>
 
             <div>
@@ -982,7 +925,7 @@ export const Suppliers: React.FC = () => {
                     </div>
                     <div className="col-span-1 flex justify-center">
                       {orderForm.items.length > 1 && (
-                        <Button variant="ghost" size="sm" onClick={() => removeOrderItem(index)} className="text-destructive"><Trash2 className="w-4 h-4" /></Button>
+                        <Button variant="ghost" size="sm" aria-label={`Remove order item ${index + 1}`} onClick={() => removeOrderItem(index)} className="text-destructive"><Trash2 className="w-4 h-4" /></Button>
                       )}
                     </div>
                   </div>
@@ -1105,13 +1048,14 @@ export const Suppliers: React.FC = () => {
             )}
             <div className="border-t pt-4">
               <h4 className="font-medium mb-2">Items</h4>
-              <Table>
+              <Table scrollLabel="Suppliers records">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Product</TableHead>
-                    <TableHead>Quantity</TableHead>
+                    <TableHead>Ordered</TableHead>
+                    <TableHead>Delivery progress</TableHead>
                     <TableHead>Cost</TableHead>
-                    <TableHead>Total</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1122,6 +1066,7 @@ export const Suppliers: React.FC = () => {
                         <p className="text-xs text-muted-foreground">{item.sku}</p>
                       </TableCell>
                       <TableCell>{item.quantity}</TableCell>
+                      <TableCell className="text-sm tabular-nums">{selectedOrder.receivingHistoryKnown ? <><p>{item.receivedQty} accepted · {item.damagedQty} damaged · {item.rejectedQty} rejected</p><p className="text-muted-foreground">{outstandingQuantity(item)} {selectedOrder.status === 'RECEIVED' ? 'missing at closure' : 'remaining'}</p></> : <span title="This order was closed before delivery history was recorded.">History unavailable</span>}</TableCell>
                       <TableCell>{formatCurrency(item.cost)}</TableCell>
                       <TableCell className="font-medium">{formatCurrency(item.quantity * item.cost)}</TableCell>
                     </TableRow>
@@ -1129,26 +1074,43 @@ export const Suppliers: React.FC = () => {
                 </TableBody>
               </Table>
             </div>
-            <div className="flex justify-between items-center pt-4 border-t">
+            <div className="border-t pt-4 space-y-2">
+              <h4 className="font-medium">Delivery history</h4>
+              {selectedOrder.receivingHistoryKnown === false && <p className="text-sm text-muted-foreground">This order predates item-level delivery records. Historical accepted and missing quantities are unavailable.</p>}
+              {selectedOrder.receivingHistoryKnown && !selectedOrder.receipts?.length && <p className="text-sm text-muted-foreground">No deliveries recorded yet.</p>}
+              {selectedOrder.receipts?.map(receipt => <div key={receipt.id} className="rounded-md border p-3 text-sm space-y-1">
+                <p className="font-medium">{new Date(receipt.createdAt).toLocaleString()} {receipt.finalDelivery ? '· Final delivery' : '· Partial delivery'}</p>
+                {receipt.items.map(line => <p key={line.purchaseOrderItemId}>{selectedOrder.items?.find(item => item.id === line.purchaseOrderItemId)?.productName}: {line.acceptedQty} accepted, {line.damagedQty} damaged, {line.rejectedQty} rejected</p>)}
+                {receipt.notes && <p className="text-muted-foreground">{receipt.notes}</p>}
+              </div>)}
+            </div>
+            <div className="flex flex-wrap justify-between items-center gap-3 pt-4 border-t">
               <div className="text-lg font-bold">Total: {formatCurrency(selectedOrder.totalAmount)}</div>
               <div className="flex gap-2">
-                {selectedOrder.status === 'PENDING' && (
+                {canManage && selectedOrder.status === 'PENDING' && (
                   <>
                     <Button variant="outline" onClick={() => { setShowOrderDetailModal(false); openEditOrder(selectedOrder); }}><Edit className="w-4 h-4 mr-2" />Edit</Button>
                     <Button variant="primary" onClick={() => handleOrderAction(selectedOrder.id, 'ORDERED')}><Truck className="w-4 h-4 mr-2" />Mark as Ordered</Button>
                   </>
                 )}
-                {selectedOrder.status === 'ORDERED' && (
-                  <Button variant="primary" onClick={() => confirmOrderAction(selectedOrder.id, 'receive')}><CheckCircle className="w-4 h-4 mr-2" />Mark as Received</Button>
+                {canManage && ['ORDERED', 'PARTIALLY_RECEIVED'].includes(selectedOrder.status) && (
+                  <Button variant="primary" onClick={() => openReceiving(selectedOrder.id)}><CheckCircle className="w-4 h-4 mr-2" />Receive Delivery</Button>
                 )}
-                {(selectedOrder.status === 'PENDING' || selectedOrder.status === 'ORDERED') && (
-                  <Button variant="destructive" onClick={() => confirmOrderAction(selectedOrder.id, 'cancel')}><XCircle className="w-4 h-4 mr-2" />Cancel</Button>
+                {canManage && (selectedOrder.status === 'PENDING' || selectedOrder.status === 'ORDERED') && (
+                  <Button variant="destructive" onClick={() => confirmOrderAction(selectedOrder.id)}><XCircle className="w-4 h-4 mr-2" />Cancel</Button>
                 )}
               </div>
             </div>
           </div>
         )}
       </Modal>
+
+      {receivingOrder && <PurchaseReceiptModal key={receivingOrder.id} order={receivingOrder} onClose={() => setReceivingOrder(null)} onSaved={() => {
+        setReceivingOrder(null);
+        fetchOrders();
+        if (showOrderDetailModal) openOrderDetail(receivingOrder);
+        toast.success('Delivery recorded');
+      }} />}
 
       <ConfirmDialog
         isOpen={confirmState !== null}
@@ -1159,7 +1121,7 @@ export const Suppliers: React.FC = () => {
         destructive={confirmState?.destructive}
         confirmLabel={confirmState?.confirmLabel}
       />
-    </div>
+    </ManagementPage>
   );
 };
 

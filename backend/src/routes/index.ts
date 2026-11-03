@@ -1,3 +1,8 @@
+import payrollRoutes from './payroll.routes';
+import offlineRoutes from './offline.routes';
+import jobsRoutes from './jobs.routes';
+import approvalRoutes from './approval.routes';
+import assistantRoutes from './assistant.routes';
 import { Router } from 'express';
 import authRoutes from './auth.routes';
 import productRoutes from './product.routes';
@@ -41,11 +46,16 @@ router.get('/health', (_req, res) => {
  * API routes
  */
 router.use('/auth', authRoutes);
+router.use('/assistant', assistantRoutes);
+router.use('/approvals', approvalRoutes);
 router.use('/products', productRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/sales', saleRoutes);
 router.use('/customers', customerRoutes);
 router.use('/shifts', shiftRoutes);
+router.use('/payroll', payrollRoutes);
+router.use('/offline', offlineRoutes);
+router.use('/jobs', jobsRoutes);
 router.use('/reports', reportRoutes);
 router.use('/expenses', expenseRoutes);
 router.use('/suppliers', supplierRoutes);

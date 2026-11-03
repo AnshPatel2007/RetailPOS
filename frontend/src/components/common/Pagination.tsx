@@ -25,7 +25,7 @@ export const Pagination: React.FC<PaginationProps> = ({
   if (totalPages <= 1) return null;
 
   return (
-    <div className="flex justify-center items-center gap-2 mt-4">
+    <nav aria-label="Pagination" className="flex flex-wrap justify-center items-center gap-2 mt-4">
       <Button
         variant="outline"
         size="sm"
@@ -34,7 +34,7 @@ export const Pagination: React.FC<PaginationProps> = ({
       >
         Previous
       </Button>
-      <span className="px-3 py-1 text-sm text-muted-foreground">
+      <span className="px-3 py-1 text-center text-sm tabular-nums text-muted-foreground">
         Page {page} of {totalPages}
         {totalItems !== undefined && ` (${totalItems} ${itemName})`}
       </span>
@@ -46,6 +46,6 @@ export const Pagination: React.FC<PaginationProps> = ({
       >
         Next
       </Button>
-    </div>
+    </nav>
   );
 };

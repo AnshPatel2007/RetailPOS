@@ -7,6 +7,16 @@ import { logger } from '../utils/logger';
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
+import { assertOwnsRecord, getLocationFilter } from '../utils/locationFilter.util';
+import { lockInventory, moveInventory } from '../services/inventory.service';
+import { valueProducts } from '../services/inventoryValueRead.service';
+
+async function validateProductCategory(req: AuthRequest, categoryId?: string | null) {
+  if (!categoryId) return;
+  const category = await prisma.category.findUnique({ where: { id: categoryId } });
+  if (!category) throw new AppError('Category not found', 404);
+  assertOwnsRecord(req, category.locationId);
+}
 
 /**
  * Get all products with filtering and pagination
@@ -21,20 +31,16 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
     isActive,
     inStock,
     lowStock,
+    trackInventory,
     ids,
   } = req.query;
 
-  const pageNum = parseInt(page as string);
-  const limitNum = parseInt(limit as string);
+  const pageNum = Math.max(1, parseInt(page as string) || 1);
+  const limitNum = Math.min(1000, Math.max(1, parseInt(limit as string) || 20));
   const skip = (pageNum - 1) * limitNum;
 
   // Build filter
-  const where: any = {};
-
-  // Filter by user's location (unless SUPER_ADMIN viewing all)
-  if (req.user?.locationId) {
-    where.locationId = req.user.locationId;
-  }
+  const where: any = { ...getLocationFilter(req, req.query.locationId as string), sku: { not: 'MISC-001' } };
 
   if (search) {
     where.OR = [
@@ -56,6 +62,7 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
   if (isActive !== undefined) {
     where.isActive = isActive === 'true';
   }
+  if (trackInventory !== undefined) where.trackInventory = trackInventory === 'true';
 
   if (inStock === 'true') {
     where.stockQuantity = { gt: 0 };
@@ -95,7 +102,7 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
       orderBy: { createdAt: 'desc' },
     });
 
-    const lowStockProducts = allTrackedProducts.filter(p => p.stockQuantity <= p.lowStockAlert);
+    const lowStockProducts = allTrackedProducts.filter(p => p.stockQuantity > 0 && p.stockQuantity <= p.lowStockAlert);
     total = lowStockProducts.length;
     products = lowStockProducts.slice(skip, skip + limitNum);
   } else {
@@ -127,7 +134,7 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
 
   res.json({
     success: true,
-    data: products,
+    data: await valueProducts(prisma, products),
     pagination: {
       page: pageNum,
       limit: limitNum,
@@ -169,7 +176,7 @@ export const getProduct = asyncHandler(async (req: AuthRequest, res: Response) =
 
   res.json({
     success: true,
-    data: product,
+    data: (await valueProducts(prisma, [product]))[0],
   });
 });
 
@@ -186,6 +193,7 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
     data.locationId = req.user.locationId;
   }
   const targetLocationId = data.locationId ?? null;
+  await validateProductCategory(req, data.categoryId);
 
   // Check if SKU already exists — SKU is unique per-store, not globally
   const existingProduct = await prisma.product.findFirst({
@@ -241,7 +249,8 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
  */
 export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const data = req.body;
+  const { expectedStockVersion, ...data } = req.body;
+  await validateProductCategory(req, data.categoryId);
 
   const product = await prisma.product.findUnique({ where: { id } });
 
@@ -276,35 +285,28 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     }
   }
 
-  const updatedProduct = await prisma.product.update({
-    where: { id },
-    data,
-    include: {
-      category: true,
-    },
+  const updateFields = { ...data };
+  delete updateFields.stockQuantity;
+  const updatedProduct = await prisma.$transaction(async tx => {
+    await lockInventory(tx, [id]);
+    const current = await tx.product.findUniqueOrThrow({ where: { id } });
+    assertOwnsRecord(req, current.locationId);
+    if (data.trackInventory !== undefined && data.trackInventory !== current.trackInventory &&
+      (current.stockQuantity !== 0 || await tx.inventoryValueEntry.count({ where: { productId: id } })))
+      throw new AppError('Stock tracking cannot change after inventory activity. Archive this product and create a separate product with the intended tracking setting.', 409);
+    const updated = await tx.product.update({ where: { id }, data: updateFields, include: { category: true } });
+    if (data.stockQuantity === undefined || data.stockQuantity === current.stockQuantity) return updated;
+    if (expectedStockVersion === undefined) throw new AppError('Refresh the product before changing its stock quantity', 409);
+    const moved = await moveInventory(tx, { productId: id, locationId: req.user!.locationId!, userId: req.user!.id, type: 'ADJUSTMENT', setQuantity: data.stockQuantity, expectedVersion: expectedStockVersion, notes: 'Product edit' });
+    return { ...updated, stockQuantity: moved.stockQuantity, stockVersion: moved.stockVersion };
   });
-
-  // Stock rewritten through the edit form must leave an inventory audit trail
-  if (data.stockQuantity !== undefined && data.stockQuantity !== product.stockQuantity) {
-    await prisma.inventoryLog.create({
-      data: {
-        productId: id,
-        type: 'ADJUSTMENT',
-        quantity: Math.abs(data.stockQuantity - product.stockQuantity),
-        previousQty: product.stockQuantity,
-        newQty: data.stockQuantity,
-        notes: 'Product edit',
-        userId: req.user?.id,
-      },
-    });
-  }
 
   // Log activity with change details
   const changes: Record<string, { from: any; to: any }> = {};
-  if (data.price !== undefined && data.price !== product.price) {
+  if (data.price !== undefined && data.price !== Number(product.price)) {
     changes.price = { from: product.price, to: data.price };
   }
-  if (data.cost !== undefined && data.cost !== product.cost) {
+  if (data.cost !== undefined && data.cost !== Number(product.cost)) {
     changes.cost = { from: product.cost, to: data.cost };
   }
   if (data.stockQuantity !== undefined && data.stockQuantity !== product.stockQuantity) {
@@ -349,7 +351,11 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
     throw new AppError('Product not found', 404);
   }
 
-  await prisma.product.delete({ where: { id } });
+  await prisma.$transaction(async tx => {
+    await lockInventory(tx, [id]);
+    if (await tx.inventoryValueEntry.count({ where: { productId: id } })) throw new AppError('This product has inventory cost history. Archive it to preserve its records.', 409);
+    await tx.product.delete({ where: { id } });
+  });
 
   // Log activity
   await prisma.activityLog.create({
@@ -379,12 +385,12 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
  * avoiding the previous in-memory filter that loaded all tracked products.
  */
 export const getLowStockProducts = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const locationId = req.user?.locationId ?? null;
+  const { locationId } = getLocationFilter(req, req.query.locationId as string);
 
   // Field-to-field comparison requires raw SQL (Prisma ORM doesn't support it in where)
   const locationClause = locationId
     ? Prisma.sql`AND p."locationId" = ${locationId}`
-    : Prisma.empty;
+    : Prisma.sql`AND p."locationId" IS NOT NULL`;
 
   const lowStockProducts = await prisma.$queryRaw<any[]>`
     SELECT
@@ -397,6 +403,7 @@ export const getLowStockProducts = asyncHandler(async (req: AuthRequest, res: Re
     LEFT JOIN categories c ON c.id = p."categoryId"
     WHERE p."trackInventory" = true
       AND p."isActive" = true
+      AND p.sku <> 'MISC-001'
       AND p."stockQuantity" <= p."lowStockAlert"
       ${locationClause}
     ORDER BY p."stockQuantity" ASC
@@ -413,183 +420,27 @@ export const getLowStockProducts = asyncHandler(async (req: AuthRequest, res: Re
  * GET /api/products/stats
  */
 export const getProductStats = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const locationId = req.user?.locationId ?? null;
-
-  const where: any = { isActive: true };
-  if (locationId) where.locationId = locationId;
-
-  const locationClause = locationId
-    ? Prisma.sql`AND "locationId" = ${locationId}`
-    : Prisma.empty;
-
-  const [totalProducts, trackedProducts, valueRows] = await Promise.all([
-    prisma.product.count({ where }),
-    prisma.product.findMany({
-      where: { ...where, trackInventory: true },
-      select: { stockQuantity: true, lowStockAlert: true },
-    }),
-    // SUM of a column product needs raw SQL (Prisma aggregate can't multiply fields)
-    prisma.$queryRaw<{ value: number }[]>`
-      SELECT COALESCE(SUM(cost * "stockQuantity"), 0)::float AS value
-      FROM products
-      WHERE "isActive" = true
-      ${locationClause}
-    `,
-  ]);
-
-  const lowStockCount = trackedProducts.filter(
-    (p) => p.stockQuantity <= p.lowStockAlert
-  ).length;
-  const outOfStockCount = trackedProducts.filter((p) => p.stockQuantity === 0).length;
+  const { locationId } = getLocationFilter(req, req.query.locationId as string);
+  const [stats] = await prisma.$queryRaw<{ totalProducts: number; lowStockCount: number; outOfStockCount: number; inventoryValue: number | null }[]>(Prisma.sql`
+    SELECT COUNT(*)::int AS "totalProducts",
+      COUNT(*) FILTER (WHERE "trackInventory" AND "stockQuantity" > 0 AND "stockQuantity" <= "lowStockAlert")::int AS "lowStockCount",
+      COUNT(*) FILTER (WHERE "trackInventory" AND "stockQuantity" <= 0)::int AS "outOfStockCount",
+      CASE WHEN COUNT(*) FILTER (WHERE "trackInventory" AND "stockQuantity" > 0 AND v.value IS NULL) > 0 THEN NULL
+        ELSE COALESCE(SUM(v.value) FILTER (WHERE "trackInventory"),0)::float END AS "inventoryValue"
+    FROM products p LEFT JOIN inventory_valuations v ON v."productId" = p.id WHERE "isActive" AND sku <> 'MISC-001'
+      AND ${locationId ? Prisma.sql`p."locationId" = ${locationId}` : Prisma.sql`p."locationId" IS NOT NULL`}
+  `);
 
   res.json({
     success: true,
     data: {
-      totalProducts,
-      lowStockCount,
-      outOfStockCount,
-      inventoryValue: Math.round((valueRows[0]?.value || 0) * 100) / 100,
+      ...stats,
+      inventoryValue: stats.inventoryValue === null ? null : Math.round(stats.inventoryValue * 100) / 100,
     },
   });
 });
 
-/**
- * Adjust inventory
- * POST /api/products/:id/adjust-inventory
- */
-export const adjustInventory = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
-  const { quantity, type, notes } = req.body;
-
-  // Wrap in transaction to prevent race conditions
-  const updatedProduct = await prisma.$transaction(async (tx) => {
-    const product = await tx.product.findUnique({ where: { id } });
-
-    if (!product) {
-      throw new AppError('Product not found', 404);
-    }
-
-    // Verify user has access to this product's location
-    if (req.user?.locationId && product.locationId !== req.user.locationId) {
-      throw new AppError('Product not found', 404);
-    }
-
-    const previousQty = product.stockQuantity;
-    const newQty = previousQty + quantity;
-
-    if (newQty < 0) {
-      throw new AppError(`Insufficient stock. Current: ${previousQty}, adjustment: ${quantity}`, 400);
-    }
-
-    // Update product stock
-    const updated = await tx.product.update({
-      where: { id },
-      data: { stockQuantity: newQty },
-    });
-
-    // Create inventory log
-    await tx.inventoryLog.create({
-      data: {
-        productId: id,
-        type: type || 'ADJUSTMENT',
-        quantity,
-        previousQty,
-        newQty,
-        notes,
-        userId: req.user?.id,
-      },
-    });
-
-    logger.info(`Inventory adjusted for ${product.name}: ${previousQty} -> ${newQty}`);
-
-    return updated;
-  });
-
-  res.json({
-    success: true,
-    data: updatedProduct,
-    message: 'Inventory adjusted successfully',
-  });
-});
-
-/**
- * Bulk update stock quantities
- * POST /api/products/bulk-update-stock
- */
-export const bulkUpdateStock = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { updates } = req.body; // Array of { productId, quantity, type, notes }
-
-  if (!Array.isArray(updates) || updates.length === 0) {
-    throw new AppError('Updates array is required', 400);
-  }
-
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
-
-  const results = await prisma.$transaction(async (tx) => {
-    const updated = [];
-
-    for (const update of updates) {
-      const { productId, quantity, type, notes } = update;
-
-      if (!productId || quantity === undefined) {
-        throw new AppError('Product ID and quantity are required for each update', 400);
-      }
-
-      const product = await tx.product.findUnique({
-        where: { id: productId },
-      });
-
-      if (!product) {
-        throw new AppError(`Product not found: ${productId}`, 404);
-      }
-
-      // Verify user has access to this product's location
-      if (req.user?.locationId && product.locationId !== req.user.locationId) {
-        throw new AppError(`Product not found: ${productId}`, 404);
-      }
-
-      if (!product.trackInventory) {
-        continue; // Skip products that don't track inventory
-      }
-
-      const previousQty = product.stockQuantity;
-      const newQty = type === 'set' ? quantity : previousQty + quantity;
-
-      const updatedProduct = await tx.product.update({
-        where: { id: productId },
-        data: { stockQuantity: Math.max(0, newQty) },
-      });
-
-      await tx.inventoryLog.create({
-        data: {
-          productId,
-          type: type || 'ADJUSTMENT',
-          quantity: Math.abs(newQty - previousQty),
-          previousQty,
-          newQty: Math.max(0, newQty),
-          notes: notes || 'Bulk stock adjustment',
-          userId: req.user!.id,
-        },
-      });
-
-      updated.push(updatedProduct);
-      logger.info(`Bulk stock update for ${product.name}: ${previousQty} -> ${Math.max(0, newQty)}`);
-    }
-
-    return updated;
-  });
-
-  res.json({
-    success: true,
-    data: {
-      updatedCount: results.length,
-      products: results,
-    },
-    message: `${results.length} product(s) updated successfully`,
-  });
-});
+export { adjustInventory, bulkUpdateStock } from './inventoryAdjustment.controller';
 
 /**
  * Bulk update prices
@@ -657,6 +508,7 @@ export const bulkUpdateCategory = asyncHandler(async (req: AuthRequest, res: Res
   if (!category) {
     throw new AppError('Category not found', 404);
   }
+  assertOwnsRecord(req, category.locationId);
 
   // Build where clause with location filter
   const where: any = {
@@ -919,145 +771,6 @@ If an item closely matches an existing product, put the existing product name in
  * Apply scanned receipt data - create/update products and adjust inventory
  * POST /api/products/apply-receipt
  */
-export const applyReceipt = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { supplier, invoiceNumber, items } = req.body;
-
-  if (!Array.isArray(items) || items.length === 0) {
-    throw new AppError('No items to apply', 400);
-  }
-
-  if (!req.user) {
-    throw new AppError('User not authenticated', 401);
-  }
-
-  // Find or create supplier
-  let supplierId: string | null = null;
-  if (supplier) {
-    let existingSupplier = await prisma.supplier.findFirst({
-      where: { name: { equals: supplier, mode: 'insensitive' } },
-    });
-
-    if (!existingSupplier) {
-      existingSupplier = await prisma.supplier.create({
-        data: { name: supplier },
-      });
-      logger.info(`Created new supplier: ${supplier}`);
-    }
-
-    supplierId = existingSupplier.id;
-  }
-
-  const results = await prisma.$transaction(async (tx) => {
-    const processed: any[] = [];
-
-    for (const item of items) {
-      const {
-        matchedProductId,
-        name,
-        unitQuantity,
-        unitCost,
-        sku,
-        barcode,
-        categoryId,
-      } = item;
-
-      let product;
-
-      if (matchedProductId) {
-        // Update existing product inventory
-        product = await tx.product.findUnique({ where: { id: matchedProductId } });
-        if (!product) {
-          throw new AppError(`Product not found: ${matchedProductId}`, 404);
-        }
-
-        const previousQty = product.stockQuantity;
-        const newQty = previousQty + (unitQuantity || 0);
-
-        // Update cost if provided
-        const updateData: any = { stockQuantity: newQty };
-        if (unitCost && unitCost > 0) {
-          updateData.cost = unitCost;
-        }
-
-        product = await tx.product.update({
-          where: { id: matchedProductId },
-          data: updateData,
-        });
-
-        await tx.inventoryLog.create({
-          data: {
-            productId: matchedProductId,
-            type: 'RECEIVED',
-            quantity: unitQuantity || 0,
-            previousQty,
-            newQty,
-            notes: `Receipt scan${invoiceNumber ? ` - Invoice #${invoiceNumber}` : ''}${supplier ? ` from ${supplier}` : ''}`,
-            userId: req.user!.id,
-          },
-        });
-
-        processed.push({ action: 'updated', product: { id: product.id, name: product.name }, addedQty: unitQuantity });
-      } else {
-        // Create new product
-        const newSku = sku || `NEW-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-
-        const createData: any = {
-          sku: newSku,
-          name: name || 'Unknown Product',
-          stockQuantity: unitQuantity || 0,
-          lowStockAlert: 5,
-          cost: unitCost || 0,
-          price: unitCost ? Math.round(unitCost * 1.3 * 100) / 100 : 0, // Default 30% markup
-          isTaxable: true,
-          trackInventory: true,
-          isActive: true,
-        };
-
-        if (barcode) createData.barcode = barcode;
-        if (categoryId) createData.categoryId = categoryId;
-        if (req.user?.locationId) createData.locationId = req.user.locationId;
-
-        product = await tx.product.create({ data: createData });
-
-        await tx.inventoryLog.create({
-          data: {
-            productId: product.id,
-            type: 'RECEIVED',
-            quantity: unitQuantity || 0,
-            previousQty: 0,
-            newQty: unitQuantity || 0,
-            notes: `Initial stock from receipt scan${invoiceNumber ? ` - Invoice #${invoiceNumber}` : ''}${supplier ? ` from ${supplier}` : ''}`,
-            userId: req.user!.id,
-          },
-        });
-
-        // Link to supplier if found
-        if (supplierId) {
-          await tx.productSupplier.create({
-            data: {
-              productId: product.id,
-              supplierId,
-              cost: unitCost || 0,
-            },
-          });
-        }
-
-        processed.push({ action: 'created', product: { id: product.id, name: product.name, sku: newSku }, addedQty: unitQuantity });
-      }
-    }
-
-    return processed;
-  });
-
-  logger.info(`Receipt applied: ${results.length} products processed from ${supplier || 'unknown supplier'}`);
-
-  res.json({
-    success: true,
-    data: {
-      processedCount: results.length,
-      items: results,
-      supplier,
-    },
-    message: `${results.length} product(s) processed successfully`,
-  });
+export const applyReceipt = asyncHandler(async () => {
+  throw new AppError('Review the receipt import and apply its saved preview. Refresh the app to continue.', 428);
 });

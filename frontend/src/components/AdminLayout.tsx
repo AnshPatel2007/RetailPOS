@@ -1,14 +1,18 @@
-import React from 'react';
+import { SidebarUserFooter } from './common/SidebarUserFooter';
+import React, { useState, useEffect } from 'react';
+import { useFocusTrap, isTopFocusTrap } from '@/hooks/useFocusTrap';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
+import { useThemeStore } from '@/store/themeStore';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
   Store,
   Users,
-  BarChart3,
-  LogOut,
+  Code2,
   ArrowLeft,
+  Menu,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
@@ -32,20 +36,28 @@ const adminNavItems = [
     href: '/admin/users',
     icon: Users,
   },
-  {
-    label: 'Reports',
-    href: '/admin/reports',
-    icon: BarChart3,
-  },
+  { label: 'Integrations', href: '/admin/integrations', icon: Code2 },
 ];
 
 export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
+  const { theme, toggleTheme } = useThemeStore();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useFocusTrap(menuOpen);
+  useEffect(() => { setMenuOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && isTopFocusTrap(menuRef.current)) { event.preventDefault(); setMenuOpen(false); } };
+    const desktop = matchMedia('(min-width: 1024px)');
+    const changed = () => { if (desktop.matches) setMenuOpen(false); };
+    document.addEventListener('keydown', escape); desktop.addEventListener('change', changed);
+    return () => { document.removeEventListener('keydown', escape); desktop.removeEventListener('change', changed); };
+  }, [menuOpen]);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/login');
   };
 
@@ -66,16 +78,19 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
 
   return (
     <div className="h-screen bg-background flex overflow-hidden">
+      <button aria-label="Open admin menu" onClick={() => setMenuOpen(true)} className="lg:hidden fixed top-3 left-3 z-40 p-2 rounded-md bg-card border border-border"><Menu className="h-5 w-5" /></button>
+      {menuOpen && <div className="fixed inset-0 z-40 bg-black/60 lg:hidden" aria-hidden="true" onClick={() => setMenuOpen(false)} />}
       {/* Sidebar */}
-      <aside className="w-64 bg-card border-r flex flex-col h-full shrink-0">
+      <aside ref={menuRef} role={menuOpen ? 'dialog' : undefined} aria-label={menuOpen ? 'Admin menu' : undefined} aria-modal={menuOpen || undefined} className={cn('w-60 bg-card border-r flex-col h-full shrink-0 fixed inset-y-0 left-0 z-50 lg:static', menuOpen ? 'flex' : 'hidden lg:flex')}>
         {/* Header */}
-        <div className="p-4 border-b shrink-0">
-          <h1 className="text-xl font-bold">Admin Panel</h1>
-          <p className="text-sm text-muted-foreground">System Management</p>
+        <div className="h-16 flex flex-col justify-center px-4 border-b shrink-0 relative">
+          <button aria-label="Close admin menu" onClick={() => setMenuOpen(false)} className="lg:hidden absolute right-3 top-3 p-1 rounded hover:bg-accent"><X className="h-5 w-5" /></button>
+          <p className="text-base font-semibold text-primary">POS System</p>
+          <p className="text-xs text-muted-foreground">Administration</p>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           {adminNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.href ||
@@ -86,43 +101,27 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
                 key={item.href}
                 to={item.href}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors',
                   isActive
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'bg-primary/10 text-primary'
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-5 w-5" />
                 {item.label}
               </Link>
             );
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="p-4 border-t shrink-0 space-y-1">
-          <Link
-            to="/dashboard"
-            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground w-full"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Store View
-          </Link>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-destructive hover:bg-destructive/10 w-full"
-          >
-            <LogOut className="h-4 w-4" />
-            Logout
-          </button>
-        </div>
+        <Link to="/admin/stores" className="mx-2 mb-3 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"><ArrowLeft className="h-5 w-5" />Preview a store</Link>
+        <SidebarUserFooter name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} role={user?.role || ''} theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout} themeLabel={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} />
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        <div className="p-6">
-          {children}
-        </div>
+      <main className="management-content flex-1 min-w-0 overflow-auto">
+        <div className="lg:hidden h-12" />
+        {children}
       </main>
     </div>
   );

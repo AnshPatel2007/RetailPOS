@@ -9,7 +9,8 @@
 
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { resolveDatabaseUrl } from '../../config/database';
+import appPrisma, { resolveDatabaseUrl } from '../../config/database';
+import { assertDisposableDatabase } from '../../utils/testDatabase';
 
 // Same resolution as the app under test: DATABASE_URL_TEST, or the dev URL
 // with a "_test" suffix on the database name (jest sets NODE_ENV=test)
@@ -27,6 +28,7 @@ export const prisma = new PrismaClient({
  * sync with the schema automatically.
  */
 export async function cleanDatabase(): Promise<void> {
+  assertDisposableDatabase(resolveDatabaseUrl(), process.env.DATABASE_URL);
   const tables = await prisma.$queryRaw<{ tablename: string }[]>`
     SELECT tablename FROM pg_tables
     WHERE schemaname = 'public' AND tablename != '_prisma_migrations'
@@ -161,20 +163,14 @@ export async function seedTestData(): Promise<TestData> {
  * Close database connection
  */
 export async function disconnectDatabase(): Promise<void> {
-  await prisma.$disconnect();
+  await Promise.all([prisma.$disconnect(), appPrisma.$disconnect()]);
 }
 
 /**
  * Global test setup
  */
 beforeAll(async () => {
-  // Ensure we're using test database — these tests TRUNCATE every table
-  const url = resolveDatabaseUrl() || '';
-  if (!url.includes('test')) {
-    throw new Error(
-      'Integration tests must use a test database! Set DATABASE_URL_TEST environment variable.'
-    );
-  }
+  assertDisposableDatabase(resolveDatabaseUrl(), process.env.DATABASE_URL);
 });
 
 /**

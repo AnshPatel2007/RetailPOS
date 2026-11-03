@@ -1,5 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { reportService } from '@/services/api';
+import React, { useState } from 'react';
+import { api } from '@/services/api';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
+import { PageTabs } from '@/components/common/PageTabs';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
+import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/Card';
 import {
@@ -12,7 +16,8 @@ import {
 } from '@/components/ui/Table';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Archive, TrendingUp, ShieldAlert, PackageX } from 'lucide-react';
-import toast from 'react-hot-toast';
+
+const costCurrency = (value: number | null) => value == null ? 'Unavailable' : formatCurrency(value);
 
 const REASON_LABELS: Record<string, string> = {
   DAMAGED: 'Damaged',
@@ -31,55 +36,17 @@ const WINDOWS = [30, 60, 90];
  */
 export const StockHealthTab: React.FC = () => {
   const [days, setDays] = useState(30);
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await reportService.getStockHealth({ days });
-      setData(res.data.data);
-    } catch {
-      toast.error('Failed to load stock health report');
-    } finally {
-      setLoading(false);
-    }
-  }, [days]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  if (loading) {
-    return (
-      <div className="flex justify-center p-12">
-        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
-      </div>
-    );
-  }
-  if (!data) return null;
+  const query = useScopedQuery<any>(['stock-health', days], async signal => (await api.get('/reports/stock-health', { params: { days }, signal })).data.data);
+  const data = query.data;
+  if (query.loading) return <p role="status" className="py-8 text-muted-foreground">Loading stock health...</p>;
+  if (!data) return <div role="alert" className="flex flex-wrap items-center gap-3 py-4"><p>{query.error || 'Stock health is unavailable.'}</p><Button variant="outline" onClick={query.refresh}>Retry</Button></div>;
 
   const { deadStock, sellThrough, shrinkage } = data;
 
   return (
     <div className="space-y-6">
-      {/* Window selector */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-muted-foreground">Window:</span>
-        {WINDOWS.map((w) => (
-          <button
-            key={w}
-            onClick={() => setDays(w)}
-            className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-              days === w
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-accent'
-            }`}
-          >
-            {w} days
-          </button>
-        ))}
-      </div>
+      <AutoRefreshStatus state={query} />
+      <PageTabs label="Stock health period" items={WINDOWS.map(value => ({ id: String(value), label: value + ' days' }))} value={String(days)} onChange={value => setDays(Number(value))} />
 
       {/* Summary tiles */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -102,7 +69,7 @@ export const StockHealthTab: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Dead stock (at cost)</p>
-                <p className="text-2xl font-bold">{formatCurrency(deadStock.totals.stockValue)}</p>
+                <p className="text-2xl font-bold">{costCurrency(deadStock.totals.stockValue)}</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {deadStock.totals.products} products · {deadStock.totals.units} units
                 </p>
@@ -116,7 +83,7 @@ export const StockHealthTab: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Shrinkage (at cost)</p>
-                <p className="text-2xl font-bold">{formatCurrency(shrinkage.totals.costValue)}</p>
+                <p className="text-2xl font-bold">{costCurrency(shrinkage.totals.costValue)}</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {shrinkage.totals.units} units · {shrinkage.totals.entries} entries
                 </p>
@@ -170,7 +137,7 @@ export const StockHealthTab: React.FC = () => {
                     <TableCell className="text-right tabular-nums">{r.entries}</TableCell>
                     <TableCell className="text-right tabular-nums">{r.units}</TableCell>
                     <TableCell className="text-right tabular-nums text-destructive">
-                      {formatCurrency(r.costValue)}
+                      {costCurrency(r.costValue)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {formatCurrency(r.retailValue)}
@@ -215,7 +182,7 @@ export const StockHealthTab: React.FC = () => {
                       </span>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{e.units}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(e.costValue)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{costCurrency(e.costValue)}</TableCell>
                     <TableCell className="text-muted-foreground text-xs max-w-[240px] truncate">
                       {e.notes || '—'}
                     </TableCell>
@@ -314,7 +281,7 @@ export const StockHealthTab: React.FC = () => {
                     <TableCell className="text-muted-foreground">{p.categoryName}</TableCell>
                     <TableCell className="text-right tabular-nums">{p.stockQuantity}</TableCell>
                     <TableCell className="text-right tabular-nums font-medium text-warning">
-                      {formatCurrency(p.stockValue)}
+                      {costCurrency(p.stockValue)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {formatCurrency(p.retailValue)}

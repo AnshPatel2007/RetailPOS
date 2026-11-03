@@ -7,6 +7,7 @@
 
 import { prisma, seedTestData } from './setup';
 import { api, loginUser } from './helpers';
+import { randomUUID } from 'crypto';
 
 describe('Campaign Segment Integration Tests', () => {
   let adminToken: string;
@@ -19,13 +20,14 @@ describe('Campaign Segment Integration Tests', () => {
   };
 
   beforeEach(async () => {
-    await seedTestData();
+    const { location } = await seedTestData();
     adminToken = await loginUser('admin@test.com', 'Admin123!');
     cashierToken = await loginUser('cashier@test.com', 'Admin123!');
 
     // Opted-in regular (recent visit)
     await prisma.customer.create({
       data: {
+        locationId: location.id,
         firstName: 'Recent', lastName: 'Shopper', phone: '555-1001',
         email: 'recent@test.com', emailMarketing: true,
         lastVisitAt: daysAgo(2), totalSpent: 50,
@@ -34,6 +36,7 @@ describe('Campaign Segment Integration Tests', () => {
     // Opted-in lapsed 45 days, tagged vip
     await prisma.customer.create({
       data: {
+        locationId: location.id,
         firstName: 'Lapsed', lastName: 'Vip', phone: '555-1002',
         email: 'lapsed@test.com', emailMarketing: true,
         lastVisitAt: daysAgo(45), totalSpent: 900, tags: ['vip'],
@@ -42,6 +45,7 @@ describe('Campaign Segment Integration Tests', () => {
     // NOT opted in — must never be contacted
     await prisma.customer.create({
       data: {
+        locationId: location.id,
         firstName: 'Private', lastName: 'Person', phone: '555-1003',
         email: 'private@test.com', emailMarketing: false,
         lastVisitAt: daysAgo(90), totalSpent: 2000,
@@ -50,6 +54,7 @@ describe('Campaign Segment Integration Tests', () => {
     // Opted in but no email — unreachable
     await prisma.customer.create({
       data: {
+        locationId: location.id,
         firstName: 'No', lastName: 'Email', phone: '555-1004',
         emailMarketing: true, lastVisitAt: daysAgo(45),
       },
@@ -92,12 +97,11 @@ describe('Campaign Segment Integration Tests', () => {
     const res = await api
       .post('/api/customers/campaign')
       .withAuth(adminToken)
-      .withBody({ segment: 'tag:vip', subject: 'Hello {firstName}', message: 'A deal for you' })
+      .withBody({ idempotencyKey:randomUUID(), segment: 'tag:vip', subject: 'Hello {firstName}', message: 'A deal for you' })
       .expectStatus(200)
       .execute();
 
-    // SMTP isn't configured under test, so delivery may fail — but the segment
-    // math (who would receive it) is what we're asserting
+    // Mail delivery is mocked; this test verifies which recipients are matched.
     expect(res.body.data.matched).toBe(1);
   });
 
@@ -117,3 +121,5 @@ describe('Campaign Segment Integration Tests', () => {
     expect(new Date(stored!.birthDate!).getFullYear()).toBe(1990);
   });
 });
+// Segment tests must never connect to an external mail server.
+jest.mock('../../utils/email', () => ({ sendEmail: jest.fn().mockResolvedValue(undefined) }));

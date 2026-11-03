@@ -1,126 +1,54 @@
+import { getAdminDashboard } from '../services/adminDashboard.service';
 import { Response } from 'express';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { validateLocationAccess } from '../utils/locationFilter.util';
+import { can } from '../policies/capabilities';
+import { publicStoreSettings } from '../validators/storeSettings.validator';
 
-// Get store settings for the current user's location (or specified location for SUPER_ADMIN)
+const storeSettingsSelect = { id: true, name: true, address: true, city: true, state: true, zipCode: true, phone: true, email: true, taxRate: true, cardSurchargePercent: true, timezone: true, isActive: true, settings: true } as const;
+const publicLocationSettings = <T extends { settings: unknown }>(location: T) => ({ ...location, settings: publicStoreSettings(location.settings) });
+
+// Store settings always require an explicit store for platform preview.
 export const getMyStoreSettings = asyncHandler(async (req: AuthRequest, res: Response) => {
-  let locationId = (req.query.locationId as string) || req.user?.locationId;
-
-  // SUPER_ADMIN with no locationId: default to first active location
-  if (!locationId && req.user?.role === 'SUPER_ADMIN') {
-    const firstLocation = await prisma.location.findFirst({
-      where: { isActive: true },
-      select: { id: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    locationId = firstLocation?.id || null;
-  }
-
-  if (!locationId) {
-    throw new AppError('No location assigned to this user', 400);
-  }
-
-  // Non-SUPER_ADMIN can only access their own location
-  if (req.user?.role !== 'SUPER_ADMIN' && locationId !== req.user?.locationId) {
-    throw new AppError('Cannot access settings for another location', 403);
-  }
-
-  const location = await prisma.location.findUnique({
-    where: { id: locationId },
-    select: {
-      id: true,
-      name: true,
-      address: true,
-      city: true,
-      state: true,
-      zipCode: true,
-      phone: true,
-      email: true,
-      taxRate: true,
-      cardSurchargePercent: true,
-      settings: true,
-    },
-  });
-
-  if (!location) {
-    throw new AppError('Location not found', 404);
-  }
-
-  res.json({ success: true, data: location });
+  const locationId = req.user?.role === 'SUPER_ADMIN' ? req.query.locationId : req.query.locationId || req.user?.locationId;
+  if (typeof locationId !== 'string' || !locationId) throw new AppError('Select a store to view its settings', 400);
+  validateLocationAccess(req, locationId);
+  const location = await prisma.location.findUnique({ where: { id: locationId }, select: storeSettingsSelect });
+  if (!location) throw new AppError('Location not found', 404);
+  res.json({ success: true, data: publicLocationSettings(location) });
 });
 
-// Update store settings for the current user's location
 export const updateMyStoreSettings = asyncHandler(async (req: AuthRequest, res: Response) => {
-  let locationId = (req.body.locationId as string) || req.user?.locationId;
-
-  // SUPER_ADMIN with no locationId: default to first active location
-  if (!locationId && req.user?.role === 'SUPER_ADMIN') {
-    const firstLocation = await prisma.location.findFirst({
-      where: { isActive: true },
-      select: { id: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    locationId = firstLocation?.id || null;
-  }
-
-  if (!locationId) {
-    throw new AppError('No location assigned to this user', 400);
-  }
-
-  // Non-SUPER_ADMIN can only update their own location
-  if (req.user?.role !== 'SUPER_ADMIN' && locationId !== req.user?.locationId) {
-    throw new AppError('Cannot update settings for another location', 403);
-  }
-
+  const locationId = req.user?.locationId;
+  if (!locationId) throw new AppError('A store assignment is required', 403);
+  if (req.body.locationId && req.body.locationId !== locationId) throw new AppError('Cannot update settings for another location', 403);
+  if (!can(req.user?.role, 'settings.operational')) throw new AppError('Store settings are read-only', 403);
   const { storeInfo, receiptSettings, paymentMethods, notificationSettings } = req.body;
-
-  // Build update data
-  const updateData: any = {};
-
-  if (storeInfo) {
-    updateData.name = storeInfo.storeName;
-    updateData.address = storeInfo.address || '';
-    updateData.city = storeInfo.city || '';
-    updateData.state = storeInfo.state || '';
-    updateData.phone = storeInfo.phone || '';
-  }
-
-  // Store receipt, payment, notification settings in the JSON `settings` field
-  const existingLocation = await prisma.location.findUnique({
-    where: { id: locationId },
-    select: { settings: true },
+  if (paymentMethods && !can(req.user?.role, 'settings.financial')) throw new AppError('Only the store owner can change payment settings', 403);
+  const location = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM locations WHERE id = ${locationId} FOR UPDATE`;
+    const current = await tx.location.findUnique({ where: { id: locationId } });
+    if (!current) throw new AppError('Location not found', 404);
+    if (!current.isActive) throw new AppError('This store is inactive. Settings are read-only.', 409);
+    if (storeInfo?.taxRate !== undefined && Number(current.taxRate) !== storeInfo.taxRate && !can(req.user?.role, 'settings.financial')) throw new AppError('Only the store owner can change tax settings', 403);
+    const update: Record<string, any> = {};
+    if (storeInfo) for (const [input, field] of Object.entries({ storeName: 'name', address: 'address', city: 'city', state: 'state', phone: 'phone', taxRate: 'taxRate' })) {
+      if (storeInfo[input] !== undefined) update[field] = storeInfo[input];
+    }
+    const existing = current.settings && typeof current.settings === 'object' && !Array.isArray(current.settings) ? current.settings : {};
+    update.settings = { ...existing,
+      ...(receiptSettings ? { receiptSettings } : {}),
+      ...(paymentMethods ? { paymentMethods } : {}),
+      ...(notificationSettings ? { notificationSettings } : {}),
+    };
+    const saved = await tx.location.update({ where: { id: locationId }, data: update, select: storeSettingsSelect });
+    await tx.activityLog.create({ data: { userId: req.user!.id, locationId, action: 'STORE_SETTINGS_UPDATED', entity: 'LOCATION', entityId: locationId,
+      details: { sections: Object.keys(req.body).filter(key => key !== 'locationId'), ...(update.taxRate !== undefined ? { previousTaxRate: Number(current.taxRate), taxRate: update.taxRate } : {}) } } });
+    return saved;
   });
-
-  const currentSettings = (existingLocation?.settings as any) || {};
-  const newSettings = { ...currentSettings };
-
-  if (receiptSettings !== undefined) newSettings.receiptSettings = receiptSettings;
-  if (paymentMethods !== undefined) newSettings.paymentMethods = paymentMethods;
-  if (notificationSettings !== undefined) newSettings.notificationSettings = notificationSettings;
-
-  updateData.settings = newSettings;
-
-  const location = await prisma.location.update({
-    where: { id: locationId },
-    data: updateData,
-    select: {
-      id: true,
-      name: true,
-      address: true,
-      city: true,
-      state: true,
-      zipCode: true,
-      phone: true,
-      email: true,
-      taxRate: true,
-      cardSurchargePercent: true,
-      settings: true,
-    },
-  });
-
-  res.json({ success: true, data: location });
+  res.json({ success: true, data: publicLocationSettings(location) });
 });
 
 // Get all locations (super-admin only)
@@ -175,6 +103,15 @@ export const getLocationById = asyncHandler(async (req: AuthRequest, res: Respon
 
   validateLocationAccess(req, id);
 
+  // Register lookups need configuration, not another cashier's activity or staff directory.
+  if (req.user?.role !== 'SUPER_ADMIN') {
+    const location = await prisma.location.findUnique({ where: { id }, select: storeSettingsSelect });
+    if (!location) throw new AppError('Location not found', 404);
+    const activeShifts = req.user?.role === 'CASHIER' ? await prisma.shift.findMany({ where: { locationId: id, userId: req.user.id, isClosed: false }, select: { id: true, clockInAt: true, clockOutAt: true } }) : [];
+    res.json({ success: true, data: { ...publicLocationSettings(location), activeShifts } });
+    return;
+  }
+
   const location = await prisma.location.findUnique({
     where: { id },
     include: {
@@ -225,7 +162,23 @@ export const getLocationById = asyncHandler(async (req: AuthRequest, res: Respon
         locationId: id,
         clockOutAt: null,
       },
-      include: {
+      // This endpoint is also available to cashiers. Never expose colleagues' wage snapshots.
+      select: {
+        id: true,
+        userId: true,
+        locationId: true,
+        clockInAt: true,
+        clockOutAt: true,
+        startingCash: true,
+        endingCash: true,
+        expectedCash: true,
+        cashDifference: true,
+        totalSales: true,
+        totalTransactions: true,
+        isClosed: true,
+        notes: true,
+        createdAt: true,
+        updatedAt: true,
         user: {
           select: { firstName: true, lastName: true },
         },
@@ -418,7 +371,7 @@ export const getLocationStats = asyncHandler(async (req: AuthRequest, res: Respo
       periodRevenue: periodSales._sum.total || 0,
       periodTransactions: periodSales._count,
       periodExpenses: expenseTotal._sum.amount || 0,
-      periodProfit: (periodSales._sum.total || 0) - (expenseTotal._sum.amount || 0),
+      periodProfit: Number((periodSales._sum.total || 0)) - Number((expenseTotal._sum.amount || 0)),
       topProducts: topProductsWithNames,
       userPerformance: userPerformanceWithNames,
     },
@@ -427,229 +380,5 @@ export const getLocationStats = asyncHandler(async (req: AuthRequest, res: Respo
 
 // Get cross-location comparison (super-admin dashboard)
 export const getCrossLocationStats = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { period = '30' } = req.query;
-
-  const daysAgo = new Date();
-  daysAgo.setDate(daysAgo.getDate() - parseInt(period as string));
-
-  const locations = await prisma.location.findMany({
-    where: { isActive: true },
-    select: { id: true, name: true },
-  });
-
-  const statsPromises = locations.map(async (location: any) => {
-    const [
-      sales,
-      expenses,
-      users,
-      activeShifts,
-      pendingSales,
-      refundedSales,
-      taxCollected,
-    ] = await Promise.all([
-      // Sales stats
-      prisma.sale.aggregate({
-        where: {
-          locationId: location.id,
-          createdAt: { gte: daysAgo },
-          status: 'COMPLETED',
-        },
-        _sum: { total: true, tax: true },
-        _count: true,
-      }),
-      // Expenses - use expenseDate and only APPROVED/PAID
-      prisma.expense.aggregate({
-        where: {
-          locationId: location.id,
-          expenseDate: { gte: daysAgo },
-          status: { in: ['APPROVED', 'PAID'] },
-        },
-        _sum: { amount: true },
-      }),
-      // Active users
-      prisma.user.count({
-        where: { locationId: location.id, isActive: true },
-      }),
-      // Active shifts
-      prisma.shift.count({
-        where: {
-          user: { locationId: location.id },
-          clockOutAt: null,
-        },
-      }),
-      // Pending/Hold sales
-      prisma.sale.count({
-        where: {
-          locationId: location.id,
-          status: { in: ['PENDING', 'HOLD'] },
-        },
-      }),
-      // Refunded/Voided sales
-      prisma.sale.aggregate({
-        where: {
-          locationId: location.id,
-          createdAt: { gte: daysAgo },
-          status: { in: ['REFUNDED', 'VOIDED'] },
-        },
-        _sum: { total: true },
-        _count: true,
-      }),
-      // Tax collected
-      prisma.sale.aggregate({
-        where: {
-          locationId: location.id,
-          createdAt: { gte: daysAgo },
-          status: 'COMPLETED',
-        },
-        _sum: { tax: true },
-      }),
-    ]);
-
-    // Calculate low stock products count in memory
-    const productsForLowStock = await prisma.product.findMany({
-      where: {
-        locationId: location.id,
-        isActive: true,
-        trackInventory: true,
-      },
-      select: {
-        stockQuantity: true,
-        lowStockAlert: true,
-      },
-    });
-    const lowStockCount = productsForLowStock.filter(p => p.stockQuantity <= p.lowStockAlert).length;
-
-    // Calculate inventory value manually (cost * quantity)
-    const products = await prisma.product.findMany({
-      where: { locationId: location.id, isActive: true },
-      select: { cost: true, stockQuantity: true },
-    });
-    const totalInventoryValue = products.reduce(
-      (sum: number, p: any) => sum + (p.cost * p.stockQuantity),
-      0
-    );
-
-    return {
-      locationId: location.id,
-      locationName: location.name,
-      revenue: sales._sum.total || 0,
-      transactions: sales._count,
-      expenses: expenses._sum.amount || 0,
-      profit: (sales._sum.total || 0) - (expenses._sum.amount || 0),
-      activeUsers: users,
-      lowStockCount: lowStockCount,
-      activeShifts: activeShifts,
-      pendingSales: pendingSales,
-      refundCount: refundedSales._count,
-      refundAmount: refundedSales._sum.total || 0,
-      taxCollected: taxCollected._sum.tax || 0,
-      inventoryValue: totalInventoryValue,
-    };
-  });
-
-  const locationStats = await Promise.all(statsPromises);
-
-  // Get global metrics
-  const [
-    totalCustomers,
-    newCustomers,
-    topProducts,
-    cashDiscrepancies,
-  ] = await Promise.all([
-    // Total customers
-    prisma.customer.count({ where: { isActive: true } }),
-    // New customers this period
-    prisma.customer.count({
-      where: { createdAt: { gte: daysAgo } },
-    }),
-    // Top products across all stores
-    prisma.saleItem.groupBy({
-      by: ['productId'],
-      where: {
-        sale: { createdAt: { gte: daysAgo }, status: 'COMPLETED' },
-      },
-      _sum: { total: true, quantity: true },
-      orderBy: { _sum: { total: 'desc' } },
-      take: 10,
-    }),
-    // Cash discrepancies from shifts
-    prisma.shift.findMany({
-      where: {
-        clockOutAt: { gte: daysAgo },
-        cashDifference: { not: 0 },
-      },
-      select: {
-        cashDifference: true,
-        user: { select: { firstName: true, lastName: true } },
-        location: { select: { name: true } },
-      },
-      orderBy: { clockOutAt: 'desc' },
-      take: 10,
-    }),
-  ]);
-
-  // Get product names for top products
-  const productIds = topProducts.map((p: any) => p.productId);
-  const productDetails = await prisma.product.findMany({
-    where: { id: { in: productIds } },
-    select: { id: true, name: true },
-  });
-
-  const topProductsWithNames = topProducts.map((p: any) => {
-    const product = productDetails.find((pd: any) => pd.id === p.productId);
-    return {
-      productId: p.productId,
-      name: product?.name || 'Unknown',
-      totalRevenue: p._sum.total || 0,
-      totalQuantity: p._sum.quantity || 0,
-    };
-  });
-
-  // Calculate totals
-  const totals = locationStats.reduce(
-    (acc: any, loc: any) => ({
-      totalRevenue: acc.totalRevenue + loc.revenue,
-      totalTransactions: acc.totalTransactions + loc.transactions,
-      totalExpenses: acc.totalExpenses + loc.expenses,
-      totalProfit: acc.totalProfit + loc.profit,
-      totalUsers: acc.totalUsers + loc.activeUsers,
-      totalLowStock: acc.totalLowStock + loc.lowStockCount,
-      totalActiveShifts: acc.totalActiveShifts + loc.activeShifts,
-      totalPendingSales: acc.totalPendingSales + loc.pendingSales,
-      totalRefunds: acc.totalRefunds + loc.refundCount,
-      totalRefundAmount: acc.totalRefundAmount + loc.refundAmount,
-      totalTaxCollected: acc.totalTaxCollected + loc.taxCollected,
-      totalInventoryValue: acc.totalInventoryValue + loc.inventoryValue,
-    }),
-    {
-      totalRevenue: 0,
-      totalTransactions: 0,
-      totalExpenses: 0,
-      totalProfit: 0,
-      totalUsers: 0,
-      totalLowStock: 0,
-      totalActiveShifts: 0,
-      totalPendingSales: 0,
-      totalRefunds: 0,
-      totalRefundAmount: 0,
-      totalTaxCollected: 0,
-      totalInventoryValue: 0,
-    }
-  );
-
-  res.json({
-    success: true,
-    data: {
-      locations: locationStats,
-      totals,
-      period: parseInt(period as string),
-      // Additional global metrics
-      globalMetrics: {
-        totalCustomers,
-        newCustomers,
-        topProducts: topProductsWithNames,
-        cashDiscrepancies,
-      },
-    },
-  });
+  res.json({ success: true, data: await getAdminDashboard(req.query.period ?? '30') });
 });

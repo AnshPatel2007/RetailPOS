@@ -1,15 +1,19 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosError, CanceledError } from 'axios';
+import { sessionGeneration, changeSessionGeneration } from './sessionGeneration';
+import { storeContextGeneration } from './storeContextGeneration';
+import { invalidateScopedQueries } from './queryCache';
 
 /**
  * API client configuration
  */
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 /**
  * Create axios instance
  */
 export const api: AxiosInstance = axios.create({
   baseURL: API_URL,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -19,9 +23,22 @@ export const api: AxiosInstance = axios.create({
  * Request interceptor to add auth token
  */
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
+    const request = config as typeof config & { _sessionGeneration?: number; _storeGeneration?: number };
+    request._sessionGeneration ??= sessionGeneration();
+    request._storeGeneration ??= storeContextGeneration();
     const token = localStorage.getItem('token');
-    if (token) {
+    const { useAdminViewStore } = await import('../store/adminViewStore');
+    const { useAuthStore } = await import('../store/authStore');
+    if (request._storeGeneration !== storeContextGeneration()) throw new CanceledError('Store context changed');
+    if (request._sessionGeneration !== sessionGeneration() || (useAuthStore.getState().isSigningOut && config.url !== '/auth/logout')) throw new CanceledError('Session changed');
+    const view = useAdminViewStore.getState();
+    const scopePath = /^\/(products|categories|sales|customers|shifts|reports|expenses|suppliers|purchase-orders|analytics|financial|gift-cards|store-credit|exchanges|inventory-transfers|cycle-counts|payroll|lottery|audit-logs|promotions|house-accounts)(\/|$)/;
+    if (useAuthStore.getState().user?.role === 'SUPER_ADMIN' && view.isAdminViewing && view.viewingLocationId && scopePath.test(config.url || '')) {
+      if (config.method?.toLowerCase() !== 'get') throw new Error('Store viewing mode is read-only');
+      config.params = { ...config.params, locationId: view.viewingLocationId };
+    }
+    if (token && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -34,63 +51,99 @@ api.interceptors.request.use(
 /**
  * Response interceptor — attempt token refresh on 401 before logging out
  */
-let isRefreshing = false;
-let failedQueue: { resolve: (v: any) => void; reject: (e: any) => void }[] = [];
+let refreshingGeneration: number | null = null;
+let failedQueue: { generation: number; resolve: (v: any) => void; reject: (e: any) => void }[] = [];
 
-const processQueue = (error: any, token: string | null = null) => {
-  failedQueue.forEach((p) => {
+const processQueue = (generation: number, error: any, token: string | null = null) => {
+  const queue = failedQueue.filter(p => p.generation === generation);
+  failedQueue = failedQueue.filter(p => p.generation !== generation);
+  queue.forEach((p) => {
     if (error) p.reject(error);
     else p.resolve(token);
   });
-  failedQueue = [];
 };
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if ((response.config as typeof response.config & { _storeGeneration?: number })._storeGeneration !== storeContextGeneration()) throw new CanceledError('Store context changed');
+    if ((response.config as typeof response.config & { _sessionGeneration?: number })._sessionGeneration !== sessionGeneration()) throw new CanceledError('Session changed');
+    const method = response.config.method?.toUpperCase() || 'GET';
+    const path = response.config.url?.split('?')[0] || '';
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)
+      && !/\/(quote|preview|what-if|chat|search)(\/|$)/.test(path)
+      && !/^\/auth\/refresh(\/|$)/.test(path)) invalidateScopedQueries();
+    return response;
+  },
   async (error: AxiosError) => {
     const originalRequest = error.config as any;
-    const isLoginRequest = originalRequest?.url?.includes('/auth/login');
-    const isRefreshRequest = originalRequest?.url?.includes('/auth/refresh');
+    if (!originalRequest) return Promise.reject(error);
+    if (originalRequest._storeGeneration !== storeContextGeneration()) return Promise.reject(new CanceledError('Store context changed', originalRequest));
+    if (originalRequest._sessionGeneration !== sessionGeneration()) return Promise.reject(new CanceledError('Session changed', originalRequest));
+    if (error.response?.status === 428 && originalRequest && !originalRequest._approvalRetried) {
+      const { requestManagerApproval } = await import('../store/approvalStore');
+      const body = typeof originalRequest.data === 'string' ? JSON.parse(originalRequest.data) : originalRequest.data || {};
+      let token: string;
+      try {
+        token = await requestManagerApproval({ method: 'POST', path: `/api${originalRequest.url}`, body });
+      } catch (approvalError) {
+        // A cancelled approval is never an offline checkout/network failure.
+        throw new AxiosError('Manager approval cancelled', 'ERR_CANCELED', originalRequest, error.request, {
+          ...error.response, data: { success: false, error: approvalError instanceof Error ? approvalError.message : 'Manager approval cancelled' },
+        });
+      }
+      originalRequest._approvalRetried = true;
+      originalRequest.headers['X-Manager-Approval'] = token;
+      return api(originalRequest);
+    }
+    const isCredentialAction = /^\/(auth\/(login|refresh|logout|forgot-password|reset-password|change-password|2fa)|users\/change-password|approvals)(\/|$)/.test(originalRequest.url || '');
 
-    if (error.response?.status === 401 && !isLoginRequest && !isRefreshRequest && !originalRequest._retry) {
-      if (isRefreshing) {
+    if (error.response?.status === 401 && !isCredentialAction && !originalRequest._retry && localStorage.getItem('token')) {
+      const generation = originalRequest._sessionGeneration as number;
+      originalRequest._retry = true;
+      if (refreshingGeneration === generation) {
         return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
+          failedQueue.push({ generation, resolve, reject });
         }).then((token) => {
           originalRequest.headers.Authorization = `Bearer ${token}`;
           return api(originalRequest);
         });
       }
 
-      originalRequest._retry = true;
-      isRefreshing = true;
+      refreshingGeneration = generation;
 
       try {
         const { data } = await api.post('/auth/refresh', {}, { withCredentials: true });
+        if (originalRequest._sessionGeneration !== sessionGeneration()) throw new CanceledError('Session changed');
         const newToken = data.data?.token || data.token;
         if (newToken) {
           localStorage.setItem('token', newToken);
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
-          processQueue(null, newToken);
+          processQueue(generation, null, newToken);
           return api(originalRequest);
         }
+        throw new Error('Refresh response did not include an access token');
       } catch {
-        processQueue(error, null);
+        processQueue(generation, error, null);
       } finally {
-        isRefreshing = false;
+        if (refreshingGeneration === generation) refreshingGeneration = null;
       }
+
+      if (originalRequest._sessionGeneration !== sessionGeneration()) return Promise.reject(error);
 
       // Refresh failed — log out. Dynamic import avoids a circular
       // dependency (session.ts's stores import this file for API calls).
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      const clearedGeneration = changeSessionGeneration();
       try {
-        const { clearSessionState } = await import('./session');
+        const [{ clearSessionState }, { useAuthStore }] = await Promise.all([import('./session'), import('../store/authStore')]);
+        if (sessionGeneration() !== clearedGeneration) return Promise.reject(error);
+        useAuthStore.setState({ user: null, token: null, isAuthenticated: false, isLoading: false });
         await clearSessionState();
       } catch {
         // Best-effort — still redirect to login even if this fails
       }
-      if (!window.location.pathname.includes('/login')) {
+      if (sessionGeneration() === clearedGeneration && !window.location.pathname.includes('/login')) {
         window.location.href = '/login';
       }
     }
@@ -105,7 +158,7 @@ export const authService = {
   login: (email: string, password: string, twoFactorCode?: string) =>
     api.post('/auth/login', { email, password, ...(twoFactorCode ? { twoFactorCode } : {}) }),
 
-  logout: () => api.post('/auth/logout'),
+  logout: (token?: string | null) => api.post('/auth/logout', {}, { timeout: 10000, headers: token ? { Authorization: `Bearer ${token}` } : {} }),
 
   getMe: () => api.get('/auth/me'),
 
@@ -126,24 +179,35 @@ export const authService = {
 export const twoFactorService = {
   getStatus: () => api.get('/auth/2fa/status'),
 
-  setup: () => api.post('/auth/2fa/setup'),
+  setup: (password: string) => api.post('/auth/2fa/setup', { password }),
+  cancelSetup: () => api.delete('/auth/2fa/setup'),
 
   verify: (code: string) => api.post('/auth/2fa/verify', { code }),
 
   disable: (password: string, code?: string) =>
     api.post('/auth/2fa/disable', { password, ...(code ? { code } : {}) }),
 
-  regenerateBackupCodes: (password: string) =>
-    api.post('/auth/2fa/backup-codes', { password }),
+  regenerateBackupCodes: (password: string, code: string) =>
+    api.post('/auth/2fa/backup-codes', { password, code }),
 };
 
 /**
  * Product service
  */
 export const productService = {
-  getAll: (params?: any) => api.get('/products', { params }),
+  movements: (params: Record<string, string | number | undefined>) => api.get('/products/movements', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/products', { params, signal }),
 
-  getById: (id: string) => api.get(`/products/${id}`),
+  getById: (id: string, signal?: AbortSignal) => api.get(`/products/${id}`, { signal }),
+
+  getSellingUnits: (id: string, signal?: AbortSignal) => api.get(`/products/${id}/selling-units`, { signal }),
+  createSellingUnit: (id: string, data: { name: string; barcode: string; sku?: string; unitsPerPackage: number; price: number; baseUnitName?: string }) =>
+    api.post(`/products/${id}/selling-units`, data),
+  updateSellingUnit: (id: string, unitId: string, data: { name?: string; barcode?: string; sku?: string; price?: number; isActive?: boolean; expectedVersion: number }) =>
+    api.put(`/products/${id}/selling-units/${unitId}`, data),
+  updateBaseUnitName: (id: string, baseUnitName: string) => api.patch(`/products/${id}/selling-units`, { baseUnitName }),
+  updatePackaging: (id: string, unitId: string, data: { action: 'count' | 'open'; quantity: number; expectedVersion: number; expectedStockVersion: number; requestKey: string; reason?: string }) =>
+    api.post(`/products/${id}/selling-units/${unitId}/packaging`, data),
 
   create: (data: any) => api.post('/products', data),
 
@@ -158,8 +222,8 @@ export const productService = {
   adjustInventory: (id: string, data: any) =>
     api.post(`/products/${id}/adjust-inventory`, data),
 
-  identify: (data: { barcode?: string; image?: string; mediaType?: string }) =>
-    api.post('/products/identify', data, { timeout: 60000 }),
+  identify: (data: { barcode?: string; image?: string; mediaType?: string }, signal?: AbortSignal) =>
+    api.post('/products/identify', data, { timeout: 60000, signal }),
 
   bulkUpdateStock: (updates: any[]) =>
     api.post('/products/bulk-update-stock', { updates }),
@@ -190,7 +254,7 @@ export const productService = {
  * Category service
  */
 export const categoryService = {
-  getAll: (params?: any) => api.get('/categories', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/categories', { params, signal }),
 
   getById: (id: string) => api.get(`/categories/${id}`),
 
@@ -205,19 +269,20 @@ export const categoryService = {
  * Sale service
  */
 export const saleService = {
-  getAll: (params?: any) => api.get('/sales', { params }),
+  quote: (items: import('@/types/checkout').CheckoutItem[], intent: import('@/types/checkout').CheckoutQuoteIntent = {}, signal?: AbortSignal) => api.post('/sales/quote', { items, ...intent }, { signal }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/sales', { params, signal }),
 
-  getById: (id: string) => api.get(`/sales/${id}`),
+  getById: (id: string, signal?: AbortSignal) => api.get(`/sales/${encodeURIComponent(id)}`, { signal }),
 
   create: (data: any) => api.post('/sales', data),
 
   refund: (id: string, data: any) => api.post(`/sales/${id}/refund`, data),
 
-  void: (id: string) => api.post(`/sales/${id}/void`),
+  void: (id: string, data?: { reason: string; idempotencyKey: string; expectedAmount: number }) => api.post(`/sales/${id}/void`, data),
 
-  bulkVoid: (saleIds: string[]) => api.post('/sales/bulk-void', { saleIds }),
+  bulkVoid: (data: import('./pendingBulkVoid').BulkVoidRequest) => api.post('/sales/bulk-void', data),
 
-  bulkRefund: (saleIds: string[]) => api.post('/sales/bulk-refund', { saleIds }),
+  previewBulkRefund: (saleIds: string[], signal?: AbortSignal) => api.post('/sales/bulk-refund/preview', { saleIds }, { signal }),
 
   emailReceipt: (id: string, email: string) => api.post(`/sales/${id}/email-receipt`, { email }),
 };
@@ -226,7 +291,7 @@ export const saleService = {
  * Customer service
  */
 export const customerService = {
-  getAll: (params?: any) => api.get('/customers', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/customers', { params, signal }),
 
   getById: (id: string) => api.get(`/customers/${id}`),
 
@@ -251,9 +316,9 @@ export const customerService = {
  * Shift service
  */
 export const shiftService = {
-  getAll: (params?: any) => api.get('/shifts', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/shifts', { params, signal }),
 
-  getCurrent: () => api.get('/shifts/current'),
+  getCurrent: (signal?: AbortSignal) => api.get('/shifts/current', { signal }),
 
   clockIn: (data: any) => api.post('/shifts/clock-in', data),
 
@@ -261,9 +326,9 @@ export const shiftService = {
 
   close: (id: string, data: any) => api.post(`/shifts/${id}/close`, data),
 
-  getEmployeePerformance: (params?: any) => api.get('/shifts/employee-performance', { params }),
+  getEmployeePerformance: (params?: any, signal?: AbortSignal) => api.get('/shifts/employee-performance', { params, signal }),
 
-  cashMovement: (data: { type: string; amount: number; reason: string }) =>
+  cashMovement: (data: { type: string; amount: number; reason: string; idempotencyKey?: string }) =>
     api.post('/shifts/cash-movement', data),
 
   getZReport: (id: string) => api.get(`/shifts/${id}/z-report`),
@@ -273,26 +338,28 @@ export const shiftService = {
  * Report service
  */
 export const reportService = {
-  getDashboard: () => api.get('/reports/dashboard'),
+  getDashboard: (signal?: AbortSignal) => api.get('/reports/dashboard', { signal }),
   getDashboardHourly: () => api.get('/reports/dashboard/hourly'),
 
-  getOverall: (params?: any) => api.get('/reports/overall', { params }),
+  getOverall: (params?: any, signal?: AbortSignal) => api.get('/reports/overall', { params, signal }),
 
-  getSales: (params?: any) => api.get('/reports/sales', { params }),
+  getSales: (params?: any, signal?: AbortSignal) => api.get('/reports/sales', { params, signal }),
 
-  getInventory: (params?: any) => api.get('/reports/inventory', { params }),
+  getInventory: (params?: any, signal?: AbortSignal) => api.get('/reports/inventory', { params, signal }),
 
-  getEmployees: (params?: any) => api.get('/reports/employees', { params }),
+  getEmployees: (params?: any, signal?: AbortSignal) => api.get('/reports/employees', { params, signal }),
 
-  getProducts: (params?: any) => api.get('/reports/products', { params }),
+  getProducts: (params?: any, signal?: AbortSignal) => api.get('/reports/products', { params, signal }),
 
-  getExpenses: (params?: any) => api.get('/reports/expenses', { params }),
+  getExpenses: (params?: any, signal?: AbortSignal) => api.get('/reports/expenses', { params, signal }),
 
-  getEmployeeSales: (params?: any) => api.get('/reports/employee-sales', { params }),
+  getEmployeeSales: (params?: any, signal?: AbortSignal) => api.get('/reports/employee-sales', { params, signal }),
 
   getStockHealth: (params?: { days?: number }) => api.get('/reports/stock-health', { params }),
 
-  sendDailyDigest: () => api.post('/reports/daily-digest/send'),
+  sendDailyDigest: (idempotencyKey: string) => api.post('/reports/daily-digest/send', { idempotencyKey }),
+  getDigestDeliveries: (page = 1, signal?: AbortSignal) => api.get('/reports/daily-digest/deliveries', { params: { page }, signal }),
+  retryDigestDelivery: (id: string, input: { reason: string; confirmedNotDelivered: boolean }) => api.post(`/reports/daily-digest/deliveries/${id}/retry`, input),
 
   exportScanDataCSV: (params: { startDate: string; endDate: string; categoryIds: string }) =>
     api.get('/reports/scan-data/export/csv', { params, responseType: 'blob' }),
@@ -330,7 +397,7 @@ export const reportService = {
  * Expense service
  */
 export const expenseService = {
-  getAll: (params?: any) => api.get('/expenses', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/expenses', { params, signal }),
 
   getById: (id: string) => api.get(`/expenses/${id}`),
 
@@ -344,6 +411,7 @@ export const expenseService = {
 
   reject: (id: string) => api.post(`/expenses/${id}/reject`),
 
+  downloadReceipt: (filename: string) => api.get(`/expenses/receipts/${encodeURIComponent(filename)}`, { responseType: 'blob' }),
   uploadReceipt: (file: File) => {
     const formData = new FormData();
     formData.append('receipt', file);
@@ -377,7 +445,7 @@ export const expenseService = {
  * Supplier service
  */
 export const supplierService = {
-  getAll: (params?: any) => api.get('/suppliers', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/suppliers', { params, signal }),
 
   getById: (id: string) => api.get(`/suppliers/${id}`),
 
@@ -402,7 +470,7 @@ export const supplierService = {
  * Purchase Order service
  */
 export const purchaseOrderService = {
-  getAll: (params?: any) => api.get('/purchase-orders', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/purchase-orders', { params, signal }),
 
   getById: (id: string) => api.get(`/purchase-orders/${id}`),
 
@@ -415,43 +483,43 @@ export const purchaseOrderService = {
   updateStatus: (id: string, status: string) =>
     api.post(`/purchase-orders/${id}/status`, { status }),
 
-  receive: (id: string, receivedItems?: any[]) =>
-    api.post(`/purchase-orders/${id}/receive`, { receivedItems }),
+  receive: (id: string, delivery: import('@/types/purchasing').PurchaseReceiptRequest) =>
+    api.post(`/purchase-orders/${id}/receive`, delivery),
 
   cancel: (id: string, reason?: string) =>
     api.post(`/purchase-orders/${id}/cancel`, { reason }),
 
   autoGenerate: () => api.post('/purchase-orders/auto-generate'),
 
-  getSuggested: () => api.get('/purchase-orders/suggested'),
+  getSuggested: (locationId?: string, signal?: AbortSignal) => api.get('/purchase-orders/suggested', { params: { locationId }, signal }),
 };
 
 /**
  * Analytics service
  */
 export const analyticsService = {
-  getComparison: (params?: any) => api.get('/analytics/comparison', { params }),
+  getComparison: (params?: any, signal?: AbortSignal) => api.get('/analytics/comparison', { params, signal }),
 
-  getABCAnalysis: (params?: any) => api.get('/analytics/abc-analysis', { params }),
+  getABCAnalysis: (params?: any, signal?: AbortSignal) => api.get('/analytics/abc-analysis', { params, signal }),
 
-  getProductMatrix: (params?: any) => api.get('/analytics/product-matrix', { params }),
+  getProductMatrix: (params?: any, signal?: AbortSignal) => api.get('/analytics/product-matrix', { params, signal }),
 
-  getForecast: (params?: any) => api.get('/analytics/forecast', { params }),
+  getForecast: (params?: any, signal?: AbortSignal) => api.get('/analytics/forecast', { params, signal }),
 
-  getCustomerInsights: (params?: any) => api.get('/analytics/customer-insights', { params }),
+  getCustomerInsights: (params?: any, signal?: AbortSignal) => api.get('/analytics/customer-insights', { params, signal }),
 
-  getRealtime: (params?: any) => api.get('/analytics/realtime', { params }),
+  getRealtime: (params?: any, signal?: AbortSignal) => api.get('/analytics/realtime', { params, signal }),
 
   // New AI Analytics endpoints
-  getInventoryPredictions: (params?: any) => api.get('/analytics/inventory-predictions', { params }),
+  getInventoryPredictions: (params?: any, signal?: AbortSignal) => api.get('/analytics/inventory-predictions', { params, signal }),
 
-  getAnomalies: (params?: any) => api.get('/analytics/anomalies', { params }),
+  getAnomalies: (params?: any, signal?: AbortSignal) => api.get('/analytics/anomalies', { params, signal }),
 
-  getBundleRecommendations: (params?: any) => api.get('/analytics/bundle-recommendations', { params }),
+  getBundleRecommendations: (params?: any, signal?: AbortSignal) => api.get('/analytics/bundle-recommendations', { params, signal }),
 
-  getEmployeePerformance: (params?: any) => api.get('/analytics/employee-performance', { params }),
+  getEmployeePerformance: (params?: any, signal?: AbortSignal) => api.get('/analytics/employee-performance', { params, signal }),
 
-  getBusinessHealth: (params?: any) => api.get('/analytics/business-health', { params }),
+  getBusinessHealth: (params?: any, signal?: AbortSignal) => api.get('/analytics/business-health', { params, signal }),
 
   getWhatIfAnalysis: (data: { priceChange?: number; costChange?: number; volumeChange?: number; locationId?: string }) =>
     api.post('/analytics/what-if', data),
@@ -465,14 +533,14 @@ export const analyticsService = {
  */
 export const financialService = {
   // Budgets
-  getBudgets: (params?: any) => api.get('/financial/budgets', { params }),
-  getBudgetSummary: (params?: any) => api.get('/financial/budgets/summary', { params }),
+  getBudgets: (params?: any, signal?: AbortSignal) => api.get('/financial/budgets', { params, signal }),
+  getBudgetSummary: (params?: any, signal?: AbortSignal) => api.get('/financial/budgets/summary', { params, signal }),
   createBudget: (data: any) => api.post('/financial/budgets', data),
   updateBudget: (id: string, data: any) => api.put(`/financial/budgets/${id}`, data),
   deleteBudget: (id: string) => api.delete(`/financial/budgets/${id}`),
 
   // Recurring Expenses
-  getRecurringExpenses: (params?: any) => api.get('/financial/recurring-expenses', { params }),
+  getRecurringExpenses: (params?: any, signal?: AbortSignal) => api.get('/financial/recurring-expenses', { params, signal }),
   createRecurringExpense: (data: any) => api.post('/financial/recurring-expenses', data),
   updateRecurringExpense: (id: string, data: any) => api.put(`/financial/recurring-expenses/${id}`, data),
   deleteRecurringExpense: (id: string) => api.delete(`/financial/recurring-expenses/${id}`),
@@ -480,19 +548,19 @@ export const financialService = {
 
   // Accounting Exports
   getExportHistory: () => api.get('/financial/exports'),
-  exportSales: (params?: any) => api.get('/financial/export/sales', { params }),
-  exportExpenses: (params?: any) => api.get('/financial/export/expenses', { params }),
-  getProfitAndLoss: (params?: any) => api.get('/financial/reports/pnl', { params }),
+  exportSales: (params?: any, signal?: AbortSignal) => api.get('/financial/export/sales', { params, signal }),
+  exportExpenses: (params?: any, signal?: AbortSignal) => api.get('/financial/export/expenses', { params, signal }),
+  getProfitAndLoss: (params?: any, signal?: AbortSignal) => api.get('/financial/reports/pnl', { params, signal }),
 };
 
 /**
  * Location service (Super Admin)
  */
 export const locationService = {
-  getAll: () => api.get('/locations'),
+  getAll: (signal?: AbortSignal) => api.get('/locations', { signal }),
   getById: (id: string) => api.get(`/locations/${id}`),
   getStats: (id: string, period?: number) => api.get(`/locations/${id}/stats`, { params: { period } }),
-  getCrossLocationStats: (period?: number) => api.get('/locations/stats/overview', { params: { period } }),
+  getCrossLocationStats: (period?: number | string) => api.get('/locations/stats/overview', { params: { period } }),
   create: (data: any) => api.post('/locations', data),
   update: (id: string, data: any) => api.put(`/locations/${id}`, data),
   delete: (id: string) => api.delete(`/locations/${id}`),
@@ -504,7 +572,7 @@ export const locationService = {
  * User management service (Admin)
  */
 export const userService = {
-  getAll: (params?: any) => api.get('/users', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/users', { params, signal }),
   getById: (id: string) => api.get(`/users/${id}`),
   getPerformance: (id: string, period?: number) => api.get(`/users/${id}/performance`, { params: { period } }),
   create: (data: any) => api.post('/users', data),
@@ -523,15 +591,17 @@ export const userService = {
 /**
  * Gift Card service
  */
+export interface AccountFundingRequest {
+  amount: number; idempotencyKey: string; paymentMethod: 'CASH' | 'CARD' | 'PROMOTIONAL'; reference?: string; notes?: string;
+}
 export const giftCardService = {
-  getAll: (params?: any) => api.get('/gift-cards', { params }),
-  getStats: () => api.get('/gift-cards/stats'),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/gift-cards', { params, signal }),
+  getStats: (signal?: AbortSignal) => api.get('/gift-cards/stats', { signal }),
   getById: (id: string) => api.get(`/gift-cards/${id}`),
   checkBalance: (code: string) => api.get(`/gift-cards/balance/${code}`),
-  issue: (data: { amount: number; customerId?: string; expiresAt?: string }) =>
+  issue: (data: AccountFundingRequest & { customerId?: string; expiresAt?: string }) =>
     api.post('/gift-cards', data),
-  reload: (id: string, data: { amount: number }) => api.post(`/gift-cards/${id}/reload`, data),
-  redeem: (id: string, data: { amount: number; saleId?: string }) => api.post(`/gift-cards/${id}/redeem`, data),
+  reload: (id: string, data: AccountFundingRequest) => api.post(`/gift-cards/${id}/reload`, data),
   deactivate: (id: string) => api.post(`/gift-cards/${id}/deactivate`),
 };
 
@@ -539,20 +609,18 @@ export const giftCardService = {
  * Store Credit service
  */
 export const storeCreditService = {
-  getAll: (params?: any) => api.get('/store-credit', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/store-credit', { params, signal }),
   getBalance: (customerId: string) => api.get(`/store-credit/${customerId}`),
   getTransactions: (customerId: string, params?: any) => api.get(`/store-credit/${customerId}/transactions`, { params }),
-  addCredit: (customerId: string, data: { amount: number; notes?: string; saleId?: string }) =>
+  addCredit: (customerId: string, data: { amount: number; notes: string; source: 'GOODWILL' | 'CORRECTION'; idempotencyKey: string }) =>
     api.post(`/store-credit/${customerId}/credit`, data),
-  debit: (customerId: string, data: { amount: number; saleId?: string }) =>
-    api.post(`/store-credit/${customerId}/debit`, data),
 };
 
 /**
  * Exchange / Return service
  */
 export const exchangeService = {
-  getAll: (params?: any) => api.get('/exchanges', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/exchanges', { params, signal }),
   getById: (id: string) => api.get(`/exchanges/${id}`),
   create: (data: any) => api.post('/exchanges', data),
 };
@@ -561,12 +629,18 @@ export const exchangeService = {
  * Inventory Transfer service
  */
 export const inventoryTransferService = {
-  getAll: (params?: any) => api.get('/inventory-transfers', { params }),
+  options: (locationId?: string) => api.get('/inventory-transfers/options', { params: { locationId } }),
+  connections: () => api.get('/inventory-transfers/connections'),
+  connect: (fromLocationId: string, toLocationId: string) => api.post('/inventory-transfers/connections', { fromLocationId, toLocationId }),
+  disconnect: (id: string) => api.delete('/inventory-transfers/connections/' + id),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/inventory-transfers', { params, signal }),
   getById: (id: string) => api.get(`/inventory-transfers/${id}`),
   create: (data: any) => api.post('/inventory-transfers', data),
   ship: (id: string) => api.post(`/inventory-transfers/${id}/ship`),
-  receive: (id: string, data?: { receivedItems?: any[] }) =>
-    api.post(`/inventory-transfers/${id}/receive`, data),
+  mappingOptions: (id: string) => api.get(`/inventory-transfers/${id}/mapping-options`),
+  receipts: (id: string, page: number) => api.get(`/inventory-transfers/${id}/receipts`, { params: { page } }),
+  recordReceipt: (id: string, kind: import('@/types/transfers').TransferReceiptKind, data: import('@/types/transfers').TransferReceiptRequest) =>
+    api.post(`/inventory-transfers/${id}/${kind === 'RECEIVE' ? 'receive' : kind === 'SOURCE_RETURN' ? 'receive-return' : 'request-return'}`, data),
   cancel: (id: string) => api.post(`/inventory-transfers/${id}/cancel`),
 };
 
@@ -574,11 +648,12 @@ export const inventoryTransferService = {
  * Cycle Count service
  */
 export const cycleCountService = {
-  getAll: (params?: any) => api.get('/cycle-counts', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/cycle-counts', { params, signal }),
   getById: (id: string) => api.get(`/cycle-counts/${id}`),
   create: (data: any) => api.post('/cycle-counts', data),
   updateItems: (id: string, items: any[]) => api.put(`/cycle-counts/${id}/items`, { items }),
   submit: (id: string) => api.post(`/cycle-counts/${id}/submit`),
+  refresh: (id: string) => api.post(`/cycle-counts/${id}/refresh`),
   approve: (id: string) => api.post(`/cycle-counts/${id}/approve`),
   cancel: (id: string) => api.post(`/cycle-counts/${id}/cancel`),
 };
@@ -588,61 +663,61 @@ export const cycleCountService = {
  */
 export const lotteryService = {
   // Batches
-  getBatches: (params?: any) => api.get('/lottery/batches', { params }),
+  getBatches: (params?: any, signal?: AbortSignal) => api.get('/lottery/batches', { params, signal }),
   getBatchById: (id: string) => api.get(`/lottery/batches/${id}`),
   createBatch: (data: any) => api.post('/lottery/batches', data),
   updateBatch: (id: string, data: any) => api.put(`/lottery/batches/${id}`, data),
   deleteBatch: (id: string) => api.delete(`/lottery/batches/${id}`),
 
   // Transactions
-  getTransactions: (params?: any) => api.get('/lottery/transactions', { params }),
+  getTransactions: (params?: any, signal?: AbortSignal) => api.get('/lottery/transactions', { params, signal }),
   getTransactionById: (id: string) => api.get(`/lottery/transactions/${id}`),
   upsertTransaction: (data: any) => api.post('/lottery/transactions', data),
   closeTransaction: (id: string, data: any) => api.post(`/lottery/transactions/${id}/close`, data),
 
   // Scans
   scanTicket: (data: any) => api.post('/lottery/scan', data),
-  getScans: (params?: any) => api.get('/lottery/scans', { params }),
+  getScans: (params?: any, signal?: AbortSignal) => api.get('/lottery/scans', { params, signal }),
 
   // Reports
-  getDailySummary: (params?: any) => api.get('/lottery/reports/daily-summary', { params }),
+  getDailySummary: (params?: any, signal?: AbortSignal) => api.get('/lottery/reports/daily-summary', { params, signal }),
 
   // Ticket Types
-  getTicketTypes: (params?: any) => api.get('/lottery/ticket-types', { params }),
+  getTicketTypes: (params?: any, signal?: AbortSignal) => api.get('/lottery/ticket-types', { params, signal }),
   getTicketTypeById: (id: string) => api.get(`/lottery/ticket-types/${id}`),
   createTicketType: (data: any) => api.post('/lottery/ticket-types', data),
   updateTicketType: (id: string, data: any) => api.put(`/lottery/ticket-types/${id}`, data),
   deleteTicketType: (id: string) => api.delete(`/lottery/ticket-types/${id}`),
 
   // Daily Entries
-  getDailyEntries: (params?: any) => api.get('/lottery/daily-entries', { params }),
+  getDailyEntries: (params?: any, signal?: AbortSignal) => api.get('/lottery/daily-entries', { params, signal }),
   createDailyEntry: (data: any) => api.post('/lottery/daily-entries', data),
   updateDailyEntry: (id: string, data: any) => api.put(`/lottery/daily-entries/${id}`, data),
   deleteDailyEntry: (id: string) => api.delete(`/lottery/daily-entries/${id}`),
-  getCarryForwardInfo: (params?: any) => api.get('/lottery/daily-entries/carry-forward', { params }),
+  getCarryForwardInfo: (params?: any, signal?: AbortSignal) => api.get('/lottery/daily-entries/carry-forward', { params, signal }),
 
   // Day Status
-  getDayStatus: (params?: any) => api.get('/lottery/day-status', { params }),
+  getDayStatus: (params?: any, signal?: AbortSignal) => api.get('/lottery/day-status', { params, signal }),
   updateDayStatusCashout: (id: string, data: any) => api.put(`/lottery/day-status/${id}`, data),
   closeDay: (data: any) => api.post('/lottery/day-status/close', data),
   reopenDay: (id: string, data: any) => api.post(`/lottery/day-status/${id}/reopen`, data),
 };
 
 export const auditLogService = {
-  getAll: (params?: any) => api.get('/audit-logs', { params }),
-  getActions: () => api.get('/audit-logs/actions'),
-  getEntities: () => api.get('/audit-logs/entities'),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/audit-logs', { params, signal }),
+  getActions: (locationId?: string) => api.get('/audit-logs/actions', { params: { locationId } }),
+  getEntities: (locationId?: string) => api.get('/audit-logs/entities', { params: { locationId } }),
 };
 
 /**
  * Developer service (API keys + webhooks, admin only)
  */
 export const developerService = {
-  listApiKeys: () => api.get('/developer/api-keys'),
+  listApiKeys: (signal?: AbortSignal) => api.get('/developer/api-keys', { signal }),
   createApiKey: (name: string) => api.post('/developer/api-keys', { name }),
   revokeApiKey: (id: string) => api.delete(`/developer/api-keys/${id}`),
 
-  listWebhooks: () => api.get('/developer/webhooks'),
+  listWebhooks: (signal?: AbortSignal) => api.get('/developer/webhooks', { signal }),
   createWebhook: (data: { url: string; events: string[] }) => api.post('/developer/webhooks', data),
   updateWebhook: (id: string, data: { url?: string; events?: string[]; isActive?: boolean }) =>
     api.put(`/developer/webhooks/${id}`, data),
@@ -654,11 +729,11 @@ export const developerService = {
  * House Account service (charge-to-account / AR)
  */
 export const houseAccountService = {
-  getAll: (params?: any) => api.get('/house-accounts', { params }),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/house-accounts', { params, signal }),
   create: (data: { customerId: string; creditLimit: number }) => api.post('/house-accounts', data),
   update: (id: string, data: { creditLimit?: number; isActive?: boolean }) =>
     api.put(`/house-accounts/${id}`, data),
-  recordPayment: (id: string, data: { amount: number; notes?: string }) =>
+  recordPayment: (id: string, data: Omit<AccountFundingRequest, 'paymentMethod'> & { paymentMethod: 'CASH' | 'CARD' }) =>
     api.post(`/house-accounts/${id}/payment`, data),
   getTransactions: (id: string) => api.get(`/house-accounts/${id}/transactions`),
   emailStatement: (id: string) => api.post(`/house-accounts/${id}/statement`),
@@ -668,11 +743,19 @@ export const houseAccountService = {
  * Promotion service
  */
 export const promotionService = {
-  getAll: (params?: any) => api.get('/promotions', { params }),
-  getActive: () => api.get('/promotions/active'),
+  getAll: (params?: any, signal?: AbortSignal) => api.get('/promotions', { params, signal }),
+  getActive: (params?: { locationId?: string }) => api.get('/promotions/active', { params }),
   getById: (id: string) => api.get(`/promotions/${id}`),
   create: (data: any) => api.post('/promotions', data),
   update: (id: string, data: any) => api.put(`/promotions/${id}`, data),
   toggle: (id: string) => api.post(`/promotions/${id}/toggle`),
   delete: (id: string) => api.delete(`/promotions/${id}`),
+};
+
+export const payrollService = {
+  get: (locationId?: string, page = 1, signal?: AbortSignal) => api.get('/payroll', { params: { locationId, page }, signal }),
+  detail: (id: string, page = 1, signal?: AbortSignal) => api.get('/payroll/expenses/' + id, { params: { page }, signal }),
+  setRate: (id: string, hourlyRate: number | null) => api.put('/payroll/employees/' + id + '/rate', { hourlyRate }),
+  setSchedule: (locationId: string, frequency: string) => api.put('/payroll/schedule', { frequency }, { params: { locationId } }),
+  process: (locationId: string) => api.post('/payroll/process', {}, { params: { locationId } }),
 };

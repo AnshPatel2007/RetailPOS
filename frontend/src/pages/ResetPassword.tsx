@@ -43,19 +43,19 @@ export const ResetPassword: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <Card className="w-full max-w-md mx-4 shadow-lg">
-        <CardHeader className="text-center">
+    <div className="auth-page min-h-screen flex items-center justify-center py-10">
+      <Card className="w-full max-w-md mx-4">
+        <CardHeader className="text-center p-6 pb-4">
           <div className="flex justify-center mb-4">
             <div className="p-3 bg-primary rounded-full">
               <KeyRound className="h-8 w-8 text-primary-foreground" />
             </div>
           </div>
-          <CardTitle className="text-3xl">Reset Password</CardTitle>
+          <CardTitle className="text-2xl font-semibold">Reset Password</CardTitle>
           <p className="text-muted-foreground mt-2">Choose a new password for your account</p>
         </CardHeader>
 
-        <CardContent>
+        <CardContent className="px-6 pb-6">
           {!token ? (
             <div className="space-y-4">
               <div className="p-3 bg-destructive/10 border border-destructive rounded-md">

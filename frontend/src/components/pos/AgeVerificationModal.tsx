@@ -234,7 +234,7 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
             <Eye className="h-4 w-4 mr-2" />
             I visually verified the customer is {requiredAge}+
           </Button>
-          <p className="text-[11px] text-center text-muted-foreground mt-1.5">
+          <p className="text-xs text-center text-muted-foreground mt-1.5">
             Every verification is logged with your name, time, and method
           </p>
         </div>

@@ -1,9 +1,9 @@
+import { formatEnumLabel } from '@/lib/utils';
 import React from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { FilterSection } from '@/components/common/FilterSection';
-import { DatePresetsSelect } from '@/components/common/DatePresetsSelect';
 
 interface SalesFiltersProps {
   filters: {
@@ -23,7 +23,7 @@ interface SalesFiltersProps {
   onShowChartsChange?: (value: boolean) => void;
 }
 
-const PAYMENT_METHODS = ['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'OTHER'];
+const PAYMENT_METHODS = ['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'HOUSE_ACCOUNT', 'EBT', 'OTHER'];
 const SALE_STATUSES = ['COMPLETED', 'PENDING', 'REFUNDED', 'VOIDED', 'HOLD'];
 
 export const SalesFilters: React.FC<SalesFiltersProps> = ({
@@ -61,11 +61,6 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
     filters.minAmount ||
     filters.maxAmount;
 
-  const getDateSummary = () => {
-    if (!filters.startDate && !filters.endDate) return '';
-    if (filters.startDate === filters.endDate) return filters.startDate;
-    return `${filters.startDate || '...'} to ${filters.endDate || '...'}`;
-  };
 
   return (
     <div className="space-y-2">
@@ -82,42 +77,6 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
 
       {/* Single Column Filter Layout with Vertical Scroll */}
       <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
-        {/* Date Range Section */}
-        <FilterSection
-          title="Date Range"
-          summary={getDateSummary()}
-          defaultOpen={false}
-        >
-          <div className="space-y-1.5">
-            <label className="block text-xs text-muted-foreground">Quick Select</label>
-            <DatePresetsSelect
-              onSelect={(start, end) =>
-                onFilterChange({ ...filters, startDate: start, endDate: end })
-              }
-            />
-            <div className="space-y-1.5 pt-1">
-              <Input
-                type="date"
-                value={filters.startDate}
-                onChange={(e) =>
-                  onFilterChange({ ...filters, startDate: e.target.value })
-                }
-                placeholder="Start date"
-                className="text-xs"
-              />
-              <Input
-                type="date"
-                value={filters.endDate}
-                onChange={(e) =>
-                  onFilterChange({ ...filters, endDate: e.target.value })
-                }
-                placeholder="End date"
-                className="text-xs"
-              />
-            </div>
-          </div>
-        </FilterSection>
-
         {/* Amount Range Section */}
         <FilterSection
           title="Amount Range"
@@ -181,14 +140,14 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
             {SALE_STATUSES.map((status) => (
               <button
                 key={status}
-                onClick={() => handleStatusToggle(status)}
+                onClick={() => handleStatusToggle(status)} aria-pressed={filters.status.includes(status)}
                 className={`w-full px-2 py-1 text-xs rounded border transition-colors text-left ${
                   filters.status.includes(status)
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-background border-border hover:bg-accent'
                 }`}
               >
-                {status}
+                {formatEnumLabel(status)}
               </button>
             ))}
           </div>
@@ -196,7 +155,7 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
 
         {/* Payment Method Section */}
         <FilterSection
-          title="Payment Method"
+          title="Original primary tender"
           summary={
             filters.paymentMethod.length > 0
               ? `${filters.paymentMethod.length} selected`
@@ -208,14 +167,14 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
             {PAYMENT_METHODS.map((method) => (
               <button
                 key={method}
-                onClick={() => handlePaymentMethodToggle(method)}
+                onClick={() => handlePaymentMethodToggle(method)} aria-pressed={filters.paymentMethod.includes(method)}
                 className={`w-full px-2 py-1 text-xs rounded border transition-colors text-left ${
                   filters.paymentMethod.includes(method)
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-background border-border hover:bg-accent'
                 }`}
               >
-                {method.replace(/_/g, ' ')}
+                {formatEnumLabel(method)}
               </button>
             ))}
           </div>

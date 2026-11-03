@@ -1,75 +1,31 @@
-import React, { useEffect } from 'react';
-import { X } from 'lucide-react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
+import { Dialog } from 'react-aria-components';
+import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { ControlPopover, useSmallScreen } from '@/components/ui/Overlay';
 
-interface FilterDropdownProps {
-  isOpen: boolean;
-  onClose: () => void;
-  children: React.ReactNode;
-  title?: string;
-}
+type FilterValues = Record<string, string | string[] | boolean | null>;
+interface FilterContent { filters: FilterValues; onFilterChange: (value: FilterValues) => void; onClear: () => void }
+interface FilterDropdownProps { isOpen: boolean; onClose: () => void; children: React.ReactNode; title?: string }
 
-export const FilterDropdown: React.FC<FilterDropdownProps> = ({
-  isOpen,
-  onClose,
-  children,
-  title = 'Filters',
-}) => {
-  // Prevent body scroll when mobile modal is open
-  useEffect(() => {
-    if (isOpen) {
-      // Only lock scroll on mobile
-      if (window.innerWidth < 768) {
-        document.body.style.overflow = 'hidden';
-      }
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
+export function FilterDropdown({ isOpen, onClose, children, title = 'Filters' }: FilterDropdownProps) {
+  const marker = useRef<HTMLSpanElement>(null);
+  const anchor = useRef<HTMLElement>(null);
+  const small = useSmallScreen();
+  const child = React.isValidElement<FilterContent>(children) ? children : null;
+  const [draft, setDraft] = useState<FilterValues>({});
+  useLayoutEffect(() => {
+    (anchor as React.MutableRefObject<HTMLElement | null>).current = marker.current?.parentElement?.querySelector('button') || null;
+    if (isOpen && child) setDraft(child.props.filters);
   }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <>
-      {/* Desktop: Dropdown Overlay (hidden on mobile) */}
-      <div className="hidden md:block">
-        {/* Backdrop */}
-        <div className="fixed inset-0 z-40" onClick={onClose} />
-
-        {/* Dropdown */}
-        <div className="absolute right-0 mt-2 w-72 bg-background border border-border rounded-md shadow-lg z-50 animate-fadeIn">
-          <div className="p-3">{children}</div>
-        </div>
-      </div>
-
-      {/* Mobile: Full-Screen Modal (hidden on desktop) */}
-      <div className="md:hidden fixed inset-0 z-50 flex items-start justify-center pt-4 px-2">
-        {/* Backdrop */}
-        <div
-          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-          onClick={onClose}
-        />
-
-        {/* Modal */}
-        <div className="relative z-50 w-full max-w-lg bg-background rounded-lg shadow-lg animate-fadeIn max-h-[90vh] overflow-y-auto">
-          {/* Header */}
-          <div className="flex items-center justify-between p-3 border-b sticky top-0 bg-background">
-            <h2 className="text-lg font-semibold">{title}</h2>
-            <button
-              onClick={onClose}
-              className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          {/* Content */}
-          <div className="p-3">{children}</div>
-        </div>
-      </div>
-    </>
-  );
-};
+  const clear = () => setDraft(previous => Object.fromEntries(Object.entries(previous).map(([key, value]) => [key,
+    ['startDate', 'endDate', 'showCharts'].includes(key) ? value : Array.isArray(value) ? [] : typeof value === 'boolean' || value === null ? null : '',
+  ])));
+  const body = child ? React.cloneElement(child, { filters: { ...child.props.filters, ...draft }, onFilterChange: setDraft, onClear: clear }) : children;
+  const apply = () => { child?.props.onFilterChange(draft); onClose(); };
+  const footer = <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="button" onClick={apply}>Apply filters</Button></div>;
+  return <><span ref={marker} hidden />{small ? <Modal isOpen={isOpen} onClose={onClose} title={title} size="sm" footer={footer}>{body}</Modal> :
+    <ControlPopover triggerRef={anchor} isOpen={isOpen} onOpenChange={open => { if (!open) onClose(); }} placement="bottom end" className="filter-popover">
+      <Dialog aria-label={title} className="filter-dialog outline-none"><div className="filter-body p-4">{body}</div><div className="border-t p-3">{footer}</div></Dialog>
+    </ControlPopover>}</>;
+}

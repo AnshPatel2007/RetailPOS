@@ -1,6 +1,9 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
+import { Request } from 'express';
+import { AppError } from '../utils/errorHandler';
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, '../../uploads/receipts');
@@ -15,15 +18,13 @@ const storage = multer.diskStorage({
   },
   filename: (_req, file, cb) => {
     // Generate unique filename: timestamp-randomstring-originalname
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const ext = path.extname(file.originalname);
-    const nameWithoutExt = path.basename(file.originalname, ext);
-    cb(null, `${nameWithoutExt}-${uniqueSuffix}${ext}`);
+    const extensions: Record<string, string> = { 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'application/pdf': '.pdf' };
+    cb(null, `${randomUUID()}${extensions[file.mimetype] || '.bin'}`);
   },
 });
 
 // File filter - only allow images and PDFs
-const fileFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedMimes = [
     'image/jpeg',
     'image/jpg',
@@ -35,7 +36,7 @@ const fileFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterC
   if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only JPEG, PNG, GIF, and PDF files are allowed.'));
+    cb(new AppError('Invalid file type. Only JPEG, PNG, GIF, and PDF files are allowed.', 400));
   }
 };
 

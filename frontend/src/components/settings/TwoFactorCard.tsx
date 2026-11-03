@@ -6,7 +6,7 @@ import { twoFactorService } from '@/services/api';
 import { ShieldCheck, ShieldOff, Copy, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-type Phase = 'loading' | 'disabled' | 'setup' | 'backupCodes' | 'enabled';
+type Phase = 'loading' | 'error' | 'disabled' | 'setup' | 'backupCodes' | 'enabled';
 
 export const TwoFactorCard: React.FC = () => {
   const [phase, setPhase] = useState<Phase>('loading');
@@ -18,6 +18,8 @@ export const TwoFactorCard: React.FC = () => {
   const [verifyCode, setVerifyCode] = useState('');
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [setupPassword, setSetupPassword] = useState('');
+  const [regenerateCode, setRegenerateCode] = useState('');
 
   // Disable / regenerate state
   const [disablePassword, setDisablePassword] = useState('');
@@ -33,7 +35,7 @@ export const TwoFactorCard: React.FC = () => {
       setPhase(data.data.enabled ? 'enabled' : 'disabled');
     } catch {
       toast.error('Failed to load two-factor authentication status');
-      setPhase('disabled');
+      setPhase('error');
     }
   };
 
@@ -44,7 +46,8 @@ export const TwoFactorCard: React.FC = () => {
   const handleStartSetup = async () => {
     setSubmitting(true);
     try {
-      const { data } = await twoFactorService.setup();
+      const { data } = await twoFactorService.setup(setupPassword);
+      setSetupPassword('');
       setQrCode(data.data.qrCode);
       setSecret(data.data.secret);
       setVerifyCode('');
@@ -62,6 +65,7 @@ export const TwoFactorCard: React.FC = () => {
     try {
       const { data } = await twoFactorService.verify(verifyCode.trim());
       setBackupCodes(data.data.backupCodes);
+      setSecret(''); setQrCode(''); setVerifyCode('');
       setPhase('backupCodes');
       toast.success('Two-factor authentication enabled');
     } catch (err: any) {
@@ -93,10 +97,11 @@ export const TwoFactorCard: React.FC = () => {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const { data } = await twoFactorService.regenerateBackupCodes(regeneratePassword);
+      const { data } = await twoFactorService.regenerateBackupCodes(regeneratePassword, regenerateCode);
       setBackupCodes(data.data.backupCodes);
       setShowRegenerateForm(false);
       setRegeneratePassword('');
+      setRegenerateCode('');
       setPhase('backupCodes');
       toast.success('New backup codes generated');
     } catch (err: any) {
@@ -106,9 +111,9 @@ export const TwoFactorCard: React.FC = () => {
     }
   };
 
-  const copyBackupCodes = () => {
-    navigator.clipboard.writeText(backupCodes.join('\n'));
-    toast.success('Backup codes copied to clipboard');
+  const copyBackupCodes = async () => {
+    try { await navigator.clipboard.writeText(backupCodes.join('\n')); toast.success('Backup codes copied to clipboard'); }
+    catch { toast.error('Clipboard unavailable. Download or write down the codes.'); }
   };
 
   const downloadBackupCodes = () => {
@@ -138,6 +143,7 @@ export const TwoFactorCard: React.FC = () => {
         {phase === 'loading' && (
           <p className="text-sm text-muted-foreground">Loading...</p>
         )}
+        {phase === 'error' && <div className="space-y-3"><p role="alert">Two-factor status could not be loaded. Security changes are unavailable until it is checked.</p><Button variant="outline" onClick={loadStatus}>Retry security status</Button></div>}
 
         {phase === 'disabled' && (
           <>
@@ -145,7 +151,8 @@ export const TwoFactorCard: React.FC = () => {
               Add an extra layer of security to your account. After enabling,
               signing in requires a code from your authenticator app.
             </p>
-            <Button variant="primary" onClick={handleStartSetup} disabled={submitting}>
+            <Input label="Current password" type="password" autoComplete="current-password" value={setupPassword} onChange={event => setSetupPassword(event.target.value)} />
+            <Button variant="primary" onClick={handleStartSetup} disabled={submitting || !setupPassword}>
               {submitting ? 'Preparing...' : 'Enable Two-Factor Authentication'}
             </Button>
           </>
@@ -190,7 +197,12 @@ export const TwoFactorCard: React.FC = () => {
               >
                 {submitting ? 'Verifying...' : 'Verify & Enable'}
               </Button>
-              <Button type="button" variant="outline" onClick={() => setPhase('disabled')}>
+              <Button type="button" variant="outline" disabled={submitting} onClick={async () => {
+                setSubmitting(true);
+                try { await twoFactorService.cancelSetup(); setSecret(''); setQrCode(''); setVerifyCode(''); setPhase('disabled'); }
+                catch { toast.error('Setup cancellation could not be confirmed. Retry cancellation.'); }
+                finally { setSubmitting(false); }
+              }}>
                 Cancel
               </Button>
             </div>
@@ -254,8 +266,7 @@ export const TwoFactorCard: React.FC = () => {
             {showRegenerateForm && (
               <form onSubmit={handleRegenerate} className="space-y-4 max-w-sm">
                 <p className="text-sm text-muted-foreground">
-                  This replaces all existing backup codes. Confirm your password
-                  to continue.
+                  This replaces all existing backup codes and signs out your other sessions. Confirm your password and an unused authentication or backup code.
                 </p>
                 <Input
                   label="Password"
@@ -264,14 +275,15 @@ export const TwoFactorCard: React.FC = () => {
                   onChange={(e) => setRegeneratePassword(e.target.value)}
                   required
                 />
+                <Input label="Authentication or backup code" value={regenerateCode} onChange={event => setRegenerateCode(event.target.value)} autoComplete="one-time-code" maxLength={64} required />
                 <div className="flex gap-2">
-                  <Button type="submit" variant="primary" disabled={submitting || !regeneratePassword}>
+                  <Button type="submit" variant="primary" disabled={submitting || !regeneratePassword || !regenerateCode.trim()}>
                     {submitting ? 'Generating...' : 'Generate New Codes'}
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => { setShowRegenerateForm(false); setRegeneratePassword(''); }}
+                    onClick={() => { setShowRegenerateForm(false); setRegeneratePassword(''); setRegenerateCode(''); }}
                   >
                     Cancel
                   </Button>
@@ -282,8 +294,7 @@ export const TwoFactorCard: React.FC = () => {
             {showDisableForm && (
               <form onSubmit={handleDisable} className="space-y-4 max-w-sm">
                 <p className="text-sm text-muted-foreground">
-                  Confirm your password (and optionally a current 2FA code) to
-                  turn off two-factor authentication.
+                  Confirm your password and an unused authentication or backup code to turn off two-factor authentication. Your other sessions will be signed out.
                 </p>
                 <Input
                   label="Password"
@@ -293,14 +304,15 @@ export const TwoFactorCard: React.FC = () => {
                   required
                 />
                 <Input
-                  label="2FA code (optional)"
+                  label="Authentication or backup code"
                   placeholder="123456"
                   value={disableCode}
                   onChange={(e) => setDisableCode(e.target.value)}
-                  maxLength={6}
+                  maxLength={64}
+                  required
                 />
                 <div className="flex gap-2">
-                  <Button type="submit" variant="destructive" disabled={submitting || !disablePassword}>
+                  <Button type="submit" variant="destructive" disabled={submitting || !disablePassword || !disableCode.trim()}>
                     {submitting ? 'Disabling...' : 'Disable 2FA'}
                   </Button>
                   <Button
