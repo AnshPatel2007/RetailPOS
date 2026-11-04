@@ -20,6 +20,7 @@
     "db:push": "prisma db push",
     "test:unit": "jest --testPathIgnorePatterns=integration",
     "test:integration": "jest src/__tests__/integration",
+    "db:bridge": "node scripts/migrate.cjs bridge",
     "db:baseline": "node scripts/migrate.cjs baseline",
     "db:check": "node scripts/migrate.cjs check",
     "db:status": "node scripts/migrate.cjs status"

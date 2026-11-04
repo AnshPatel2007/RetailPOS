@@ -11,14 +11,53 @@ and must not be replayed against the current schema.
    `backend/uploads` with the same recovery point. Keep copies off the host.
 2. Restore into an isolated database and verify record counts, transaction totals,
    and uploaded documents before touching the original installation.
-3. Against that clone, run `npm run db:baseline --workspace=backend`. This command
-   refuses to mark the baseline unless the complete schema matches the immutable
-   `prisma/reconciled/baseline.prisma`. Investigate any drift; do not suppress it.
+3. Against that clone, run `npm run db:bridge --workspace=backend`, then
+   `npm run db:baseline --workspace=backend`. The bridge applies a reviewed,
+   purely additive SQL file from `prisma/reconciled/bridges/` only when the
+   database differs from the baseline by exactly that file; otherwise it changes
+   nothing and refuses. The baseline refuses to mark itself applied unless the
+   complete schema matches the immutable `prisma/reconciled/baseline.prisma`.
+   Investigate any refusal; do not suppress it.
 4. Run `npm run db:migrate:deploy --workspace=backend`, then
    `npm run db:check --workspace=backend` and the integration tests.
-5. Repeat the baseline/deploy/check on the backed-up installation during a
-   maintenance window. Baseline is a **one-time** command. It preserves existing
-   migration records and business data. Normal starts run deployment only.
+5. Repeat the bridge/baseline/deploy/check on the backed-up installation during a
+   maintenance window. Bridge and baseline are **one-time** commands. They preserve
+   existing migration records and business data. Normal starts run deployment only.
+
+## Upgrading the Render installation deployed from GitHub `main` (July 20, 2026)
+
+That installation was built by `prisma db push --accept-data-loss` at every start
+(commit `434d023`). Its schema is short of the baseline only by the payroll and
+store-connection additions, covered by
+`bridges/20260720_github_main_to_baseline.sql` (new nullable/defaulted columns,
+two new tables, indexes and foreign keys; nothing dropped or converted).
+
+Rehearsed locally on 2026-11-03: the July schema plus the July seed and
+July-format sales (cash, split card/cash with float residue, a partial item
+refund, a status-only void, open and closed shifts) went through bridge,
+baseline and all reconciled migrations. Drift check: no difference. Sales,
+refund, customer, shift and stock totals were identical before and after. The new
+API logged in and served sales, products, reports, analytics and pricing from it.
+The bridge refused a database in any other state.
+
+Order matters, because the old release rewrites the schema on every start:
+
+1. In the Render dashboard, confirm the service's **Start Command** is
+   `npm run db:migrate:deploy && npm run start`. A dashboard value overrides
+   `render.yaml`; if it still runs `prisma db push`, the new release would push
+   past the migrations (skipping triggers, views and sequences) and the old one
+   would undo the bridge on its next start.
+2. Back up the production database (`pg_dump -Fc` with the external URL from the
+   Render dashboard) and rehearse steps 2–4 above on a restored local clone.
+3. Suspend the Render service so the old release cannot restart in between.
+4. With `DATABASE_URL` set to the production external URL in the environment, run
+   `npm run db:bridge`, `npm run db:baseline`, `npm run db:migrate:deploy` and
+   `npm run db:check` from `backend/`.
+5. Deploy the new release (frontend and backend together) and resume the service.
+   Its start command finds every migration applied.
+6. If customers, suppliers or categories are missing for a store, run
+   `npx ts-node scripts/backfillLocationScoping.ts` (dry run), then with `--apply`.
+   It only fills rows whose store is still empty.
 
 Do not use `db push --accept-data-loss`, reset, or test cleanup against an
 operational database. If deployment fails, keep the old application stopped,
