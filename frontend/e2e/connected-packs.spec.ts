@@ -56,5 +56,6 @@ test('items under the target margin are listed with a rounded-up price, and exce
   } })).status()).toBe(201);
   await page.goto('/inventory/stock-control/exceptions');
   await expect(page.getByLabel(/\d+ need review/)).toBeVisible();
-  await expect(page.getByRole('link', { name: /^Stock Control \d+ inventory exceptions? needs? review$/ })).toBeVisible();
+  // The count describes the Stock Control link; its name stays "Stock Control".
+  await expect(page.getByRole('link', { name: 'Stock Control', exact: true }).filter({ visible: true })).toHaveAttribute('aria-description', /^\d+ inventory exceptions? needs? review$/);
 });

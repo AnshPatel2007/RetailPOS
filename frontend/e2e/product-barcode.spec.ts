@@ -41,7 +41,7 @@ async function prepare(page: Page) {
 }
 
 async function addProduct(page: Page) {
-  await page.getByRole('button', { name: 'Add Product', exact: true }).click();
+  await page.getByRole('button', { name: 'Add single item', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Add New Product', exact: true });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel('Barcode', { exact: true })).toBeFocused();
@@ -128,6 +128,7 @@ test('lookup preserves manually entered identity and edits made while the catalo
   });
   const dialog = await addProduct(page);
   await dialog.getByLabel('SKU', { exact: true }).fill('MY-SKU');
+  await dialog.locator('summary', { hasText: 'Brand, size & description' }).click();
   await dialog.getByLabel('Description', { exact: true }).fill('Owner description');
   await dialog.getByLabel('Image URL', { exact: true }).fill('/my-product.png');
   await chooseOption(selectField(dialog, 'Category'), 'Candy');
@@ -374,6 +375,7 @@ test('catalog photo choices can replace an existing draft image without saving o
   const dialog = await addProduct(page);
   await dialog.getByLabel('Barcode', { exact: true }).fill(firstBarcode);
   await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveValue(productImage);
+  // The lookup opened "Brand, size & description" to show the photo it found.
   await dialog.locator('summary').filter({ hasText: 'Catalog photos (2)' }).click();
   const choices = dialog.getByRole('group', { name: 'Catalog product photos' });
   await expect(choices.getByRole('button')).toHaveCount(2);

@@ -46,11 +46,27 @@ export function SummaryStrip({ items, className, emphasis = false }: {
   </dl>;
 }
 
-export function FormSection({ title, description, children, className, ...props }: {
+export function FormSection({ title, description, children, className, collapsible, defaultOpen, summary, ...props }: {
   title: React.ReactNode;
   description?: React.ReactNode;
+  /** Render as a section the user opens when needed (native <details>). */
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+  /** Short line shown next to a collapsed section's title, e.g. "Carton x10". */
+  summary?: React.ReactNode;
 } & Omit<React.HTMLAttributes<HTMLElement>, 'title'>) {
   const id = React.useId();
+  if (collapsible) return <section className={cn('form-section form-section-collapsible', className)} aria-labelledby={id} {...props}>
+    {/* A required field inside a closed section would block saving invisibly: open it instead. */}
+    <details open={defaultOpen} onInvalidCapture={event => { (event.currentTarget as HTMLDetailsElement).open = true; }}>
+      <summary className="form-section-summary">
+        <span id={id} className="form-section-summary-title">{title}</span>
+        {summary && <span className="form-section-summary-hint">{summary}</span>}
+      </summary>
+      {description && <p className="form-section-description">{description}</p>}
+      <div className="form-section-fields">{children}</div>
+    </details>
+  </section>;
   return <section className={cn('form-section', className)} aria-labelledby={id} {...props}>
     <div className="form-section-heading">
       <h3 id={id}>{title}</h3>

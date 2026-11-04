@@ -36,6 +36,8 @@ export const VarietyPackEditor: React.FC<{ product: Product; onChanged?: () => v
       const data: BundleView = res.data.data;
       setView(data);
       setLines(data.components.map(c => ({ productId: c.productId, name: c.name, quantity: String(c.quantity) })));
+      // A new variety pack has nothing listed yet: go straight to listing what's inside.
+      if (!data.components.length && !data.partOf.length) setEditing(true);
     } catch (err: any) { toast.error(err.response?.data?.error || 'Could not load the pack contents'); }
   }, [product.id]);
   useEffect(() => { load(); }, [load]);

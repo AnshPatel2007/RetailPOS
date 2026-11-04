@@ -17,7 +17,9 @@ type SupplierCase = { supplierId: string; supplierSku: string | null; cost: unkn
   packSize: number; packCost: unknown; packBarcode: string | null; supplier: { name: string } };
 const summary = (product: Parameters<typeof packagingSummary>[0] & { suppliers?: SupplierCase[] }) => {
   const view = packagingSummary(product);
-  return { productId: product.id, baseUnitName: product.baseUnitName, stockQuantity: product.stockQuantity, stockVersion: product.stockVersion,
+  // name and cost: a pack's form shows what it holds and defaults its cost to single cost x units.
+  return { productId: product.id, name: product.name, cost: Number(product.cost), baseUnitName: product.baseUnitName,
+    stockQuantity: product.stockQuantity, stockVersion: product.stockVersion,
     looseStockQuantity: view.looseStockQuantity, sellingUnits: [...view.sellingUnits].sort((a, b) => a.unitsPerPackage - b.unitsPerPackage),
     // How each supplier sells it (e.g. a case of 24): used to order in cases.
     suppliers: (product.suppliers || []).map(link => ({ supplierId: link.supplierId, supplierName: link.supplier.name, supplierSku: link.supplierSku,

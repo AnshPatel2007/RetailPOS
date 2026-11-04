@@ -28,6 +28,16 @@
 .form-section-heading h3 { font-size: 18px; line-height: 26px; font-weight: 600; }
 .form-section-heading p { margin-top: 4px; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 18px; }
 .form-section-fields { min-width: 0; }
+.form-section-collapsible + .form-section, .form-section + .form-section-collapsible { padding-top: 12px; margin-top: 12px; }
+.form-section-summary { display: flex; min-height: 44px; cursor: pointer; align-items: center; gap: 12px; list-style: none; border-radius: 8px; }
+.form-section-summary::-webkit-details-marker { display: none; }
+.form-section-summary::before { content: ''; flex: none; width: 8px; height: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform 150ms; opacity: .6; }
+.form-section-collapsible details[open] > .form-section-summary::before { transform: rotate(45deg); }
+.form-section-summary:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.form-section-summary-title { font-size: 16px; line-height: 24px; font-weight: 600; }
+.form-section-summary-hint { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: hsl(var(--muted-foreground)); font-size: 12px; }
+.form-section-description { margin: 0 0 12px 20px; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 18px; }
+.form-section-collapsible details[open] > .form-section-fields { padding: 4px 0 8px 20px; }
 .app-card { border-radius: 10px; }
 .table-scroll table { font-variant-numeric: tabular-nums; }
 .table-scroll th { background: hsl(var(--surface-subtle)); }

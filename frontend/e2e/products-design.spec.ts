@@ -8,7 +8,8 @@ test('product workspace keeps the catalog prominent and groups all product field
   const row = page.getByRole('row').filter({ hasText: 'Fixture Coffee' });
   await expect(row).toBeVisible();
   // Other specs may add products. Measure the catalog's first row, not its sort order.
-  expect((await page.locator('.products-table tbody tr').first().boundingBox())!.y).toBeLessThan(300);
+  // (Leaves room for the Single items / Packs tabs above the catalog.)
+  expect((await page.locator('.products-table tbody tr').first().boundingBox())!.y).toBeLessThan(350);
   await expect(page.getByText('Total Products', { exact: true })).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'Showing' })).toHaveText(/Showing 1 to \d+ of \d+ products/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -16,9 +17,14 @@ test('product workspace keeps the catalog prominent and groups all product field
 
   await row.getByRole('button', { name: 'Edit Fixture Coffee', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Edit Product', exact: true });
-  for (const title of ['Product identity', 'Pricing & stock', 'Sale settings', 'Additional details']) {
+  // Essentials stay open; everything else is one click away.
+  for (const title of ['Basics', 'Selling rules']) {
     await expect(dialog.getByRole('heading', { name: title, exact: true })).toHaveCount(1);
   }
+  for (const title of ['Pricing help', 'Packs of this item', 'How you buy it', 'Brand, size & description', 'Advanced']) {
+    await expect(dialog.locator('summary', { hasText: title })).toHaveCount(1);
+  }
+  await expect(dialog.getByLabel('Image URL', { exact: true })).toBeHidden();
   for (const name of ['SKU', 'Product Name', 'Cost Price', 'Retail Price', 'Stock Quantity', 'Low Stock Alert']) {
     await expect(dialog.getByLabel(name, { exact: true })).toHaveAttribute('required', '');
   }

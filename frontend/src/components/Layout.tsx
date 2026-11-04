@@ -190,10 +190,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   }
 
   const exceptionLabel = `${exceptionCount} inventory exception${exceptionCount === 1 ? ' needs' : 's need'} review`;
+  // The badge is visual; its meaning is the description of the link or button it sits in,
+  // so their names stay "Inventory" / "Stock Control" for screen readers and keyboard search.
   const exceptionBadge = (className: string) => exceptionCount > 0 ? (
     <span className={cn('rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-5 text-destructive-foreground tabular-nums', className)}
-      title={exceptionLabel} aria-label={exceptionLabel}>{exceptionCount}</span>
+      title={exceptionLabel} aria-hidden="true">{exceptionCount}</span>
   ) : null;
+  const exceptionDescription = exceptionCount > 0 ? exceptionLabel : undefined;
 
   const renderNavItem = (item: NavItem, nested = false) => {
     if (!hasRole(item.roles)) return null;
@@ -205,6 +208,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         key={item.href}
         to={item.href}
         title={item.name}
+        aria-label={item.name}
+        aria-description={item.href === STOCK_CONTROL ? exceptionDescription : undefined}
         className={cn(
           'flex items-center rounded-md text-sm font-medium transition-colors',
           isSidebarCollapsed ? 'justify-center px-2 py-2.5' : nested ? 'px-3 py-2 pl-10' : 'px-3 py-2.5',
@@ -219,7 +224,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           {isSidebarCollapsed && item.href === STOCK_CONTROL && exceptionCount > 0 && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-card" aria-hidden="true" />}
         </span>
         {!isSidebarCollapsed && <span className="truncate">{item.name}</span>}
-        {item.href === STOCK_CONTROL && exceptionBadge(isSidebarCollapsed ? 'sr-only' : 'ml-auto')}
+        {item.href === STOCK_CONTROL && !isSidebarCollapsed && exceptionBadge('ml-auto')}
       </Link>
     );
   };
@@ -242,6 +247,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       <div key={group.name}>
         <button
           onClick={() => toggleGroup(group.name)}
+          aria-label={group.name}
+          aria-description={!isExpanded && group.children.some(child => child.href === STOCK_CONTROL) ? exceptionDescription : undefined}
           className={cn(
             'w-full flex items-center rounded-md text-sm font-medium transition-colors px-3 py-2.5',
             groupActive

@@ -1,6 +1,11 @@
-import { PackagingEditor } from '@/components/inventory/PackagingEditor';
 import { MarginPricing } from '@/components/inventory/MarginPricing';
-import { VarietyPackEditor } from '@/components/inventory/VarietyPackEditor';
+import { ProductPacksSection } from '@/components/inventory/ProductPacksSection';
+import { SupplierCasesEditor } from '@/components/inventory/SupplierCasesEditor';
+import { PackForm, PackFormTarget } from '@/components/inventory/PackForm';
+import { PackCatalog } from '@/components/inventory/PackCatalog';
+import { PageTabs } from '@/components/common/PageTabs';
+import { useProductPackaging } from '@/hooks/useProductPackaging';
+import { useSearchParams } from 'react-router-dom';
 import { ADJUSTMENT_REASONS } from '@/components/inventory/StockAdjustmentModal';
 import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useRef, useCallback, useId } from 'react';
@@ -66,6 +71,11 @@ export const Inventory: React.FC = () => {
   const [showLabelPrintModal, setShowLabelPrintModal] = useState(false);
   const [showCSVImportModal, setShowCSVImportModal] = useState(false);
   const [selectedForLabels, setSelectedForLabels] = useState<Product[]>([]);
+  // Inventory is split into single items and packs (cartons, 12-packs, variety packs).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get('view') === 'packs' ? 'packs' : 'singles';
+  const [packTarget, setPackTarget] = useState<PackFormTarget | null>(null);
+  const [packsRefresh, setPacksRefresh] = useState(0);
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStatus, setFilterStatus] = useState<'' | 'true' | 'false'>('');
   const [lowStockCount, setLowStockCount] = useState<number | null>(null);
@@ -111,6 +121,8 @@ export const Inventory: React.FC = () => {
     contextKey: `${userId}:${role}:${locationId}`, draft: formData, setDraft: setFormData, categories,
   });
   const duplicateProductId = !editingProduct ? lookup.state.info?.existingProductId : undefined;
+  // The edited item's packs and supplier cases, for its "Packs" and "How you buy it" sections.
+  const packaging = useProductPackaging(showModal ? editingProduct?.id : null);
   const suggestedCategory = suggestedCatalogCategory([
     ...(lookup.state.info?.categoryCandidates || []),
     ...(lookup.state.info?.category ? [lookup.state.info.category] : []),
@@ -194,6 +206,7 @@ export const Inventory: React.FC = () => {
         search: debouncedSearch,
         page: currentPage,
         limit: ITEMS_PER_PAGE,
+        excludeVarietyPacks: true,
       };
       if (filterCategory) params.categoryId = filterCategory;
       if (filterStatus) params.isActive = filterStatus;
@@ -367,17 +380,34 @@ export const Inventory: React.FC = () => {
     setShowModal(true);
   };
 
+  const activePacks = (packaging.data?.sellingUnits || []).filter(unit => unit.isActive);
+  const typedCost = parseFloat(formData.cost), typedPrice = parseFloat(formData.price);
+  const costHint = activePacks.length && typedCost >= 0
+    ? `Last price paid for one. ${activePacks.map(unit => `${formatCurrency(typedCost * unit.unitsPerPackage)} per ${unit.name}`).join(', ')}.`
+    : 'Last price paid for one. Changing it does not revalue stock already on hand.';
+  const pricingSummary = typedPrice > 0 && typedCost >= 0 ? `Margin ${((typedPrice - typedCost) / typedPrice * 100).toFixed(1)}%` : undefined;
+  const packsSummary = packaging.data ? (activePacks.length ? activePacks.map(unit => `${unit.name} (${unit.unitsPerPackage})`).join(', ') : 'None') : undefined;
+  const casesSummary = packaging.data ? ((packaging.data.suppliers || []).map(link => link.supplierName).join(', ') || 'None') : undefined;
+  const detailsSummary = [formData.brand.trim(), formData.size.trim()].filter(Boolean).join(' · ') || (formData.description ? 'Has a description' : undefined);
+  // A barcode lookup that brings a photo or description opens that section so the clerk sees what was filled in.
+  const lookupFilledDetails = lookup.state.kind !== 'idle' && !!(lookup.state.info?.image || lookup.state.info?.imageCandidates?.length || formData.description);
+  const advancedSummary = [!formData.trackInventory && 'Stock not tracked', formData.saleBlockedReason.trim() && 'On sale hold'].filter(Boolean).join(' · ') || undefined;
+
   const hasFilters = !!(search || filterCategory || filterStatus);
   const clearFilters = () => { setSearch(''); setFilterCategory(''); setFilterStatus(''); setCurrentPage(1); };
 
   return (
     <ManagementPage className="products-workspace">
       <PageHeader title="Products" actions={<>
-        {canManage && <Button variant="outline" onClick={() => setShowCSVImportModal(true)}><Upload size={16} />Import CSV</Button>}
-        <Button variant="outline" disabled={isLoading || !!loadError || !products.length} onClick={() => { setSelectedForLabels(products); setShowLabelPrintModal(true); }}><Tag size={16} />Print Labels</Button>
+        {canManage && view === 'singles' && <Button variant="outline" onClick={() => setShowCSVImportModal(true)}><Upload size={16} />Import CSV</Button>}
+        {view === 'singles' && <Button variant="outline" disabled={isLoading || !!loadError || !products.length} onClick={() => { setSelectedForLabels(products); setShowLabelPrintModal(true); }}><Tag size={16} />Print Labels</Button>}
         {canManage && <Button variant="outline" onClick={() => setShowReceiptScanModal(true)}><Camera size={16} />Scan Receipt</Button>}
-        {canManage && <Button variant="primary" onClick={openCreateModal}><Plus size={16} />Add Product</Button>}
+        {canManage && (view === 'singles'
+          ? <Button variant="primary" onClick={openCreateModal}><Plus size={16} />Add single item</Button>
+          : <Button variant="primary" onClick={() => setPackTarget({ mode: 'create' })}><Plus size={16} />Add pack</Button>)}
       </>} />
+      <PageTabs label="Inventory view" secondary value={view} items={[{ id: 'singles', label: 'Single items' }, { id: 'packs', label: 'Packs' }]}
+        onChange={id => setSearchParams(params => { const next = new URLSearchParams(params); if (id === 'packs') next.set('view', 'packs'); else next.delete('view'); return next; }, { replace: true })} />
 
       <AutoRefreshStatus state={productUpdates} />
       <AutoRefreshStatus state={summaryUpdates} />
@@ -385,7 +415,9 @@ export const Inventory: React.FC = () => {
       {statsError && <div role="alert" className="mb-4 flex flex-wrap items-center gap-3"><p>{statsError}</p><Button variant="outline" onClick={() => void summaryUpdates.refresh()}>Retry inventory summary</Button></div>}
       {categoriesError && <div role="alert" className="mb-4 flex flex-wrap items-center gap-3"><p>{categoriesError}</p><Button variant="outline" onClick={() => void categoryUpdates.refresh()}>Retry categories</Button></div>}
 
-      <DataPanel
+      {view === 'packs' ? <PackCatalog locationId={locationId} canManage={canManage} refreshKey={packsRefresh}
+        onEdit={row => setPackTarget(row.kind === 'PACK' ? { mode: 'edit-pack', productId: row.productId, unitId: row.id } : { mode: 'edit-variety', productId: row.productId })} />
+      : <DataPanel
         summary={<SummaryStrip items={[
           { label: hasFilters ? 'Matching Products' : 'Total Products', value: totalProducts ?? (isLoading ? '...' : 'Unavailable') },
           { label: 'Low Stock', value: lowStockCount ?? (statsLoading ? '...' : 'Unavailable'), tone: lowStockCount ? 'warning' : 'default' },
@@ -418,7 +450,7 @@ export const Inventory: React.FC = () => {
           : loadError ? <div role="alert" className="p-6 space-y-3"><p>{loadError}</p><Button variant="outline" onClick={() => void productUpdates.refresh()}>Retry products</Button></div>
             : products.length === 0 ? <EmptyState icon={Package} title="No products found" hint={hasFilters ? 'Try another search or clear your filters.' : 'Add a product to start building your catalog.'} />
               : <ProductCatalogTable products={products} canManage={canManage} onEdit={handleEdit} onAdjustStock={product => { setAdjustingProduct(product); setShowStockAdjustModal(true); }} onDelete={product => setDeleteTargetId(product.id)} />}
-      </DataPanel>
+      </DataPanel>}
 
       {/* Product Modal */}
       <Modal
@@ -442,7 +474,7 @@ export const Inventory: React.FC = () => {
       >
         <form id={productFormId} onSubmit={handleSubmit} aria-busy={isSavingProduct}>
           <fieldset disabled={isSavingProduct} className="min-w-0 product-form">
-            <FormSection title="Product identity" description="Product name and SKU are required. Barcode and category are optional.">
+            <FormSection title="Basics" description="What every item needs. Open the sections below only when you need them.">
               <div className="space-y-4">
                 <Input label="Barcode" value={formData.barcode} onChange={e => lookup.changeBarcode(e.target.value)} placeholder="Scan or enter a barcode" autoFocus={!editingProduct} autoComplete="off" maxLength={100}
                   description={editingProduct ? 'Use Auto-fill to look up missing details.' : 'Scan to fill available product details automatically.'}
@@ -475,12 +507,6 @@ export const Inventory: React.FC = () => {
                   <Input label="Product Name" value={formData.name} onChange={e => lookup.editIdentity('name', e.target.value)} required />
                   <Input label="SKU" value={formData.sku} onChange={e => lookup.editIdentity('sku', e.target.value)} description="Editable store code; defaults to the barcode." required />
                 </div>
-                <div className="product-field-grid">
-                  <Input label="Brand" description="Optional" value={formData.brand} onChange={e => setFormData({ ...formData, brand: e.target.value })} maxLength={80} placeholder="e.g. Gatorade" />
-                  <Input label="Product family" description="Optional. Groups flavors/variants to check together." value={formData.productFamily} onChange={e => setFormData({ ...formData, productFamily: e.target.value })} maxLength={80} placeholder="e.g. Gatorade Thirst Quencher" />
-                  <Input label="Flavor / variant" description="Optional" value={formData.variant} onChange={e => setFormData({ ...formData, variant: e.target.value })} maxLength={80} placeholder="e.g. Lemon-Lime" />
-                  <Input label="Size" description="Optional" value={formData.size} onChange={e => setFormData({ ...formData, size: e.target.value })} maxLength={40} placeholder="e.g. 20 oz" />
-                </div>
                 {!showNewCategoryInput ? <div className="space-y-2"><div className="product-category-control">
                   <Select label="Category" value={formData.categoryId} disabled={categoriesLoading || !!categoriesError} onChange={e => lookup.editIdentity('categoryId', e.target.value)}>
                     <option value="">Select a category</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
@@ -492,19 +518,12 @@ export const Inventory: React.FC = () => {
                   <Input label="New category name" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} autoFocus />
                   <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => { setShowNewCategoryInput(false); setNewCategoryName(''); }}>Cancel</Button><Button type="button" onClick={handleCreateCategory} disabled={isCreatingCategory || !newCategoryName.trim()}>{isCreatingCategory ? 'Creating...' : 'Add category'}</Button></div>
                 </div>}
-              </div>
-            </FormSection>
-
-            <FormSection title="Pricing & stock" description="Cost is the latest purchase price. Changing it does not revalue existing inventory or previous sales.">
-              <div className="space-y-4">
-                <div className="product-field-grid product-price-grid">
-                  <Input type="number" label="Cost Price" value={formData.cost} onChange={e => setFormData({ ...formData, cost: e.target.value })} step="0.01" min="0" required />
+                <div className="product-field-grid">
                   <Input type="number" label="Retail Price" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} step="0.01" min="0.01" required />
-                  <Input type="number" label="Compare-at Price" description="Optional" value={formData.compareAtPrice} onChange={e => setFormData({ ...formData, compareAtPrice: e.target.value })} step="0.01" min="0" />
+                  <Input type="number" label="Cost Price" value={formData.cost} onChange={e => setFormData({ ...formData, cost: e.target.value })} step="0.01" min="0" required
+                    description={costHint} />
                 </div>
                 {formData.cost && formData.price && parseFloat(formData.price) < parseFloat(formData.cost) && <p className="text-xs text-warning flex items-center gap-1"><AlertTriangle size={14} />Retail price is below cost</p>}
-                <MarginPricing productId={editingProduct?.id} categoryId={formData.categoryId || undefined} brand={formData.brand.trim() || undefined}
-                  cost={formData.cost} averageCost={editingProduct?.averageCost} price={formData.price} onPrice={price => setFormData(current => ({ ...current, price }))} />
                 <div className="product-field-grid">
                   <Input type="number" label="Stock Quantity" value={formData.stockQuantity} onChange={e => setFormData({ ...formData, stockQuantity: e.target.value })} required />
                   <Input type="number" label="Low Stock Alert" value={formData.lowStockAlert} onChange={e => setFormData({ ...formData, lowStockAlert: e.target.value })} required />
@@ -514,26 +533,10 @@ export const Inventory: React.FC = () => {
                     {ADJUSTMENT_REASONS.filter(r => r.value !== 'OTHER').map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                   </Select>
                 )}
-                <div className="product-choice-grid">
-                  <label><input type="checkbox" checked={formData.trackInventory} onChange={e => setFormData({ ...formData, trackInventory: e.target.checked })} className="rounded border-input" /><span>Track inventory</span></label>
-                </div>
-                <p className="text-xs text-muted-foreground">The register never blocks a sale because recorded stock is zero or negative. A negative balance opens an inventory exception for review.</p>
-                <div className="product-field-grid">
-                  <Input type="number" label="Provisional unit cost" description="Optional. Used for cost of goods only when stock runs out before any receipt or average cost exists." value={formData.provisionalUnitCost} onChange={e => setFormData({ ...formData, provisionalUnitCost: e.target.value })} step="0.01" min="0" />
-                  <Input label="Sale hold" description="Optional. Recall or prohibited-sale reason; the register refuses this item while set." value={formData.saleBlockedReason} onChange={e => setFormData({ ...formData, saleBlockedReason: e.target.value })} maxLength={200} />
-                </div>
               </div>
             </FormSection>
 
-            <FormSection title="Packaging" description="Sell this item as single units and packs (e.g. a 12-pack), and buy it in supplier cases. Everything shares one stock of single units.">
-              {editingProduct && formData.trackInventory ? <PackagingEditor product={editingProduct} onChanged={() => productUpdates.refresh()} />
-                : <p className="text-sm text-muted-foreground">{formData.trackInventory ? 'Save the product first, then add packs and supplier cases here.' : 'Packs need stock tracking turned on.'}</p>}
-            </FormSection>
-            <FormSection title="Variety pack contents" description="For a mixed pack sold or bought whole (e.g. an assorted 12-pack). Opening one moves its cost into the products inside.">
-              {editingProduct && formData.trackInventory ? <VarietyPackEditor product={editingProduct} onChanged={() => productUpdates.refresh()} />
-                : <p className="text-sm text-muted-foreground">{formData.trackInventory ? 'Save the product first, then list what the pack contains.' : 'Variety packs need stock tracking turned on.'}</p>}
-            </FormSection>
-            <FormSection title="Sale settings">
+            <FormSection title="Selling rules">
               <div className="space-y-4">
                 <div className="product-choice-grid">
                   <label><input type="checkbox" checked={formData.isTaxable} onChange={e => setFormData({ ...formData, isTaxable: e.target.checked })} className="rounded border-input" /><span>Taxable item</span></label>
@@ -549,8 +552,34 @@ export const Inventory: React.FC = () => {
               </div>
             </FormSection>
 
-            <FormSection title="Additional details" description="Optional information and the image shown in the product grid.">
+            <FormSection collapsible title="Pricing help" summary={pricingSummary} description="Type a target margin to get a price, or see the margin of the price you entered.">
               <div className="space-y-4">
+                <MarginPricing productId={editingProduct?.id} categoryId={formData.categoryId || undefined} brand={formData.brand.trim() || undefined}
+                  cost={formData.cost} averageCost={editingProduct?.averageCost} price={formData.price} onPrice={price => setFormData(current => ({ ...current, price }))} />
+                <Input type="number" label="Compare-at Price" description="Optional. Shown as the regular price when on sale." value={formData.compareAtPrice} onChange={e => setFormData({ ...formData, compareAtPrice: e.target.value })} step="0.01" min="0" />
+              </div>
+            </FormSection>
+
+            {editingProduct && formData.trackInventory && <FormSection collapsible title="Packs of this item" summary={packsSummary}
+              description="Cartons, 12-packs or cases of this item. They share its stock: selling a carton of 10 takes 10 from it.">
+              <ProductPacksSection data={packaging.data} error={packaging.error} onReload={() => void packaging.reload()}
+                onAddPack={() => setPackTarget({ mode: 'create', kind: 'PACK', baseProductId: editingProduct.id })}
+                onEditPack={unit => setPackTarget({ mode: 'edit-pack', productId: editingProduct.id, unitId: unit.id })} />
+            </FormSection>}
+
+            {editingProduct && <FormSection collapsible title="How you buy it" summary={casesSummary}
+              description="Each supplier's case size and case cost. Purchase orders and reorder suggestions use whole cases.">
+              <SupplierCasesEditor data={packaging.data} onChanged={() => void packaging.reload()} />
+            </FormSection>}
+
+            <FormSection collapsible title="Brand, size & description" summary={detailsSummary} defaultOpen={lookupFilledDetails}>
+              <div className="space-y-4">
+                <div className="product-field-grid">
+                  <Input label="Brand" description="Optional" value={formData.brand} onChange={e => setFormData({ ...formData, brand: e.target.value })} maxLength={80} placeholder="e.g. Gatorade" />
+                  <Input label="Product family" description="Optional. Groups flavors/variants to check together." value={formData.productFamily} onChange={e => setFormData({ ...formData, productFamily: e.target.value })} maxLength={80} placeholder="e.g. Gatorade Thirst Quencher" />
+                  <Input label="Flavor / variant" description="Optional" value={formData.variant} onChange={e => setFormData({ ...formData, variant: e.target.value })} maxLength={80} placeholder="e.g. Lemon-Lime" />
+                  <Input label="Size" description="Optional" value={formData.size} onChange={e => setFormData({ ...formData, size: e.target.value })} maxLength={40} placeholder="e.g. 20 oz" />
+                </div>
                 <Input label="Description" value={formData.description} onChange={e => lookup.editIdentity('description', e.target.value)} />
                 <div className="product-image-field">
                   <ProductImage src={formData.image} name={formData.name} preview />
@@ -568,9 +597,27 @@ export const Inventory: React.FC = () => {
                 </details>}
               </div>
             </FormSection>
+
+            <FormSection collapsible title="Advanced" summary={advancedSummary} description="Rarely needed settings.">
+              <div className="space-y-4">
+                <div className="product-choice-grid">
+                  <label><input type="checkbox" checked={formData.trackInventory} onChange={e => setFormData({ ...formData, trackInventory: e.target.checked })} className="rounded border-input" /><span>Track inventory</span></label>
+                </div>
+                <p className="text-xs text-muted-foreground">The register never blocks a sale because recorded stock is zero or negative. A negative balance opens an inventory exception for review.</p>
+                <div className="product-field-grid">
+                  <Input type="number" label="Provisional unit cost" description="Optional. Used for cost of goods only when stock runs out before any receipt or average cost exists." value={formData.provisionalUnitCost} onChange={e => setFormData({ ...formData, provisionalUnitCost: e.target.value })} step="0.01" min="0" />
+                  <Input label="Sale hold" description="Optional. Recall or prohibited-sale reason; the register refuses this item while set." value={formData.saleBlockedReason} onChange={e => setFormData({ ...formData, saleBlockedReason: e.target.value })} maxLength={200} />
+                </div>
+              </div>
+            </FormSection>
+            {!editingProduct && <p className="mt-4 text-xs text-muted-foreground">After saving, open the item again to add its packs (e.g. a carton) and suppliers.</p>}
           </fieldset>
         </form>
       </Modal>
+
+      {/* Packs are edited in their own form, outside the product <form> so saving a pack never submits the product. */}
+      <PackForm target={packTarget} categories={categories} onClose={() => setPackTarget(null)}
+        onSaved={() => { productUpdates.refresh(); summaryUpdates.refresh(); setPacksRefresh(n => n + 1); void packaging.reload(); }} />
 
       {/* Stock Adjustment Modal */}
       <StockAdjustmentModal

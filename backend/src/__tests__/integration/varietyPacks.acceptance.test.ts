@@ -87,6 +87,28 @@ describe('Variety packs', () => {
       await request(app).delete(`/api/products/${orange.id}`).set('Authorization', 'Bearer ' + owner).expect(409);
     });
 
+    it('lists packs and variety packs on their own, and keeps variety packs out of single items', async () => {
+      const red = await make('Red single', 9, 12.5, { stockQuantity: 25, barcode: '700000000001' });
+      const blue = await make('Blue single', 1, 2.49);
+      const variety = await make('Mixed box', 24, 34.99, { stockQuantity: 2 });
+      await put(`/api/products/${variety.id}/bundle`, { components: [{ productId: red.id, quantity: 12 }, { productId: blue.id, quantity: 12 }] }).expect(200);
+      await post(`/api/products/${red.id}/selling-units`, { name: 'Carton', barcode: '700000000010', unitsPerPackage: 10, price: 119.99 }).expect(201);
+      const get = (path: string) => request(app).get(path).set('Authorization', 'Bearer ' + owner).expect(200);
+
+      const packs = (await get('/api/products/packs')).body;
+      expect(packs.pagination.total).toBe(2);
+      expect(packs.data).toEqual([
+        expect.objectContaining({ kind: 'PACK', name: 'Carton', containsName: 'Red single', unitsPerPackage: 10, packCost: 90, available: 2, sealedQuantity: 0 }),
+        expect.objectContaining({ kind: 'VARIETY', name: 'Mixed box', packCost: 24, stockQuantity: 2, itemsPerPack: 24,
+          contents: [{ name: 'Red single', quantity: 12 }, { name: 'Blue single', quantity: 12 }] }),
+      ]);
+      expect((await get('/api/products/packs?search=mixed')).body.data.map((row: { name: string }) => row.name)).toEqual(['Mixed box']);
+
+      const singles = (await get('/api/products?excludeVarietyPacks=true&limit=100')).body.data.map((row: { id: string }) => row.id);
+      expect(singles).toEqual(expect.arrayContaining([red.id, blue.id]));
+      expect(singles).not.toContain(variety.id);
+    });
+
     it('splits value exactly, with largest remainders', () => {
       const parts = allocateValue(decimal(10), [decimal(1), decimal(1), decimal(1)]);
       expect(parts.map(Number)).toEqual([3.33333334, 3.33333333, 3.33333333]);

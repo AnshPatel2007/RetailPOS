@@ -43,7 +43,7 @@ export function ProductCatalogTable({ products, canManage, onEdit, onAdjustStock
           <span className="font-medium">{product.trackInventory ? product.stockQuantity : '—'}</span>
           <span className="product-stock-threshold">{product.trackInventory ? `Min: ${product.lowStockAlert}` : 'Not tracked'}</span>
           {product.trackInventory && (product.sellingUnits || []).some(unit => unit.isActive) && (
-            <span className="product-stock-threshold">{(product.sellingUnits || []).filter(unit => unit.isActive && unit.sealedQuantity > 0).map(unit => `${unit.sealedQuantity} × ${unit.name}`).join(' · ') || 'No unopened packs'}{product.looseStockQuantity !== undefined ? ` · ${product.looseStockQuantity} loose` : ''}</span>
+            <span className="product-stock-threshold product-stock-packs">{(product.sellingUnits || []).filter(unit => unit.isActive && unit.sealedQuantity > 0).map(unit => `${unit.sealedQuantity} × ${unit.name}`).join(' · ') || 'No unopened packs'}{product.looseStockQuantity !== undefined ? ` · ${product.looseStockQuantity} loose` : ''}</span>
           )}
         </TableCell>
         <TableCell className="product-status-cell">

@@ -8,6 +8,7 @@ for (const width of [1093, 390]) test(`product save preserves drafts and prevent
   if (width === 390) await page.evaluate(() => document.documentElement.classList.add('dark'));
   await page.getByRole('button', { name: 'Edit Fixture Coffee', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Edit Product', exact: true });
+  await dialog.locator('summary', { hasText: 'Brand, size & description' }).click();
   await dialog.getByLabel('Description', { exact: true }).fill('Draft preserved after a failed save');
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });

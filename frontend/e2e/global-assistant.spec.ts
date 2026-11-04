@@ -160,7 +160,7 @@ test('transaction dialogs take priority and a late owner response cannot enter a
   await dialog.getByRole('textbox').fill('Private question');
   await dialog.getByRole('button', { name: 'Send', exact: true }).click();
   await received;
-  await page.getByRole('button', { name: 'Add Product', exact: true }).click();
+  await page.getByRole('button', { name: 'Add single item', exact: true }).click();
   await expect(page.getByRole('dialog', { name: /^Add (?:New )?Product$/ })).toBeVisible();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open POS assistant' })).toBeDisabled();

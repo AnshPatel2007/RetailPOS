@@ -12,6 +12,7 @@ import { upload } from '../middleware/upload';
 import * as sellingUnitController from '../controllers/sellingUnit.controller';
 import * as bundleController from '../controllers/productBundle.controller';
 import * as packMergeController from '../controllers/packMerge.controller';
+import * as packCatalogController from '../controllers/packCatalog.controller';
 
 const router = Router();
 
@@ -29,6 +30,8 @@ router.post('/imports/:id/apply', authorize('ADMIN', 'MANAGER'), asyncHandler(as
 router.get('/low-stock', productController.getLowStockProducts);
 router.get('/movements', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), getInventoryHistory);
 router.get('/stats', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), productController.getProductStats);
+// Inventory > Packs: packs of one item and variety packs, listed on their own.
+router.get('/packs', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), packCatalogController.getPacks);
 
 router.post(
   '/scan-receipt',

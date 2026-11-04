@@ -42,6 +42,7 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
     trackInventory,
     ids,
     includeSellingUnits,
+    excludeVarietyPacks,
   } = req.query;
   // The register asks for packs too (a 12-pack is its own tile and barcode);
   // inventory screens list each product once with its packs nested.
@@ -83,6 +84,8 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
     where.isActive = isActive === 'true';
   }
   if (trackInventory !== undefined) where.trackInventory = trackInventory === 'true';
+  // Inventory > Single items: variety packs are listed under Packs instead.
+  if (excludeVarietyPacks === 'true') where.bundleComponents = { none: {} };
 
   if (inStock === 'true') {
     where.stockQuantity = { gt: 0 };

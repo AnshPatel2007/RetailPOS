@@ -60,7 +60,7 @@ for (const role of roles) for (const viewport of [{ name: 'desktop', width: 1440
       await page.getByRole('button', { name: 'Preview store', exact: true }).click();
       for (const path of ['/inventory', '/promotions', '/customers/accounts/house-accounts', '/financial', '/inventory/stock-control/counts', '/settings']) {
         await inspect(page, path, dark);
-        await expect(page.getByRole('button', { name: /^(Add Product|Import CSV|Scan Receipt|New Promotion|Open Account|Add Expense|New Count)$/ })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: /^(Add single item|Add pack|Import CSV|Scan Receipt|New Promotion|Open Account|Add Expense|New Count)$/ })).toHaveCount(0);
       }
     }
     for (const path of role.denied) {
