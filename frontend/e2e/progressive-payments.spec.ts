@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { login, logout } from './utils/auth-helper';
+import { confirmInApp } from './utils/confirm-helper';
 
 async function checkout(page: Page, sku: string, price = 100) {
   await login(page, 'owner@example.test');
@@ -10,7 +11,6 @@ async function checkout(page: Page, sku: string, price = 100) {
   await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).fill(sku);
   await page.getByRole('button', { name: new RegExp('^' + sku) }).click();
   await page.getByRole('button', { name: 'Charge $' + price.toFixed(2), exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   return { payment: page.getByRole('dialog', { name: 'Payment', exact: true }), headers, product };
 }
 
@@ -66,8 +66,8 @@ test('accepted cash needs return confirmation and a card payment needs reversal 
   await payment.getByRole('spinbutton', { name: 'Amount Tendered' }).fill('20');
   await payment.getByRole('button', { name: 'Charge $20.00', exact: true }).click();
   await expect(payment.getByRole('status', { name: 'Payment balance', exact: true })).toContainText('$80.00 still due');
-  page.once('dialog', dialog => dialog.dismiss());
   await payment.getByRole('button', { name: 'Remove payment 1', exact: true }).click();
+  await confirmInApp(page, 'Give back $20.00 cash?', 'Keep payment');
   await expect(payment.getByRole('status', { name: 'Payment balance', exact: true })).toContainText('$80.00 still due');
   await payment.getByRole('button', { name: 'Card (external)', exact: true }).click();
   await payment.getByRole('spinbutton', { name: 'Approved amount' }).fill('10');
@@ -80,8 +80,8 @@ test('accepted cash needs return confirmation and a card payment needs reversal 
   await reversal.getByLabel('Terminal reversal reference').fill('VOID-TEN');
   await reversal.getByRole('button', { name: 'Confirm reversal', exact: true }).click();
   await expect(reversal).toHaveCount(0); await expect(payment.getByRole('status', { name: 'Payment balance', exact: true })).toContainText('$80.00 still due');
-  page.once('dialog', dialog => dialog.accept());
   await payment.getByRole('button', { name: 'Remove payment 1', exact: true }).click();
+  await confirmInApp(page, 'Give back $20.00 cash?', 'Cash returned — remove');
   await expect(payment.getByRole('status', { name: 'Payment balance', exact: true })).toContainText('$100.00 still due');
   await payment.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Continue payment', exact: true })).toHaveCount(0);
@@ -117,7 +117,6 @@ test('another window cannot overwrite a newly accepted payment', async ({ page, 
   const { payment } = await checkout(page, 'Progressive two windows');
   const other = await context.newPage(); await other.goto('/pos');
   await other.getByRole('button', { name: 'Charge $100.00', exact: true }).click();
-  await other.getByRole('button', { name: 'Skip', exact: true }).click();
   const otherPayment = other.getByRole('dialog', { name: 'Payment', exact: true });
   await payment.getByRole('spinbutton', { name: 'Amount Tendered' }).fill('20');
   await payment.getByRole('button', { name: 'Charge $20.00', exact: true }).click();

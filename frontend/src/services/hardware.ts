@@ -204,6 +204,17 @@ class BarcodeScanner {
   }
 
   /**
+   * A scan that landed in a focused text box (the register search). Goes through
+   * the same duplicate guard as the page-wide listener so one read adds one item.
+   */
+  scanFromField(barcode: string): boolean {
+    const code = barcode.trim();
+    if (!code || this.isDuplicate(code)) return false;
+    this.callbacks.forEach((callback) => callback(code));
+    return true;
+  }
+
+  /**
    * Check if barcode is a duplicate scan (same barcode within timeout window)
    */
   private isDuplicate(barcode: string): boolean {

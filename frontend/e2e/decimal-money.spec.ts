@@ -14,7 +14,6 @@ test('fractional unit prices use the same rounded line and tax in cart, quote, p
   await pad.getByRole('button', { name: '3', exact: true }).click();
   await pad.getByRole('button', { name: 'OK', exact: true }).click();
   await page.getByRole('button', { name: 'Charge $3.32', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
   await payment.getByRole('button', { name: 'Exact', exact: true }).click();
   const saved = page.waitForResponse(r => r.url().endsWith('/api/sales') && r.request().method() === 'POST');

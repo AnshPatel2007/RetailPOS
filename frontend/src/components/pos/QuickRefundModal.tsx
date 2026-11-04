@@ -16,6 +16,7 @@ import { invalidateScopedQueries } from '@/hooks/useScopedQuery';
 import { RecentTransactions } from './RecentTransactions';
 import { hardware } from '@/services/hardware';
 import { isSaleReference, normalizeSaleReference } from '@/lib/receiptReference';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface SaleItem {
   productName?: string;
@@ -87,6 +88,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
   onRefundComplete,
   initialSaleId,
 }) => {
+  const [confirm, confirmDialog] = useConfirm();
   const [saleNumber, setSaleNumber] = useState('');
   const [sale, setSale] = useState<SaleDetails | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -276,7 +278,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
 
     if (sale.refundTenderError || tenderSelection.invalid) { toast.error(sale.refundTenderError || 'Review original-tender amounts and terminal references'); return; }
     const methodLabel = tenderSelection.tenders.map(part => part.method.replace(/_/g, ' ')).join(' and ') || 'no monetary payout';
-    if (!window.confirm(`Refund ${formatCurrency(effectiveAmount)} to ${methodLabel.toLowerCase()} for sale #${sale.saleNumber}?`)) {
+    if (!(await confirm({ title: `Refund ${formatCurrency(effectiveAmount)}?`, message: `Paid back to ${methodLabel.toLowerCase()} for sale #${sale.saleNumber}.`, confirmLabel: 'Refund', cancelLabel: 'Go back' }))) {
       return;
     }
 
@@ -319,6 +321,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
       title="Quick Refund"
       size="md"
     >
+      {confirmDialog}
       <div className="space-y-4">
         {operationError && <p role="alert" className="text-sm text-destructive">{operationError}</p>}
         {storageError && <Button onClick={refreshStorage}>Retry recovery storage</Button>}

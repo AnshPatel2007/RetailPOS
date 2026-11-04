@@ -28,7 +28,12 @@ interface ProductGridProps {
   isFavorite: (productId: string) => boolean;
   toggleFavorite: (productId: string) => void;
   searchInputRef: React.RefObject<HTMLInputElement>;
+  /** Enter in the search box. Return true when it was handled as a scan. */
+  onSearchEnter?: (value: string, typedFast: boolean) => boolean;
 }
+
+/** Scanners type a whole code in well under 50 ms a key; people don't. */
+const SCAN_MS_PER_KEY = 35;
 
 // Stock counts are deliberately not shown at the register: recorded stock never
 // blocks a sale. Only a recall/prohibited-sale hold is surfaced.
@@ -128,7 +133,9 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
   isFavorite,
   toggleFavorite,
   searchInputRef,
+  onSearchEnter,
 }) => {
+  const typing = React.useRef<{ start: number; keys: number }>({ start: 0, keys: 0 });
 
   return (
     <div className="pos-catalog">
@@ -142,6 +149,19 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
             placeholder="Search products... (/ or F3)"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                const { start, keys } = typing.current;
+                const fast = keys > 3 && (performance.now() - start) / keys < SCAN_MS_PER_KEY;
+                typing.current = { start: 0, keys: 0 };
+                if (onSearchEnter?.(e.currentTarget.value, fast)) e.preventDefault();
+                return;
+              }
+              if (e.key.length === 1) {
+                if (!e.currentTarget.value || !typing.current.keys) typing.current = { start: performance.now(), keys: 0 };
+                typing.current.keys++;
+              }
+            }}
             className="pl-10 pr-24 h-11"
           />
           {hardware.scanner.isEnabled() && (

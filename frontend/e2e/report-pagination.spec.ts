@@ -76,7 +76,6 @@ test('a completed checkout invalidates the cached sales report before returning 
   await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).fill(sku);
   await page.getByRole('button', { name: new RegExp('^' + productName) }).click();
   await page.getByRole('button', { name: 'Charge $11.00', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
   await payment.getByRole('button', { name: 'Exact', exact: true }).click();
   await payment.getByRole('button', { name: 'Charge $11.00', exact: true }).click();

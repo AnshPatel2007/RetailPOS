@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { confirmInApp } from './utils/confirm-helper';
 
 async function checkout(page: Page, quantity: number, points: string, total: string) {
   await page.goto('/pos');
@@ -9,6 +10,7 @@ async function checkout(page: Page, quantity: number, points: string, total: str
   await pad.getByRole('button', { name: String(quantity), exact: true }).click();
   await pad.getByRole('button', { name: 'OK', exact: true }).click();
   await page.getByRole('button', { name: 'Charge $' + (quantity * 1.1).toFixed(2), exact: true }).click();
+  await page.getByRole('dialog', { name: 'Payment', exact: true }).getByRole('button', { name: 'Add customer', exact: true }).click();
   const linkCustomer = page.getByRole('dialog', { name: /Link Customer/ });
   await linkCustomer.getByPlaceholder('Phone number (or last 4 digits)...').fill('5557770011');
   await linkCustomer.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -28,7 +30,6 @@ async function checkout(page: Page, quantity: number, points: string, total: str
 test('checkout and successive returns show the original allocated cash and points', async ({ page }) => {
   await login(page, 'loyalty@example.test');
   const sale = await checkout(page, 3, '100', '2.30');
-  page.on('dialog', dialog => dialog.accept());
   for (const [cash, points] of [['0.76', 33], ['0.77', 33], ['0.77', 34]] as const) {
     await page.getByTitle('Quick refund', { exact: true }).click();
     const refund = page.getByRole('dialog', { name: 'Quick Refund', exact: true });
@@ -38,6 +39,7 @@ test('checkout and successive returns show the original allocated cash and point
     await expect(refund.getByText(new RegExp(points + ' redeemed points will be restored'))).toBeVisible();
     const result = page.waitForResponse(r => r.url().endsWith('/refund') && r.request().method() === 'POST');
     await refund.getByRole('button', { name: 'Refund $' + cash, exact: true }).click();
+    await confirmInApp(page, 'Refund $' + cash + '?', 'Refund');
     expect((await result).status()).toBe(200); await expect(refund).toHaveCount(0);
   }
   const token = await page.evaluate(() => localStorage.getItem('token'));
@@ -51,7 +53,6 @@ test('checkout and successive returns show the original allocated cash and point
 test('a points-only checkout and return need no cash payment', async ({ page }) => {
   await login(page, 'loyalty@example.test');
   const sale = await checkout(page, 1, '110', '0.00');
-  page.on('dialog', dialog => dialog.accept());
   await page.getByTitle('Quick refund', { exact: true }).click();
   const refund = page.getByRole('dialog', { name: 'Quick Refund', exact: true });
   await refund.getByPlaceholder('Enter sale number...').fill(sale.saleNumber);
@@ -61,6 +62,7 @@ test('a points-only checkout and return need no cash payment', async ({ page }) 
   await page.screenshot({ path: 'test-results/points-only-refund.png', fullPage: true });
   const saved = page.waitForResponse(r => r.url().endsWith('/refund') && r.request().method() === 'POST');
   await refund.getByRole('button', { name: 'Refund $0.00', exact: true }).click();
+  await confirmInApp(page, 'Refund $0.00?', 'Refund');
   const response = await saved; expect(response.status()).toBe(200);
   expect((await response.json()).refund).toMatchObject({ amount: 0, pointsRestored: 110 });
 });

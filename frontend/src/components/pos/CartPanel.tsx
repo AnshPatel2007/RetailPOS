@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { CartItemCard } from '@/components/pos/CartItemCard';
 import { Receipt } from '@/services/hardware';
 import { hardware } from '@/services/hardware';
+import { useConfirm } from '@/components/ui/useConfirm';
+import { Kbd } from '@/components/ui/Kbd';
 import {
   Trash2,
   Printer,
@@ -19,6 +21,8 @@ import {
 } from 'lucide-react';
 
 interface CartPanelProps {
+  /** Opens the full keyboard shortcut list. */
+  onShowShortcuts?: () => void;
   onEditQuantity: (product: Product) => void;
   lastReceipt: Receipt | null;
   onPrintReceipt: () => void;
@@ -30,6 +34,7 @@ interface CartPanelProps {
 }
 
 export const CartPanel: React.FC<CartPanelProps> = ({
+  onShowShortcuts,
   onEditQuantity,
   lastReceipt,
   onPrintReceipt,
@@ -39,6 +44,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   onHoldSale,
   onClose,
 }) => {
+  const [confirm, confirmDialog] = useConfirm();
   const {
     items,
     removeItem,
@@ -66,6 +72,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
 
   return (
     <div data-sale-cart className="pos-cart">
+      {confirmDialog}
       {/* Cart header */}
       <div className="pos-cart-header">
         <div className="flex items-center justify-between gap-2">
@@ -113,10 +120,9 @@ export const CartPanel: React.FC<CartPanelProps> = ({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  if (window.confirm(`Clear all ${getItemCount()} item${getItemCount() > 1 ? 's' : ''} from cart?`)) {
-                    clearCart();
-                  }
+                onClick={async () => {
+                  const count = getItemCount();
+                  if (await confirm({ title: `Clear all ${count} item${count > 1 ? 's' : ''}?`, message: 'The sale starts over. Hold the sale instead to keep it for later.', confirmLabel: 'Clear cart', cancelLabel: 'Keep items', destructive: true })) clearCart();
                 }}
                 className="text-destructive pos-cart-tool"
                 title="Clear cart"
@@ -257,8 +263,9 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             {items.length > 0 ? <>Charge {formatCurrency(getTotal())}</> : 'Charge'}
           </Button>
         </div>
-        <p className="pos-shortcuts text-xs text-center text-muted-foreground">
-          F1 Cash · F2 Card · F4 Checkout · F5 Hold · F7 Misc
+        <p className="pos-shortcuts flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span><Kbd>F1</Kbd> Cash</span><span><Kbd>F2</Kbd> Card</span><span><Kbd>F5</Kbd> Hold</span><span><Kbd>F7</Kbd> Misc</span>
+          {onShowShortcuts && <button type="button" onClick={onShowShortcuts} className="underline-offset-2 hover:text-foreground hover:underline"><Kbd>?</Kbd> All shortcuts</button>}
         </p>
       </div>
     </div>

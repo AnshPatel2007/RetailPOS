@@ -25,7 +25,6 @@ test('cashier discount requires manager approval and leaves the cashier signed i
   await page.getByLabel('Item discount amount').fill('1');
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
   await page.getByRole('button', { name: 'Charge $9.90', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
   await payment.getByRole('button', { name: 'Exact', exact: true }).click();
   await payment.getByRole('button', { name: 'Charge $9.90', exact: true }).click();

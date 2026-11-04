@@ -15,7 +15,7 @@ import {
   Wallet,
   Phone,
   User,
-  SkipForward,
+  ArrowLeft,
   Award,
   Star,
   ArrowRight,
@@ -29,6 +29,7 @@ import type { CheckoutItem } from '@/types/checkout';
 import { amountToComplete, paymentTotal, type CheckoutPayment as Payment, type CheckoutPaymentMethod as PaymentMethod, type PaymentSession } from '@/services/paymentSession';
 import { toCents } from '@/lib/money';
 import { Spinner } from '@/components/ui/LoadingState';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface EnhancedPaymentModalProps {
   session?: PaymentSession | null;
@@ -76,7 +77,9 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   ebtEligibleTotal = 0,
   cardSurchargePercent = 0,
 }) => {
-  const [step, setStep] = useState<'customer' | 'payment'>('customer');
+  const [step, setStep] = useState<'customer' | 'payment'>('payment');
+  const [confirm, confirmDialog] = useConfirm();
+  const continueRef = useRef<HTMLButtonElement>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [amountInput, setAmountInput] = useState('');
   const amountEdited = useRef(false);
@@ -113,7 +116,8 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       amountEdited.current = false;
-      setStep(session || linkedCustomer ? 'payment' : 'customer');
+      // Straight to payment: the customer is optional and linked from the cart or the row at the top.
+      setStep('payment');
       const defaultMethod = initialPaymentMethod && allPaymentMethods.find(m => m.value === initialPaymentMethod && m.enabled)
         ? initialPaymentMethod
         : (paymentMethods[0]?.value || 'CASH');
@@ -163,10 +167,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     return () => { current = false; clearTimeout(timer); };
   }, [customerPhone, step]);
 
-  const handleSkipCustomer = () => {
-    onCustomerChange(null);
-    setStep('payment');
-  };
+  useEffect(() => { if (step === 'customer' && linkedCustomer) continueRef.current?.focus(); }, [step, linkedCustomer]);
 
   const handleContinueWithCustomer = () => {
     setStep('payment');
@@ -239,7 +240,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     if (paymentFlight.current || isProcessing || session?.status === 'SUBMITTED' || changedElsewhere) return;
     const payment = payments[index];
     if (payment.paymentMethod === 'CARD' && !reversalReference.trim()) { setReverseIndex(index); return; }
-    if (payment.paymentMethod === 'CASH' && !window.confirm('Return ' + formatCurrency(payment.amount) + ' cash to the customer before removing this payment. Confirm cash has been returned?')) return;
+    if (payment.paymentMethod === 'CASH' && !(await confirm({ title: 'Give back ' + formatCurrency(payment.amount) + ' cash?', message: 'Return the cash to the customer first. Removing this payment does not open the drawer.', confirmLabel: 'Cash returned — remove', cancelLabel: 'Keep payment' }))) return;
     paymentFlight.current = true; setSaving(true); setPaymentError('');
     try {
       const next = payments.filter((_, position) => position !== index);
@@ -315,11 +316,13 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   const requestClose = () => { if (unsavedPayment) { toast.error('Save the entered payment before closing this screen.'); return; } if (!isProcessing && !paymentFlight.current) onClose(); };
 
   return (<>
-    <Modal isOpen={isOpen} onClose={requestClose} title={step === 'customer' ? 'Link Customer · Step 1 of 2' : 'Payment'} size="lg" className="pos-payment-dialog" footer={step === 'payment' ? (
+    <Modal isOpen={isOpen} onClose={requestClose} title={step === 'customer' ? 'Link Customer' : 'Payment'} size="lg" className="pos-payment-dialog" footer={step === 'payment' ? (
       <div className="space-y-3" data-payment-busy={saving || isProcessing ? 'true' : undefined}>
-        <div role="status" aria-label="Payment balance" aria-live="polite" className={getRemainingBalance() > 0 ? 'text-warning font-semibold' : 'text-success font-semibold'}>
+        <div role="status" aria-label="Payment balance" aria-live="polite" className={getRemainingBalance() > 0 ? (payments.length ? 'text-warning font-semibold' : 'text-muted-foreground font-medium') : 'text-success font-semibold'}>
           {session?.status === 'SUBMITTED' ? 'Payment received — sale confirmation pending' : getRemainingBalance() > 0
-            ? 'Payment incomplete · ' + formatCurrency(getRemainingBalance()) + ' still due' : 'Balance covered — confirming sale'}
+            // Nothing taken yet is the normal start, not a warning.
+            ? (payments.length ? 'Payment incomplete · ' : '') + formatCurrency(getRemainingBalance()) + ' still due' + (!payments.length && paymentMethod === 'CASH' ? ' · press Enter to charge' : '')
+            : 'Balance covered — confirming sale'}
         </div>
         {getChange() > 0 && <p className="font-semibold">Change: {formatCurrency(getChange())}</p>}
         {locked && <p className="text-xs text-muted-foreground">Saved on this register. Resume with the same cashier and store.</p>}
@@ -330,6 +333,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
           </Button>
         </div>
       </div>) : undefined}>
+      {confirmDialog}
       {paymentError && <p role="alert" className="mb-3 text-sm text-destructive">{paymentError}</p>}
       {changedElsewhere && !saving && <p role="alert" className="mb-3 text-sm text-warning">Payment changed in another window. Close and reopen Payment before continuing.</p>}
       <fieldset disabled={saving || isProcessing || unsavedPayment || session?.status === 'SUBMITTED'} className="min-w-0">
@@ -338,7 +342,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
           /* ─── Customer Step ─── */
           <>
             <p className="text-sm text-muted-foreground">
-              Link a customer to earn loyalty points, or skip to proceed.
+              Find the customer by phone so they earn points and can use them on this sale.
             </p>
 
             {linkedCustomer ? (
@@ -399,6 +403,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                     onChange={(e) => setCustomerPhone(e.target.value)}
                     className="pl-10"
                     autoFocus
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (linkedCustomer) setStep('payment'); } }}
                   />
                   {isSearching && (
                     <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
@@ -466,11 +471,13 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
 
             {/* Customer step actions */}
             <div className="flex gap-3 pt-4 border-t">
-              <Button variant="outline" className="flex-1" onClick={handleSkipCustomer}>
-                <SkipForward className="h-4 w-4 mr-2" />
-                Skip
+              <Button type="button" variant="outline" className="flex-1" onClick={() => setStep('payment')}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to payment
               </Button>
               <Button
+                ref={continueRef}
+                type="button"
                 variant="primary"
                 className="flex-1"
                 onClick={handleContinueWithCustomer}
@@ -484,6 +491,13 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
         ) : (
           /* ─── Payment Step ─── */
           <>
+            {/* Customer: optional, one click away */}
+            {!linkedCustomer && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed p-2">
+                <span className="flex items-center gap-2 text-sm text-muted-foreground"><User className="h-4 w-4" />No customer on this sale</span>
+                <Button type="button" variant="outline" size="sm" disabled={locked} onClick={() => setStep('customer')}>Add customer</Button>
+              </div>
+            )}
             {/* Linked customer indicator */}
             {linkedCustomer && (
               <div className="flex items-center justify-between p-2 rounded-lg bg-primary/5 border border-primary/20">
@@ -630,6 +644,8 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                       aria-label={paymentMethod === 'CARD' ? 'Approved amount' : 'Amount Tendered'}
                       className="flex-1"
                       autoFocus
+                      // Enter charges what is typed — the exact amount unless the cashier changed it.
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (canSubmit && !isProcessing && !saving && !changedElsewhere) void handleSubmit(); } }}
                     />
                   </div>
                 </div>

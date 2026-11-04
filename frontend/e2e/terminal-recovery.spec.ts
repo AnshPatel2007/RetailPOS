@@ -6,7 +6,6 @@ async function terminalPayment(page: Page, reference: string) {
   await page.goto('/pos');
   await page.getByRole('button', { name: /^Fixture Loyalty/ }).click();
   await page.getByRole('button', { name: 'Charge $1.10', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
   await payment.getByRole('button', { name: 'Card (external)', exact: true }).click();
   await payment.getByPlaceholder('Terminal approval / transaction reference').fill(reference);

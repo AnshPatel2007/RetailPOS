@@ -20,7 +20,6 @@ test('a zero-stock item sells without a stock prompt and raises an exception for
   await tile.click();
   await expect(page.getByRole('button', { name: 'Change quantity for ' + name, exact: true })).toHaveText('1');
   await page.getByRole('button', { name: 'Charge $2.50', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
   await payment.getByRole('button', { name: 'Exact', exact: true }).click();
   const saved = page.waitForResponse(response => response.url().endsWith('/api/sales') && response.request().method() === 'POST');

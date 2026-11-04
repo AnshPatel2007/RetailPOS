@@ -10,7 +10,6 @@ test('a void with a lost response survives reload and retries without a second p
   await pad.getByRole('button', { name: '2', exact: true }).click();
   await pad.getByRole('button', { name: 'OK', exact: true }).click();
   await page.getByRole('button', { name: 'Charge $22.00', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
   await payment.getByRole('button', { name: 'Exact', exact: true }).click();
   const saved = page.waitForResponse(r => r.url().endsWith('/api/sales') && r.request().method() === 'POST');

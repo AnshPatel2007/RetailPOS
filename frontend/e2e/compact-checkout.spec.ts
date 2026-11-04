@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { confirmInApp } from './utils/confirm-helper';
 
 test('photo catalog and text-only cart keep six item rows visible on a laptop', async ({ page }, info) => {
   await page.setViewportSize({ width: 1366, height: 768 });
@@ -61,7 +62,6 @@ test('short receipts print a barcode and Quick Refund supports recent, typed and
   await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).fill('Receipt barcode item');
   await page.getByRole('button', { name: /^Receipt barcode item/ }).click();
   await page.getByRole('button', { name: 'Charge $11.00', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
   await payment.getByRole('button', { name: 'Exact', exact: true }).click();
   const saved = page.waitForResponse(response => response.url().endsWith('/api/sales') && response.request().method() === 'POST');
@@ -110,9 +110,9 @@ test('short receipts print a barcode and Quick Refund supports recent, typed and
   await expect(refund.getByRole('button', { name: 'Return more Receipt barcode item', exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: info.outputPath('quick-refund-phone.png'), animations: 'disabled' });
-  page.on('dialog', dialog => dialog.accept());
   await refund.getByRole('button', { name: 'Return more Receipt barcode item', exact: true }).click();
   const recorded = page.waitForResponse(result => result.url().endsWith('/refund') && result.request().method() === 'POST');
   await refund.getByRole('button', { name: 'Refund $11.00', exact: true }).click();
+  await confirmInApp(page, 'Refund $11.00?', 'Refund');
   expect((await recorded).status()).toBe(200); await expect(refund).toHaveCount(0);
 });

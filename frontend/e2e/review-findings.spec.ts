@@ -40,7 +40,6 @@ for (const tender of ['cash', 'split']) test(`immediate product taps and scans r
   await expect(page.getByRole('button', { name: 'Change quantity for ' + empty.name, exact: true })).toHaveCount(0);
   await expect(page.getByText('Quick ten percent ' + tender, { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Charge $27.00', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
   if (tender === 'split') {
     await payment.getByRole('spinbutton').fill('10');
@@ -76,7 +75,6 @@ test('age-restricted quick add still requires a valid DOB before payment', async
   await expect(age.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
   await age.getByRole('textbox').fill('1990-01-01'); await age.getByRole('textbox').blur();
   await age.getByRole('button', { name: 'Approve', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Payment', exact: true })).toBeVisible();
 });
 

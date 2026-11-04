@@ -5,7 +5,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ModalOverlay, Modal as AriaModal, Dialog } from 'react-aria-components';
 import { OverlayLevel } from '@/components/ui/Overlay';
 import '@/styles/checkout.css';
-import { useNavigate } from 'react-router-dom';
 import { ShoppingCart, X, DollarSign, Keyboard } from 'lucide-react';
 import { productService, saleService, locationService, categoryService, promotionService, shiftService } from '@/services/api';
 import { syncService } from '@/services/syncService';
@@ -79,7 +78,6 @@ export const POS: React.FC = () => {
   const [miscPrice, setMiscPrice] = useState('');
   const [miscName, setMiscName] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const navigate = useNavigate();
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
   const { user } = useAuthStore();
@@ -392,7 +390,7 @@ export const POS: React.FC = () => {
 
     if (e.key === 'Escape') {
       e.preventDefault();
-      // Close any open modal first, then navigate away
+      // Close the top-most open thing first
       if (showAgeModal) { setShowAgeModal(false); return; }
       if (showPaymentModal) { setShowPaymentModal(false); return; }
       if (showHeldSalesModal) { setShowHeldSalesModal(false); return; }
@@ -403,7 +401,8 @@ export const POS: React.FC = () => {
       if (numpadProduct) { setNumpadProduct(null); return; }
       if (mobileCartOpen) { setMobileCartOpen(false); return; }
       if (inInput) { (e.target as HTMLElement).blur(); return; }
-      navigate('/dashboard');
+      // An idle register stays put (leaving mid-shift by accident cost a sale); Esc just clears the search.
+      if (search) setSearch('');
       return;
     }
     if (e.key === 'F1') { e.preventDefault(); startCheckout('CASH'); return; }
@@ -419,7 +418,18 @@ export const POS: React.FC = () => {
       e.preventDefault();
       searchInputRef.current?.focus();
     }
-  }, [items, showPaymentModal, showHeldSalesModal, showRefundModal, showMiscModal, showReceiptPreview, showShortcutsHelp, numpadProduct, showAgeModal, ageVerification, isReadOnly, isProcessing, pendingPayment, paymentReady, paymentReadError, mobileCartOpen]);
+  }, [items, search, showPaymentModal, showHeldSalesModal, showRefundModal, showMiscModal, showReceiptPreview, showShortcutsHelp, numpadProduct, showAgeModal, ageVerification, isReadOnly, isProcessing, pendingPayment, paymentReady, paymentReadError, mobileCartOpen]);
+
+  // A scanner aimed while the search box has focus types the code there. Treat it
+  // as a scan: digits-only codes, receipt numbers, or anything typed at scanner speed.
+  const handleSearchEnter = useCallback((value: string, typedFast: boolean) => {
+    const code = value.trim();
+    if (!code || /\s/.test(code)) return false;
+    if (!(/^\d{6,}$/.test(code) || isSaleReference(code) || (typedFast && code.length >= 4))) return false;
+    hardware.scanner.scanFromField(code);
+    setSearch('');
+    return true;
+  }, []);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyboardShortcuts);
@@ -832,11 +842,13 @@ export const POS: React.FC = () => {
           isFavorite={isFavorite}
           toggleFavorite={toggleFavorite}
           searchInputRef={searchInputRef}
+          onSearchEnter={handleSearchEnter}
         />
 
         {/* Right side - Cart (desktop) */}
         <div className="pos-desktop-cart">
           {isReadOnly ? <RecentTransactions onViewReceipt={handleViewRecentReceipt} /> : <CartPanel
+            onShowShortcuts={() => setShowShortcutsHelp(true)}
             onEditQuantity={setNumpadProduct}
             lastReceipt={lastReceipt}
             onPrintReceipt={handlePrintReceipt}
@@ -999,13 +1011,13 @@ export const POS: React.FC = () => {
                 ['F1', 'Pay with Cash'],
                 ['F2', 'Pay with Card'],
                 ['F3 / /', 'Search products'],
-                ['F4', 'Checkout'],
+                ['F4', 'Choose payment'],
                 ['F5', 'Hold sale'],
                 ['F6', 'Recall held sale'],
                 ['F7', 'Add misc item'],
                 ['F8', 'Refund'],
-                ['Esc', 'Close / Back'],
-                ['?', 'Toggle this help'],
+                ['Esc', 'Close a window, or clear the search'],
+                ['?', 'Show or hide this list'],
               ].map(([key, desc]) => (
                 <div key={key} className="flex items-center justify-between">
                   <span className="text-muted-foreground">{desc}</span>
@@ -1017,18 +1029,6 @@ export const POS: React.FC = () => {
         </div>
       )}
 
-      {/* Bottom shortcut hints bar (desktop only) */}
-      <div className="hidden md:flex fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur border-t px-4 py-1.5 justify-center gap-4 text-xs text-muted-foreground z-30">
-        <span><kbd className="px-1 bg-muted rounded font-mono text-xs">F1</kbd> Cash</span>
-        <span><kbd className="px-1 bg-muted rounded font-mono text-xs">F2</kbd> Card</span>
-        <span><kbd className="px-1 bg-muted rounded font-mono text-xs">F4</kbd> Pay</span>
-        <span><kbd className="px-1 bg-muted rounded font-mono text-xs">F5</kbd> Hold</span>
-        <span><kbd className="px-1 bg-muted rounded font-mono text-xs">F6</kbd> Recall</span>
-        <span><kbd className="px-1 bg-muted rounded font-mono text-xs">F7</kbd> Misc</span>
-        <span><kbd className="px-1 bg-muted rounded font-mono text-xs">F8</kbd> Refund</span>
-        <span><kbd className="px-1 bg-muted rounded font-mono text-xs">Esc</kbd> Back</span>
-        <span><kbd className="px-1 bg-muted rounded font-mono text-xs">?</kbd> Help</span>
-      </div>
     </div>
   );
 };

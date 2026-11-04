@@ -22,7 +22,6 @@ test('a 12-pack scans at its own price and sells from the can stock', async ({ p
   const tile = page.getByRole('button', { name: new RegExp('^' + name + ' \\(12-pack\\)') });
   await tile.click();
   await page.getByRole('button', { name: 'Charge $9.99', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
   await payment.getByRole('button', { name: 'Exact', exact: true }).click();
   const saved = page.waitForResponse(response => response.url().endsWith('/api/sales') && response.request().method() === 'POST');

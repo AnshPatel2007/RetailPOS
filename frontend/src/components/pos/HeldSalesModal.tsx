@@ -6,6 +6,7 @@ import { formatCurrency } from '@/lib/utils';
 import { X, PauseCircle, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { CartItem, Customer } from '@/types';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface HeldSale {
   id: string;
@@ -30,8 +31,10 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
   onRestore,
   onDiscard,
 }) => {
+  const [confirm, confirmDialog] = useConfirm();
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Held Sales" size="md">
+      {confirmDialog}
       <div className="space-y-3">
         {heldSales.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
@@ -76,8 +79,8 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
                     <Button aria-label="Discard held sale"
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        if (window.confirm(`Discard this held sale (${itemCount} item${itemCount !== 1 ? 's' : ''}, ${formatCurrency(total)})?`)) {
+                      onClick={async () => {
+                        if (await confirm({ title: 'Discard this held sale?', message: `${itemCount} item${itemCount !== 1 ? 's' : ''}, ${formatCurrency(total)}. It can't be recalled afterwards.`, confirmLabel: 'Discard', cancelLabel: 'Keep it', destructive: true })) {
                           onDiscard(held.id);
                           toast.success('Held sale discarded');
                         }

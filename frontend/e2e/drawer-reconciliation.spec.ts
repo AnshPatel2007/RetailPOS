@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login, TEST_USER } from './utils/auth-helper';
+import { confirmInApp } from './utils/confirm-helper';
 
 test('a refund with a lost response survives reload and pays from the later drawer once', async ({ page }) => {
   await login(page, TEST_USER.email);
@@ -18,11 +19,11 @@ test('a refund with a lost response survives reload and pays from the later draw
   await dialog.getByRole('button', { name: 'Find sale', exact: true }).click();
   await dialog.getByRole('button', { name: 'Amount only', exact: true }).click();
   await dialog.getByLabel('Refund Amount', { exact: false }).fill('5');
-  page.on('dialog', native => native.accept());
   await page.route('**/api/sales/*/refund', async route => {
     const response = await route.fetch(); expect(response.status()).toBe(200); await route.abort('failed');
   }, { times: 1 });
   await dialog.getByRole('button', { name: 'Refund $5.00', exact: true }).click();
+  await confirmInApp(page, 'Refund $5.00?', 'Refund');
   await expect(dialog.getByRole('button', { name: 'Retry saved refund', exact: true })).toBeEnabled();
   await page.reload(); await page.getByTitle('Quick refund', { exact: true }).click();
   const replay = page.waitForResponse(r => r.url().endsWith('/refund') && r.request().method() === 'POST');
@@ -44,6 +45,8 @@ test('a refund with a lost response survives reload and pays from the later draw
   const summary = page.getByRole('dialog', { name: 'Shift Summary', exact: true });
   await expect(summary.getByText('Cash Refunds Paid', { exact: true })).toBeVisible();
   await expect(summary.getByText('-$5.00', { exact: true })).toBeVisible();
+  // Leave the owner clocked in, as seeded, so later register specs can take payment.
+  expect((await page.request.post('/api/shifts/clock-in', { headers, data: { startingCash: 100 } })).status()).toBe(201);
 });
 
 test('a previously saved safe drop remains recoverable after the movement control is removed', async ({ page }) => {

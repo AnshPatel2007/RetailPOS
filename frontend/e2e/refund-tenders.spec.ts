@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { confirmInApp } from './utils/confirm-helper';
 
 test('mixed original-tender refund requires card evidence and retries exactly after a closed drawer', async ({ page }) => {
   await login(page, 'refund-tenders@example.test');
@@ -25,10 +26,10 @@ test('mixed original-tender refund requires card evidence and retries exactly af
   await expect(dialog.getByRole('button', { name: 'Refund $22.00', exact: true })).toBeEnabled();
   await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => document.documentElement.classList.add('dark'));
   await page.screenshot({ path: 'test-results/mixed-refund-phone-dark.png', fullPage: true });
-  page.on('dialog', native => native.accept());
   let saved: unknown;
   await page.route('**/api/sales/*/refund', async route => { saved = route.request().postDataJSON(); const response = await route.fetch(); expect(response.status()).toBe(200); await route.abort('failed'); }, { times: 1 });
   await dialog.getByRole('button', { name: 'Refund $22.00', exact: true }).click();
+  await confirmInApp(page, 'Refund $22.00?', 'Refund');
   await expect(dialog.getByRole('button', { name: 'Retry saved refund', exact: true })).toBeEnabled();
   const closed = await page.request.post('/api/shifts/clock-out', { headers, data: { endingCash: before } });
   expect(closed.status()).toBe(200); expect((await closed.json()).data.cashDifference).toBe(0);
@@ -56,10 +57,10 @@ test('a definitive POS rejection keeps precompleted terminal evidence through re
   const dialog = page.getByRole('dialog', { name: 'Quick Refund', exact: true });
   await dialog.getByPlaceholder('Enter sale number...').fill(sale.saleNumber); await dialog.getByRole('button', { name: 'Find sale', exact: true }).click();
   await dialog.getByRole('button', { name: 'Select all', exact: true }).click(); await dialog.getByLabel(/Terminal refund reference for payment/).fill('PRECOMPLETED-TERMINAL-11');
-  page.on('dialog', native => native.accept());
   let original: unknown;
   await page.route('**/api/sales/*/refund', async route => { if (!original) original = route.request().postDataJSON(); await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'Original tender changed; owner review required.' }) }); });
   await dialog.getByRole('button', { name: 'Refund $11.00', exact: true }).click();
+  await confirmInApp(page, 'Refund $11.00?', 'Refund');
   await expect(dialog.getByRole('alert')).toContainText('terminal refund evidence remains saved');
   await page.reload(); await page.getByTitle('Quick refund', { exact: true }).click();
   await expect(dialog).toContainText('External card refund evidence is saved');

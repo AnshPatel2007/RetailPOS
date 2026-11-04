@@ -10,6 +10,7 @@ async function openPayment(page: Page, quantity = 1) {
   await pad.getByRole('button', { name: String(quantity), exact: true }).click();
   await pad.getByRole('button', { name: 'OK', exact: true }).click();
   await page.getByRole('button', { name: 'Charge $' + (quantity * 1.1).toFixed(2), exact: true }).click();
+  await page.getByRole('dialog', { name: 'Payment', exact: true }).getByRole('button', { name: 'Add customer', exact: true }).click();
   const linkCustomer = page.getByRole('dialog', { name: /Link Customer/ });
   await linkCustomer.getByPlaceholder('Phone number (or last 4 digits)...').fill('5557770011');
   await linkCustomer.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -70,7 +71,6 @@ test('eligible products explain the EBT launch boundary without offering an unsa
   await page.goto('/pos');
   await page.getByRole('button', { name: /^SNAP Boundary Fixture/ }).click();
   await page.getByRole('button', { name: 'Charge $1.10', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
   await expect(payment.getByText(/EBT\/SNAP is unavailable/)).toBeVisible();
   await expect(payment.getByRole('button', { name: 'EBT / SNAP', exact: true })).toHaveCount(0);
