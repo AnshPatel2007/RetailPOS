@@ -14,7 +14,7 @@ test('employee collection totals and signed details reconcile, with visible retr
   await login(page, 'reporting@example.test'); await page.goto('/reports');
   let unavailable = true;
   await page.route('**/api/reports/employee-sales*', route => unavailable ? route.fulfill({ status: 503, json: { error: 'Employee report temporarily unavailable' } }) : route.continue());
-  await page.getByRole('navigation', { name: 'Insights / Reports & Analysis views' }).getByRole('link', { name: 'Staff', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Staff', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Employee report temporarily unavailable');
   unavailable = false; await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.getByText('Net collected', { exact: true }).first().locator('..')).toContainText('$11.00');
@@ -35,7 +35,7 @@ test('employee collection totals and signed details reconcile, with visible retr
 
 test('employee date filters ignore a late response from the previous period', async ({ page }) => {
   await login(page, 'reporting@example.test'); await page.goto('/reports');
-  await page.getByRole('navigation', { name: 'Insights / Reports & Analysis views' }).getByRole('link', { name: 'Staff', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Staff', exact: true }).click();
   await page.getByRole('button', { name: 'View activity for Reporting Fixture', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Activity - Reporting Fixture', exact: true });
   await expect(modal).toContainText('2 sale, return and void entries.');

@@ -18,7 +18,7 @@ test('report views preserve links, load independently and open AI only on reques
   expect(requests.filter(path => path === '/api/analytics/chat')).toHaveLength(0);
   await page.keyboard.press('Escape'); await expect(assistant).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
-  const navigation = page.getByRole('navigation', { name: 'Insights / Reports & Analysis views' });
+  const navigation = page.getByRole('navigation', { name: 'Reports views' });
   await expect(navigation.getByRole('link', { name: 'Exports' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('reports-navigation-phone.png') });
@@ -37,7 +37,7 @@ test('sales filters and search survive reload and returning from another report'
   await expect(page.getByText('REPORT-LEGACY', { exact: true })).toHaveCount(0);
   await page.reload(); await expect(search).toHaveValue('REPORT-PRIOR');
   await expect(page.getByText('REPORT-PRIOR', { exact: true })).toBeVisible();
-  await page.getByRole('navigation', { name: 'Insights / Reports & Analysis views' }).getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Overview', exact: true }).click();
   await page.goBack(); await expect(search).toHaveValue('REPORT-PRIOR');
   await expect(page.getByText('REPORT-PRIOR', { exact: true })).toBeVisible();
 });

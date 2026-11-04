@@ -64,7 +64,7 @@ test('a void with a lost response survives reload and retries without a second p
   await page.getByRole('dialog', { name: 'Export Preview', exact: true }).getByRole('button', { name: 'Download CSV', exact: true }).click();
   const csv = fs.readFileSync((await (await download).path())!, 'utf8');
   expect(csv).toContain('"SALE"'); expect(csv).toContain('"VOID"'); expect(csv).toContain('"-22.00","-2.00"');
-  await page.getByRole('navigation', { name: 'Insights / Reports & Analysis views' }).getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Overview', exact: true }).click();
   await expect(page.getByText("Today's Net Collections", { exact: true }).locator('..')).toContainText('$0.00');
   await expect(page.getByText('Voids', { exact: true }).locator('..')).toContainText('$22.00');
 });

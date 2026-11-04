@@ -75,6 +75,13 @@ export const Inventory: React.FC = () => {
   // Inventory is split into single items and packs (cartons, 12-packs, variety packs).
   const [searchParams, setSearchParams] = useSearchParams();
   const view = searchParams.get('view') === 'packs' ? 'packs' : 'singles';
+  // Quick-find links here with ?search=…; take it into the search box, then tidy the address.
+  const linkedSearch = searchParams.get('search');
+  useEffect(() => {
+    if (linkedSearch === null) return;
+    setSearch(linkedSearch);
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete('search'); return next; }, { replace: true });
+  }, [linkedSearch, setSearchParams]);
   const [packTarget, setPackTarget] = useState<PackFormTarget | null>(null);
   const [packsRefresh, setPacksRefresh] = useState(0);
   const [filterCategory, setFilterCategory] = useState('');

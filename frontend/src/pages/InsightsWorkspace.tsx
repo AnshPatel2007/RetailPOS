@@ -40,9 +40,9 @@ export function InsightsWorkspace() {
   const [view, setView] = useUrlFilter('view', selected.views[0].id, false);
   const active = selected.views.find(option => option.id === view) || selected.views[0];
   const { locationId } = useEffectiveLocation();
-  return <WorkflowNavigation label="Insights / Reports & Analysis" views={navigation}
+  return <WorkflowNavigation label="Reports" views={navigation}
     secondaryTabs={selected.views.length > 1 ? <PageTabs secondary label={selected.label + ' analysis views'} items={selected.views.map(option => ({ id: option.id, label: option.label }))} value={active.id} onChange={setView} /> : undefined}>
-    <Suspense fallback={<div className="p-4 sm:p-8"><PageHeader title="Reports & Analysis" /><p role="status">Loading view…</p></div>}>
+    <Suspense fallback={<div className="p-4 sm:p-8"><PageHeader title="Reports" /><p role="status">Loading view…</p></div>}>
       {'report' in active ? <Reports key={section + active.id + locationId} view={active.report} /> : <Analytics key={section + active.id + locationId} view={active.analysis} />}
     </Suspense>
   </WorkflowNavigation>;

@@ -18,6 +18,7 @@ import { AdminLayout } from './components/AdminLayout';
 
 import { Analytics as VercelAnalytics } from '@vercel/analytics/react';
 import { Spinner } from '@/components/ui/LoadingState';
+import { AccessDenied, NotFound } from './components/common/StatusPage';
 
 // Lazy-load all page components
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -82,17 +83,8 @@ const RoleRoute: React.FC<{
 }> = ({ children, allowedRoles }) => {
   const { user, isLoading } = useAuthStore();
   if (isLoading) return <LoadingSpinner />;
-  if (!user || !allowedRoles.includes(user.role)) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-6xl font-bold text-destructive mb-4">403</h1>
-          <p className="text-xl text-muted-foreground mb-4">Access Denied</p>
-          <p className="text-muted-foreground">You don't have permission to access this page.</p>
-        </div>
-      </div>
-    );
-  }
+  // Denied pages keep the menu so people can carry on somewhere they do have access.
+  if (!user || !allowedRoles.includes(user.role)) return <Layout><AccessDenied /></Layout>;
   return <>{children}</>;
 };
 
@@ -102,33 +94,21 @@ const PageRoute: React.FC<{
   roles?: string[];
   layout?: 'main' | 'admin';
 }> = ({ page, roles, layout = 'main' }) => {
-  const LayoutComponent = layout === 'admin' ? AdminLayout : Layout;
   const user = useAuthStore(state => state.user);
   const { locationId, isReadOnly } = useEffectiveLocation();
   const scopeKey = [user?.id, user?.role, locationId, isReadOnly].join(':');
-  const content = (
+  const allowed = !roles || (!!user && roles.includes(user.role));
+  // The platform shell is only for people allowed in; everyone else sees the denial in their own menu.
+  const LayoutComponent = layout === 'admin' && allowed ? AdminLayout : Layout;
+  return (
     <ProtectedRoute>
       <LayoutComponent>
         <Suspense fallback={<LoadingSpinner />}>
-          <React.Fragment key={scopeKey}>{page}</React.Fragment>
+          {allowed ? <React.Fragment key={scopeKey}>{page}</React.Fragment> : <AccessDenied />}
         </Suspense>
       </LayoutComponent>
     </ProtectedRoute>
   );
-  if (roles) {
-    return (
-      <ProtectedRoute>
-        <RoleRoute allowedRoles={roles}>
-          <LayoutComponent>
-            <Suspense fallback={<LoadingSpinner />}>
-              <React.Fragment key={scopeKey}>{page}</React.Fragment>
-            </Suspense>
-          </LayoutComponent>
-        </RoleRoute>
-      </ProtectedRoute>
-    );
-  }
-  return content;
 };
 
 function AnalyticsEntry() {
@@ -221,7 +201,7 @@ function App() {
         <Route path="/gift-cards" element={<PreserveRedirect to="/customers/accounts/gift-cards" />} />
         <Route path="/inventory-transfers" element={<PreserveRedirect to="/inventory/stock-control/transfers" />} />
         <Route path="/cycle-counts" element={<PreserveRedirect to="/inventory/stock-control/counts" />} />
-        <Route path="/inventory/stock-control" element={<PreserveRedirect to="/inventory/stock-control/transfers" />} />
+        <Route path="/inventory/stock-control" element={<PreserveRedirect to="/inventory/stock-control/exceptions" />} />
         {[["transfers", <InventoryTransfers />], ["counts", <CycleCount />], ["exceptions", <InventoryExceptions />], ["movements", <InventoryMovements />]].map(([view, page]) => <Route key={String(view)} path={'/inventory/stock-control/' + view} element={<PageRoute roles={MANAGER_ROLES} page={<StockControlNavigation>{page}</StockControlNavigation>} />} />)}
         <Route path="/lottery" element={<PageRoute page={<Lottery />} />} />
         <Route path="/audit-log" element={<PageRoute page={<AuditLog />} roles={MANAGER_ROLES} />} />
@@ -248,17 +228,7 @@ function App() {
         <Route path="/admin/employee-sales" element={<Navigate to="/admin" replace />} />
 
         <Route path="/" element={<SmartRedirect />} />
-        <Route
-          path="*"
-          element={
-            <div className="min-h-screen flex items-center justify-center">
-              <div className="text-center">
-                <h1 className="text-6xl font-bold text-muted-foreground mb-4">404</h1>
-                <p className="text-xl text-muted-foreground">Page not found</p>
-              </div>
-            </div>
-          }
-        />
+        <Route path="*" element={<PageRoute page={<NotFound />} />} />
       </Routes>
     </BrowserRouter>
   );

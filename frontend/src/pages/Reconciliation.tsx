@@ -31,7 +31,7 @@ export function Reconciliation() {
   const listing = useScopedQuery<any>(['reconciliation', view, page], signal => api.get('/financial/reconciliation/' + (view === 'legacy' ? 'legacy-voids' : 'history'), { params: { page }, signal }).then(response => response.data.data), view === 'legacy' || view === 'history');
   const changeView = (next: string) => { setView(next); setReviewedTarget(null); setReason(''); setReference(''); };
   return <ManagementPage className=" space-y-6">
-    <PageHeader title="Reconciliation" actions={<Link className="page-action" to="/financial">Back to Financial</Link>}
+    <PageHeader title="Reconciliation" actions={<Link className="page-action" to="/financial">Back to Finances</Link>}
       tabs={<PageTabs label="Reconciliation views" value={view} onChange={changeView} items={[{id:'corrections',label:'Balance corrections'},{id:'legacy',label:'Legacy voids'},{id:'history',label:'History'}]} />} />
     <OperationRecovery operation={operation} />
     {view === 'corrections' && <Card><CardHeader><CardTitle>Record a balance correction</CardTitle></CardHeader><CardContent className="space-y-4">

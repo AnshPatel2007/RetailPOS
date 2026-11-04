@@ -32,7 +32,7 @@ export function BackgroundJobs() {
     catch{setDownloadError('Download unavailable. Retry when the export is available.');}
   };
   return <ManagementPage className=" space-y-5">
-    <PageHeader title="Background Jobs" subtitle={role==='SUPER_ADMIN'?'Platform webhook delivery history':'Store email deliveries and saved exports'} actions={<Link className="page-action" to={role==='SUPER_ADMIN'?'/admin':'/financial'}>Back</Link>}/>
+    <PageHeader title="Email & Export Jobs" subtitle={role==='SUPER_ADMIN'?'Platform webhook delivery history':'Store email deliveries and saved exports'} actions={<Link className="page-action" to={role==='SUPER_ADMIN'?'/admin':'/settings'}>{role==='SUPER_ADMIN'?'Back to Admin':'Back to Settings'}</Link>}/>
     <p className="text-sm text-muted-foreground">Accepted confirms provider receipt, not inbox delivery. Check provider history before retrying uncertain emails.</p>
     <OperationRecovery operation={operation}/>
     {listing.data?.workerDisabled && <p role="status" className="rounded border p-3 text-sm">Delivery processing is paused. Requests remain queued.</p>}

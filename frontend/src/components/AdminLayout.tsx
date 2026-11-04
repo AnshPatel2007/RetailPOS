@@ -10,11 +10,11 @@ import {
   Store,
   Users,
   Code2,
-  ArrowLeft,
   Menu,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { StoreSwitcher } from './common/StoreSwitcher';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -114,7 +114,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
           })}
         </nav>
 
-        <Link to="/admin/stores" className="mx-2 mb-3 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"><ArrowLeft className="h-5 w-5" />Preview a store</Link>
+        <div className="mx-3 mb-3 border-t pt-3"><p className="mb-1.5 text-xs font-semibold text-muted-foreground">Open a store (read-only)</p><StoreSwitcher /></div>
         <SidebarUserFooter name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} role={user?.role || ''} theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout} themeLabel={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} />
       </aside>
 

@@ -16,7 +16,7 @@ export const useWorkflowNavigation = () => useContext(WorkflowContext);
 
 export function WorkflowNavigation({ label, views, children, secondaryTabs }: { label: string; views: { label: React.ReactNode; path: string }[]; children: React.ReactNode; secondaryTabs?: React.ReactNode }) {
   const location = useLocation();
-  const title = label === 'Customers / Accounts' ? 'Customer Accounts' : label.split(' / ').slice(-1)[0] || label;
+  const title = label === 'Customers / Accounts' ? 'Gift Cards & Accounts' : label.split(' / ').slice(-1)[0] || label;
   const tabs = views.length > 1 ? <PageTabs label={label + ' views'} items={views.map(view => ({ id: view.path, label: view.label, href: view.path }))} value={location.pathname} /> : undefined;
   return <WorkflowContext.Provider value={{ title, tabs, secondaryTabs }}>{children}</WorkflowContext.Provider>;
 }
@@ -41,18 +41,20 @@ export function StockControlNavigation({ children }: { children: React.ReactNode
   return <WorkflowNavigation label="Inventory / Stock Control" views={views}>{children}</WorkflowNavigation>;
 }
 
+// Exceptions first: it is the only view that asks for action (the sidebar badge points here).
 export const stockControlViews = [
-  { label: 'Transfers', path: '/inventory/stock-control/transfers' },
-  { label: 'Counts', path: '/inventory/stock-control/counts' },
   { label: 'Exceptions', path: '/inventory/stock-control/exceptions' },
+  { label: 'Counts', path: '/inventory/stock-control/counts' },
+  { label: 'Transfers', path: '/inventory/stock-control/transfers' },
   { label: 'Movement History', path: '/inventory/stock-control/movements' },
 ];
 
+// Orders (the landing view) first, then the steps around them; suppliers are reference data, last.
 export const purchasingViews = [
   { label: 'Orders', path: '/inventory/purchasing/orders' },
-  { label: 'Suppliers', path: '/inventory/purchasing/suppliers' },
   { label: 'Reorder Suggestions', path: '/inventory/purchasing/suggestions' },
   { label: 'Price Review', path: '/inventory/purchasing/price-review' },
+  { label: 'Suppliers', path: '/inventory/purchasing/suppliers' },
 ];
 
 export const accountViews = [

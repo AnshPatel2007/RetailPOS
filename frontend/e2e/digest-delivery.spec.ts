@@ -3,7 +3,7 @@ import { login } from './utils/auth-helper';
 
 test('owner can queue a digest and explicitly review an uncertain retry', async ({ page }) => {
   await login(page, 'owner@example.test'); await page.goto('/reports');
-  await page.getByRole('navigation', { name: 'Insights / Reports & Analysis views' }).getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Overview', exact: true }).click();
   await page.getByRole('button', { name: 'Delivery History', exact: true }).click();
   const history = page.getByRole('dialog', { name: 'Daily digest deliveries', exact: true });
   await expect(history.getByText('Needs delivery review', { exact: true })).toBeVisible();
@@ -27,7 +27,7 @@ test('owner can queue a digest and explicitly review an uncertain retry', async 
 
 test('manager cannot see owner digest controls', async ({ page }) => {
   await login(page, 'manager@example.test'); await page.goto('/reports');
-  await page.getByRole('navigation', { name: 'Insights / Reports & Analysis views' }).getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Overview', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Send Daily Digest', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Delivery History', exact: true })).toHaveCount(0);
 });

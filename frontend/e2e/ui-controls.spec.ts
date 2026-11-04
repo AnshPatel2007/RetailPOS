@@ -94,8 +94,8 @@ test('date ranges and additional filters commit only on Apply', async ({ page },
   const applied = new URL(page.url()).searchParams.get('salesFilters')!;
   expect(JSON.parse(applied)).toMatchObject({ startDate: '2024-02-29', endDate: '2024-03-01' });
   const selectedPeriodUrl = page.url();
-  await page.getByRole('link', { name: 'Financial Management', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Financial Management', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Finances', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Finances', exact: true })).toBeVisible();
   await page.goBack(); await expect(page).toHaveURL(selectedPeriodUrl);
   await expect(page.getByRole('button', { name: /^Sales dates:/ })).toContainText('Feb 29, 2024');
   await page.goForward(); await expect(page).toHaveURL(/\/financial$/);

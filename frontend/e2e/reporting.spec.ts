@@ -7,7 +7,7 @@ test('overall cards and signed breakdowns agree without invented comparison perc
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await login(page, 'reporting@example.test'); await page.goto('/reports');
   const loaded = page.waitForResponse(r => r.url().includes('/api/reports/overall'));
-  await page.getByRole('navigation', { name: 'Insights / Reports & Analysis views' }).getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Overview', exact: true }).click();
   const response = await loaded; expect(response.status()).toBe(200);
   const report = (await response.json()).data;
   const currency = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
@@ -23,7 +23,7 @@ test('overall cards and signed breakdowns agree without invented comparison perc
   const category = page.getByText('Sales by Category', { exact: true }).locator('..').locator('..');
   await expect(category.getByText('Unallocated historical activity', { exact: true })).toBeVisible();
   await category.screenshot({ path: 'test-results/overall-signed-categories.png', animations: 'disabled' });
-  await page.getByRole('heading', { name: 'Reports & Analysis', exact: true }).scrollIntoViewIfNeeded();
+  await page.getByRole('heading', { name: 'Reports', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/overall-report-light.png', animations: 'disabled' });
   await expect(page.getByText(/\bNaN\b|Infinity/)).toHaveCount(0); expect(errors).toEqual([]);
 });
@@ -53,7 +53,7 @@ test('analytics loads the selected view and shows unavailable historic profit ho
   await expect(page.getByText('Break-even requires a configured fixed/variable expense model.', { exact: true })).toBeVisible();
   await expect(page.getByText(/\bNaN\b/)).toHaveCount(0);
   await page.screenshot({ path: 'test-results/reporting-unavailable.png', fullPage: true });
-  await page.getByRole('navigation', { name: 'Insights / Reports & Analysis views' }).getByRole('link', { name: 'Inventory', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Inventory', exact: true }).click();
   await page.getByRole('button', { name: 'Product Matrix', exact: true }).click();
   await expect(page.getByText(/1 products have unavailable historical margin/)).toBeVisible();
   expect(errors).toEqual([]);
@@ -64,7 +64,7 @@ test('P&L and what-if keep missing costs unavailable instead of estimating profi
   page.on('pageerror', error => errors.push(error.message));
   await login(page, 'reporting@example.test');
   await page.goto('/financial');
-  await page.getByRole('button', { name: 'P&L Report', exact: true }).click();
+  await page.getByRole('button', { name: 'Profit & Loss', exact: true }).click();
   await expect(page.getByText('Profit & Loss Statement', { exact: true })).toBeVisible();
   const costStatus = page.getByRole('status').filter({ hasText: 'Cost information incomplete' });
   await expect(costStatus).toContainText('Review missing inventory and sale costs.');
@@ -112,13 +112,13 @@ test('sales filters, return-period totals and both downloads agree', async ({ pa
 
 test('P&L separates purchases, keeps wages and exports the acquisition account', async ({ page }) => {
   await login(page, 'reporting@example.test'); await page.goto('/financial');
-  await page.getByRole('button', { name: 'P&L Report', exact: true }).click();
+  await page.getByRole('button', { name: 'Profit & Loss', exact: true }).click();
   await expect(page.getByText('Total Operating Expenses', { exact: true }).locator('..')).toContainText('$3.00');
   await expect(page.getByText('Inventory received at cost', { exact: true }).locator('..')).toContainText('$0.00');
   await expect(page.getByText('Net Margin', { exact: true }).locator('..')).toContainText('Unavailable');
   await expect(page.getByText('INVENTORY_PURCHASE', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: 'test-results/purchase-expense-pnl.png', fullPage: true });
-  await page.goto('/reports'); await page.getByRole('navigation', { name: 'Insights / Reports & Analysis views' }).getByRole('link', { name: 'Exports', exact: true }).click();
+  await page.goto('/reports'); await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Exports', exact: true }).click();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export Expenses', exact: true }).click();
   const csv = fs.readFileSync((await (await download).path())!, 'utf8');

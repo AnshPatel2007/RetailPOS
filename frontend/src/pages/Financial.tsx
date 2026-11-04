@@ -345,7 +345,7 @@ export const Financial: React.FC = () => {
       {confirmDialog}
     <ManagementPage>
       <PageHeader
-        title="Financial Management"
+        title="Finances"
         actions={<>
           {activeTab === 'pnl' && <Button variant="outline" onClick={exportPnl} disabled={exportingPnl || loading || !!loadError || loadedView !== viewKey || !pnlData}><Download className="h-4 w-4 mr-2" />{exportingPnl ? 'Preparing Excel…' : 'Export Excel'}</Button>}
           {activeTab === 'expenses' && filteredExpenses.length > 0 && <Button variant="outline" onClick={() => setShowExportMenu(true)}><Download className="h-4 w-4 mr-2" />Export</Button>}
@@ -353,8 +353,8 @@ export const Financial: React.FC = () => {
           {mayManage && ['expenses','budgets','recurring'].includes(activeTab) && <Button onClick={() => { if(activeTab === 'expenses') setShowExpenseModal(true); else if(activeTab === 'budgets') { setEditingBudget(null); setShowBudgetModal(true); } else { setEditingRecurring(null); setShowRecurringModal(true); } }}><Plus className="h-4 w-4 mr-2" />{activeTab === 'expenses' ? 'Add Expense' : activeTab === 'budgets' ? 'Add Budget' : 'Add Recurring Expense'}</Button>}
         </>}
         tabs={<PageTabs label="Financial views" value={activeTab} onChange={setActiveTab} items={[
-          {id:'expenses',label:'Expenses'},{id:'budgets',label:'Budgets'},{id:'recurring',label:'Recurring'},{id:'pnl',label:'P&L Report'},{id:'inventory',label:'Inventory costs'},
-          ...(role === 'ADMIN' ? [{id:'reconciliation',label:'Reconciliation',href:'/financial/reconciliation'},{id:'jobs',label:'Email & Export Jobs',href:'/settings/jobs'}] : [])
+          {id:'expenses',label:'Expenses'},{id:'recurring',label:'Recurring'},{id:'budgets',label:'Budgets'},{id:'pnl',label:'Profit & Loss'},{id:'inventory',label:'Inventory costs'},
+          ...(role === 'ADMIN' ? [{id:'reconciliation',label:'Reconciliation',href:'/financial/reconciliation'}] : [])
         ]} />}
         toolbar={<>
           {role === 'SUPER_ADMIN' && !isAdminViewing && <StoreFilterSelect value={locationId} onChange={setLocationId} />}

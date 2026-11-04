@@ -225,7 +225,7 @@ export const Settings: React.FC = () => {
       <PageHeader
         title="Settings"
         subtitle={isAdmin ? 'Configure your POS system' : 'Manage your profile settings'}
-        actions={['ADMIN','SUPER_ADMIN'].includes(user?.role||'')?<Link className="page-action" to="/settings/jobs">Background Jobs</Link>:undefined}
+        actions={['ADMIN','SUPER_ADMIN'].includes(user?.role||'')?<Link className="page-action" to="/settings/jobs">Email & Export Jobs</Link>:undefined}
         tabs={<PageTabs label="Settings sections" items={sections} value={selected} onChange={setSection} />}
       />
       {autoRefresh.notice}

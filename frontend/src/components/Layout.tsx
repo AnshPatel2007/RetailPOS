@@ -1,117 +1,40 @@
 import { SidebarUserFooter } from './common/SidebarUserFooter';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import {
-  LayoutDashboard,
-  ShoppingCart,
-  Package,
-  Users,
-  Clock,
-  BarChart3,
-  Settings,
-  Truck,
-  TrendingUp,
-  DollarSign,
-  Shield,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Menu,
-  X,
-  ArrowLeftRight,
-  Ticket,
-  ChevronDown,
-  FileText,
-  Wallet,
-  Tag,
-} from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Menu, X, Search } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useLayoutStore } from '@/store/layoutStore';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
+import { useQuickFindStore } from '@/store/quickFindStore';
 import { cn } from '@/lib/utils';
+import { sidebarSections, STOCK_CONTROL, type NavLink } from '@/lib/navigation';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useInventoryExceptionCount } from '@/hooks/useInventoryExceptionCount';
 import { AdminViewBanner } from './AdminViewBanner';
 import { OfflineIndicator } from './common/OfflineIndicator';
+import { QuickFind, quickFindShortcut, useQuickFindShortcut } from './common/QuickFind';
+import { StoreSwitcher } from './common/StoreSwitcher';
+import { Kbd } from './ui/Kbd';
 import { isTopFocusTrap, useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
-interface NavItem {
-  name: string;
-  href: string;
-  icon: React.ElementType;
-  roles: string[];
-}
-
-interface NavGroup {
-  name: string;
-  icon: React.ElementType;
-  roles: string[];
-  children: NavItem[];
-}
-
-type NavEntry = NavItem | NavGroup;
-
-const isGroup = (entry: NavEntry): entry is NavGroup => 'children' in entry;
-const STOCK_CONTROL = '/inventory/stock-control';
-
-const navigation: NavEntry[] = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-  { name: 'POS', href: '/pos', icon: ShoppingCart, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-  {
-    name: 'Inventory',
-    icon: Package,
-    roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'],
-    children: [
-      { name: 'Products', href: '/inventory', icon: Package, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Purchasing', href: '/inventory/purchasing', icon: Truck, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Stock Control', href: '/inventory/stock-control', icon: ArrowLeftRight, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    ],
-  },
-  { name: 'Promotions', href: '/promotions', icon: Tag, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-  { name: 'Lottery', href: '/lottery', icon: Ticket, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-  { name: 'Customers', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'], children: [
-    { name: 'Directory', href: '/customers', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-    { name: 'Accounts', href: '/customers/accounts', icon: Wallet, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Customer Insights', href: '/customers/insights', icon: TrendingUp, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-  ] },
-  { name: 'Team & Time', href: '/team-time', icon: Clock, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-  { name: 'My Shift', href: '/my-shift', icon: Clock, roles: ['CASHIER'] },
-  {
-    name: 'Insights',
-    icon: BarChart3,
-    roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'],
-    children: [
-      { name: 'Financial Management', href: '/financial', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Reports & Analysis', href: '/insights/reports', icon: BarChart3, roles: ['ADMIN', 'MANAGER'] },
-      { name: 'Analytics', href: '/analytics', icon: TrendingUp, roles: ['SUPER_ADMIN'] },
-      { name: 'Audit Log', href: '/audit-log', icon: FileText, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    ],
-  },
-  { name: 'Settings', href: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-  { name: 'Admin Panel', href: '/admin', icon: Shield, roles: ['SUPER_ADMIN'] },
-];
-
-// All individual hrefs for exact matching
-const allHrefs = navigation.flatMap(entry =>
-  isGroup(entry) ? entry.children.map(c => c.href) : [entry.href]
-);
+// All menu hrefs, so a parent path is only "active" when no deeper menu item matches better.
+const allHrefs = sidebarSections.flatMap(section => section.items.map(item => item.href));
 
 function isPathActive(pathname: string, href: string): boolean {
   if (pathname === href) return true;
-  // Only allow startsWith for paths that don't collide
-  // e.g. /admin/stores should match /admin, but /inventory-transfers should NOT match /inventory
-  const hasCollision = allHrefs.some(other => other !== href && other.startsWith(href));
-  if (hasCollision) return pathname === href;
-  return pathname.startsWith(href);
+  // /inventory must not light up for /inventory/purchasing, which has its own menu item.
+  const hasCollision = allHrefs.some(other => other !== href && other.startsWith(href + '/'));
+  if (hasCollision) return false;
+  return pathname.startsWith(href + '/');
 }
 
-function isGroupActive(pathname: string, group: NavGroup): boolean {
-  return group.children.some(child => isPathActive(pathname, child.href));
-}
+/** Menus this short read better as one plain list than as labelled sections. */
+const SECTION_TITLES_FROM = 8;
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
@@ -119,7 +42,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { user, logout } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
   const { isSidebarCollapsed, isMobileMenuOpen, toggleSidebar, setMobileMenuOpen } = useLayoutStore();
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const quickFind = useQuickFindStore();
   // Show which store you're operating — mirrors the POS top bar
   const settingsStoreName = useStoreSettingsStore((s) => s.storeInfo.storeName);
   const { isAdminViewing, storeName: previewStoreName, locationId: effectiveLocationId } = useEffectiveLocation();
@@ -129,6 +52,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   // Full-screen routes with no sidebar/chrome (register + second screen)
   const isPOSPage = location.pathname === '/pos' || location.pathname === '/customer-display';
+  useQuickFindShortcut(!isPOSPage, quickFind.open);
   const mobileMenuRef = useFocusTrap(isMobileMenuOpen && !isPOSPage);
   useEffect(() => {
     if (!isMobileMenuOpen || isPOSPage) return;
@@ -144,21 +68,6 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     return () => { document.removeEventListener('keydown', escape); desktop.removeEventListener('change', closeOnDesktop); };
   }, [isMobileMenuOpen, isPOSPage, setMobileMenuOpen]);
 
-  // Auto-expand groups that contain the active route
-  useEffect(() => {
-    const activeGroups = new Set<string>();
-    navigation.forEach(entry => {
-      if (isGroup(entry) && isGroupActive(location.pathname, entry)) {
-        activeGroups.add(entry.name);
-      }
-    });
-    setExpandedGroups(prev => {
-      const merged = new Set(prev);
-      activeGroups.forEach(g => merged.add(g));
-      return merged;
-    });
-  }, [location.pathname]);
-
   // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -167,15 +76,6 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const handleLogout = async () => {
     await logout();
     navigate('/login');
-  };
-
-  const toggleGroup = (name: string) => {
-    setExpandedGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
   };
 
   const hasRole = (roles: string[]) => user?.role ? roles.includes(user.role) : false;
@@ -189,85 +89,43 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     );
   }
 
+  const sections = sidebarSections.map(section => ({ ...section, items: section.items.filter(item => hasRole(item.roles)) })).filter(section => section.items.length > 0);
+  const showTitles = sections.reduce((total, section) => total + section.items.length, 0) >= SECTION_TITLES_FROM;
+
   const exceptionLabel = `${exceptionCount} inventory exception${exceptionCount === 1 ? ' needs' : 's need'} review`;
-  // The badge is visual; its meaning is the description of the link or button it sits in,
-  // so their names stay "Inventory" / "Stock Control" for screen readers and keyboard search.
-  const exceptionBadge = (className: string) => exceptionCount > 0 ? (
-    <span className={cn('rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-5 text-destructive-foreground tabular-nums', className)}
-      title={exceptionLabel} aria-hidden="true">{exceptionCount}</span>
-  ) : null;
   const exceptionDescription = exceptionCount > 0 ? exceptionLabel : undefined;
 
-  const renderNavItem = (item: NavItem, nested = false) => {
-    if (!hasRole(item.roles)) return null;
+  const renderNavItem = (item: NavLink) => {
     const isActive = isPathActive(location.pathname, item.href);
     const Icon = item.icon;
-
+    const stock = item.href === STOCK_CONTROL;
     return (
       <Link
         key={item.href}
         to={item.href}
-        title={item.name}
+        title={isSidebarCollapsed ? item.name : undefined}
         aria-label={item.name}
-        aria-description={item.href === STOCK_CONTROL ? exceptionDescription : undefined}
+        aria-current={isActive ? 'page' : undefined}
+        // The badge is visual; its meaning is the description, so the link's name stays "Stock Control".
+        aria-description={stock ? exceptionDescription : undefined}
         className={cn(
-          'flex items-center rounded-md text-sm font-medium transition-colors',
-          isSidebarCollapsed ? 'justify-center px-2 py-2.5' : nested ? 'px-3 py-2 pl-10' : 'px-3 py-2.5',
+          'sidebar-link flex items-center rounded-md text-sm font-medium transition-colors',
+          isSidebarCollapsed ? 'justify-center px-2 py-2' : 'gap-3 px-3 py-2',
           isActive
             ? 'bg-primary/10 text-primary'
             : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
         )}
       >
         <span className="relative shrink-0">
-          <Icon className={cn('h-5 w-5', !isSidebarCollapsed && 'mr-3', nested && !isSidebarCollapsed && 'h-4 w-4')} />
+          <Icon className="h-[18px] w-[18px]" />
           {/* Collapsed sidebar: a dot on the icon stands in for the count. */}
-          {isSidebarCollapsed && item.href === STOCK_CONTROL && exceptionCount > 0 && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-card" aria-hidden="true" />}
+          {isSidebarCollapsed && stock && exceptionCount > 0 && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-card" aria-hidden="true" />}
         </span>
         {!isSidebarCollapsed && <span className="truncate">{item.name}</span>}
-        {item.href === STOCK_CONTROL && !isSidebarCollapsed && exceptionBadge('ml-auto')}
-      </Link>
-    );
-  };
-
-  const renderNavGroup = (group: NavGroup) => {
-    if (!hasRole(group.roles)) return null;
-    const visibleChildren = group.children.filter(c => hasRole(c.roles));
-    if (visibleChildren.length === 0) return null;
-
-    const isExpanded = expandedGroups.has(group.name);
-    const groupActive = isGroupActive(location.pathname, group);
-    const Icon = group.icon;
-
-    if (isSidebarCollapsed) {
-      // When collapsed, show the first child's link with group icon
-      return visibleChildren.map(child => renderNavItem(child));
-    }
-
-    return (
-      <div key={group.name}>
-        <button
-          onClick={() => toggleGroup(group.name)}
-          aria-label={group.name}
-          aria-description={!isExpanded && group.children.some(child => child.href === STOCK_CONTROL) ? exceptionDescription : undefined}
-          className={cn(
-            'w-full flex items-center rounded-md text-sm font-medium transition-colors px-3 py-2.5',
-            groupActive
-              ? 'text-foreground'
-              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-          )}
-        >
-          <Icon className="h-5 w-5 shrink-0 mr-3" />
-          <span className="truncate flex-1 text-left">{group.name}</span>
-          {/* While the group is closed its exception count shows here; open, it moves to Stock Control. */}
-          {!isExpanded && group.children.some(child => child.href === STOCK_CONTROL) && exceptionBadge('mr-2')}
-          <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', isExpanded && 'rotate-180')} />
-        </button>
-        {isExpanded && (
-          <div className="mt-0.5 space-y-0.5">
-            {visibleChildren.map(child => renderNavItem(child, true))}
-          </div>
+        {stock && !isSidebarCollapsed && exceptionCount > 0 && (
+          <span className="ml-auto rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-5 text-destructive-foreground tabular-nums" title={exceptionLabel} aria-hidden="true">{exceptionCount}</span>
         )}
-      </div>
+      </Link>
     );
   };
 
@@ -295,7 +153,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 <PanelLeftClose className="h-4 w-4" />
               </button>
             </div>
-            {storeName && <p className="basis-full text-xs leading-5 text-muted-foreground break-words" data-sidebar-store-name>{storeName}</p>}
+            {user?.role === 'SUPER_ADMIN' && isAdminViewing
+              ? <StoreSwitcher className="basis-full pt-1" />
+              : storeName && <p className="basis-full text-xs leading-5 text-muted-foreground break-words" data-sidebar-store-name>{storeName}</p>}
           </>
         )}
       </div>
@@ -313,11 +173,25 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       )}
 
+      {/* Quick find: one box that reaches every page, tab and setting */}
+      <div className={cn('shrink-0 pt-3', isSidebarCollapsed ? 'px-2' : 'px-3')}>
+        <button type="button" onClick={quickFind.open} title={isSidebarCollapsed ? 'Find a page (' + quickFindShortcut + ')' : undefined}
+          aria-label="Find a page" aria-keyshortcuts={quickFindShortcut === '⌘K' ? 'Meta+K' : 'Control+K'}
+          className={cn('flex h-9 w-full items-center rounded-md border border-input bg-background text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+            isSidebarCollapsed ? 'justify-center' : 'gap-2 px-3')}>
+          <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
+          {!isSidebarCollapsed && <><span className="flex-1 text-left">Find…</span><Kbd>{quickFindShortcut}</Kbd></>}
+        </button>
+      </div>
+
       {/* Navigation */}
-      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-        {navigation.map(entry =>
-          isGroup(entry) ? renderNavGroup(entry) : (hasRole(entry.roles) ? renderNavItem(entry) : null)
-        )}
+      <nav aria-label="Main" className="flex-1 px-2 pb-4 pt-2 overflow-y-auto">
+        {sections.map((section, index) => (
+          <div key={section.title || 'start'} className={cn(index > 0 && (isSidebarCollapsed || !showTitles ? 'mt-2 border-t border-border pt-2' : 'mt-3'))}>
+            {showTitles && section.title && !isSidebarCollapsed && <p className="px-3 pb-1 text-xs font-semibold text-muted-foreground">{section.title}</p>}
+            <div className="space-y-0.5">{section.items.map(renderNavItem)}</div>
+          </div>
+        ))}
       </nav>
 
       <SidebarUserFooter name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} role={user?.role || ''} theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout} collapsed={isSidebarCollapsed} />
@@ -381,6 +255,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         {isAdminViewing && <AdminViewBanner storeName={previewStoreName || 'Selected store'} />}
         {children}
       </main>
+      <QuickFind isOpen={quickFind.isOpen} onClose={quickFind.close} />
     </div>
   );
 };
