@@ -35,27 +35,29 @@ describe('Variety packs', () => {
   };
 
   describe('variety packs', () => {
-    it('8. opening a pack moves its units and cost into the contents, once', async () => {
-      const orange = await make('Gatorade Orange', 1, 2.49), lemon = await make('Gatorade Lemon', 2, 2.49);
-      const pack = await make('Gatorade Variety 12-pack', 9, 14.99);
-      await opening(pack.id, 2, 18);
-      const contents = (await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 6 }, { productId: lemon.id, quantity: 6 }] }).expect(200)).body.data;
-      // Split by each product's cost: 6 x $1 and 6 x $2 of a $9 pack.
-      expect(contents.allocationBasis).toBe('UNIT_COST');
-      expect(contents.components.map((c: { estimatedValuePerPack: number }) => c.estimatedValuePerPack)).toEqual([3, 6]);
+    it("8. splits the pack's cost by count: a $24 24-pack of 12 red, 6 blue, 6 orange is $1 each", async () => {
+      // Each flavour costs something different alone; the pack's split ignores that.
+      const red = await make('Gatorade Red', 1.8, 2.49), blue = await make('Gatorade Blue', 0.5, 2.49), orange = await make('Gatorade Orange', 1.1, 2.49);
+      const pack = await make('Gatorade Variety 24-pack', 24, 34.99);
+      await opening(pack.id, 2, 48);
+      const contents = (await put(`/api/products/${pack.id}/bundle`, { components: [
+        { productId: red.id, quantity: 12 }, { productId: blue.id, quantity: 6 }, { productId: orange.id, quantity: 6 }] }).expect(200)).body.data;
+      expect(contents).toMatchObject({ itemsPerPack: 24, packUnitCost: 24, costPerItem: 1 });
+      expect(contents.components.map((c: { valuePerPack: number }) => c.valuePerPack)).toEqual([12, 6, 6]);
 
       const key = randomUUID();
-      await post(`/api/products/${pack.id}/open-bundle`, { quantity: 1, idempotencyKey: key }).expect(200);
-      const replay = (await post(`/api/products/${pack.id}/open-bundle`, { quantity: 1, idempotencyKey: key }).expect(200)).body.data;
+      await post(`/api/products/${pack.id}/open-bundle`, { quantity: 2, idempotencyKey: key }).expect(200);
+      const replay = (await post(`/api/products/${pack.id}/open-bundle`, { quantity: 2, idempotencyKey: key }).expect(200)).body.data;
       expect(replay.replayed).toBe(true);
-      expect(await value(pack.id)).toEqual({ quantity: 1, value: 9 });
-      expect(await value(orange.id)).toEqual({ quantity: 6, value: 3 });
-      expect(await value(lemon.id)).toEqual({ quantity: 6, value: 6 });
+      expect(await value(pack.id)).toEqual({ quantity: 0, value: 0 });
+      expect(await value(red.id)).toEqual({ quantity: 24, value: 24 });
+      expect(await value(blue.id)).toEqual({ quantity: 12, value: 12 });
+      expect(await value(orange.id)).toEqual({ quantity: 12, value: 12 });
       // Nothing is gained or lost by opening a pack.
       expect((await getFinancialMetrics({ locationId: data.location.id })).costOfGoodsSold ?? 0).toBe(0);
     });
 
-    it('uses set cost shares, and corrects the cost of units sold before the pack was opened', async () => {
+    it('gives units sold before the pack was opened their per-item cost from the pack', async () => {
       const orange = await make('Orange', 1, 2.49), lemon = await make('Lemon', 2, 2.49);
       const pack = await make('Variety 12-pack', 9, 14.99);
       await opening(pack.id, 1, 9);
@@ -63,19 +65,20 @@ describe('Variety packs', () => {
       // Two oranges were sold from the open pack before anyone recorded opening it.
       await post('/api/sales', { items: [{ productId: orange.id, quantity: 2, price: 2.49 }], paymentMethod: 'CASH', amountPaid: 6, idempotencyKey: randomUUID() }).expect(201);
       expect((await getFinancialMetrics({ locationId: data.location.id })).costOfGoodsSold).toBe(2); // estimated at $1.00
-      await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 6, costShare: 0.5 }, { productId: lemon.id, quantity: 6, costShare: 0.5 }] }).expect(200);
+      await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 6 }, { productId: lemon.id, quantity: 6 }] }).expect(200);
       await post(`/api/products/${pack.id}/open-bundle`, { quantity: 1, idempotencyKey: randomUUID() }).expect(200);
+      // $9 / 12 items = $0.75 each, whatever oranges and lemons cost alone.
       expect(await value(orange.id)).toEqual({ quantity: 4, value: 3 }); // 6 at $0.75, 2 already sold
       expect(await value(lemon.id)).toEqual({ quantity: 6, value: 4.5 });
       // The two sold oranges now carry their real cost ($0.75 each).
       expect((await getFinancialMetrics({ locationId: data.location.id })).costOfGoodsSold).toBe(1.5);
     });
 
-    it('rejects packs inside packs, uneven cost shares, and opening packs not on record', async () => {
+    it('rejects packs inside packs and opening packs not on record', async () => {
       const orange = await make('Orange', 1, 2.49), lemon = await make('Lemon', 2, 2.49);
       const pack = await make('Variety pack', 9, 14.99), outer = await make('Party box', 20, 30);
-      await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 6, costShare: 0.6 }, { productId: lemon.id, quantity: 6, costShare: 0.3 }] }).expect(400);
       await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: pack.id, quantity: 2 }] }).expect(400);
+      await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 1 }] }).expect(400);
       await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 6 }, { productId: lemon.id, quantity: 6 }] }).expect(200);
       await put(`/api/products/${outer.id}/bundle`, { components: [{ productId: pack.id, quantity: 2 }] }).expect(400);
       await post(`/api/products/${pack.id}/open-bundle`, { quantity: 1, idempotencyKey: randomUUID() }).expect(400);

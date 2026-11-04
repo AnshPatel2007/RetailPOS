@@ -21,8 +21,6 @@ const contentsBody = z.object({
   components: z.array(z.object({
     productId: z.string().min(1),
     quantity: z.number().int().min(1).max(100000),
-    // A fraction (0-1] of the pack's cost; all or none.
-    costShare: z.number().gt(0).max(1).nullable().optional(),
   })).max(100),
 });
 

@@ -225,7 +225,7 @@ export const productService = {
     api.post(`/products/${id}/selling-units/${unitId}/packaging`, data),
   // Variety packs: what a pack contains, and opening packs into their contents.
   getBundle: (id: string, signal?: AbortSignal) => api.get(`/products/${id}/bundle`, { signal }),
-  setBundle: (id: string, components: { productId: string; quantity: number; costShare?: number | null }[]) => api.put(`/products/${id}/bundle`, { components }),
+  setBundle: (id: string, components: { productId: string; quantity: number }[]) => api.put(`/products/${id}/bundle`, { components }),
   openBundle: (id: string, data: { quantity: number; idempotencyKey: string }) => api.post(`/products/${id}/open-bundle`, data),
 
   create: (data: any) => api.post('/products', data),

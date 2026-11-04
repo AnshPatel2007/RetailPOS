@@ -9,8 +9,11 @@ import { decimal, precision } from './inventoryCost.service';
  * bought, received and sold whole. Opening one moves its units out and its
  * value into the products it contains, so nothing is gained or lost and the
  * components are never stocked until a pack is opened.
+ *
+ * The pack's cost splits by count: a 24-pack bought for $24 is $1 an item, so
+ * 12 red carry $12 and 6 blue carry $6, whatever each flavour costs alone.
  */
-export interface BundleComponentInput { productId: string; quantity: number; costShare?: number | null }
+export interface BundleComponentInput { productId: string; quantity: number }
 
 type Db = Pick<Prisma.TransactionClient, 'product' | 'productBundleComponent' | 'inventoryValuation'>;
 const ONE_UNIT = decimal('0.00000001');
@@ -31,9 +34,8 @@ async function unitCosts(db: Db, productIds: string[]) {
 }
 
 /**
- * Split a pack's value across its contents: by the set cost shares, else by
- * each product's current unit cost, else evenly per unit. Largest-remainder
- * rounding keeps the parts summing exactly to the whole.
+ * Split a value in proportion to weights. Largest-remainder rounding keeps the
+ * parts summing exactly to the whole.
  */
 export function allocateValue(total: Prisma.Decimal, weights: Prisma.Decimal[]) {
   const sum = weights.reduce((acc, weight) => acc.plus(weight), decimal(0));
@@ -52,13 +54,8 @@ export function allocateValue(total: Prisma.Decimal, weights: Prisma.Decimal[]) 
   return parts;
 }
 
-async function bundleWeights(db: Db, components: { componentProductId: string; quantity: number; costShare: Prisma.Decimal | null }[]) {
-  if (components.every(component => component.costShare !== null)) return { basis: 'COST_SHARE' as const, weights: components.map(component => component.costShare!) };
-  const costs = await unitCosts(db, components.map(component => component.componentProductId));
-  if (components.every(component => costs.get(component.componentProductId)))
-    return { basis: 'UNIT_COST' as const, weights: components.map(component => costs.get(component.componentProductId)!.mul(component.quantity)) };
-  return { basis: 'EVEN' as const, weights: components.map(component => decimal(component.quantity)) };
-}
+/** Each product's share of a pack is its count of the pack's items. */
+const countWeights = (components: { quantity: number }[]) => components.map(component => decimal(component.quantity));
 
 export async function getBundle(db: Db, productId: string, locationId: string) {
   const product = await db.product.findFirst({ where: { id: productId, locationId }, include: {
@@ -67,13 +64,14 @@ export async function getBundle(db: Db, productId: string, locationId: string) {
   } });
   if (!product) throw new AppError('Product not found at this store', 404);
   const [packCost] = [...(await unitCosts(db, [product.id])).values()];
-  const { basis, weights } = product.bundleComponents.length ? await bundleWeights(db, product.bundleComponents) : { basis: null, weights: [] };
-  const estimated = packCost ? allocateValue(precision(packCost), weights) : null;
+  const itemsPerPack = product.bundleComponents.reduce((sum, row) => sum + row.quantity, 0);
+  const parts = packCost && itemsPerPack ? allocateValue(precision(packCost), countWeights(product.bundleComponents)) : null;
   return {
-    productId: product.id, stockQuantity: product.stockQuantity, packUnitCost: packCost ? Number(packCost.toDecimalPlaces(4)) : null, allocationBasis: basis,
+    productId: product.id, stockQuantity: product.stockQuantity, packUnitCost: packCost ? Number(packCost.toDecimalPlaces(4)) : null,
+    itemsPerPack, costPerItem: packCost && itemsPerPack ? Number(packCost.div(itemsPerPack).toDecimalPlaces(4)) : null,
     components: product.bundleComponents.map((row, index) => ({ productId: row.componentProductId, name: row.component.name, sku: row.component.sku,
-      quantity: row.quantity, costShare: row.costShare === null ? null : Number(row.costShare), stockQuantity: row.component.stockQuantity,
-      estimatedValuePerPack: estimated ? Number(estimated[index].toDecimalPlaces(4)) : null })),
+      quantity: row.quantity, stockQuantity: row.component.stockQuantity,
+      valuePerPack: parts ? Number(parts[index].toDecimalPlaces(4)) : null })),
     // A product can't be both: packs it is part of.
     partOf: product.bundleMemberships.map(row => ({ productId: row.bundle.id, name: row.bundle.name, sku: row.bundle.sku, quantity: row.quantity })),
   };
@@ -90,9 +88,6 @@ export async function setBundleContents(tx: Prisma.TransactionClient, input: { p
     if (!bundle.trackInventory) throw new AppError('Track stock for the variety pack before setting its contents', 400);
     if (bundle.bundleMemberships.length) throw new AppError(`${bundle.name} is inside another variety pack, so it cannot have contents of its own`, 400);
     if (input.components.length < 2 && input.components[0].quantity < 2) throw new AppError('A variety pack contains at least two units', 400);
-    const shares = input.components.map(component => component.costShare ?? null);
-    if (shares.some(share => share !== null) && shares.some(share => share === null)) throw new AppError('Give every product a cost share, or none', 400);
-    if (shares.every(share => share !== null) && Math.abs(shares.reduce((sum: number, share) => sum + share!, 0) - 1) > 0.0001) throw new AppError('Cost shares must add up to 100%', 400);
     const components = await tx.product.findMany({ where: { id: { in: ids }, locationId: input.locationId }, include: { bundleComponents: { select: { id: true } } } });
     if (components.length !== ids.length) throw new AppError('Every product in the pack must belong to this store', 400);
     const untracked = components.find(component => !component.trackInventory);
@@ -103,7 +98,7 @@ export async function setBundleContents(tx: Prisma.TransactionClient, input: { p
   await tx.productBundleComponent.deleteMany({ where: { bundleProductId: bundle.id } });
   if (input.components.length) await tx.productBundleComponent.createMany({ data: input.components.map(component => ({
     bundleProductId: bundle.id, componentProductId: component.productId, locationId: input.locationId,
-    quantity: component.quantity, costShare: component.costShare ?? null })) });
+    quantity: component.quantity })) });
 }
 
 /** Open variety packs: the pack's units leave stock and their value moves into the contents. */
@@ -125,8 +120,7 @@ export async function openBundle(tx: Prisma.TransactionClient, input: { productI
   const out = await moveInventory(tx, { productId: bundle.id, locationId: input.locationId, userId: input.userId, type: 'BUNDLE_OPEN',
     sourceId: id, sourceKey: `bundle-open:${id}:pack`, quantity: -input.quantity, notes });
   const value = out.inventoryEntry.valueChange === null ? null : out.inventoryEntry.valueChange.negated();
-  const { weights } = await bundleWeights(tx, contents);
-  const parts = value === null ? null : allocateValue(value, weights);
+  const parts = value === null ? null : allocateValue(value, countWeights(contents));
   const allocation: { productId: string; name: string; quantity: number; value: number | null; entryId: string }[] = [];
   for (const [index, component] of contents.entries()) {
     const units = component.quantity * input.quantity;

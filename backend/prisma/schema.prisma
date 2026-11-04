@@ -2003,9 +2003,9 @@ model ProductBundleComponent {
   bundleProductId String
   componentProductId String
   locationId String
+  // Units of this product in one pack. A pack's cost splits by count:
+  // pack cost / units in the pack, times this quantity.
   quantity Int
-  // Share of the pack's cost (0-1). Either every component has one or none do.
-  costShare Decimal? @db.Decimal(7, 6)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   bundle Product @relation("BundleContents", fields: [bundleProductId], references: [id], onDelete: Cascade)
