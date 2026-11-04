@@ -13,6 +13,11 @@
 .data-panel .table-scroll tbody tr:last-child td:first-child { border-bottom-left-radius: 10px; }
 .summary-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 10px; background: hsl(var(--card)); }
 .summary-item { min-width: 0; padding: 16px 20px; }
+.summary-item-linked { position: relative; transition: background-color .15s; }
+.summary-item-linked:hover { background: hsl(var(--accent)); }
+.summary-link { color: inherit; outline: none; }
+.summary-link::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.summary-link:focus-visible::after { box-shadow: inset 0 0 0 2px hsl(var(--ring)); }
 .summary-item + .summary-item { border-left: 1px solid hsl(var(--border)); }
 .summary-item dt { color: hsl(var(--muted-foreground)); font-size: 12px; font-weight: 500; line-height: 18px; }
 .summary-value { margin-top: 5px; font-size: 22px; font-weight: 600; line-height: 30px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; letter-spacing: -.025em; }

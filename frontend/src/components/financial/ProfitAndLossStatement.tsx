@@ -8,9 +8,10 @@ import type { ProfitAndLossReport } from '@/services/profitAndLossExport';
 import { InventoryPurchaseSummary } from './InventoryPurchaseSummary';
 import '@/styles/financial.css';
 
-const money = (value: number | null | undefined) => value == null ? 'Unavailable' : formatCurrency(value);
-const deduction = (value: number | null | undefined) => value == null ? 'Unavailable' : `(${formatCurrency(value)})`;
-const margin = (value: number | null) => value == null ? 'Margin unavailable' : `${value}% margin`;
+// Missing figures read as a dash; the status banner above explains why and links to the fix.
+const money = (value: number | null | undefined) => value == null ? '—' : formatCurrency(value);
+const deduction = (value: number | null | undefined) => value == null ? '—' : `(${formatCurrency(value)})`;
+const margin = (value: number | null) => value == null ? 'Needs complete costs' : `${value}% margin`;
 
 function StatementRow({ label, value, total = false, final = false }: { label: string; value: string; total?: boolean; final?: boolean }) {
   return <div className={`statement-row${total ? ' statement-subtotal' : ''}${final ? ' statement-final' : ''}`}>
@@ -86,8 +87,8 @@ export function ProfitAndLossStatement({ report, month, onReviewCosts }: { repor
           <StatementRow label="Net Income" value={money(report.netIncome)} final />
         </dl>
         <dl className="statement-margins">
-          <div><dt>Gross Margin</dt><dd>{report.margins.gross == null ? 'Unavailable' : `${report.margins.gross}%`}</dd></div>
-          <div><dt>Net Margin</dt><dd>{report.margins.net == null ? 'Unavailable' : `${report.margins.net}%`}</dd></div>
+          <div><dt>Gross Margin</dt><dd>{report.margins.gross == null ? '—' : `${report.margins.gross}%`}</dd></div>
+          <div><dt>Net Margin</dt><dd>{report.margins.net == null ? '—' : `${report.margins.net}%`}</dd></div>
         </dl>
       </div>
       <div className="financial-statement-reference">

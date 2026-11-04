@@ -107,12 +107,13 @@ describe('Optimization: store isolation and capability boundaries', () => {
     ] });
     const stats = async (token: string, locationId?: string) => (await api.get('/api/products/stats').withAuth(token).withQuery(locationId ? { locationId } : {}).expectStatus(200).execute()).body.data;
     expect((await stats(owner)).inventoryValue).toBeNull();
+    expect((await stats(owner)).unvaluedCount).toBeGreaterThan(0);
     // The card reads verified carrying values, never today's catalog prices.
     for (const product of await prisma.product.findMany({ where: { OR: [{ id: data.product.id }, { sku: 'FOREIGN-ASSET' }] } })) {
       await prisma.inventoryValuation.create({ data: { productId: product.id, locationId: product.locationId!, quantity: product.stockQuantity,
         value: product.id === data.product.id ? 1000 : 900, verifiedAt: new Date(), lastEntryId: 'fixture-' + product.id } });
     }
-    expect(await stats(owner)).toEqual({ totalProducts: 2, lowStockCount: 0, outOfStockCount: 0, inventoryValue: 1000 });
+    expect(await stats(owner)).toEqual({ totalProducts: 2, lowStockCount: 0, outOfStockCount: 0, unvaluedCount: 0, inventoryValue: 1000 });
     expect(await stats(superAdmin, data.location.id)).toEqual(await stats(owner));
     expect((await stats(superAdmin, otherStore)).inventoryValue).toBe(900);
     expect((await stats(superAdmin)).inventoryValue).toBe(1900);

@@ -1,7 +1,7 @@
-import { ManagementPage } from '@/components/common/Workspace';
+import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Gift, Plus, Search, RefreshCw, CreditCard, Ban, DollarSign } from 'lucide-react';
+import { Gift, Plus, Search, RefreshCw, Ban } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -182,41 +182,11 @@ export const GiftCards: React.FC = () => {
       </div>
 
       {/* Stats */}
-      <div className="metric-grid grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="metric-icon p-2 bg-primary/10 rounded-lg">
-              <Gift className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Total Cards</p>
-              <p className="metric-value text-2xl font-semibold">{stats?.totalCards ?? 'Unavailable'}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="metric-icon p-2 bg-success/10 rounded-lg">
-              <CreditCard className="w-5 h-5 text-success" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Active</p>
-              <p className="metric-value text-2xl font-semibold">{stats?.activeCards ?? 'Unavailable'}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="metric-icon p-2 bg-info/10 rounded-lg">
-              <DollarSign className="w-5 h-5 text-info" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Outstanding Balance</p>
-              <p className="metric-value text-2xl font-semibold">{stats ? formatCurrency(stats.outstandingBalance) : 'Unavailable'}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <SummaryStrip className="mb-6" items={[
+        { label: 'Total cards', value: stats?.totalCards ?? '—' },
+        { label: 'Active', value: stats?.activeCards ?? '—' },
+        { label: 'Outstanding balance', value: stats ? formatCurrency(stats.outstandingBalance) : '—', detail: 'Owed to card holders' },
+      ]} />
 
       {/* Table */}
       <Card>

@@ -28,11 +28,8 @@ import {
   Package,
   TrendingUp,
   TrendingDown,
-  AlertTriangle,
   Clock,
   CreditCard,
-  UserCheck,
-  Undo2,
   BarChart3,
 } from 'lucide-react';
 
@@ -232,114 +229,17 @@ const DashboardContent: React.FC = () => {
         </Card>
       </div>
 
-      {/* Middle row: secondary stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-        <button onClick={() => navigate('/customers')} className="text-left">
-          <Card className="hover:border-primary transition-colors h-full">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-info/10">
-                  <Users className="h-5 w-5 text-info" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Customers</p>
-                  <p className="text-lg font-bold">{metrics?.totalCustomers || 0}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </button>
-
-        {isManager && (
-        <button onClick={() => navigate('/shifts')} className="text-left">
-          <Card className="hover:border-primary transition-colors h-full">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-teal-500/10">
-                  <UserCheck className="h-5 w-5 text-teal-500" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">On Shift</p>
-                  <p className="text-lg font-bold">{metrics?.activeEmployees || 0}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </button>
-        )}
-
-        {canInventory && (<button onClick={() => navigate('/inventory')} className="text-left">
-          <Card className="hover:border-primary transition-colors h-full">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Package className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Products</p>
-                  <p className="text-lg font-bold">{metrics?.totalProducts || 0}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </button>)}
-
-        {canInventory && (<button onClick={() => navigate('/inventory')} className="text-left">
-          <Card className="hover:border-primary transition-colors h-full">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-warning/10">
-                  <AlertTriangle className="h-5 w-5 text-warning" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Stock Alerts</p>
-                  <p className="text-lg font-bold">{metrics?.lowStockCount || 0}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </button>)}
-
-        {canInventory && exceptionCount > 0 && (<button onClick={() => navigate('/inventory/stock-control/exceptions')} className="text-left">
-          <Card className="hover:border-primary transition-colors h-full">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-destructive/10">
-                  <AlertTriangle className="h-5 w-5 text-destructive" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Inventory exceptions</p>
-                  <p className="text-lg font-bold">{exceptionCount}</p>
-                  <p className="text-xs text-muted-foreground">Sold below recorded stock</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </button>)}
-
-        {canReports && (<button onClick={() => navigate('/reports')} className="text-left">
-          <Card className="hover:border-primary transition-colors h-full">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-destructive/10">
-                  <Undo2 className="h-5 w-5 text-destructive" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Refunds Today</p>
-                  <p className="text-lg font-bold">
-                    {metrics?.todayRefundCount || 0}
-                    {(metrics?.todayRefunds || 0) > 0 && (
-                      <span className="text-xs font-normal text-muted-foreground ml-1">
-                        ({formatCurrency(metrics?.todayRefunds || 0)})
-                      </span>
-                    )}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </button>)}
-      </div>
+      {/* Middle row: secondary stats, one strip; each tile opens its page */}
+      <SummaryStrip className="mb-6" items={[
+        { label: 'Customers', value: metrics?.totalCustomers || 0, href: '/customers' },
+        ...(isManager ? [{ label: 'On shift', value: metrics?.activeEmployees || 0, href: '/shifts' }] : []),
+        ...(canInventory ? [
+          { label: 'Products', value: metrics?.totalProducts || 0, href: '/inventory' },
+          { label: 'Stock alerts', value: metrics?.lowStockCount || 0, tone: metrics?.lowStockCount ? 'warning' as const : 'default' as const, href: '/inventory' },
+        ] : []),
+        ...(canInventory && exceptionCount > 0 ? [{ label: 'Inventory exceptions', value: exceptionCount, detail: 'Sold below recorded stock', tone: 'danger' as const, href: '/inventory/stock-control/exceptions' }] : []),
+        ...(canReports ? [{ label: 'Refunds today', value: metrics?.todayRefundCount || 0, detail: (metrics?.todayRefunds || 0) > 0 ? formatCurrency(metrics?.todayRefunds || 0) : undefined, href: '/reports' }] : []),
+      ]} />
 
       {/* Bottom row: Recent sales + Low stock + Payment breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">

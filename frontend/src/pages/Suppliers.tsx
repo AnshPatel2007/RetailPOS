@@ -22,7 +22,6 @@ import {
   RefreshCw,
   DollarSign,
   Clock,
-  Eye,
   AlertTriangle,
 } from 'lucide-react';
 import { supplierService, purchaseOrderService, productService } from '../services/api';
@@ -48,6 +47,7 @@ import {
 } from '@/components/ui/Table';
 import toast from 'react-hot-toast';
 import { Spinner } from '@/components/ui/LoadingState';
+import { ActionMenu } from '@/components/ui/ActionMenu';
 
 interface Supplier {
   id: string;
@@ -792,29 +792,20 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                       {new Date(order.createdAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="text-right">
+                      {/* Labeled next step per status; rarer actions live in the menu. */}
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openOrderDetail(order)} title="View Details">
-                          <Eye className="w-4 h-4" />
-                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => openOrderDetail(order)} title="View Details">View</Button>
                         {canManage && order.status === 'PENDING' && (
-                          <>
-                            <Button variant="ghost" size="sm" onClick={() => openEditOrder(order)} title="Edit Order">
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => handleOrderAction(order.id, 'ORDERED')} className="text-info" title="Mark as Ordered">
-                              <Truck className="w-4 h-4" />
-                            </Button>
-                          </>
+                          <Button variant="outline" size="sm" onClick={() => handleOrderAction(order.id, 'ORDERED')} title="Mark as Ordered"><Truck className="w-4 h-4" />Mark ordered</Button>
                         )}
                         {canManage && ['ORDERED', 'PARTIALLY_RECEIVED'].includes(order.status) && (
-                          <Button variant="ghost" size="sm" onClick={() => openReceiving(order.id)} className="text-success" title="Receive Delivery">
-                            <CheckCircle className="w-4 h-4" />
-                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => openReceiving(order.id)} title="Receive Delivery"><CheckCircle className="w-4 h-4" />Receive</Button>
                         )}
                         {canManage && (order.status === 'PENDING' || order.status === 'ORDERED') && (
-                          <Button variant="ghost" size="sm" onClick={() => confirmOrderAction(order.id)} className="text-destructive" title="Cancel Order">
-                            <XCircle className="w-4 h-4" />
-                          </Button>
+                          <ActionMenu label={'More actions for ' + order.orderNumber} iconOnly items={[
+                            ...(order.status === 'PENDING' ? [{ id: 'edit', label: 'Edit order', icon: <Edit size={16} />, onAction: () => openEditOrder(order) }] : []),
+                            { id: 'cancel', label: 'Cancel order', icon: <XCircle size={16} />, destructive: true, onAction: () => confirmOrderAction(order.id) },
+                          ]} />
                         )}
                       </div>
                     </TableCell>

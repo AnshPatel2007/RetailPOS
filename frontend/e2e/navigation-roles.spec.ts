@@ -55,7 +55,10 @@ test('store previews identify their scope, discard earlier requests and offer an
   await page.getByRole('button', { name: 'Preview store', exact: true }).click();
   await expect(page.getByText('Viewing: Store A', { exact: true })).toBeVisible();
   await page.goto('/inventory');
+  // Search first: other specs add products to Store A, so page 1 alone is not a reliable place to look.
+  await page.getByPlaceholder('Search by name, SKU, or barcode...').fill('Fixture');
   await expect(page.getByRole('cell').filter({ has: page.getByText('Fixture Coffee', { exact: true }) })).toBeVisible();
+  await page.getByPlaceholder('Search by name, SKU, or barcode...').fill('');
   let release!: () => void, started!: () => void, finished!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
   const ready = new Promise<void>(resolve => { started = resolve; });

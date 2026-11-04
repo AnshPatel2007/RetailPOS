@@ -61,8 +61,9 @@ export const getComparisonAnalytics = asyncHandler(async (req: AuthRequest, res:
   ]);
 
   // Calculate growth percentages
-  const calcGrowth = (current: number, previous: number) => {
-    if (previous === 0) return current > 0 ? 100 : 0;
+  // With nothing in the earlier period there is no honest percentage (it used to read +100%).
+  const calcGrowth = (current: number, previous: number): number | null => {
+    if (previous === 0) return current > 0 ? null : 0;
     return ((current - previous) / previous) * 100;
   };
 

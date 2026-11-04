@@ -235,7 +235,7 @@ export const Shifts: React.FC = () => {
             Clock In
           </Button>
         ) : (
-          <Button variant="destructive" onClick={() => setShowClockOutModal(true)}>
+          <Button variant="outline" onClick={() => setShowClockOutModal(true)}>
             <LogOut className="h-4 w-4 mr-2" />
             Clock Out
           </Button>
@@ -375,7 +375,8 @@ export const Shifts: React.FC = () => {
                       {shift.clockOutAt ? (
                         <span className="text-sm">{formatDateTime(shift.clockOutAt)}</span>
                       ) : (
-                        <Badge variant="success">Active</Badge>
+                        // Status already says Active; repeating it here read as two states.
+                        <span className="text-sm text-muted-foreground" aria-label="Still open">—</span>
                       )}
                     </TableCell>
                     <TableCell>

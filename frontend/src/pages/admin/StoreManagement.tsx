@@ -1,4 +1,4 @@
-import { ManagementPage } from '@/components/common/Workspace';
+import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
 import { Select } from '@/components/ui/Select';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
@@ -30,7 +30,6 @@ import {
   Edit,
   Trash2,
   Store,
-  Users,
   DollarSign,
   TrendingUp,
   ShoppingCart,
@@ -267,54 +266,12 @@ export const StoreManagement: React.FC = () => {
       {connectionStore && <StoreConnections key={connectionStore.id} stores={locations} store={connectionStore} onClose={() => setConnectionStore(null)} />}
       {lotteryStore && <LotteryConfiguration key={lotteryStore.id} store={lotteryStore} onClose={() => setLotteryStore(null)} />}
 
-      {/* Summary Cards */}
-      <div className="metric-grid grid grid-cols-2 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="metric-icon p-2 bg-primary/10 rounded-lg">
-                <Store className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Stores</p>
-                <p className="metric-value text-2xl font-semibold">{locations.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="metric-icon p-2 bg-success/10 rounded-lg">
-                <Store className="h-5 w-5 text-success" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Active Stores</p>
-                <p className="metric-value text-2xl font-semibold">
-                  {locations.filter(l => l.isActive).length}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="metric-icon p-2 bg-info/10 rounded-lg">
-                <Users className="h-5 w-5 text-info" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Users</p>
-                <p className="metric-value text-2xl font-semibold">
-                  {locations.reduce((sum, l) => sum + l._count.users, 0)}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Summary */}
+      <SummaryStrip items={[
+        { label: 'Total stores', value: locations.length },
+        { label: 'Active stores', value: locations.filter(l => l.isActive).length },
+        { label: 'Total users', value: locations.reduce((sum, l) => sum + l._count.users, 0) },
+      ]} />
 
       {/* Stores Table */}
       <Card>

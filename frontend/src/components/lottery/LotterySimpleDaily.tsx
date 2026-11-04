@@ -13,6 +13,7 @@ import { LotteryDisclosure, LotteryTerminalStage, earningsFields, ZeroRemaining 
 import { LotteryDayHistory } from './LotteryDayHistory';
 import { lotteryMoney, manualLottery } from '@/services/lotteryWorkbench';
 import { rackSold } from '@/services/lotteryRackInput';
+import { friendlyDate } from '@/lib/calendarDates';
 
 export function LotterySimpleDaily({ locationId, date, onDateChange, readOnly, onActionsChange, onNavigationChange }: {
   locationId: string; date: string; onDateChange: (date: string) => void; readOnly: boolean;
@@ -43,7 +44,9 @@ export function LotterySimpleDaily({ locationId, date, onDateChange, readOnly, o
     </div>
     <LotteryError error={query.error || storageError} retry={query.error ? () => void query.refresh() : undefined} /><LotteryRecovery operation={operation} />
     {query.loading && !day && <p role="status">Loading daily entry…</p>}
-    {day && (!day.configured || day.configuration.mode === 'DISABLED') && <LotterySection title="Choose lottery equipment"><p className="text-sm text-muted-foreground">{day.upcomingDate ? 'Lottery entry starts on ' + day.upcomingDate + '.' : 'A platform administrator can select Lottery rack or Lottery machine for this store.'}</p></LotterySection>}
+    {day && (!day.configured || day.configuration.mode === 'DISABLED') && <LotterySection title={day.upcomingDate ? "Lottery starts soon" : "Lottery isn't set up yet"}><p className="text-sm text-muted-foreground">{day.upcomingDate ? 'Lottery entry starts on ' + friendlyDate(day.upcomingDate) + '.' : role === 'SUPER_ADMIN'
+          ? 'Turn it on in Admin → Stores: choose Lottery for this store, then Lottery rack or Lottery machine.'
+          : "Lottery isn't set up for this store yet. Ask the platform administrator to turn it on when you're ready to sell tickets."}</p></LotterySection>}
     {day?.configured && day.configuration.mode !== 'DISABLED' && report && <>
       {!closed && !started && <LotterySection title="Daily entry"><p className="text-sm text-muted-foreground">Opening numbers come from the previous entry, or the starting number in Ticket Setup.</p>
         {!readOnly && <Button disabled={operation.blocked || !!storageError} onClick={() => void mutate('entry')}>Start daily entry</Button>}

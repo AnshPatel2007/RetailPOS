@@ -5,7 +5,7 @@ import { PackForm, PackFormTarget } from '@/components/inventory/PackForm';
 import { PackCatalog } from '@/components/inventory/PackCatalog';
 import { PageTabs } from '@/components/common/PageTabs';
 import { useProductPackaging } from '@/hooks/useProductPackaging';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ADJUSTMENT_REASONS } from '@/components/inventory/StockAdjustmentModal';
 import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useRef, useCallback, useId } from 'react';
@@ -89,6 +89,7 @@ export const Inventory: React.FC = () => {
   const [lowStockCount, setLowStockCount] = useState<number | null>(null);
   const [outOfStockCount, setOutOfStockCount] = useState<number | null>(null);
   const [inventoryValue, setInventoryValue] = useState<number | null>(null);
+  const [unvaluedCount, setUnvaluedCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalProducts, setTotalProducts] = useState<number | null>(null);
@@ -149,7 +150,7 @@ export const Inventory: React.FC = () => {
     statsRequest.current?.abort();
     const request = new AbortController(); statsRequest.current = request;
     const current = () => !request.signal.aborted && statsRequest.current === request && active();
-    if (!quiet) { setStatsLoading(true); setStatsError(''); setLowStockCount(null); setOutOfStockCount(null); setInventoryValue(null); }
+    if (!quiet) { setStatsLoading(true); setStatsError(''); setLowStockCount(null); setOutOfStockCount(null); setInventoryValue(null); setUnvaluedCount(0); }
     try {
       const response = await api.get('/products/stats', { params: { locationId: locationId || undefined }, signal: request.signal });
       if (!current()) return;
@@ -158,6 +159,7 @@ export const Inventory: React.FC = () => {
       setLowStockCount(stats.lowStockCount ?? null);
       setOutOfStockCount(stats.outOfStockCount ?? null);
       setInventoryValue(stats.inventoryValue ?? null);
+      setUnvaluedCount(stats.unvaluedCount ?? 0);
     } catch (error) {
       if (quiet) throw error;
       if (current()) setStatsError('Inventory summary is unavailable. Try again.');
@@ -431,7 +433,11 @@ export const Inventory: React.FC = () => {
           { label: hasFilters ? 'Matching Products' : 'Total Products', value: totalProducts ?? (isLoading ? '...' : 'Unavailable') },
           { label: 'Low Stock', value: lowStockCount ?? (statsLoading ? '...' : 'Unavailable'), tone: lowStockCount ? 'warning' : 'default' },
           { label: 'Out of Stock', value: outOfStockCount ?? (statsLoading ? '...' : 'Unavailable'), tone: outOfStockCount ? 'danger' : 'default' },
-          { label: 'Inventory Value', value: inventoryValue === null ? statsLoading ? '...' : 'Unavailable' : formatCurrency(inventoryValue) },
+          // The total is only honest once every in-stock item has a cost; say what is missing instead of "Unavailable".
+          { label: 'Inventory Value', value: inventoryValue === null ? statsLoading ? '...' : unvaluedCount ? 'Needs costs' : 'Unavailable' : formatCurrency(inventoryValue),
+            detail: inventoryValue === null && !statsLoading && unvaluedCount ? `${unvaluedCount} in-stock item${unvaluedCount === 1 ? ' has' : 's have'} no cost yet` : undefined,
+            // Only the owner can confirm opening costs (Finances -> Inventory costs).
+            action: inventoryValue === null && !statsLoading && unvaluedCount && role === 'ADMIN' && !isReadOnly ? <Link to="/financial?tab=inventory" className="text-xs font-medium text-primary hover:underline">Review costs</Link> : undefined },
         ]} />}
         toolbar={<div>
           <div className="products-toolbar">

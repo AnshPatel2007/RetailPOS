@@ -15,7 +15,8 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import { EmptyState } from '@/components/common/EmptyState';
-import { Archive, TrendingUp, ShieldAlert, PackageX } from 'lucide-react';
+import { PackageX } from 'lucide-react';
+import { SummaryStrip } from '@/components/common/Workspace';
 
 const costCurrency = (value: number | null) => value == null ? 'Unavailable' : formatCurrency(value);
 
@@ -49,62 +50,12 @@ export const StockHealthTab: React.FC = () => {
       <PageTabs label="Stock health period" items={WINDOWS.map(value => ({ id: String(value), label: value + ' days' }))} value={String(days)} onChange={value => setDays(Number(value))} />
 
       {/* Summary tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Sell-through</p>
-                <p className="text-2xl font-bold">{sellThrough.overallPct}%</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {sellThrough.unitsSold} sold · {sellThrough.stockOnHand} on hand
-                </p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-success" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Dead stock (at cost)</p>
-                <p className="text-2xl font-bold">{costCurrency(deadStock.totals.stockValue)}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {deadStock.totals.products} products · {deadStock.totals.units} units
-                </p>
-              </div>
-              <PackageX className="h-8 w-8 text-warning" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Shrinkage (at cost)</p>
-                <p className="text-2xl font-bold">{costCurrency(shrinkage.totals.costValue)}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {shrinkage.totals.units} units · {shrinkage.totals.entries} entries
-                </p>
-              </div>
-              <ShieldAlert className="h-8 w-8 text-destructive" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Lost retail value</p>
-                <p className="text-2xl font-bold">{formatCurrency(shrinkage.totals.retailValue)}</p>
-                <p className="text-xs text-muted-foreground mt-1">what shrinkage would have sold for</p>
-              </div>
-              <Archive className="h-8 w-8 text-info" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <SummaryStrip items={[
+        { label: 'Sell-through', value: `${sellThrough.overallPct}%`, detail: `${sellThrough.unitsSold} sold · ${sellThrough.stockOnHand} on hand` },
+        { label: 'Dead stock (at cost)', value: costCurrency(deadStock.totals.stockValue), detail: `${deadStock.totals.products} products · ${deadStock.totals.units} units`, tone: deadStock.totals.products ? 'warning' : 'default' },
+        { label: 'Shrinkage (at cost)', value: costCurrency(shrinkage.totals.costValue), detail: `${shrinkage.totals.units} units · ${shrinkage.totals.entries} entries`, tone: shrinkage.totals.units ? 'danger' : 'default' },
+        { label: 'Lost retail value', value: formatCurrency(shrinkage.totals.retailValue), detail: 'What shrinkage would have sold for' },
+      ]} />
 
       {/* Shrinkage by reason */}
       <div>

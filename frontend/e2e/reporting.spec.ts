@@ -69,7 +69,7 @@ test('P&L and what-if keep missing costs unavailable instead of estimating profi
   const costStatus = page.getByRole('status').filter({ hasText: 'Cost information incomplete' });
   await expect(costStatus).toContainText('Review missing inventory and sale costs.');
   await expect(costStatus.getByRole('button', { name: 'Review costs', exact: true })).toBeVisible();
-  await expect(page.getByText('Unavailable', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Gross profit', { exact: true }).locator('..')).toContainText('—');
   await page.goto('/analytics');
   await page.getByRole('button', { name: 'What-If', exact: true }).click();
   await page.getByRole('button', { name: 'Calculate Impact', exact: true }).click();
@@ -115,7 +115,7 @@ test('P&L separates purchases, keeps wages and exports the acquisition account',
   await page.getByRole('button', { name: 'Profit & Loss', exact: true }).click();
   await expect(page.getByText('Total Operating Expenses', { exact: true }).locator('..')).toContainText('$3.00');
   await expect(page.getByText('Inventory received at cost', { exact: true }).locator('..')).toContainText('$0.00');
-  await expect(page.getByText('Net Margin', { exact: true }).locator('..')).toContainText('Unavailable');
+  await expect(page.getByText('Net Margin', { exact: true }).locator('..')).toContainText('—');
   await expect(page.getByText('INVENTORY_PURCHASE', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: 'test-results/purchase-expense-pnl.png', fullPage: true });
   await page.goto('/reports'); await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Exports', exact: true }).click();

@@ -464,8 +464,10 @@ export const getLowStockProducts = asyncHandler(async (req: AuthRequest, res: Re
  */
 export const getProductStats = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { locationId } = getLocationFilter(req, req.query.locationId as string);
-  const [stats] = await prisma.$queryRaw<{ totalProducts: number; lowStockCount: number; outOfStockCount: number; inventoryValue: number | null }[]>(Prisma.sql`
+  const [stats] = await prisma.$queryRaw<{ totalProducts: number; lowStockCount: number; outOfStockCount: number; unvaluedCount: number; inventoryValue: number | null }[]>(Prisma.sql`
     SELECT COUNT(*)::int AS "totalProducts",
+      -- In-stock items without a known cost; while any exist the total value is unknown.
+      COUNT(*) FILTER (WHERE "trackInventory" AND "stockQuantity" > 0 AND v.value IS NULL)::int AS "unvaluedCount",
       COUNT(*) FILTER (WHERE "trackInventory" AND "stockQuantity" > 0 AND "stockQuantity" <= "lowStockAlert")::int AS "lowStockCount",
       COUNT(*) FILTER (WHERE "trackInventory" AND "stockQuantity" <= 0)::int AS "outOfStockCount",
       CASE WHEN COUNT(*) FILTER (WHERE "trackInventory" AND "stockQuantity" > 0 AND v.value IS NULL) > 0 THEN NULL

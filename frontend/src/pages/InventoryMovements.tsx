@@ -22,6 +22,13 @@ interface Movement {
 }
 interface Result { data: Movement[]; timezone: string; pagination: { total: number; totalPages: number } }
 
+/** Database ids are unreadable at a glance: show the first 8 characters, full id on hover. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function shortReference(id?: string | null) {
+  if (!id) return '—';
+  return UUID.test(id) ? <span className="font-mono" title={id}>Ref {id.slice(0, 8).toUpperCase()}</span> : id;
+}
+
 export function InventoryMovements() {
   const { locationId } = useEffectiveLocation();
   const [search, setSearch] = useUrlFilter('search');
@@ -64,7 +71,7 @@ export function InventoryMovements() {
               <TableCell className="whitespace-nowrap">{formatEnumLabel(row.type)}</TableCell>
               <TableCell className="text-right tabular-nums">{row.quantity > 0 ? '+' : ''}{row.quantity}</TableCell>
               <TableCell className="whitespace-nowrap tabular-nums">{row.previousQty} → {row.newQty}</TableCell>
-              <TableCell className="max-w-64 break-words text-xs">{row.sourceId || '—'}{row.notes && <span className="block mt-1 text-muted-foreground">{row.notes}</span>}</TableCell>
+              <TableCell className="max-w-64 break-words text-xs">{shortReference(row.sourceId)}{row.notes && <span className="block mt-1 text-muted-foreground">{row.notes}</span>}</TableCell>
             </TableRow>)}</TableBody>
           </Table></div>}
           {page > 1 && result.pagination.totalPages < page && <Button variant="outline" onClick={() => setPage(1)}>Return to first page</Button>}

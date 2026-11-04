@@ -1,4 +1,4 @@
-import { ManagementPage } from '@/components/common/Workspace';
+import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
 import { Select } from '@/components/ui/Select';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
@@ -18,11 +18,12 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Search, Edit, Trash2, Key, Users, UserCheck, Plus, ShieldAlert } from 'lucide-react';
+import { Search, Edit, Trash2, Key, Users, Plus, ShieldAlert } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Spinner } from '@/components/ui/LoadingState';
+import { ActionMenu } from '@/components/ui/ActionMenu';
 
 interface StaffUser {
   id: string;
@@ -218,26 +219,10 @@ export const Team: React.FC = () => {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg"><Users className="h-5 w-5 text-primary" /></div>
-            <div>
-              <p className="text-sm text-muted-foreground">Team Size</p>
-              <p className="text-2xl font-bold">{users.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 bg-success/10 rounded-lg"><UserCheck className="h-5 w-5 text-success" /></div>
-            <div>
-              <p className="text-sm text-muted-foreground">Active</p>
-              <p className="text-2xl font-bold">{activeCount}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <SummaryStrip className="mb-6" items={[
+        { label: 'Team size', value: users.length },
+        { label: 'Active', value: activeCount },
+      ]} />
 
 
 
@@ -291,17 +276,11 @@ export const Team: React.FC = () => {
                   <TableCell className="text-right">
                     {isManageable(u) ? (
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => { setEditingUser(u); setNewPassword(''); setShowPasswordModal(true); }} title="Reset Password">
-                          <Key className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => openEditModal(u)} title="Edit">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        {u.isActive && (
-                          <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteTarget(u)} title="Deactivate">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
+                        <Button variant="outline" size="sm" onClick={() => openEditModal(u)}><Edit className="h-4 w-4" />Edit</Button>
+                        <ActionMenu label={'More actions for ' + [u.firstName, u.lastName].filter(Boolean).join(' ')} iconOnly items={[
+                          { id: 'password', label: 'Reset password', icon: <Key size={16} />, onAction: () => { setEditingUser(u); setNewPassword(''); setShowPasswordModal(true); } },
+                          ...(u.isActive ? [{ id: 'deactivate', label: 'Deactivate', icon: <Trash2 size={16} />, destructive: true, onAction: () => setDeleteTarget(u) }] : []),
+                        ]} />
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground flex items-center justify-end gap-1">

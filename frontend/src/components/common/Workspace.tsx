@@ -1,5 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { Link } from 'react-router-dom';
 
 /** Presentational workspace primitives. Queries and drafts belong to the caller. */
 export function ManagementPage({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
@@ -29,6 +30,8 @@ export interface SummaryItem {
   detail?: React.ReactNode;
   tone?: 'default' | 'warning' | 'danger' | 'success';
   action?: React.ReactNode;
+  /** Makes the whole tile open this page (e.g. Stock alerts -> Products). */
+  href?: string;
 }
 
 export function SummaryStrip({ items, className, emphasis = false }: {
@@ -37,9 +40,12 @@ export function SummaryStrip({ items, className, emphasis = false }: {
   emphasis?: boolean;
 }) {
   return <dl className={cn('summary-strip', emphasis && 'summary-strip-emphasis', className)}>
-    {items.map((item, index) => <div key={index} className="summary-item" data-tone={item.tone || 'default'}>
+    {items.map((item, index) => <div key={index} className={cn('summary-item', item.href && 'summary-item-linked')} data-tone={item.tone || 'default'}>
       <dt>{item.label}</dt>
-      <dd className="summary-value">{item.value}</dd>
+      {/* A stretched link keeps dt/dd semantics while the whole tile is clickable. */}
+      <dd className="summary-value">{item.href
+        ? <Link to={item.href} className="summary-link" aria-label={typeof item.label === 'string' ? `${item.label}: ${typeof item.value === 'string' || typeof item.value === 'number' ? item.value : ''}`.trim() : undefined}>{item.value}</Link>
+        : item.value}</dd>
       {item.detail && <dd className="summary-detail">{item.detail}</dd>}
       {item.action && <dd className="summary-action">{item.action}</dd>}
     </div>)}

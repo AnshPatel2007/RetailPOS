@@ -14,8 +14,9 @@ test('failed inventory reads show unavailable values and recover without an empt
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await page.clock.fastForward(5000);
   await expect(page.getByRole('cell').filter({ has: page.getByText('Fixture Coffee', { exact: true }) })).toBeVisible();
-  // A successful read still leaves unreviewed opening values unavailable.
-  await expect(page.getByText('Inventory Value', { exact: true }).locator('..')).toContainText('Unavailable');
+  // A successful read still has no total while opening values are unreviewed, and says why.
+  await expect(page.getByText('Inventory Value', { exact: true }).locator('..')).toContainText('Needs costs');
+  await expect(page.getByText('Inventory Value', { exact: true }).locator('..')).toContainText(/in-stock items? (has|have) no cost yet/);
   await expect(page.getByText('Total Products', { exact: true }).locator('..')).not.toContainText('Unavailable');
   await expect(page.getByRole('alert')).toHaveCount(0);
 });

@@ -5,8 +5,6 @@ import { InventoryPurchaseSummary } from '@/components/financial/InventoryPurcha
 import React, { useState, useEffect } from 'react';
 import {
   TrendingUp,
-  TrendingDown,
-  BarChart3,
   DollarSign,
   Star,
   AlertTriangle,
@@ -111,7 +109,7 @@ export const Analytics: React.FC<{ view?: AnalysisView }> = ({ view }) => {
   };
 
   const GrowthIndicator = ({ value }: { value: number | null }) => {
-    if (value === null) return <span className="text-muted-foreground">Unavailable</span>;
+    if (value === null) return <span className="text-sm text-muted-foreground" title="No sales in the earlier period to compare with">New · no earlier sales</span>;
     if (value > 0) {
       return (
         <span className="flex items-center text-success text-sm">
@@ -283,45 +281,12 @@ export const Analytics: React.FC<{ view?: AnalysisView }> = ({ view }) => {
             </Select>
           </div>
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Card className="p-4 border-l-4 border-l-green-500">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-success">Class A - Stars</p>
-                  <p className="text-2xl font-bold">{abcData.summary.classA.count} products</p>
-                </div>
-                <Star className="w-8 h-8 text-success" />
-              </div>
-              <p className="text-sm text-muted-foreground mt-2">
-                {abcData.summary.classA.revenuePercentage?.toFixed(0) ?? 'Unavailable'}% of positive net collections ({abcData.summary.classA.percentage.toFixed(0)}% of items)
-              </p>
-            </Card>
-            <Card className="p-4 border-l-4 border-l-yellow-500">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-warning">Class B - Stable</p>
-                  <p className="text-2xl font-bold">{abcData.summary.classB.count} products</p>
-                </div>
-                <BarChart3 className="w-8 h-8 text-warning" />
-              </div>
-              <p className="text-sm text-muted-foreground mt-2">
-                {abcData.summary.classB.revenuePercentage?.toFixed(0) ?? 'Unavailable'}% of positive net collections ({abcData.summary.classB.percentage.toFixed(0)}% of items)
-              </p>
-            </Card>
-            <Card className="p-4 border-l-4 border-l-red-500">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-destructive">Class C - Slow</p>
-                  <p className="text-2xl font-bold">{abcData.summary.classC.count} products</p>
-                </div>
-                <TrendingDown className="w-8 h-8 text-destructive" />
-              </div>
-              <p className="text-sm text-muted-foreground mt-2">
-                {abcData.summary.classC.revenuePercentage?.toFixed(0) ?? 'Unavailable'}% of positive net collections ({abcData.summary.classC.percentage.toFixed(0)}% of items)
-              </p>
-            </Card>
-          </div>
+          {/* Summary */}
+          <SummaryStrip items={[
+            { label: 'Class A · Stars', value: `${abcData.summary.classA.count} products`, tone: 'success', detail: `${abcData.summary.classA.revenuePercentage == null ? '—' : abcData.summary.classA.revenuePercentage.toFixed(0) + '%'} of positive net collections (${abcData.summary.classA.percentage.toFixed(0)}% of items)` },
+            { label: 'Class B · Stable', value: `${abcData.summary.classB.count} products`, tone: 'warning', detail: `${abcData.summary.classB.revenuePercentage == null ? '—' : abcData.summary.classB.revenuePercentage.toFixed(0) + '%'} of positive net collections (${abcData.summary.classB.percentage.toFixed(0)}% of items)` },
+            { label: 'Class C · Slow', value: `${abcData.summary.classC.count} products`, tone: 'danger', detail: `${abcData.summary.classC.revenuePercentage == null ? '—' : abcData.summary.classC.revenuePercentage.toFixed(0) + '%'} of positive net collections (${abcData.summary.classC.percentage.toFixed(0)}% of items)` },
+          ]} />
 
           {/* Pareto Chart */}
           <Card className="p-6">

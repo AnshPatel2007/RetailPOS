@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Spinner } from '@/components/ui/LoadingState';
+import { ActionMenu } from '@/components/ui/ActionMenu';
 
 const TYPE_LABELS: Record<PromotionType, string> = {
   QUANTITY_PRICE: 'N for $X (bundle price)',
@@ -427,26 +428,11 @@ export const Promotions: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-right">
                     {manage && <div className="flex gap-1 justify-end">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(p)} title="Edit">
-                        <Pencil className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleToggle(p)}
-                        title={p.isActive ? 'Deactivate' : 'Activate'}
-                      >
-                        <Power className={`h-3 w-3 ${p.isActive ? 'text-success' : 'text-muted-foreground'}`} />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setDeleteTarget(p)}
-                        title="Delete"
-                        className="text-destructive"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => openEdit(p)}><Pencil className="h-3 w-3" />Edit</Button>
+                      <ActionMenu label={'More actions for ' + p.name} iconOnly items={[
+                        { id: 'toggle', label: p.isActive ? 'Pause promotion' : 'Turn promotion on', icon: <Power size={16} />, onAction: () => handleToggle(p) },
+                        { id: 'delete', label: 'Delete promotion', icon: <Trash2 size={16} />, destructive: true, onAction: () => setDeleteTarget(p) },
+                      ]} />
                     </div>}
                   </TableCell>
                 </TableRow>
