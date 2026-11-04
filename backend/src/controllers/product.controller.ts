@@ -14,8 +14,13 @@ import { assertOwnsRecord, getLocationFilter } from '../utils/locationFilter.uti
 import { lockInventory, moveInventory } from '../services/inventory.service';
 import { valueProducts } from '../services/inventoryValueRead.service';
 
-async function validateProductCategory(req: AuthRequest, categoryId?: string | null) {
-  if (!categoryId) return;
+/**
+ * A product may only be moved into a category the caller's store owns. Keeping
+ * the category it already has is always allowed, so products filed under an
+ * older category with no store (created before stores existed) stay editable.
+ */
+async function validateProductCategory(req: AuthRequest, categoryId?: string | null, currentCategoryId?: string | null) {
+  if (!categoryId || categoryId === currentCategoryId) return;
   const category = await prisma.category.findUnique({ where: { id: categoryId } });
   if (!category) throw new AppError('Category not found', 404);
   assertOwnsRecord(req, category.locationId);
@@ -279,7 +284,6 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
 export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { expectedStockVersion, stockAdjustmentReason, stockAdjustmentNotes, ...data } = req.body;
-  await validateProductCategory(req, data.categoryId);
 
   const product = await prisma.product.findUnique({ where: { id } });
 
@@ -291,6 +295,7 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   if (req.user?.locationId && product.locationId !== req.user.locationId) {
     throw new AppError('Product not found', 404);
   }
+  await validateProductCategory(req, data.categoryId, product.categoryId);
 
   // Check SKU uniqueness if changing — scoped to the product's own store
   if (data.sku && data.sku !== product.sku) {

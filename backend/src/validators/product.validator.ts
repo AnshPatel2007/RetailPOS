@@ -40,7 +40,8 @@ export const updateProductSchema = z.object({
     stockAdjustmentNotes: z.string().max(2000).optional(),
     sku: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
-    description: z.string().optional(),
+    // null clears the description when it is emptied on the edit form.
+    description: z.string().optional().nullable(),
     categoryId: z.string().uuid().optional().nullable(),
     cost: z.number().min(0).optional(),
     price: z.number().gt(0, 'Price must be greater than 0').optional(),

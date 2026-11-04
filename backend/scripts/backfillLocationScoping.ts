@@ -1,6 +1,9 @@
 /**
  * One-off backfill for the multi-store isolation schema change.
  *
+ * With one store, every unassigned record goes to it. With several stores,
+ * each record goes to the store that used it (see assignByUsage).
+ *
  * Run manually (ts-node, not part of the app runtime) AFTER pushing the new
  * nullable `locationId` columns (Customer, GiftCard, StoreCreditAccount,
  * HouseAccount, Supplier, PurchaseOrder, Category, Exchange) and BEFORE
@@ -10,15 +13,79 @@
  *   cd backend
  *   npx ts-node scripts/backfillLocationScoping.ts           # dry run (default)
  *   npx ts-node scripts/backfillLocationScoping.ts --apply    # actually write changes
+ *   ... --apply --assign-unused-to="Main Store"  # also assign never-used records
  *
  * Safe to re-run: only ever touches rows still NULL. Point DATABASE_URL at
  * production only after taking a manual snapshot (Render dashboard).
  */
 import 'dotenv/config';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { planStoreAssignments, StoreUsage } from '../src/utils/storeAssignmentPlan';
 
 const prisma = new PrismaClient();
 const APPLY = process.argv.includes('--apply');
+// --assign-unused-to="Store name": records nobody has used yet go to this store.
+const UNUSED_TO_NAME = process.argv.find(arg => arg.startsWith('--assign-unused-to='))?.split('=').slice(1).join('=').replace(/^"|"$/g, '').trim() || null;
+
+/**
+ * Several stores: each unassigned record goes to the store that actually used
+ * it. A category used by several stores is copied so each store gets its own;
+ * customers, suppliers and stored-value accounts used by several stores are
+ * listed for a person to decide. Unused records are never guessed.
+ */
+async function assignByUsage(locations: { id: string; name: string }[]) {
+  const names = new Map(locations.map(l => [l.id, l.name]));
+  const unusedTo = UNUSED_TO_NAME ? locations.find(l => l.name.toLowerCase() === UNUSED_TO_NAME.toLowerCase())?.id : null;
+  if (UNUSED_TO_NAME && !unusedTo) throw new Error(`No store named "${UNUSED_TO_NAME}". Stores: ${locations.map(l => l.name).join(', ')}`);
+  console.log(`\n=== ${locations.length} stores — assigning unassigned records by where they were used ===`);
+
+  const steps: { label: string; table: string; name: string; splitShared: boolean; usage: Prisma.Sql }[] = [
+    { label: 'Category', table: 'categories', name: `name`, splitShared: true,
+      usage: Prisma.sql`SELECT "categoryId" AS "recordId", "locationId", count(*)::int AS uses FROM products WHERE "categoryId" IS NOT NULL GROUP BY 1, 2` },
+    { label: 'Supplier', table: 'suppliers', name: `name`, splitShared: false,
+      usage: Prisma.sql`SELECT ps."supplierId" AS "recordId", p."locationId", count(*)::int AS uses FROM product_suppliers ps JOIN products p ON p.id = ps."productId" GROUP BY 1, 2
+        UNION ALL SELECT "supplierId", "locationId", count(*)::int FROM purchase_orders GROUP BY 1, 2` },
+    { label: 'PurchaseOrder', table: 'purchase_orders', name: `"orderNumber"`, splitShared: false,
+      usage: Prisma.sql`SELECT i."purchaseOrderId" AS "recordId", p."locationId", count(*)::int AS uses FROM purchase_order_items i JOIN products p ON p.id = i."productId" GROUP BY 1, 2` },
+    { label: 'Customer', table: 'customers', name: `concat_ws(' ', "firstName", "lastName")`, splitShared: false,
+      usage: Prisma.sql`SELECT "customerId" AS "recordId", "locationId", count(*)::int AS uses FROM sales WHERE "customerId" IS NOT NULL GROUP BY 1, 2` },
+    { label: 'GiftCard', table: 'gift_cards', name: `code`, splitShared: false,
+      usage: Prisma.sql`SELECT t."giftCardId" AS "recordId", s."locationId", count(*)::int AS uses FROM gift_card_transactions t JOIN sales s ON s.id = t."saleId" GROUP BY 1, 2` },
+    { label: 'StoreCreditAccount', table: 'store_credit_accounts', name: `id`, splitShared: false,
+      usage: Prisma.sql`SELECT t."accountId" AS "recordId", s."locationId", count(*)::int AS uses FROM store_credit_transactions t JOIN sales s ON s.id = t."saleId" GROUP BY 1, 2` },
+    { label: 'HouseAccount', table: 'house_accounts', name: `id`, splitShared: false,
+      usage: Prisma.sql`SELECT t."accountId" AS "recordId", s."locationId", count(*)::int AS uses FROM house_account_transactions t JOIN sales s ON s.id = t."saleId" GROUP BY 1, 2` },
+    { label: 'Exchange', table: 'exchanges', name: `id`, splitShared: false,
+      usage: Prisma.sql`SELECT e.id AS "recordId", s."locationId", 1 AS uses FROM exchanges e JOIN sales s ON s.id = e."originalSaleId"` },
+  ];
+
+  for (const step of steps) {
+    const unassigned = await prisma.$queryRaw<{ id: string; label: string }[]>(Prisma.sql`SELECT id, ${Prisma.raw(step.name)} AS label FROM ${Prisma.raw(`"${step.table}"`)} WHERE "locationId" IS NULL`);
+    const labels = new Map(unassigned.map(row => [row.id, `"${row.label}"`]));
+    if (!unassigned.length) { console.log(`${step.label}: no unassigned rows.`); continue; }
+    const usage = (await prisma.$queryRaw<StoreUsage[]>(step.usage)).map(row => ({ ...row, uses: Number(row.uses) }));
+    const plan = planStoreAssignments(unassigned.map(row => row.id), usage, { splitShared: step.splitShared, unusedTo: step.label === 'Exchange' ? null : unusedTo });
+    for (const decision of plan) {
+      const id = decision.recordId, label = labels.get(id);
+      if (decision.action === 'UNUSED') { console.log(`${step.label} ${label}: never used by any store — left unassigned (use --assign-unused-to="Store name")`); continue; }
+      if (decision.action === 'AMBIGUOUS') { console.log(`${step.label} ${label}: used by ${decision.locationIds.map(l => names.get(l)).join(' and ')} — left unassigned for review`); continue; }
+      console.log(`${step.label} ${label}: ${APPLY ? '' : 'would be '}assigned to ${names.get(decision.locationId)}${decision.action === 'SPLIT' ? `; copied for ${decision.copyTo.map(l => names.get(l)).join(', ')}` : ''}`);
+      if (!APPLY) continue;
+      await prisma.$transaction(async tx => {
+        await tx.$executeRaw(Prisma.sql`UPDATE ${Prisma.raw(`"${step.table}"`)} SET "locationId" = ${decision.locationId} WHERE id = ${id} AND "locationId" IS NULL`);
+        if (decision.action !== 'SPLIT') return;
+        const original = await tx.category.findUniqueOrThrow({ where: { id } });
+        for (const locationId of decision.copyTo) {
+          const copy = await tx.category.create({ data: {
+            name: original.name, description: original.description, color: original.color, icon: original.icon,
+            sortOrder: original.sortOrder, isActive: original.isActive, locationId,
+          } });
+          await tx.product.updateMany({ where: { categoryId: id, locationId }, data: { categoryId: copy.id } });
+        }
+      });
+    }
+  }
+}
 
 async function checkProductDuplicates(): Promise<boolean> {
   console.log('\n=== Product (sku, locationId) duplicate check ===');
@@ -151,13 +218,7 @@ async function main() {
       console.log('Exchange: no NULL rows.');
     }
   } else if (locations.length > 1) {
-    console.log(
-      `\n=== ${locations.length} locations exist — NOT auto-backfilling. ` +
-        `Review the per-table NULL counts above and assign records to a store manually ` +
-        `(e.g. via each entity's edit UI, once available) before relying on per-store isolation ` +
-        `for pre-existing data. Records left NULL are treated as chain-wide/shared, matching the ` +
-        'Promotion model\'s existing null-semantics — not an error, just "undecided". ===\n'
-    );
+    await assignByUsage(locations);
   } else {
     console.log('\nNo locations exist yet — nothing to backfill.');
   }

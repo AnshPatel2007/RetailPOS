@@ -76,19 +76,20 @@ export const PackagingEditor: React.FC<{ product: Product; onChanged?: () => voi
       setCaseForm({ supplierId: '', packSize: '', packCost: '', supplierSku: '' });
   };
 
-  if (error) return <p role="alert" className="text-sm text-destructive">{error} <Button size="sm" variant="outline" onClick={load}>Retry</Button></p>;
+  if (error) return <p role="alert" className="text-sm text-destructive">{error} <Button type="button" size="sm" variant="outline" onClick={load}>Retry</Button></p>;
   if (!data) return <p className="text-sm text-muted-foreground">Loading packaging…</p>;
   const active = data.sellingUnits.filter(unit => unit.isActive);
   const sealed = active.reduce((sum, unit) => sum + unit.sealedQuantity * unit.unitsPerPackage, 0);
   const formUnits = Number(pack.units), formPrice = Number(pack.price);
 
   return (
-    <div className="space-y-6 text-sm">
+    // This editor sits inside the product form: Enter in its fields must not save the product.
+    <div className="space-y-6 text-sm" onKeyDown={event => { if (event.key === 'Enter' && event.target instanceof HTMLInputElement) event.preventDefault(); }}>
       <section className="space-y-3">
         <h4 className="font-semibold">Sold as</h4>
         <div className="flex flex-wrap items-end gap-2">
           <Input label="Single unit is called" value={baseName} onChange={e => setBaseName(e.target.value)} maxLength={30} className="max-w-[12rem]" />
-          <Button size="sm" variant="outline" disabled={busy || !baseName.trim() || baseName === data.baseUnitName} onClick={() => run(() => productService.updateBaseUnitName(product.id, baseName.trim()), 'Saved')}>Save name</Button>
+          <Button type="button" size="sm" variant="outline" disabled={busy || !baseName.trim() || baseName === data.baseUnitName} onClick={() => run(() => productService.updateBaseUnitName(product.id, baseName.trim()), 'Saved')}>Save name</Button>
         </div>
         <p className="text-muted-foreground">Stock: {data.stockQuantity} {baseName}{data.stockQuantity === 1 ? '' : 's'}
           {active.length > 0 && <> · {active.map(unit => `${unit.sealedQuantity} × ${unit.name} unopened`).join(' · ')} · {data.looseStockQuantity} loose</>}
@@ -111,7 +112,7 @@ export const PackagingEditor: React.FC<{ product: Product; onChanged?: () => voi
                   <td className="p-2"><Input aria-label="Pack price" type="number" step="0.01" min="0.01" value={editing.price} onChange={e => setEditing({ ...editing, price: e.target.value })} /></td>
                   <td className="p-2 text-right">{pct(margin(Number(editing.price), unitCost === null ? null : unitCost * unit.unitsPerPackage))}</td>
                   <td className="p-2 text-right">{unit.sealedQuantity}</td>
-                  <td className="p-2 whitespace-nowrap"><Button size="sm" onClick={saveEdit} disabled={busy}>Save</Button> <Button size="sm" variant="outline" onClick={() => setEditing(null)}>Cancel</Button></td>
+                  <td className="p-2 whitespace-nowrap"><Button type="button" size="sm" onClick={saveEdit} disabled={busy}>Save</Button> <Button type="button" size="sm" variant="outline" onClick={() => setEditing(null)}>Cancel</Button></td>
                 </tr>) : (
                 <tr key={unit.id} className="border-t border-border">
                   <td className="p-2 font-medium">{unit.name}</td><td className="p-2 text-right">{unit.unitsPerPackage}</td><td className="p-2">{unit.barcode}</td>
@@ -120,9 +121,9 @@ export const PackagingEditor: React.FC<{ product: Product; onChanged?: () => voi
                   <td className="p-2 text-right">{pct(margin(Number(unit.price), unitCost === null ? null : unitCost * unit.unitsPerPackage))}</td>
                   <td className="p-2 text-right">{unit.sealedQuantity}</td>
                   <td className="p-2 whitespace-nowrap">
-                    <Button size="sm" variant="outline" disabled={busy || unit.sealedQuantity < 1} onClick={() => openOne(unit)} title="Move one unopened pack onto the shelf as loose units">Open one</Button>{' '}
-                    <Button size="sm" variant="outline" onClick={() => setEditing({ id: unit.id, name: unit.name, barcode: unit.barcode, price: String(unit.price), version: unit.version })}>Edit</Button>{' '}
-                    <Button size="sm" variant="outline" disabled={busy || unit.sealedQuantity > 0} onClick={() => retire(unit)} title={unit.sealedQuantity > 0 ? 'Open or count the unopened packs first' : 'Stop selling this pack'}>Retire</Button>
+                    <Button type="button" size="sm" variant="outline" disabled={busy || unit.sealedQuantity < 1} onClick={() => openOne(unit)} title="Move one unopened pack onto the shelf as loose units">Open one</Button>{' '}
+                    <Button type="button" size="sm" variant="outline" onClick={() => setEditing({ id: unit.id, name: unit.name, barcode: unit.barcode, price: String(unit.price), version: unit.version })}>Edit</Button>{' '}
+                    <Button type="button" size="sm" variant="outline" disabled={busy || unit.sealedQuantity > 0} onClick={() => retire(unit)} title={unit.sealedQuantity > 0 ? 'Open or count the unopened packs first' : 'Stop selling this pack'}>Retire</Button>
                   </td>
                 </tr>))}
             </tbody>
@@ -134,7 +135,7 @@ export const PackagingEditor: React.FC<{ product: Product; onChanged?: () => voi
           <Input label="Pack barcode" value={pack.barcode} onChange={e => setPack({ ...pack, barcode: e.target.value })} maxLength={100} />
           <Input label="Pack price" type="number" min="0.01" step="0.01" value={pack.price} onChange={e => setPack({ ...pack, price: e.target.value })}
             description={formUnits >= 2 ? `${formUnits} singles = ${formatCurrency(product.price * formUnits)}` : undefined} />
-          <Button onClick={addPack} disabled={busy}>Add pack</Button>
+          <Button type="button" onClick={addPack} disabled={busy}>Add pack</Button>
         </div>
         {formUnits >= 2 && formPrice > 0 && <p className="text-xs text-muted-foreground">Pack margin: {pct(margin(formPrice, unitCost === null ? null : unitCost * formUnits))} (a pack can have its own, lower margin than singles).</p>}
       </section>
@@ -147,7 +148,7 @@ export const PackagingEditor: React.FC<{ product: Product; onChanged?: () => voi
               <span><span className="font-medium">{s.supplierName}</span>{s.supplierSku ? <span className="text-xs text-muted-foreground"> · {s.supplierSku}</span> : null}</span>
               <span>{s.packSize > 1 ? `Case of ${s.packSize}` : 'Single units'}{s.packCost !== null ? ` · ${formatCurrency(Number(s.packCost))} per case` : ''}
                 {s.cost !== null ? ` · ${formatCurrency(Number(s.cost))} per ${baseName}` : ''}</span>
-              <Button size="sm" variant="outline" onClick={() => setCaseForm({ supplierId: s.supplierId, packSize: String(s.packSize), packCost: s.packCost === null ? '' : String(s.packCost), supplierSku: s.supplierSku || '' })}>Edit</Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => setCaseForm({ supplierId: s.supplierId, packSize: String(s.packSize), packCost: s.packCost === null ? '' : String(s.packCost), supplierSku: s.supplierSku || '' })}>Edit</Button>
             </li>))}</ul>}
         <div className="grid gap-2 sm:grid-cols-5 items-end">
           <Select label="Supplier" value={caseForm.supplierId} onChange={e => setCaseForm({ ...caseForm, supplierId: e.target.value })}>
@@ -157,7 +158,7 @@ export const PackagingEditor: React.FC<{ product: Product; onChanged?: () => voi
           <Input label="Case cost" type="number" min="0" step="0.01" value={caseForm.packCost} onChange={e => setCaseForm({ ...caseForm, packCost: e.target.value })}
             description={Number(caseForm.packSize) > 0 && caseForm.packCost !== '' ? `${formatCurrency(Number(caseForm.packCost) / Number(caseForm.packSize))} per ${baseName}` : undefined} />
           <Input label="Supplier item # (optional)" value={caseForm.supplierSku} onChange={e => setCaseForm({ ...caseForm, supplierSku: e.target.value })} maxLength={100} />
-          <Button onClick={saveCase} disabled={busy}>Save case</Button>
+          <Button type="button" onClick={saveCase} disabled={busy}>Save case</Button>
         </div>
       </section>
     </div>

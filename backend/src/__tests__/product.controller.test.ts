@@ -280,6 +280,41 @@ describe('Product Controller', () => {
         })
       );
     });
+
+    // Categories created before stores existed have no store. A product filed
+    // under one must stay editable as long as its category is not changed.
+    it('saves a product that keeps its older category with no store', async () => {
+      mockRequest.user!.locationId = 'store-1';
+      mockRequest.params = { id: '1' };
+      mockRequest.body = { name: 'Denim Jeans', price: 49.99, categoryId: 'legacy-cat' };
+      const existingProduct = { id: '1', locationId: 'store-1', sku: 'JEANS', name: 'Jeans', price: 45, categoryId: 'legacy-cat' };
+      (prisma.category.findUnique as jest.Mock).mockClear();
+      (prisma.category.findUnique as jest.Mock).mockResolvedValue({ id: 'legacy-cat', locationId: null });
+      (prisma.product.findUnique as jest.Mock).mockResolvedValue(existingProduct);
+      (prisma.product.findUniqueOrThrow as jest.Mock).mockResolvedValue(existingProduct);
+      (prisma.product.update as jest.Mock).mockResolvedValue({ ...existingProduct, ...mockRequest.body });
+
+      await productController.updateProduct(mockRequest as AuthRequest, mockResponse as Response, mockNext);
+
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(prisma.category.findUnique).not.toHaveBeenCalled();
+      expect(mockResponse.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    });
+
+    it("refuses to move a product into another store's category", async () => {
+      mockRequest.user!.locationId = 'store-1';
+      mockRequest.params = { id: '1' };
+      mockRequest.body = { categoryId: 'other-store-cat' };
+      const existingProduct = { id: '1', locationId: 'store-1', sku: 'JEANS', name: 'Jeans', price: 45, categoryId: 'legacy-cat' };
+      (prisma.category.findUnique as jest.Mock).mockResolvedValue({ id: 'other-store-cat', locationId: 'store-2' });
+      (prisma.product.findUnique as jest.Mock).mockResolvedValue(existingProduct);
+      (prisma.product.update as jest.Mock).mockClear();
+
+      await productController.updateProduct(mockRequest as AuthRequest, mockResponse as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+      expect(prisma.product.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('deleteProduct', () => {

@@ -223,18 +223,20 @@ export const Inventory: React.FC = () => {
     setSaveError('');
 
     try {
+      // An emptied field on the edit form clears the saved value; a new product just leaves it out.
+      const blank = editingProduct ? null : undefined;
       const data: any = {
         sku: formData.sku,
         name: formData.name,
-        description: formData.description || undefined,
-        categoryId: formData.categoryId || undefined,
+        description: formData.description || blank,
+        categoryId: formData.categoryId || blank,
         cost: parseFloat(formData.cost),
         price: parseFloat(formData.price),
-        compareAtPrice: formData.compareAtPrice ? parseFloat(formData.compareAtPrice) : undefined,
+        compareAtPrice: formData.compareAtPrice ? parseFloat(formData.compareAtPrice) : blank,
         stockQuantity: parseInt(formData.stockQuantity) || 0,
         lowStockAlert: parseInt(formData.lowStockAlert) || 0,
-        barcode: formData.barcode || undefined,
-        image: formData.image || undefined,
+        barcode: formData.barcode || blank,
+        image: formData.image || blank,
         isTaxable: formData.isTaxable,
         isActive: formData.isActive,
         trackInventory: formData.trackInventory,
