@@ -99,8 +99,8 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
               onChange={e => setLines(previous => previous.map((line, i) => i === index ? { ...line, [field]: e.target.value } : line))} />)}
           </div>
           <p className="text-xs text-muted-foreground">Accepted quantity is single units. {Number(lines[index].packSize) > 1
-            ? `${Number(lines[index].quantity) / Number(lines[index].packSize)} case(s) of ${lines[index].packSize} at ${lines[index].unitCost} per case = ${(Number(lines[index].unitCost) / Number(lines[index].packSize)).toFixed(4)} per unit.`
-            : `${lines[index].unitCost} per unit.`}</p>
+            ? `${Number(lines[index].quantity) / Number(lines[index].packSize)} case(s) of ${lines[index].packSize} at ${lines[index].unitCost} per case = ${(Number(lines[index].unitCost) / Number(lines[index].packSize)).toFixed(4)} per unit, which becomes the item's cost price.`
+            : `${lines[index].unitCost} per unit, which becomes the item's cost price.`}</p>
           {(item.sellingUnits || []).some(unit => unit.unitsPerPackage === Number(lines[index].packSize)) && <label className="flex min-h-11 items-center gap-2 text-sm">
             <input type="checkbox" checked={!!lines[index].sealedUnitId} onChange={e => setLines(previous => previous.map((line, i) => i === index
               ? { ...line, sealedUnitId: e.target.checked ? item.sellingUnits!.find(unit => unit.unitsPerPackage === Number(line.packSize))!.id : '' } : line))} />

@@ -654,15 +654,22 @@ export const scanReceipt = asyncHandler(async (req: AuthRequest, res: Response) 
   if (req.user?.locationId) {
     locationWhere.locationId = req.user.locationId;
   }
-  const existingProducts = await prisma.product.findMany({
+  const catalog = await prisma.product.findMany({
     where: { ...locationWhere, isActive: true },
-    select: { id: true, name: true, sku: true, barcode: true, price: true, cost: true },
+    select: { id: true, name: true, sku: true, barcode: true, price: true, cost: true,
+      sellingUnits: { where: { isActive: true }, select: { id: true, name: true, barcode: true, unitsPerPackage: true } } },
     orderBy: { name: 'asc' },
   });
+  const existingProducts = catalog.map(({ sellingUnits: _units, ...product }) => product);
+  // Packs (e.g. "Marlboro Red Carton", 10 packs) are bought as a unit; their lines land on the single.
+  const existingPacks = catalog.flatMap(product => product.sellingUnits.map(unit => ({
+    sellingUnitId: unit.id, name: unit.name, barcode: unit.barcode, unitsPerPackage: unit.unitsPerPackage,
+    productId: product.id, productName: product.name, productSku: product.sku, price: product.price, cost: product.cost })));
 
-  const productListForContext = existingProducts
-    .map(p => `${p.name} (SKU: ${p.sku}${p.barcode ? ', Barcode: ' + p.barcode : ''})`)
-    .join('\n');
+  const productListForContext = [
+    ...existingProducts.map(p => `${p.name} (SKU: ${p.sku}${p.barcode ? ', Barcode: ' + p.barcode : ''})`),
+    ...existingPacks.map(pack => `${pack.name} (pack of ${pack.unitsPerPackage} x ${pack.productName}, Barcode: ${pack.barcode})`),
+  ].join('\n');
 
   const anthropic = new Anthropic({ apiKey });
 
@@ -747,6 +754,7 @@ IMPORTANT rules for quantities:
 - If the receipt says "2 x Marlboro Red (10pk)" that means quantity=2, packSize=10, unitQuantity=20
 - If pack size is not specified, assume packSize=1
 - Extract unit costs if visible. unitCost should be per individual unit (totalCost / unitQuantity)
+- Entries listed below as "pack of N x Product" are cases/cartons of that product: when a line is one of them, use its exact name in matchedProductName and set packSize to N
 
 Here are the existing products in the system. Try to match receipt items to these:
 ${productListForContext}
@@ -775,25 +783,36 @@ If an item closely matches an existing product, put the existing product name in
     }
     const extractedData = JSON.parse(jsonText);
 
-    // Enrich with existing product matches
+    // Enrich with existing product matches: a pack (by barcode or name) lands on its single
+    // with the pack's size, so a $100 carton of 10 makes each single $10.
     if (extractedData.items && Array.isArray(extractedData.items)) {
       for (const item of extractedData.items) {
-        if (item.matchedProductName) {
-          const match = existingProducts.find(
-            p => p.name.toLowerCase() === item.matchedProductName.toLowerCase()
-          );
-          if (match) {
-            item.matchedProductId = match.id;
-            item.matchedProductSku = match.sku;
-            item.existingPrice = match.price;
-            item.existingCost = match.cost;
-          }
+        const wanted = typeof item.matchedProductName === 'string' ? item.matchedProductName.toLowerCase() : null;
+        const pack = existingPacks.find(candidate => (item.barcode && candidate.barcode === item.barcode) || (wanted && candidate.name.toLowerCase() === wanted));
+        const match = pack ? null : existingProducts.find(p => (item.barcode && p.barcode === item.barcode) || (wanted && p.name.toLowerCase() === wanted));
+        if (pack) {
+          item.matchedProductId = pack.productId;
+          item.matchedProductSku = pack.productSku;
+          item.matchedProductName = pack.productName;
+          item.sellingUnitId = pack.sellingUnitId;
+          item.packName = pack.name;
+          item.packSize = pack.unitsPerPackage;
+          item.unitQuantity = item.quantity * pack.unitsPerPackage;
+          if (item.totalCost > 0 && item.unitQuantity > 0) item.unitCost = Math.round(item.totalCost / item.unitQuantity * 10000) / 10000;
+          item.existingPrice = pack.price;
+          item.existingCost = pack.cost;
+        } else if (match) {
+          item.matchedProductId = match.id;
+          item.matchedProductSku = match.sku;
+          item.existingPrice = match.price;
+          item.existingCost = match.cost;
         }
       }
     }
 
-    // Also return the full product list for the frontend to allow manual matching
+    // Also return the full product and pack lists for the frontend to allow manual matching
     extractedData.existingProducts = existingProducts;
+    extractedData.existingPacks = existingPacks;
 
     logger.info(`Receipt scanned: ${extractedData.supplier || 'Unknown'}, ${extractedData.items?.length || 0} items extracted`);
 

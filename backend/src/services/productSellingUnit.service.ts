@@ -49,11 +49,16 @@ export async function assertSellingIdentifiersAvailable(db: Database, input: {
     if (!value) continue;
     const [product, unit] = await Promise.all([
       db.product.findFirst({ where: { locationId: input.locationId, [field]: value,
-        ...(input.excludeProductId ? { id: { not: input.excludeProductId } } : {}) }, select: { id: true } }),
+        ...(input.excludeProductId ? { id: { not: input.excludeProductId } } : {}) }, select: { id: true, name: true, stockQuantity: true, isActive: true } }),
       db.productSellingUnit.findFirst({ where: { locationId: input.locationId, [field]: value,
-        ...(input.excludeSellingUnitId ? { id: { not: input.excludeSellingUnitId } } : {}) }, select: { id: true } }),
+        ...(input.excludeSellingUnitId ? { id: { not: input.excludeSellingUnitId } } : {}) }, select: { id: true, name: true, productId: true } }),
     ]);
-    if (product || unit) throw new AppError(`${field === 'sku' ? 'SKU' : 'Barcode'} already belongs to a product or selling package in this store`, 409);
+    const label = field === 'sku' ? 'SKU' : 'Barcode';
+    // Say what already uses it, so the screen can offer to merge a standalone product into a pack.
+    if (product) throw new AppError(`${label} already belongs to ${product.name} in this store`, 409, { code: 'IDENTIFIER_IN_USE', field,
+      conflict: { kind: 'PRODUCT', productId: product.id, name: product.name, stockQuantity: product.stockQuantity, isActive: product.isActive } });
+    if (unit) throw new AppError(`${label} already belongs to the pack ${unit.name} in this store`, 409, { code: 'IDENTIFIER_IN_USE', field,
+      conflict: { kind: 'PACK', sellingUnitId: unit.id, productId: unit.productId, name: unit.name } });
   }
 }
 

@@ -216,10 +216,18 @@ export const productService = {
   getById: (id: string, signal?: AbortSignal) => api.get(`/products/${id}`, { signal }),
 
   getSellingUnits: (id: string, signal?: AbortSignal) => api.get(`/products/${id}/selling-units`, { signal }),
-  createSellingUnit: (id: string, data: { name: string; barcode: string; sku?: string; unitsPerPackage: number; price: number; baseUnitName?: string }) =>
+  // packCost: what one pack costs the store; the single's cost price becomes packCost / units.
+  createSellingUnit: (id: string, data: { name: string; barcode: string; sku?: string; unitsPerPackage: number; price: number; baseUnitName?: string; packCost?: number }) =>
     api.post(`/products/${id}/selling-units`, data),
-  updateSellingUnit: (id: string, unitId: string, data: { name?: string; barcode?: string; sku?: string; price?: number; isActive?: boolean; expectedVersion: number }) =>
+  updateSellingUnit: (id: string, unitId: string, data: { name?: string; barcode?: string; sku?: string | null; price?: number; isActive?: boolean; packCost?: number; expectedVersion: number }) =>
     api.put(`/products/${id}/selling-units/${unitId}`, data),
+  // Packs and variety packs listed on their own (Inventory > Packs).
+  getPacks: (params: { search?: string; page?: number; limit?: number; locationId?: string }, signal?: AbortSignal) => api.get('/products/packs', { params, signal }),
+  // Turn a standalone product (e.g. a carton sold as its own item) into a pack of another product.
+  previewMergeIntoPack: (sourceId: string, data: { baseProductId: string; unitsPerPackage: number; name?: string; price?: number; barcode?: string }) =>
+    api.post(`/products/${sourceId}/merge-into-pack/preview`, data),
+  mergeIntoPack: (sourceId: string, data: { baseProductId: string; unitsPerPackage: number; name?: string; price?: number; barcode?: string; idempotencyKey: string }) =>
+    api.post(`/products/${sourceId}/merge-into-pack`, data),
   updateBaseUnitName: (id: string, baseUnitName: string) => api.patch(`/products/${id}/selling-units`, { baseUnitName }),
   updatePackaging: (id: string, unitId: string, data: { action: 'count' | 'open'; quantity: number; expectedVersion: number; expectedStockVersion: number; requestKey: string; reason?: string }) =>
     api.post(`/products/${id}/selling-units/${unitId}/packaging`, data),

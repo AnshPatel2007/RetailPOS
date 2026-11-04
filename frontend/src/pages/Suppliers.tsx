@@ -73,6 +73,10 @@ interface Product {
   price: number;
   stockQuantity: number;
   cost: number;
+  // Set on pack rows (e.g. a carton): the stock item it holds and how many.
+  inventoryProductId?: string;
+  sellingUnitId?: string | null;
+  unitsPerPackage?: number;
 }
 
 const PAGE_SIZE = 20;
@@ -404,7 +408,8 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
     }
     productSearchDebounceRef.current = setTimeout(async () => {
       try {
-        const res = await productService.getAll({ search: value, limit: 10 });
+        // Packs (e.g. "Marlboro Red Carton") are listed too: ordering one orders its single in cases.
+        const res = await productService.getAll({ search: value, limit: 10, includeSellingUnits: true });
         const results: Product[] = res.data.data || [];
         setProductSuggestions(results);
 
@@ -422,8 +427,15 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
 
   const selectProduct = (index: number, product: Product) => {
     const newItems = [...orderForm.items];
-    newItems[index] = {
-      productId: product.id,
+    // A pack row orders its single (the stock item) in cases of the pack's size, at the pack's cost.
+    const productId = product.inventoryProductId || product.id;
+    const packUnits = product.sellingUnitId ? product.unitsPerPackage || 1 : 1;
+    const packCost = Number(product.cost);
+    newItems[index] = packUnits > 1 ? {
+      productId, quantity: packUnits, cost: Math.round(packCost / packUnits * 10000) / 10000,
+      productName: product.name, packSize: packUnits, packQuantity: 1, packCost,
+    } : {
+      productId,
       quantity: newItems[index].quantity,
       cost: product.cost,
       productName: product.name,
@@ -432,13 +444,14 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
     setOrderForm({ ...orderForm, items: newItems });
     // Default to how this supplier sells it (e.g. a case of 24) when a case is set up.
     const supplierId = orderForm.supplierId;
-    productService.getSellingUnits(product.id).then(res => {
-      const supplierCase = (res.data.data.suppliers || []).find((s: { supplierId: string }) => s.supplierId === supplierId);
+    productService.getSellingUnits(productId).then(res => {
+      const supplierCase = (res.data.data.suppliers || []).find((s: { supplierId: string; packSize: number }) =>
+        s.supplierId === supplierId && (packUnits === 1 || Number(s.packSize) === packUnits));
       if (!supplierCase) return;
       setOrderForm(current => {
         const items = [...current.items];
         const line = items[index];
-        if (!line || line.productId !== product.id) return current;
+        if (!line || line.productId !== productId) return current;
         const packSize = Number(supplierCase.packSize) || 1;
         const unitCost = supplierCase.cost != null ? Number(supplierCase.cost) : line.cost;
         items[index] = { ...line, cost: unitCost, packSize, packQuantity: 1,
@@ -934,7 +947,9 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                           {getFilteredProducts(productSearches[index]).map((product) => (
                             <div key={product.id} className="px-3 py-2 hover:bg-muted cursor-pointer" onMouseDown={() => selectProduct(index, product)}>
                               <p className="font-medium text-sm">{product.name}</p>
-                              <p className="text-xs text-muted-foreground">{product.sku} | Stock: {product.stockQuantity} | Cost: {formatCurrency(product.cost)}</p>
+                              <p className="text-xs text-muted-foreground">{product.sellingUnitId
+                                ? `Pack of ${product.unitsPerPackage} | Pack cost: ${formatCurrency(product.cost)}`
+                                : `${product.sku} | Stock: ${product.stockQuantity} | Cost: ${formatCurrency(product.cost)}`}</p>
                             </div>
                           ))}
                           {getFilteredProducts(productSearches[index]).length === 0 && (

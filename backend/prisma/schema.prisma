@@ -1980,6 +1980,29 @@ model StockReclass {
   @@map("stock_reclasses")
 }
 
+// A standalone product (e.g. "Marlboro Red Carton") turned into a pack of
+// another product. Its stock moves over as base units at the same value, its
+// barcode moves to the new pack, and the old product is archived.
+model ProductPackMerge {
+  id String @id @default(uuid())
+  locationId String
+  sourceProductId String
+  baseProductId String
+  sellingUnitId String
+  sourceQuantity Int
+  unitsPerPackage Int
+  movedValue Decimal? @db.Decimal(24, 8)
+  fromEntryId String?
+  toEntryId String?
+  userId String
+  idempotencyKey String
+  createdAt DateTime @default(now())
+  @@unique([locationId, idempotencyKey])
+  @@index([sourceProductId])
+  @@index([baseProductId])
+  @@map("product_pack_merges")
+}
+
 /// The actual supplier cost entered for stock that was added without an invoice.
 /// The difference from the estimate posts once, in the period it is entered.
 model UnmatchedCostMatch {

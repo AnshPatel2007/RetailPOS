@@ -11,6 +11,7 @@ import { createProductSchema, updateProductSchema } from '../validators/product.
 import { upload } from '../middleware/upload';
 import * as sellingUnitController from '../controllers/sellingUnit.controller';
 import * as bundleController from '../controllers/productBundle.controller';
+import * as packMergeController from '../controllers/packMerge.controller';
 
 const router = Router();
 
@@ -105,6 +106,9 @@ router.post('/:id/selling-units', authorize('ADMIN', 'MANAGER'), sellingUnitCont
 router.patch('/:id/selling-units', authorize('ADMIN', 'MANAGER'), sellingUnitController.updateBaseUnitName);
 router.put('/:id/selling-units/:unitId', authorize('ADMIN', 'MANAGER'), sellingUnitController.updateSellingUnit);
 router.post('/:id/selling-units/:unitId/packaging', authorize('ADMIN', 'MANAGER'), sellingUnitController.changePackaging);
+// A standalone product (e.g. a carton) merged into a pack of another product.
+router.post('/:id/merge-into-pack/preview', authorize('ADMIN', 'MANAGER'), packMergeController.previewMerge);
+router.post('/:id/merge-into-pack', authorize('ADMIN', 'MANAGER'), packMergeController.merge);
 // Variety packs: contents, and opening packs into them.
 router.get('/:id/bundle', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), bundleController.getBundleContents);
 router.put('/:id/bundle', authorize('ADMIN', 'MANAGER'), bundleController.updateBundleContents);

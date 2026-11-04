@@ -77,6 +77,95 @@ describe('Connected packs', () => {
     expect((await product()).stockQuantity).toBe(96);
     expect(await sealed(caseUnit.id)).toBe(4);
     expect(Number((await balance()).value)).toBe(144);
+    // A $36 case of 24 makes each can's cost price $1.50.
+    expect(Number((await product()).cost)).toBe(1.5);
+  });
+
+  it("sets the single's cost from a pack's cost: a $100 carton of 10 is $10 each", async () => {
+    const carton = (await post(`/api/products/${cola}/selling-units`, { name: 'Carton', barcode: CASE, unitsPerPackage: 10, price: 129.99, packCost: 100 }).expect(201))
+      .body.data.sellingUnits[0] as { id: string; version: number };
+    expect(Number((await product()).cost)).toBe(10);
+    await request(app).put(`/api/products/${cola}/selling-units/${carton.id}`).set('Authorization', 'Bearer ' + owner)
+      .send({ packCost: 120, expectedVersion: carton.version }).expect(200);
+    expect(Number((await product()).cost)).toBe(12);
+    // The pack itself shows single cost x units.
+    const found = (await get(`/api/products?search=${CASE}&includeSellingUnits=true`).expect(200)).body.data;
+    expect(Number(found.find((row: { id: string }) => row.id === carton.id).cost)).toBe(120);
+  });
+
+  it('a scanned invoice line for a carton lands on the single at pack cost / units', async () => {
+    const carton = await createPack(10, 129.99, CASE);
+    const preview = (await post('/api/products/imports/receipt/preview', { supplier: 'Cash and carry', items: [{ matchedProductId: cola, name: 'Cola carton',
+      packSize: 10, sellingUnitId: carton.id, receivedPackageQuantity: 2, unitQuantity: 20, unitCost: 10 }] }).expect(200)).body.data;
+    await post(`/api/products/imports/${preview.id}/apply`, {}).expect(200);
+    expect(await product()).toMatchObject({ stockQuantity: 20 });
+    expect(Number((await product()).cost)).toBe(10);
+    expect(Number((await balance()).value)).toBe(200);
+    expect(await sealed(carton.id)).toBe(2);
+  });
+
+  describe('merging a standalone product into a pack', () => {
+    let box: string;
+    const merge = (body: object = {}, source = box) =>
+      post(`/api/products/${source}/merge-into-pack`, { baseProductId: cola, unitsPerPackage: 12, name: '12-pack', idempotencyKey: randomUUID(), ...body });
+    beforeEach(async () => {
+      // The store already sold the 12-pack as its own product: 3 boxes worth $18.
+      box = (await prisma.product.create({ data: { name: 'Cola 12-pack box', sku: 'COLA-BOX', barcode: TWELVE, price: 9.99, cost: 6, isTaxable: false,
+        stockQuantity: 0, lowStockAlert: 0, locationId: data.location.id, categoryId: data.category.id } })).id;
+      const current = await prisma.product.findUniqueOrThrow({ where: { id: box } });
+      await post('/api/financial/inventory-costs/opening', { idempotencyKey: randomUUID(), notes: 'Verified physical count and supplier invoice',
+        items: [{ productId: box, quantity: 3, value: 18, expectedVersion: current.stockVersion }] }).expect(200);
+      await opening(24, 12);
+    });
+
+    it('says which product already uses the barcode, so the screen can offer a merge', async () => {
+      const res = await post(`/api/products/${cola}/selling-units`, { name: '12-pack', barcode: TWELVE, unitsPerPackage: 12, price: 9.99 }).expect(409);
+      expect(res.body.details).toMatchObject({ code: 'IDENTIFIER_IN_USE', conflict: { kind: 'PRODUCT', productId: box, name: 'Cola 12-pack box', stockQuantity: 3 } });
+      const preview = (await post(`/api/products/${box}/merge-into-pack/preview`, { baseProductId: cola, unitsPerPackage: 12 }).expect(200)).body.data;
+      expect(preview).toMatchObject({ singlesAdded: 36, newBaseStock: 60, unopenedPacks: 3, costPerSingle: 0.5, problems: [],
+        source: { value: 18, stockQuantity: 3 }, pack: { barcode: TWELVE, price: 9.99 } });
+    });
+
+    it('moves the boxes in as cans at the same value, as unopened packs, and archives the old product', async () => {
+      await post(`/api/suppliers/${supplier}/products`, { productId: box, supplierSku: 'BOX-12', cost: 6 }).expect(201);
+      const key = randomUUID();
+      const done = (await merge({ idempotencyKey: key }).expect(201)).body.data;
+      expect(done.replayed).toBe(false);
+      expect((await merge({ idempotencyKey: key }).expect(200)).body.data.replayed).toBe(true);
+
+      expect((await product()).stockQuantity).toBe(60);
+      expect(Number((await balance()).value)).toBe(30); // $12 of cans + $18 of boxes
+      const unit = await prisma.productSellingUnit.findUniqueOrThrow({ where: { id: done.merge.sellingUnitId } });
+      expect(unit).toMatchObject({ productId: cola, barcode: TWELVE, unitsPerPackage: 12, sealedQuantity: 3, name: '12-pack' });
+      expect(Number(unit.price)).toBe(9.99);
+      const old = await prisma.product.findUniqueOrThrow({ where: { id: box } });
+      expect(old).toMatchObject({ isActive: false, barcode: null, stockQuantity: 0 });
+      // The box supplier now sells the can in cases of 12 at $6 ($0.50 a can).
+      const link = await prisma.productSupplier.findUniqueOrThrow({ where: { productId_supplierId: { productId: cola, supplierId: supplier } } });
+      expect(link).toMatchObject({ packSize: 12, supplierSku: 'BOX-12' });
+      expect(Number(link.packCost)).toBe(6);
+      expect(Number(link.cost)).toBe(0.5);
+      // Nothing is gained or lost by merging.
+      const { getFinancialMetrics } = await import('../../services/financialMetrics.service');
+      expect((await getFinancialMetrics({ locationId: data.location.id })).costOfGoodsSold ?? 0).toBe(0);
+      // Scanning the old barcode now sells the 12-pack from the can stock.
+      await sell([{ productId: unit.id, quantity: 1, price: 9.99 }]).expect(201);
+      expect((await product()).stockQuantity).toBe(48);
+    });
+
+    it('refuses merges that would lose track of stock', async () => {
+      await merge({}, cola).expect(409); // into itself
+      await createPack(12, 8.99, '049000000099');
+      await merge().expect(409); // the can already has a 12-pack
+      await prisma.productSellingUnit.updateMany({ where: { productId: cola }, data: { isActive: false } });
+      const order = (await post('/api/purchase-orders', { supplierId: supplier, items: [{ productId: box, quantity: 2, cost: 6 }] }).expect(201)).body.data;
+      const onOrder = await merge().expect(409);
+      expect(onOrder.body.error).toMatch(/open purchase order/);
+      await prisma.purchaseOrder.update({ where: { id: order.id }, data: { status: 'CANCELLED' } });
+      await sell([{ productId: box, quantity: 5, price: 9.99 }]).expect(201); // the box is now at -2
+      expect((await merge().expect(409)).body.error).toMatch(/Resolve its stock exception/);
+      expect(await prisma.productPackMerge.count()).toBe(0);
+    });
   });
 
   it('5. opening a pack moves it to loose stock without changing stock or value', async () => {

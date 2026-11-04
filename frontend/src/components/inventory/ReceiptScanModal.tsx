@@ -24,6 +24,9 @@ interface ScannedItem {
   matchedProductId: string | null;
   matchedProductName: string | null;
   matchedProductSku: string | null;
+  /** Set when the line is a pack of the matched item (e.g. its carton of 10). */
+  sellingUnitId: string | null;
+  packName: string | null;
   existingPrice: number | null;
   existingCost: number | null;
   price: number;
@@ -38,6 +41,17 @@ interface ExistingProduct {
   name: string;
   sku: string;
   barcode: string | null;
+  price: number;
+  cost: number;
+}
+
+interface ExistingPack {
+  sellingUnitId: string;
+  name: string;
+  unitsPerPackage: number;
+  productId: string;
+  productName: string;
+  productSku: string;
   price: number;
   cost: number;
 }
@@ -67,6 +81,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
     async signal => (await purchaseOrderService.getAll({ limit: 100 }, signal)).data.data, isOpen && step === 'review');
   const [items, setItems] = useState<ScannedItem[]>([]);
   const [existingProducts, setExistingProducts] = useState<ExistingProduct[]>([]);
+  const [existingPacks, setExistingPacks] = useState<ExistingPack[]>([]);
   const workflow = useInventoryImport('RECEIPT', onSuccess, isOpen);
   const isApplying = workflow.busy;
   const [error, setError] = useState('');
@@ -109,6 +124,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
       setSupplier(data.supplier || '');
       setInvoiceNumber(data.invoiceNumber || '');
       setExistingProducts(data.existingProducts || []);
+      setExistingPacks(data.existingPacks || []);
 
       // Process items
       const scannedItems: ScannedItem[] = (data.items || []).map((item: any) => ({
@@ -122,6 +138,8 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
         matchedProductId: item.matchedProductId || null,
         matchedProductName: item.matchedProductName || null,
         matchedProductSku: item.matchedProductSku || null,
+        sellingUnitId: item.sellingUnitId || null,
+        packName: item.packName || null,
         existingPrice: item.existingPrice || null,
         existingCost: item.existingCost || null,
         price: item.existingPrice || 0,
@@ -155,14 +173,30 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
     setItems(prev => prev.filter((_, i) => i !== index));
   };
 
-  const matchToExisting = (index: number, productId: string) => {
-    const product = existingProducts.find(p => p.id === productId);
+  const matchToExisting = (index: number, value: string) => {
+    // "pack:<id>" is a pack (e.g. a carton of 10): the line lands on its single, 10 units per pack.
+    if (value.startsWith('pack:')) {
+      const pack = existingPacks.find(candidate => candidate.sellingUnitId === value.slice(5));
+      if (!pack) return;
+      const item = items[index];
+      const unitQuantity = item.quantity * pack.unitsPerPackage;
+      updateItem(index, {
+        matchedProductId: pack.productId, matchedProductName: pack.productName, matchedProductSku: pack.productSku,
+        sellingUnitId: pack.sellingUnitId, packName: pack.name, packSize: pack.unitsPerPackage,
+        unitCost: item.totalCost > 0 ? Math.round(item.totalCost / unitQuantity * 10000) / 10000 : item.unitCost,
+        existingPrice: pack.price, existingCost: pack.cost, isNew: false,
+      });
+      return;
+    }
+    const product = existingProducts.find(p => p.id === value);
     if (!product) return;
 
     updateItem(index, {
       matchedProductId: product.id,
       matchedProductName: product.name,
       matchedProductSku: product.sku,
+      sellingUnitId: null,
+      packName: null,
       existingPrice: product.price,
       existingCost: product.cost,
       isNew: false,
@@ -174,6 +208,8 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
       matchedProductId: null,
       matchedProductName: null,
       matchedProductSku: null,
+      sellingUnitId: null,
+      packName: null,
       existingPrice: null,
       existingCost: null,
       isNew: true,
@@ -200,6 +236,9 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
       freight: Number(charges.freight), acquisitionTax: Number(charges.acquisitionTax), invoiceDiscount: Number(charges.invoiceDiscount),
       items: items.map(item => ({ matchedProductId: item.matchedProductId, name: item.name,
         packSize: item.packSize, lineDiscount: item.lineDiscount || 0, damagedQty: item.damagedQty || 0, rejectedQty: item.rejectedQty || 0,
+        // Whole packs that arrived unopened stay on the shelf as unopened packs.
+        ...(item.sellingUnitId && !item.isNew ? { sellingUnitId: item.sellingUnitId,
+          receivedPackageQuantity: Math.floor((item.unitQuantity - (item.damagedQty || 0) - (item.rejectedQty || 0)) / item.packSize) } : {}),
         unitQuantity: item.unitQuantity - (item.damagedQty || 0) - (item.rejectedQty || 0), unitCost: item.unitCost, zeroCostConfirmed: item.zeroCostConfirmed || false, price: item.isNew && item.price > 0 ? item.price : undefined,
         barcode: item.barcode, sku: item.sku || undefined, categoryId: item.categoryId || undefined })) });
   };
@@ -216,6 +255,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
     setPurchaseOrderId(''); setInvoiceDate(''); setCharges({ freight: '0', acquisitionTax: '0', invoiceDiscount: '0' });
     setItems([]);
     setExistingProducts([]);
+    setExistingPacks([]);
     setError('');
 
     onClose();
@@ -392,6 +432,11 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                                   {p.name} ({p.sku})
                                 </option>
                               ))}
+                              {existingPacks.map(pack => (
+                                <option key={pack.sellingUnitId} value={`pack:${pack.sellingUnitId}`}>
+                                  {pack.name} (pack of {pack.unitsPerPackage} × {pack.productName})
+                                </option>
+                              ))}
                             </Select>
                           </div>
                         )}
@@ -440,8 +485,10 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                           min="1"
                           aria-label={'Units per pack for item ' + (index + 1)}
                           value={item.packSize}
-                          onChange={(e) => updateItem(index, { packSize: Math.max(1, parseInt(e.target.value) || 1) })}
+                          onChange={(e) => updateItem(index, { packSize: Math.max(1, parseInt(e.target.value) || 1), sellingUnitId: null, packName: null })}
+                          readOnly={!!item.sellingUnitId}
                         />
+                        {item.packName && <p className="mt-1 text-xs text-muted-foreground">{item.packName}</p>}
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-1">
@@ -465,6 +512,19 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                         />
                       </div>
                     </div>
+                    {item.packSize > 1 && (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="sm:col-span-2">
+                          <Input type="number" min="0" step="0.01" label={`Cost per pack of ${item.packSize}`}
+                            aria-label={'Cost per pack for item ' + (index + 1)}
+                            value={Math.round(item.unitCost * item.packSize * 100) / 100}
+                            onChange={(e) => updateItem(index, { unitCost: Math.round((parseFloat(e.target.value) || 0) / item.packSize * 10000) / 10000 })} />
+                        </div>
+                        <p className="sm:col-span-2 self-end pb-2 text-xs text-muted-foreground">
+                          {formatCurrency(item.unitCost * item.packSize)} ÷ {item.packSize} = {formatCurrency(item.unitCost)} per unit, which becomes the item's cost price.
+                        </p>
+                      </div>
+                    )}
 
                     {item.unitCost === 0 && <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={item.zeroCostConfirmed || false} onChange={e => updateItem(index, { zeroCostConfirmed: e.target.checked })} />These goods are confirmed free</label>}
                     {/* Line total */}

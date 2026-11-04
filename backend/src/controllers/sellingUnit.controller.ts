@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import prisma from '../config/database';
@@ -37,9 +38,14 @@ export const getPackaging = asyncHandler(async (req: AuthRequest, res: Response)
 
 const unitName = z.string().trim().min(1).max(60);
 const barcode = z.string().trim().min(3).max(100);
+// What the store pays for one pack. The single's cost price becomes pack cost / units:
+// a $100 carton of 10 makes each pack $10. A pack never stores a cost of its own.
+const packCost = z.number().min(0).max(10_000_000).optional();
+const singleCostFromPack = (cost: number, unitsPerPackage: number) => new Prisma.Decimal(cost).div(unitsPerPackage).toDecimalPlaces(4);
+
 const createBody = z.object({
   name: unitName, barcode, sku: z.string().trim().max(100).optional(),
-  unitsPerPackage: z.number().int().min(2).max(100000), price: z.number().gt(0).max(1_000_000),
+  unitsPerPackage: z.number().int().min(2).max(100000), price: z.number().gt(0).max(1_000_000), packCost,
   baseUnitName: z.string().trim().min(1).max(30).optional(), requestKey: z.string().trim().min(8).max(100).optional(),
 });
 
@@ -57,7 +63,9 @@ export const createSellingUnit = asyncHandler(async (req: AuthRequest, res: Resp
       await assertSellingIdentifiersAvailable(tx, { locationId, barcode: body.barcode, sku: body.sku || null });
       await tx.productSellingUnit.create({ data: { productId: current.id, locationId, name: body.name, barcode: body.barcode, sku: body.sku || null,
         unitsPerPackage: body.unitsPerPackage, price: body.price, createRequestKey: requestKey } });
-      if (body.baseUnitName) await tx.product.update({ where: { id: current.id }, data: { baseUnitName: body.baseUnitName } });
+      if (body.baseUnitName || body.packCost !== undefined) await tx.product.update({ where: { id: current.id }, data: {
+        ...(body.baseUnitName ? { baseUnitName: body.baseUnitName } : {}),
+        ...(body.packCost !== undefined ? { cost: singleCostFromPack(body.packCost, body.unitsPerPackage) } : {}) } });
     }
     return tx.product.findUniqueOrThrow({ where: { id: current.id }, include: withPackaging });
   });
@@ -66,7 +74,7 @@ export const createSellingUnit = asyncHandler(async (req: AuthRequest, res: Resp
 
 const updateBody = z.object({
   name: unitName.optional(), barcode: barcode.optional(), sku: z.string().trim().max(100).nullable().optional(),
-  price: z.number().gt(0).max(1_000_000).optional(), isActive: z.boolean().optional(), expectedVersion: z.number().int().min(0),
+  price: z.number().gt(0).max(1_000_000).optional(), isActive: z.boolean().optional(), expectedVersion: z.number().int().min(0), packCost,
 });
 
 export const updateSellingUnit = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -83,6 +91,7 @@ export const updateSellingUnit = asyncHandler(async (req: AuthRequest, res: Resp
       ...(body.name !== undefined ? { name: body.name } : {}), ...(body.barcode !== undefined ? { barcode: body.barcode } : {}),
       ...(body.sku !== undefined ? { sku: body.sku || null } : {}), ...(body.price !== undefined ? { price: body.price } : {}),
       ...(body.isActive !== undefined ? { isActive: body.isActive } : {}), version: { increment: 1 } } });
+    if (body.packCost !== undefined) await tx.product.update({ where: { id: current.id }, data: { cost: singleCostFromPack(body.packCost, unit.unitsPerPackage) } });
     return tx.product.findUniqueOrThrow({ where: { id: current.id }, include: withPackaging });
   });
   res.json({ success: true, data: summary(product) });
