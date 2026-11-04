@@ -22,7 +22,7 @@ test('purchasing requests only the active view and searches suppliers when creat
   await page.reload(); await expect(page.getByPlaceholder('Search orders...')).toHaveValue('PO-FIXTURE');
   await page.getByRole('button', { name: 'New Order', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New Purchase Order', exact: true });
-  await dialog.getByLabel('Search suppliers to select').fill('Fixture Supplier');
+  await dialog.getByLabel('Supplier', { exact: true }).fill('Fixture Supplier');
   await dialog.getByRole('button', { name: 'Fixture Supplier', exact: true }).click();
   await expect(dialog.getByText('Selected supplier: Fixture Supplier')).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();

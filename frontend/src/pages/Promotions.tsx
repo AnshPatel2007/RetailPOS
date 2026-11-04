@@ -1,4 +1,5 @@
-import { ManagementPage } from '@/components/common/Workspace';
+import { FormSection, ManagementPage } from '@/components/common/Workspace';
+import { friendlyDate } from '@/lib/calendarDates';
 import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api, promotionService, productService, categoryService } from '@/services/api';
@@ -131,6 +132,19 @@ export const Promotions: React.FC = () => {
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const formDealSummary = (() => {
+    const money = (value: string) => formatCurrency(parseFloat(value) || 0);
+    if (form.type === 'QUANTITY_PRICE') return form.buyQuantity && form.bundlePrice ? `Any ${form.buyQuantity} for ${money(form.bundlePrice)}` : '';
+    if (form.type === 'BOGO') return form.buyQuantity && form.getQuantity ? `Buy ${form.buyQuantity}, get ${form.getQuantity} ${!form.percentOff || form.percentOff === '100' ? 'free' : form.percentOff + '% off'}` : '';
+    if (form.type === 'PERCENT_OFF') return form.percentOff ? `${form.percentOff}% off` : '';
+    if (form.type === 'AMOUNT_OFF') return form.amountOff ? `${money(form.amountOff)} off each` : '';
+    return '';
+  })();
+  const formScheduleSummary = [
+    form.startsAt || form.endsAt ? `${form.startsAt ? friendlyDate(form.startsAt) : 'Now'} – ${form.endsAt ? friendlyDate(form.endsAt) : 'no end'}` : '',
+    form.daysOfWeek.length && form.daysOfWeek.length < 7 ? [...form.daysOfWeek].sort().map(day => DAY_LABELS[day]).join(', ') : '',
+    form.startTime || form.endTime ? `${form.startTime || 'open'}–${form.endTime || 'close'}` : '',
+  ].filter(Boolean).join(' · ') || 'Always';
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Promotion | null>(null);
 
@@ -449,9 +463,17 @@ export const Promotions: React.FC = () => {
         isOpen={manage && showFormModal}
         onClose={() => { editVersion.current++; setShowFormModal(false); }}
         title={editingId ? 'Edit Promotion' : 'New Promotion'}
+        description="Deals apply by themselves at the register when the cart qualifies."
         size="lg"
+        footer={<div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => setShowFormModal(false)}>Cancel</Button>
+          <Button type="button" variant="primary" onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? 'Saving...' : editingId ? 'Save Changes' : 'Create Promotion'}
+          </Button>
+        </div>}
       >
-        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+        <div className="space-y-4">
+          <FormSection title="The deal">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
               label="Name"
@@ -536,6 +558,10 @@ export const Promotions: React.FC = () => {
             )}
           </div>
 
+          {formDealSummary && <p className="text-sm text-muted-foreground" role="status">In short: <span className="font-medium text-foreground">{formDealSummary}</span></p>}
+          </FormSection>
+
+          <FormSection title="What it applies to" description="Pick products, whole categories, or both. Any mix of them counts toward the deal.">
           {/* Targeting */}
           <div>
             <label className="block text-sm font-medium mb-1">Products (mix &amp; match group)</label>
@@ -585,6 +611,8 @@ export const Promotions: React.FC = () => {
                 {categories.map((c) => (
                   <button
                     key={c.id}
+                    type="button"
+                    aria-pressed={form.categoryIds.includes(c.id)}
                     onClick={() => toggleCategory(c.id)}
                     className={`text-xs px-2 py-1 rounded-full border transition-colors ${
                       form.categoryIds.includes(c.id)
@@ -599,9 +627,10 @@ export const Promotions: React.FC = () => {
             </div>
           )}
 
-          {/* Schedule */}
-          <div className="space-y-3 p-3 bg-muted/40 rounded-lg">
-            <p className="text-sm font-medium">Schedule <span className="text-muted-foreground font-normal">(leave empty to run always)</span></p>
+          </FormSection>
+
+          <FormSection collapsible title="When it runs" summary={formScheduleSummary} defaultOpen={formScheduleSummary !== 'Always'} description="Leave everything empty to run all the time.">
+          <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Input
                 label="Starts"
@@ -622,6 +651,8 @@ export const Promotions: React.FC = () => {
                 {DAY_LABELS.map((label, day) => (
                   <button
                     key={day}
+                    type="button"
+                    aria-pressed={form.daysOfWeek.includes(day)}
                     onClick={() => toggleDay(day)}
                     className={`text-xs w-10 py-1.5 rounded border transition-colors ${
                       form.daysOfWeek.includes(day)
@@ -650,9 +681,13 @@ export const Promotions: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          </FormSection>
+
+          <FormSection collapsible title="More options" summary={`Priority ${form.priority || 0}${form.description ? ' · has a note' : ''}`}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
               label="Priority (higher wins)"
+              description="When two deals fit the same items, the higher number is used."
               type="number" min="0" step="1"
               value={form.priority}
               onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}
@@ -665,12 +700,7 @@ export const Promotions: React.FC = () => {
             />
           </div>
 
-          <div className="flex gap-2 justify-end pt-2 border-t">
-            <Button variant="outline" onClick={() => setShowFormModal(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleSubmit} disabled={isSubmitting}>
-              {isSubmitting ? 'Saving...' : editingId ? 'Save Changes' : 'Create Promotion'}
-            </Button>
-          </div>
+          </FormSection>
         </div>
       </Modal>
 

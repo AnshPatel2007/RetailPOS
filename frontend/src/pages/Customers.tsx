@@ -13,7 +13,7 @@ import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PageHeader } from '@/components/common/PageHeader';
-import { DataPanel, ManagementPage } from '@/components/common/Workspace';
+import { DataPanel, FormSection, ManagementPage } from '@/components/common/Workspace';
 import { CustomerDirectoryTable } from '@/components/customers/CustomerDirectoryTable';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -35,6 +35,7 @@ import { can } from '@/lib/capabilities';
 import { useAuthStore } from '@/store/authStore';
 import '@/styles/customers.css';
 import { Spinner } from '@/components/ui/LoadingState';
+import { Checkbox } from '@/components/ui/Checkbox';
 
 export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }) => {
   const { locationId } = useEffectiveLocation();
@@ -87,6 +88,9 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
     tags: [] as string[],
     birthDate: '',
   });
+
+  const addressSummary = [formData.city, formData.state].filter(Boolean).join(', ') || (formData.address ? formData.address : formData.birthDate ? 'Birthday only' : 'Not added');
+  const marketingSummary = [formData.tags.length ? `${formData.tags.length} tag${formData.tags.length === 1 ? '' : 's'}` : '', formData.emailMarketing ? 'emails ok' : '', formData.smsMarketing ? 'texts ok' : ''].filter(Boolean).join(' · ') || 'None';
   const [tagInput, setTagInput] = useState('');
 
   // ─── Email campaign (admin) ───
@@ -508,16 +512,18 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
           resetForm();
         }}
         title={editingCustomer ? 'Edit Customer' : 'Add New Customer'}
+        description={editingCustomer ? undefined : 'Name and phone are all you need. Add the rest any time.'}
         size="lg"
         footer={<div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setShowModal(false); resetForm(); }}>Cancel</Button><Button type="submit" form={customerFormId}>{editingCustomer ? 'Update Customer' : 'Create Customer'}</Button></div>}
       >
         <form id={customerFormId} onSubmit={handleSubmit} className="customer-form space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Input
               label="First Name"
               value={formData.firstName}
               onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
               required
+              autoFocus
             />
             <Input
               label="Last Name"
@@ -525,118 +531,88 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
               onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
               required
             />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              type="email"
-              label="Email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            />
             <Input
               type="tel"
               label="Phone"
+              description="Used to find them at the register."
               value={formData.phone}
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
               required
             />
-          </div>
-
-          <Input
-            label="Address"
-            value={formData.address}
-            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-          />
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Input
-              label="City"
-              value={formData.city}
-              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-            />
-            <Input
-              label="State"
-              value={formData.state}
-              onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-            />
-            <Input
-              label="ZIP Code"
-              value={formData.zipCode}
-              onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
+              type="email"
+              label="Email"
+              description="Optional. For receipts and offers."
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             />
           </div>
 
-          {/* Birthday */}
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Birthday <span className="text-xs text-muted-foreground font-normal">(for the birthday email perk)</span>
-            </label>
+          <FormSection collapsible title="Address & birthday" summary={addressSummary} defaultOpen={!!(editingCustomer && addressSummary !== 'Not added')}>
+            <Input
+              label="Street address"
+              value={formData.address}
+              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+            />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[2fr_1fr_1fr]">
+              <Input
+                label="City"
+                value={formData.city}
+                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+              />
+              <Input
+                label="State"
+                value={formData.state}
+                onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+              />
+              <Input
+                label="ZIP Code"
+                value={formData.zipCode}
+                onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
+              />
+            </div>
             <Input
               type="date"
+              label="Birthday"
+              description="They get the birthday offer, if you run one."
               value={formData.birthDate}
               onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
             />
-          </div>
+          </FormSection>
 
-          {/* Tags */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Tags</label>
-            {formData.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {formData.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full"
-                  >
-                    {tag}
-                    <button type="button" onClick={() => removeTag(tag)} className="hover:text-destructive" title="Remove tag">
-                      ×
-                    </button>
-                  </span>
-                ))}
+          <FormSection collapsible title="Tags & marketing" summary={marketingSummary} defaultOpen={!!(editingCustomer && marketingSummary !== 'None')}>
+            <div>
+              <label htmlFor={customerFormId + '-tag'} className="mb-1.5 block text-sm font-medium">Tags</label>
+              {formData.tags.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {formData.tags.map((tag) => (
+                    <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
+                      {tag}
+                      <button type="button" onClick={() => removeTag(tag)} className="hover:text-destructive" aria-label={'Remove tag ' + tag}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Input
+                  id={customerFormId + '-tag'}
+                  placeholder='e.g. wholesale, vip'
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); addTag(); }
+                  }}
+                />
+                <Button type="button" variant="outline" onClick={addTag} disabled={!tagInput.trim()}>
+                  Add
+                </Button>
               </div>
-            )}
-            <div className="flex gap-2">
-              <Input
-                placeholder='e.g. "wholesale", "vip", "coffee-club"'
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); addTag(); }
-                }}
-              />
-              <Button type="button" variant="outline" onClick={addTag} disabled={!tagInput.trim()}>
-                Add
-              </Button>
             </div>
-          </div>
-
-          <div className="space-y-2 pt-2">
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={formData.emailMarketing}
-                onChange={(e) =>
-                  setFormData({ ...formData, emailMarketing: e.target.checked })
-                }
-                className="rounded border-input"
-              />
-              <span className="text-sm">Email marketing consent</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={formData.smsMarketing}
-                onChange={(e) =>
-                  setFormData({ ...formData, smsMarketing: e.target.checked })
-                }
-                className="rounded border-input"
-              />
-              <span className="text-sm">SMS marketing consent</span>
-            </label>
-          </div>
-
+            <div className="space-y-1">
+              <Checkbox label="Agrees to marketing emails" checked={formData.emailMarketing} onChange={(e) => setFormData({ ...formData, emailMarketing: e.target.checked })} />
+              <Checkbox label="Agrees to marketing texts (SMS)" checked={formData.smsMarketing} onChange={(e) => setFormData({ ...formData, smsMarketing: e.target.checked })} />
+            </div>
+          </FormSection>
         </form>
       </Modal>
 

@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
+import { Textarea } from '@/components/ui/Textarea';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PageTabs } from '@/components/common/PageTabs';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -910,21 +911,31 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
         onClose={() => { setShowOrderModal(false); resetOrderForm(); }}
         title={editingOrder ? 'Edit Purchase Order' : 'New Purchase Order'}
         size="lg"
+        footer={(() => {
+          const lines = orderForm.items.filter(item => item.productId);
+          return <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">{lines.length} item{lines.length === 1 ? '' : 's'} · <span className="text-base font-semibold text-foreground tabular-nums">Total {formatCurrency(orderForm.items.reduce((sum, item) => sum + lineTotal(item), 0))}</span></p>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => { setShowOrderModal(false); resetOrderForm(); }}>Cancel</Button>
+              <Button type="button" variant="primary" onClick={handleCreateOrder}>{editingOrder ? 'Update Order' : 'Create Order'}</Button>
+            </div>
+          </div>;
+        })()}
       >
-        <div className="max-h-[70vh] overflow-y-auto pr-2">
-          <div className="space-y-4">
+        <div>
+          <div className="space-y-5">
             <div>
               {editingOrder ? <p className="text-sm">Supplier: {chosenSupplier?.name || selectedOrder?.supplier.name}</p> : <SupplierPicker locationId={locationId || undefined} selected={chosenSupplier} onSelect={supplier => { setChosenSupplier(supplier); setOrderForm(current => ({ ...current, supplierId: supplier.id })); }} />}
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">Items <span className="text-destructive">*</span></label>
+              <p className="mb-2 text-sm font-medium">Items <span className="text-destructive">*</span> <span className="font-normal text-muted-foreground">— scan a barcode or type a name. Buying by the case? Set units per case.</span></p>
 
               {/* Column Headers */}
               <div className="grid grid-cols-12 gap-2 mb-2 text-xs font-medium text-muted-foreground">
-                <div className="col-span-5">Product (Barcode / SKU / Name)</div>
-                <div className="col-span-2">Qty / cases</div>
-                <div className="col-span-2">Cost ($ per unit / case)</div>
+                <div className="col-span-5">Product</div>
+                <div className="col-span-2">Quantity</div>
+                <div className="col-span-2">Cost each</div>
                 <div className="col-span-2">Units per case</div>
                 <div className="col-span-1"></div>
               </div>
@@ -940,7 +951,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                         onChange={(e) => handleProductSearch(index, e.target.value)}
                         onFocus={() => setShowSuggestions(index)}
                         onBlur={() => setTimeout(() => setShowSuggestions(null), 200)}
-                        placeholder="Scan barcode or type product name..."
+                        placeholder="Scan or type a product"
                         className="w-full text-base py-2"
                       />
                       {showSuggestions === index && productSearches[index] && (
@@ -999,27 +1010,11 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
               <Button variant="ghost" size="sm" onClick={addOrderItem} className="mt-2"><Plus className="w-4 h-4 mr-1" />Add another item</Button>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">Expected Delivery</label>
-              <Input type="date" value={orderForm.expectedAt} onChange={(e) => setOrderForm({ ...orderForm, expectedAt: e.target.value })} />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">Notes</label>
-              <textarea value={orderForm.notes} onChange={(e) => setOrderForm({ ...orderForm, notes: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-sm text-foreground" rows={2} />
-            </div>
-
-            <div className="pt-4 border-t">
-              <div className="flex justify-between text-lg font-bold">
-                <span>Total:</span>
-                <span>{formatCurrency(orderForm.items.reduce((sum, item) => sum + lineTotal(item), 0))}</span>
-              </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_2fr]">
+              <Input type="date" label="Expected Delivery" description="Optional" value={orderForm.expectedAt} onChange={(e) => setOrderForm({ ...orderForm, expectedAt: e.target.value })} />
+              <Textarea label="Notes" description="Optional" value={orderForm.notes} onChange={(e) => setOrderForm({ ...orderForm, notes: e.target.value })} rows={2} />
             </div>
           </div>
-        </div>
-        <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
-          <Button variant="outline" onClick={() => { setShowOrderModal(false); resetOrderForm(); }}>Cancel</Button>
-          <Button variant="primary" onClick={handleCreateOrder}>{editingOrder ? 'Update Order' : 'Create Order'}</Button>
         </div>
       </Modal>
 

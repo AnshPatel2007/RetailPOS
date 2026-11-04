@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { FormSection } from '@/components/common/Workspace';
 import { Badge } from '@/components/ui/Badge';
 import {
   Table,
@@ -444,114 +445,103 @@ export const StoreManagement: React.FC = () => {
         }}
         title={editingLocation ? 'Edit Store' : 'Create New Store'}
         size="lg"
+        footer={<div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => { setShowModal(false); resetForm(); }}>Cancel</Button>
+          <Button type="submit" form="store-form" variant="primary">{editingLocation ? 'Update Store' : 'Create Store'}</Button>
+        </div>}
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            label="Store Name"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-          />
+        <form id="store-form" onSubmit={handleSubmit} className="space-y-4">
+          <FormSection title="Store">
+            <Input
+              label="Store Name"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
+              autoFocus
+            />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input
+                label="Phone"
+                type="tel"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                required
+              />
+              <Input
+                label="Email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                required
+              />
+            </div>
+          </FormSection>
 
-          <Input
-            label="Address"
-            value={formData.address}
-            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-            required
-          />
+          <FormSection title="Address">
+            <Input
+              label="Street address"
+              value={formData.address}
+              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+              required
+            />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[2fr_1fr_1fr]">
+              <Input
+                label="City"
+                value={formData.city}
+                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                required
+              />
+              <Input
+                label="State"
+                value={formData.state}
+                onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                required
+              />
+              <Input
+                label="ZIP Code"
+                value={formData.zipCode}
+                onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
+                required
+              />
+            </div>
+          </FormSection>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Input
-              label="City"
-              value={formData.city}
-              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-              required
-            />
-            <Input
-              label="State"
-              value={formData.state}
-              onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-              required
-            />
-            <Input
-              label="ZIP Code"
-              value={formData.zipCode}
-              onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Phone"
-              type="tel"
-              value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-              required
-            />
-            <Input
-              label="Email"
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Input
-              label="Tax Rate (%)"
-              type="number"
-              step="0.001"
-              value={formData.taxRate}
-              onChange={(e) => setFormData({ ...formData, taxRate: e.target.value })}
-            />
-            <Input
-              label="Card Surcharge (%)"
-              type="number"
-              step="0.1"
-              min="0"
-              max="10"
-              value={formData.cardSurchargePercent}
-              onChange={(e) => setFormData({ ...formData, cardSurchargePercent: e.target.value })}
-              title="Cash-discount program: % added to card-paid amounts (0 = off)"
-            />
-            <Input
-              label="Currency"
-              value={formData.currency}
-              onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-            />
-            <div>
-              <label className="block text-sm font-medium mb-1">Timezone</label>
+          <FormSection title="Tax, money & time" description="Sales tax, card fees, and the time zone that decides when the store's business day starts.">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input
+                label="Tax Rate (%)"
+                type="number"
+                step="0.001"
+                value={formData.taxRate}
+                onChange={(e) => setFormData({ ...formData, taxRate: e.target.value })}
+              />
+              <Input
+                label="Card Surcharge (%)"
+                description="Added to card payments for a cash-discount program. 0 = off."
+                type="number"
+                step="0.1"
+                min="0"
+                max="10"
+                value={formData.cardSurchargePercent}
+                onChange={(e) => setFormData({ ...formData, cardSurchargePercent: e.target.value })}
+              />
               <Select
+                label="Timezone"
                 value={formData.timezone}
                 onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
-                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
               >
                 <option value="America/New_York">Eastern</option>
                 <option value="America/Chicago">Central</option>
                 <option value="America/Denver">Mountain</option>
                 <option value="America/Los_Angeles">Pacific</option>
               </Select>
+              <Input
+                label="Currency"
+                value={formData.currency}
+                onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+              />
             </div>
-          </div>
-
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowModal(false);
-                resetForm();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" className="flex-1">
-              {editingLocation ? 'Update Store' : 'Create Store'}
-            </Button>
-          </div>
+          </FormSection>
         </form>
       </Modal>
 

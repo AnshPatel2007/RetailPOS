@@ -3,7 +3,7 @@ import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useRef } from 'react';
 import { shiftService } from '@/services/api';
 import { Shift } from '@/types';
-import { formatCurrency, formatDateTime, formatTime } from '@/lib/utils';
+import { formatCurrency, formatDateTime, formatTime, cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
@@ -29,6 +29,8 @@ import { useAuthStore } from '@/store/authStore';
 import { cashOperationKey, cashOperationRejected, readCashOperation, PendingCashOperation } from '@/services/pendingCashOperation';
 import { currentPaymentSession } from '@/services/paymentSession';
 import { Spinner } from '@/components/ui/LoadingState';
+import { Alert } from '@/components/ui/Alert';
+import { DrawerCountHelper } from '@/components/shifts/DrawerCountHelper';
 
 export const Shifts: React.FC = () => {
   const user = useAuthStore(state => state.user);
@@ -45,7 +47,7 @@ export const Shifts: React.FC = () => {
   const [showClockInModal, setShowClockInModal] = useState(false);
   const [showClockOutModal, setShowClockOutModal] = useState(false);
   const [startingCash, setStartingCash] = useState('0');
-  const [endingCash, setEndingCash] = useState('0');
+  const [endingCash, setEndingCash] = useState('');
   const [page, setPage] = useUrlPage();
   const [totalPages, setTotalPages] = useState(1);
 
@@ -205,7 +207,7 @@ export const Shifts: React.FC = () => {
         endingCash: parseFloat(endingCash) || 0,
       });
       setShowClockOutModal(false);
-      setEndingCash('0');
+      setEndingCash('');
       // Show shift summary
       const summary = response.data?.data?.shiftSummary;
       if (summary) {
@@ -473,94 +475,65 @@ export const Shifts: React.FC = () => {
         isOpen={showClockOutModal}
         onClose={() => setShowClockOutModal(false)}
         title="Clock Out"
+        description="Count the cash in the drawer and enter the total."
+        footer={<div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => setShowClockOutModal(false)}>Cancel</Button>
+          <Button type="submit" form="clock-out-form" disabled={!endingCash.trim()}>Clock Out</Button>
+        </div>}
       >
-        {currentShift && (
-          <div className="space-y-4">
-            {currentShift.reconciliationWarning && <p className="text-sm text-warning">{currentShift.reconciliationWarning}</p>}
-            <div className="p-4 bg-muted rounded-lg space-y-2">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Starting Cash:</span>
-                <span className="font-medium">
-                  {formatCurrency(currentShift.startingCash)}
-                </span>
+        {currentShift && (() => {
+          const shift = currentShift as typeof currentShift & { totalCashSales?: number; cashMovementNet?: number; expectedDrawer?: number };
+          const expected = shift.expectedDrawer ?? shift.startingCash + (shift.totalCashSales ?? shift.totalSales);
+          // Only lines that moved money are shown; zero rows were noise.
+          const lines: [string, number][] = [
+            ['Cash sales (after change)', shift.totalCashSales ?? shift.totalSales],
+            ['Cash refunds & voids paid', -((shift.cashRefunds || 0) + (shift.cashVoids || 0))],
+            ['Gift card cash funding', shift.cashGiftFunding || 0],
+            ['House account cash payments', shift.cashHousePayments || 0],
+            ['Cash movements (net)', shift.cashMovementNet ?? 0],
+          ];
+          const counted = endingCash.trim() !== '' && Number.isFinite(Number(endingCash)) ? Number(endingCash) : null;
+          const diff = counted === null ? null : Math.round((counted - expected) * 100) / 100;
+          return (
+            <form id="clock-out-form" className="space-y-4" onSubmit={event => { event.preventDefault(); void handleClockOut(); }}>
+              {shift.reconciliationWarning && <Alert tone="warning">{shift.reconciliationWarning}</Alert>}
+              <div className="rounded-lg border">
+                <div className="flex items-baseline justify-between gap-3 border-b px-4 py-3">
+                  <span className="text-sm font-medium">Expected in drawer</span>
+                  <span className="text-xl font-semibold tabular-nums">{formatCurrency(expected)}</span>
+                </div>
+                <dl className="space-y-1 px-4 py-3 text-sm">
+                  <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Starting cash</dt><dd className="tabular-nums">{formatCurrency(shift.startingCash)}</dd></div>
+                  {lines.filter(([, amount]) => Math.abs(amount) >= 0.005).map(([label, amount]) => (
+                    <div key={label} className="flex justify-between gap-3"><dt className="text-muted-foreground">{label}</dt><dd className="tabular-nums">{amount < 0 ? '−' + formatCurrency(-amount) : formatCurrency(amount)}</dd></div>
+                  ))}
+                </dl>
+                <p className="border-t px-4 py-2 text-xs text-muted-foreground">All sales this shift, any payment type: {formatCurrency(shift.totalSales)}</p>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Original Sales (incl. tax):</span>
-                <span className="font-medium text-success">
-                  {formatCurrency(currentShift.totalSales)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Cash Sales (after change):</span>
-                <span className="font-medium">
-                  {formatCurrency((currentShift as any).totalCashSales ?? currentShift.totalSales)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Cash Refunds &amp; Voids Paid:</span>
-                <span>-{formatCurrency((currentShift.cashRefunds || 0) + (currentShift.cashVoids || 0))}</span>
-              </div>
-              <div className="flex justify-between"><span>Gift Card Cash Funding:</span><span>{formatCurrency(currentShift.cashGiftFunding || 0)}</span></div>
-              <div className="flex justify-between"><span>House Account Cash Payments:</span><span>{formatCurrency(currentShift.cashHousePayments || 0)}</span></div>
-              {((currentShift as any).cashMovementNet ?? 0) !== 0 && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Cash Movements (net):</span>
-                  <span className="font-medium">
-                    {formatCurrency((currentShift as any).cashMovementNet)}
-                  </span>
+
+              <Input
+                type="number"
+                label="Counted cash"
+                value={endingCash}
+                onChange={(e) => setEndingCash(e.target.value)}
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                inputMode="decimal"
+                autoFocus
+              />
+              <DrawerCountHelper onTotal={setEndingCash} />
+
+              {diff !== null && (
+                <div role="status" className={cn('flex items-center justify-between rounded-lg border px-4 py-3',
+                  Math.abs(diff) < 0.01 ? 'border-success/40 bg-success/10' : 'border-warning/40 bg-warning/10')}>
+                  <span className="text-sm font-medium">{Math.abs(diff) < 0.01 ? 'Drawer balances' : diff > 0 ? 'Drawer is over by' : 'Drawer is short by'}</span>
+                  {Math.abs(diff) >= 0.01 && <span className="text-lg font-semibold tabular-nums">{formatCurrency(Math.abs(diff))}</span>}
                 </div>
               )}
-              <div className="flex justify-between font-bold pt-2 border-t">
-                <span>Expected Cash in Drawer:</span>
-                <span>
-                  {formatCurrency(
-                    (currentShift as any).expectedDrawer ??
-                      currentShift.startingCash + ((currentShift as any).totalCashSales ?? currentShift.totalSales)
-                  )}
-                </span>
-              </div>
-            </div>
-
-            <Input
-              type="number"
-              label="Ending Cash (Actual Count)"
-              value={endingCash}
-              onChange={(e) => setEndingCash(e.target.value)}
-              step="0.01"
-              autoFocus
-            />
-
-            {endingCash.trim() !== '' && !isNaN(parseFloat(endingCash)) && (() => {
-              const expected =
-                (currentShift as any).expectedDrawer ??
-                currentShift.startingCash + ((currentShift as any).totalCashSales ?? currentShift.totalSales);
-              const diff = parseFloat(endingCash) - expected;
-              return (
-                <div className="p-4 bg-primary/10 border border-primary rounded-lg">
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium">Cash Difference:</span>
-                    <span className={`text-xl font-bold ${Math.abs(diff) < 0.01 ? 'text-success' : 'text-destructive'}`}>
-                      {formatCurrency(diff)}
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
-
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setShowClockOutModal(false)}
-              >
-                Cancel
-              </Button>
-              <Button variant="primary" className="flex-1" onClick={handleClockOut}>
-                Clock Out
-              </Button>
-            </div>
-          </div>
-        )}
+            </form>
+          );
+        })()}
       </Modal>
 
       {/* Shift Summary Modal */}

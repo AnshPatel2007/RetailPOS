@@ -39,7 +39,7 @@ test('a refund with a lost response survives reload and pays from the later draw
   await page.screenshot({ path: 'test-results/drawer-refund.png', fullPage: true });
   await page.getByRole('button', { name: 'Clock Out', exact: true }).click();
   const close = page.getByRole('dialog', { name: 'Clock Out', exact: true });
-  await close.getByLabel('Ending Cash (Actual Count)', { exact: true }).fill('95');
+  await close.getByLabel('Counted cash', { exact: true }).fill('95');
   await close.getByRole('button', { name: 'Clock Out', exact: true }).click();
   const summary = page.getByRole('dialog', { name: 'Shift Summary', exact: true });
   await expect(summary.getByText('Cash Refunds Paid', { exact: true })).toBeVisible();

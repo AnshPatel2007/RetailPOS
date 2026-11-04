@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import toast from 'react-hot-toast';
+import { Checkbox } from '@/components/ui/Checkbox';
 
 interface RecurringExpense {
   id: string;
@@ -247,21 +248,9 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
               />
             </div>
 
-            {/* Active Status */}
-            <div>
-              <label className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={formData.isActive}
-                  onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                  className="rounded border-input"
-                />
-                <span className="text-sm">Active</span>
-              </label>
-              <p className="text-xs text-muted-foreground mt-1">
-                Inactive recurring expenses won't generate new expenses
-              </p>
-            </div>
+            {/* Pausing only matters for one that already exists; new ones always start active. */}
+            {recurringExpense && <Checkbox label="Active" description="Paused recurring expenses don't create new expenses."
+              checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} />}
 
           </form>
               </div>
