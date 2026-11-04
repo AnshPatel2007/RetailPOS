@@ -28,6 +28,7 @@ import { can } from '@/lib/capabilities';
 import { useAuthStore } from '@/store/authStore';
 import { cashOperationKey, cashOperationRejected, readCashOperation, PendingCashOperation } from '@/services/pendingCashOperation';
 import { currentPaymentSession } from '@/services/paymentSession';
+import { Spinner } from '@/components/ui/LoadingState';
 
 export const Shifts: React.FC = () => {
   const user = useAuthStore(state => state.user);
@@ -324,7 +325,7 @@ export const Shifts: React.FC = () => {
         </CardHeader>
         {isLoading ? (
           <div className="p-8 text-center">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
+            <Spinner size="lg" className="mx-auto" />
             <p className="mt-4 text-muted-foreground">Loading shifts...</p>
           </div>
         ) : shifts.length === 0 ? (

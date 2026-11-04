@@ -21,6 +21,8 @@ import { Search, Edit, Trash2, Key, Users, UserCheck, UserX, Plus } from 'lucide
 import toast from 'react-hot-toast';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
+import { Spinner } from '@/components/ui/LoadingState';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface User {
   id: string;
@@ -48,6 +50,7 @@ interface Location {
 }
 
 export const UserManagement: React.FC = () => {
+  const [confirm, confirmDialog] = useConfirm();
   const [search, setSearch] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
   const [filterRole, setFilterRole] = useState('');
@@ -162,7 +165,7 @@ export const UserManagement: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to deactivate this user?')) return;
+    if (!await confirm({ title: 'Deactivate this user?', message: 'They can no longer sign in until reactivated.', confirmLabel: 'Deactivate', destructive: true })) return;
 
     try {
       await userService.delete(id);
@@ -194,6 +197,8 @@ export const UserManagement: React.FC = () => {
 
 
   return (
+    <>
+      {confirmDialog}
     <ManagementPage className="space-y-6">
       <PageHeader
         title="User Management"
@@ -306,7 +311,7 @@ export const UserManagement: React.FC = () => {
         </CardHeader>
         {isLoading ? (
           <div className="p-8 text-center">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
+            <Spinner size="lg" className="mx-auto" />
           </div>
         ) : loadError ? (<div role="alert" className="p-4 space-y-3"><p>Users could not be loaded.</p><Button variant="outline" onClick={loadData}>Retry</Button></div>) : users.length === 0 ? (
           <EmptyState
@@ -626,5 +631,6 @@ export const UserManagement: React.FC = () => {
         </form>
       </Modal>
     </ManagementPage>
+    </>
   );
 };

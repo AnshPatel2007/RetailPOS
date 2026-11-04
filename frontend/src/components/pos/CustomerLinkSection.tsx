@@ -16,6 +16,7 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Spinner } from '@/components/ui/LoadingState';
 
 export interface LinkedCustomer {
   id: string;
@@ -161,7 +162,7 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
               />
               {isSearching && (
                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                  <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></div>
+                  <Spinner size="sm" />
                 </div>
               )}
             </div>

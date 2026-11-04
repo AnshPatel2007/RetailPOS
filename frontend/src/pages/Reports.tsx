@@ -64,6 +64,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { StoreFilterSelect } from '@/components/common/StoreFilterSelect';
 import { useAuthStore } from '@/store/authStore';
 import { invalidateScopedQueries, useScopedQuery } from '@/hooks/useScopedQuery';
+import { Spinner } from '@/components/ui/LoadingState';
 
 export type ReportView = 'overall' | 'sales' | 'inventory' | 'employee' | 'stock-health' | 'exports';
 export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
@@ -1346,7 +1347,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
 
       {isLoading && !['employee', 'stock-health', 'exports'].includes(activeTab) && (
         <div className="flex justify-center p-12">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
+          <Spinner size="lg" />
         </div>
       )}
 

@@ -8,6 +8,7 @@ import { formatCurrency } from '@/lib/utils';
 import { displayStoreDate } from '@/lib/storeDates';
 import { expenseService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface ExpenseDetailsModalProps {
   isOpen: boolean;
@@ -26,6 +27,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
   onEdit,
   timezone,
 }) => {
+  const [confirm, confirmDialog] = useConfirm();
   const { user } = useAuthStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -34,7 +36,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
   const formatDate = (value: string) => displayStoreDate(value, expense.location?.timezone || timezone);
 
   const handleApprove = async () => {
-    if (!confirm('Are you sure you want to approve this expense?')) return;
+    if (!await confirm({ title: 'Approve this expense?', confirmLabel: 'Approve' })) return;
 
     setIsLoading(true);
     setError('');
@@ -50,7 +52,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
   };
 
   const handleReject = async () => {
-    if (!confirm('Are you sure you want to reject this expense?')) return;
+    if (!await confirm({ title: 'Reject this expense?', confirmLabel: 'Reject', destructive: true })) return;
 
     setIsLoading(true);
     setError('');
@@ -66,7 +68,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
   };
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this expense? This action cannot be undone.')) return;
+    if (!await confirm({ title: 'Delete this expense?', message: 'This cannot be undone.', confirmLabel: 'Delete', destructive: true })) return;
 
     setIsLoading(true);
     setError('');
@@ -101,6 +103,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={() => { if (!isLoading) onClose(); }} title="Expense Details" size="lg">
+      {confirmDialog}
       <div className="space-y-6">
           {error && (
             <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">

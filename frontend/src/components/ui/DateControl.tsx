@@ -2,7 +2,7 @@ import React, { forwardRef, useContext, useEffect, useId, useRef, useState } fro
 import { Button, Calendar, CalendarCell, CalendarGrid, CalendarGridBody, CalendarGridHeader, CalendarHeaderCell, CalendarStateContext, RangeCalendarStateContext, Dialog, DialogTrigger, Heading, Radio, RadioGroup } from 'react-aria-components';
 import { CalendarDate, today } from '@internationalized/date';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
-import { calendarDate, inputDate, monthLabel } from '@/lib/calendarDates';
+import { calendarDate, friendlyDate, inputDate, monthLabel } from '@/lib/calendarDates';
 import { cn } from '@/lib/utils';
 import { ControlPopover } from './Overlay';
 import { Select } from './Select';
@@ -43,7 +43,8 @@ export const DateControl = forwardRef<HTMLInputElement, DateControlProps>(functi
   const [internal, setInternal] = useState(String(defaultValue ?? ''));
   const current = String(value ?? internal);
   const storeTimezone = useCalendarTimezone();
-  const display = (next: string) => isMonth && /^\d{4}-\d{2}$/.test(next) ? monthLabel(next) : next.replace('T', ' ');
+  // Dates read as "Nov 4, 2026"; anything typed in a common form is understood.
+  const display = (next: string) => isMonth && /^\d{4}-\d{2}$/.test(next) ? monthLabel(next) : isTime ? next.replace('T', ' ') : friendlyDate(next);
   const [raw, setRaw] = useState(display(current));
   const [open, setOpen] = useState(false);
   const [invalid, setInvalid] = useState('');
@@ -95,14 +96,14 @@ export const DateControl = forwardRef<HTMLInputElement, DateControlProps>(functi
         <input {...props} id={inputId} ref={element => { field.current = element; if (typeof forwardedRef === 'function') forwardedRef(element); else if (forwardedRef) forwardedRef.current = element; }}
           type="text" value={raw} disabled={disabled} readOnly={readOnly} required={required} aria-label={name}
           aria-invalid={!!(error || invalid) || undefined} aria-describedby={[props['aria-describedby'], description ? inputId + '-description' : '', error || invalid ? inputId + '-error' : ''].filter(Boolean).join(' ') || undefined}
-          placeholder={props.placeholder || (isMonth ? 'YYYY-MM' : isTime ? 'YYYY-MM-DD HH:mm' : 'MM/DD/YYYY')}
+          placeholder={props.placeholder || (isMonth ? 'YYYY-MM' : isTime ? 'YYYY-MM-DD HH:mm' : 'e.g. Nov 4, 2026')}
           className="date-text" onChange={event => {
             const nextRaw = event.target.value; setRaw(nextRaw);
             const next = validate(nextRaw);
             if (next !== null && withinBounds(next)) emit(next);
             else { field.current?.setCustomValidity('Enter a valid ' + (isMonth ? 'month' : 'date') + ' within the allowed range.'); }
           }} onBlur={event => {
-            if (raw !== display(current) && (validate(raw) === null || !withinBounds(validate(raw) || ''))) setInvalid('Enter a valid ' + (isMonth ? 'month (YYYY-MM).' : isTime ? 'date and time (YYYY-MM-DD HH:mm).' : 'date (MM/DD/YYYY).'));
+            if (raw !== display(current) && (validate(raw) === null || !withinBounds(validate(raw) || ''))) setInvalid('Enter a valid ' + (isMonth ? 'month (YYYY-MM).' : isTime ? 'date and time (YYYY-MM-DD HH:mm).' : 'date, for example Nov 4, 2026 or 11/4/2026.'));
             onBlur?.(event);
           }} />
         <Button type="button" className="date-trigger" isDisabled={disabled || readOnly} aria-label={'Choose ' + name.toLowerCase()}><CalendarDays size={16} aria-hidden="true" /></Button>

@@ -34,6 +34,7 @@ import { useUrlFilter, useUrlPage } from '@/hooks/useUrlFilter';
 import { can } from '@/lib/capabilities';
 import { useAuthStore } from '@/store/authStore';
 import '@/styles/customers.css';
+import { Spinner } from '@/components/ui/LoadingState';
 
 export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }) => {
   const { locationId } = useEffectiveLocation();
@@ -296,7 +297,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
         </div>}
         footer={!isLoading && <div className="customer-directory-footer"><span role="status">{customers.length ? `${customers.length} customers on this page, ${total} ${search ? 'matching' : 'total'}` : '0 customers'}</span><Pagination page={page} totalPages={totalPages} onPageChange={setPage} itemName="customers" /></div>}
       >
-        {isLoading ? <div className="p-8 text-center" role="status"><div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto" /><p className="mt-3 text-muted-foreground">Loading customers...</p></div>
+        {isLoading ? <div className="p-8 text-center" role="status"><Spinner size="md" className="mx-auto" /><p className="mt-3 text-muted-foreground">Loading customers...</p></div>
           : customers.length === 0 ? <EmptyState icon={UsersIcon} title="No customers found" hint={search ? 'Try another search or clear it to see all customers.' : 'Add a customer to keep contact details and purchase history together.'} />
             : <CustomerDirectoryTable customers={customers} canDelete={canDelete} onView={viewCustomerDetail} onEdit={handleEdit} onDelete={customer => setDeleteTargetId(customer.id)} />}
       </DataPanel>}
@@ -306,7 +307,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
         <div className="space-y-6">
           {insightsLoading ? (
             <div className="flex justify-center items-center h-64">
-              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
+              <Spinner size="lg" />
             </div>
           ) : customerData ? (
             <>
@@ -392,7 +393,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
         <div className="space-y-6">
           {insightsLoading ? (
             <div className="flex justify-center items-center h-64">
-              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
+              <Spinner size="lg" />
             </div>
           ) : customerData ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

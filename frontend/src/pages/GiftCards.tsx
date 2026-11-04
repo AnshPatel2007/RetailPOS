@@ -28,6 +28,7 @@ import { can } from '@/lib/capabilities';
 import { AccountReceipt, useAccountOperation } from '@/hooks/useAccountOperation';
 import { AccountOperationFeedback, FundingFields, FundingMethod } from '@/components/accounts/AccountFunding';
 import { AccountCustomer, AccountCustomerPicker } from '@/components/accounts/AccountCustomerPicker';
+import { Spinner } from '@/components/ui/LoadingState';
 
 interface GiftCard {
   id: string;
@@ -225,7 +226,7 @@ export const GiftCards: React.FC = () => {
         <CardContent>
           {loading ? (
             <div className="flex justify-center py-8">
-              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+              <Spinner size="lg" />
             </div>
           ) : loadError ? (<div role="alert" className="p-4"><p>{loadError}</p><Button onClick={() => void fetchGiftCards()} variant="outline" className="mt-3">Retry</Button></div>) : giftCards.length === 0 ? (
             <EmptyState

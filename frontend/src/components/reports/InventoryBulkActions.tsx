@@ -5,6 +5,7 @@ import { Package, DollarSign, Tag, Power, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { productService } from '@/services/api';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface InventoryBulkActionsProps {
   selectedIds: string[];
@@ -19,6 +20,7 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
   onSuccess,
   categories = [],
 }) => {
+  const [confirm, confirmDialog] = useConfirm();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showStockInput, setShowStockInput] = useState(false);
@@ -58,7 +60,7 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
       return;
     }
 
-    if (!confirm(`Are you sure you want to ${stockType === 'set' ? 'set' : 'add'} ${quantity} units for ${selectedIds.length} product(s)?`)) {
+    if (!await confirm({ title: `${stockType === 'set' ? 'Set' : 'Add'} ${quantity} units for ${selectedIds.length} product${selectedIds.length === 1 ? '' : 's'}?`, confirmLabel: stockType === 'set' ? 'Set stock' : 'Add stock' })) {
       return;
     }
 
@@ -97,7 +99,7 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
       return;
     }
 
-    if (!confirm(`Are you sure you want to update pricing for ${selectedIds.length} product(s)?`)) {
+    if (!await confirm({ title: `Update prices for ${selectedIds.length} product${selectedIds.length === 1 ? '' : 's'}?`, confirmLabel: 'Update prices' })) {
       return;
     }
 
@@ -123,7 +125,7 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
       return;
     }
 
-    if (!confirm(`Are you sure you want to update category for ${selectedIds.length} product(s)?`)) {
+    if (!await confirm({ title: `Change the category of ${selectedIds.length} product${selectedIds.length === 1 ? '' : 's'}?`, confirmLabel: 'Change category' })) {
       return;
     }
 
@@ -143,7 +145,7 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
   };
 
   const handleBulkActivate = async (isActive: boolean) => {
-    if (!confirm(`Are you sure you want to ${isActive ? 'activate' : 'deactivate'} ${selectedIds.length} product(s)?`)) {
+    if (!await confirm({ title: `${isActive ? 'Activate' : 'Deactivate'} ${selectedIds.length} product${selectedIds.length === 1 ? '' : 's'}?`, confirmLabel: isActive ? 'Activate' : 'Deactivate', destructive: !isActive })) {
       return;
     }
 
@@ -163,6 +165,8 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
   if (selectedIds.length === 0) return null;
 
   return (
+    <>
+      {confirmDialog}
     <div className="bg-primary/10 border border-primary/20 rounded-md p-4 mb-4">
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-4">
@@ -324,5 +328,6 @@ export const InventoryBulkActions: React.FC<InventoryBulkActionsProps> = ({
         )}
       </div>
     </div>
+    </>
   );
 };

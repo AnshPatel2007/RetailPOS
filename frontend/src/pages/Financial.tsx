@@ -58,8 +58,10 @@ import { BulkActionsToolbar } from '@/components/expenses/BulkActionsToolbar';
 import { FilterDropdown } from '@/components/common/FilterDropdown';
 import { BudgetModal } from '@/components/financial/BudgetModal';
 import { RecurringExpenseModal } from '@/components/financial/RecurringExpenseModal';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 export const Financial: React.FC = () => {
+  const [confirm, confirmDialog] = useConfirm();
   const scopeUser = useAuthStore(s => s.user);
   const role = scopeUser?.role;
   const mayManage = can(role, 'financial.manage');
@@ -278,7 +280,7 @@ export const Financial: React.FC = () => {
   };
 
   const handleDeleteBudget = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this budget?')) return;
+    if (!await confirm({ title: 'Delete this budget?', confirmLabel: 'Delete', destructive: true })) return;
     try {
       await financialService.deleteBudget(id);
       toast.success('Budget deleted');
@@ -289,7 +291,7 @@ export const Financial: React.FC = () => {
   };
 
   const handleDeleteRecurring = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this recurring expense?')) return;
+    if (!await confirm({ title: 'Delete this recurring expense?', message: 'Expenses already created from it are kept.', confirmLabel: 'Delete', destructive: true })) return;
     try {
       await financialService.deleteRecurringExpense(id);
       toast.success('Recurring expense deleted');
@@ -339,6 +341,8 @@ export const Financial: React.FC = () => {
   };
 
   return (
+    <>
+      {confirmDialog}
     <ManagementPage>
       <PageHeader
         title="Financial Management"
@@ -897,6 +901,7 @@ export const Financial: React.FC = () => {
         />
       )}
     </ManagementPage>
+    </>
   );
 };
 

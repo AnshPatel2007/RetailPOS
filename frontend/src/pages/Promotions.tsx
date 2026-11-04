@@ -33,6 +33,7 @@ import {
   X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Spinner } from '@/components/ui/LoadingState';
 
 const TYPE_LABELS: Record<PromotionType, string> = {
   QUANTITY_PRICE: 'N for $X (bundle price)',
@@ -369,7 +370,7 @@ export const Promotions: React.FC = () => {
       <div className="border rounded-lg overflow-hidden">
         {loading ? (
           <div className="flex justify-center py-12">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+            <Spinner size="lg" />
           </div>
         ) : loadError ? <div role="alert" className="p-6 space-y-3"><p>{loadError}</p><Button variant="outline" onClick={() => void promotionUpdates.refresh()}>Retry promotions</Button></div> : promotions.length === 0 ? (
           <EmptyState

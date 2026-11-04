@@ -135,7 +135,7 @@ test.describe('Expense entry on a register in another timezone', () => {
     await page.getByRole('button', { name: 'Add Expense', exact: true }).click();
     const form = page.getByRole('dialog', { name: 'Add New Expense', exact: true });
     await expect(form.getByRole('option', { name: 'PAYROLL', exact: true })).toHaveCount(0);
-    const chosen = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const chosen = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date());
     await expect(form.getByLabel('Expense Date', { exact: true })).toHaveValue(chosen);
     await chooseOption(selectField(form, 'Category'), 'Inventory Purchase');
     await form.getByLabel('Amount', { exact: true }).fill('17.25');

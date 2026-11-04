@@ -28,6 +28,7 @@ import { useCheckoutQuote } from '@/hooks/useCheckoutQuote';
 import type { CheckoutItem } from '@/types/checkout';
 import { amountToComplete, paymentTotal, type CheckoutPayment as Payment, type CheckoutPaymentMethod as PaymentMethod, type PaymentSession } from '@/services/paymentSession';
 import { toCents } from '@/lib/money';
+import { Spinner } from '@/components/ui/LoadingState';
 
 interface EnhancedPaymentModalProps {
   session?: PaymentSession | null;
@@ -401,7 +402,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                   />
                   {isSearching && (
                     <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                      <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
+                      <Spinner size="sm" />
                     </div>
                   )}
                 </div>

@@ -20,6 +20,7 @@ import toast from 'react-hot-toast';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useAuthStore } from '@/store/authStore';
 import { can } from '@/lib/capabilities';
+import { Spinner } from '@/components/ui/LoadingState';
 
 interface SuggestedItem {
   productId: string;
@@ -145,7 +146,7 @@ export const SuggestedOrders: React.FC = () => {
 
       {loading ? (
         <div className="flex justify-center py-12">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       ) : loadError ? (<Card><CardContent className="p-6"><div role="alert"><p>{loadError}</p><Button className="mt-3" variant="outline" onClick={() => void load()}>Retry</Button></div></CardContent></Card>) : groups.length === 0 ? (
         <Card>

@@ -32,6 +32,7 @@ import { can } from '@/lib/capabilities';
 import { Transfer, TransferReceiptKind, outstandingTransfer, returningTransfer, transferProductName, transferRetryKey, pendingTransferReceipt } from '@/types/transfers';
 import { TransferReceiptModal } from '@/components/inventory/TransferReceiptModal';
 import { TransferHistory } from '@/components/inventory/TransferHistory';
+import { Spinner } from '@/components/ui/LoadingState';
 
 interface Location {
   id: string;
@@ -246,7 +247,7 @@ export const InventoryTransfers: React.FC = () => {
         <CardContent>
           {loading ? (
             <div className="flex justify-center py-8">
-              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+              <Spinner size="lg" />
             </div>
           ) : loadError ? (<div role="alert"><p>{loadError}</p><Button className="mt-3" variant="outline" onClick={() => void fetchTransfers()}>Retry</Button></div>) : transfers.length === 0 ? (
             <EmptyState

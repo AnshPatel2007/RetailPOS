@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { lotteryService } from '@/services/api';
 import toast from 'react-hot-toast';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface TicketTypeSettingsProps {
   locationId?: string;
@@ -29,6 +30,7 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
   isReadOnly = false,
   onActionsChange,
 }) => {
+  const [confirm, confirmDialog] = useConfirm();
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -132,7 +134,7 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this ticket type?')) {
+    if (!await confirm({ title: 'Delete this ticket type?', confirmLabel: 'Delete', destructive: true })) {
       return;
     }
 
@@ -181,6 +183,8 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
   }
 
   return (
+    <>
+      {confirmDialog}
     <div className="space-y-4">
       {updates.notice}
       {error && <div role="alert"><p>{error}</p><Button variant="outline" onClick={() => void fetchTicketTypes()}>Retry</Button></div>}
@@ -399,5 +403,6 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
         </Table>
       </Card>
     </div>
+    </>
   );
 };

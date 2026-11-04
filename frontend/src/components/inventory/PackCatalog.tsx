@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { productService } from '@/services/api';
 import { formatCurrency } from '@/lib/utils';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { Spinner } from '@/components/ui/LoadingState';
 
 export type PackRow =
   | { kind: 'PACK'; id: string; productId: string; name: string; containsName: string; unitsPerPackage: number; baseUnitName: string; barcode: string;
@@ -91,7 +92,7 @@ export const PackCatalog: React.FC<{ locationId?: string | null; canManage: bool
         <Pagination page={page} totalPages={totalPages} onPageChange={setPage} itemName="packs" />
       </div> : undefined}>
       {error ? <div role="alert" className="p-6 space-y-3"><p>{error}</p><Button variant="outline" onClick={() => void load()}>Retry packs</Button></div>
-        : rows === null ? <div className="p-8 text-center" role="status"><div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto" /><p className="mt-3 text-muted-foreground">Loading packs...</p></div>
+        : rows === null ? <div className="p-8 text-center" role="status"><Spinner size="md" className="mx-auto" /><p className="mt-3 text-muted-foreground">Loading packs...</p></div>
           : rows.length === 0 ? <EmptyState icon={Boxes} title="No packs yet" hint={settled ? 'Try another search.' : 'Add a carton, 12-pack or variety pack. A pack of one item shares that item\'s stock and cost.'} />
             : <Table>
               <TableHeader><TableRow>

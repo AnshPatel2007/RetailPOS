@@ -13,6 +13,7 @@ import { pricingService } from '@/services/api';
 import { formatCurrency } from '@/lib/utils';
 import { formatPercent, priceMetrics } from '@/lib/pricing';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import { Spinner } from '@/components/ui/LoadingState';
 
 interface ReviewRow {
   productId: string; sellingUnitId: string | null; name: string; sku: string; price: number; unitCost: number;
@@ -72,7 +73,7 @@ const PriceReview: React.FC = () => {
         subtitle="Items priced below cost or under their target margin. Prices change only when you apply them."
         actions={rows && rows.length > 0 && !isReadOnly ? <Button onClick={apply} disabled={applying || selected.size === 0}>Apply {selected.size} price{selected.size === 1 ? '' : 's'}</Button> : undefined} />
       {error ? <Card><CardContent className="p-6"><div role="alert"><p>{error}</p><Button className="mt-3" variant="outline" onClick={() => void load()}>Retry</Button></div></CardContent></Card>
-        : rows === null ? <div className="flex justify-center py-12"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>
+        : rows === null ? <div className="flex justify-center py-12"><Spinner size="lg" /></div>
         : rows.length === 0 ? <Card><CardContent className="py-10"><EmptyState icon={CheckCircle2} title="Every price meets its target"
             hint="Items appear here when a price is below cost or below its target margin." action={<Link className="text-sm text-primary hover:underline" to="/settings?section=pricing">Set target margins</Link>} /></CardContent></Card>
         : <Card><CardContent className="pt-5">

@@ -8,6 +8,10 @@ interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title?: string;
+  /** One short line under the title saying what the form does. */
+  description?: React.ReactNode;
+  /** Accessible name when the dialog shows no title bar (e.g. a confirmation). */
+  label?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -57,7 +61,7 @@ function DisabledFieldsetTabStops() {
   return <span ref={marker} hidden />;
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, footer, size = 'md', className, priority }) => {
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, description, label, children, footer, size = 'md', className, priority }) => {
   const parentLevel = useContext(OverlayLevel);
   const origin = useRef<HTMLSpanElement>(null);
   const [backgroundAllowed, setBackgroundAllowed] = useState(false);
@@ -70,10 +74,10 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
   return <><span ref={origin} hidden /><ModalOverlay isOpen={isOpen} onOpenChange={open => { if (!open) onClose(); }} isDismissable className="app-modal-overlay" style={{ zIndex: level }} data-auto-refresh={backgroundAllowed ? 'allow' : undefined}>
     <AriaModal className={cn('app-dialog w-full bg-background rounded-lg shadow-lg flex flex-col', sizes[size], className)}>
       <OverlayLevel.Provider value={level}>
-        <Dialog aria-label={title || 'Confirmation'} className="app-dialog-content outline-none" data-auto-refresh-pause="true">
+        <Dialog aria-label={title || label || 'Confirmation'} className="app-dialog-content outline-none" data-auto-refresh-pause="true">
           <DisabledFieldsetTabStops />
           {title && <div className="flex items-center justify-between gap-3 p-4 border-b shrink-0">
-            <Heading slot="title" className="text-lg font-semibold">{title}</Heading>
+            <div className="min-w-0"><Heading slot="title" className="text-lg font-semibold">{title}</Heading>{description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}</div>
             <Button type="button" onPress={onClose} className="dialog-close inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Close"><X size={16} /></Button>
           </div>}
           <div className="dialog-body min-h-0 p-4 overflow-y-auto" onFocusCapture={revealFocusedControl}>{children}</div>

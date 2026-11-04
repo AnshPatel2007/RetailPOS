@@ -22,6 +22,7 @@ import { Search, Edit, Trash2, Key, Users, UserCheck, Plus, ShieldAlert } from '
 import toast from 'react-hot-toast';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
+import { Spinner } from '@/components/ui/LoadingState';
 
 interface StaffUser {
   id: string;
@@ -244,7 +245,7 @@ export const Team: React.FC = () => {
         <CardHeader><CardTitle>Staff</CardTitle></CardHeader>
         {isLoading ? (
           <div className="p-8 text-center">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
+            <Spinner size="lg" className="mx-auto" />
           </div>
         ) : loadError ? (<div role="alert" className="p-4 space-y-3"><p>Staff could not be loaded.</p><Button variant="outline" onClick={loadUsers}>Retry</Button></div>) : users.length === 0 ? (
           <EmptyState

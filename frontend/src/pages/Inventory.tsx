@@ -36,6 +36,7 @@ import { ReceiptScanModal } from '@/components/inventory/ReceiptScanModal';
 import { BarcodeLabelPrint } from '@/components/inventory/BarcodeLabelPrint';
 import { CSVImportModal } from '@/components/inventory/CSVImportModal';
 import '@/styles/products.css';
+import { Spinner } from '@/components/ui/LoadingState';
 
 export const Inventory: React.FC = () => {
   const { locationId, isReadOnly } = useEffectiveLocation();
@@ -447,7 +448,7 @@ export const Inventory: React.FC = () => {
           <Pagination page={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} itemName="products" />
         </div>}
       >
-        {isLoading ? <div className="p-8 text-center" role="status"><div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto" /><p className="mt-3 text-muted-foreground">Loading products...</p></div>
+        {isLoading ? <div className="p-8 text-center" role="status"><Spinner size="md" className="mx-auto" /><p className="mt-3 text-muted-foreground">Loading products...</p></div>
           : loadError ? <div role="alert" className="p-6 space-y-3"><p>{loadError}</p><Button variant="outline" onClick={() => void productUpdates.refresh()}>Retry products</Button></div>
             : products.length === 0 ? <EmptyState icon={Package} title="No products found" hint={hasFilters ? 'Try another search or clear your filters.' : 'Add a product to start building your catalog.'} />
               : <ProductCatalogTable products={products} canManage={canManage} onEdit={handleEdit} onAdjustStock={product => { setAdjustingProduct(product); setShowStockAdjustModal(true); }} onDelete={product => setDeleteTargetId(product.id)} />}

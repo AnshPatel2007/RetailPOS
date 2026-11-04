@@ -31,7 +31,8 @@
     --secondary-foreground: 222.2 47.4% 11.2%;
 
     --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    /* Secondary text: darkened from 46.9% so tabs, menus and hints pass WCAG AA (4.5:1) on the page canvas. */
+    --muted-foreground: 214 17% 40%;
 
     --accent: 210 40% 96.1%;
     --accent-foreground: 222.2 47.4% 11.2%;

@@ -28,6 +28,7 @@ import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import toast from 'react-hot-toast';
 import { useUrlFilter, useUrlPage, useResetUrlFilters } from '@/hooks/useUrlFilter';
 import { ProductPicker, PickableProduct } from '@/components/common/ProductPicker';
+import { Spinner } from '@/components/ui/LoadingState';
 
 interface CycleCountRecord {
   id: string;
@@ -290,7 +291,7 @@ export const CycleCount: React.FC = () => {
         <CardContent>
           {loading ? (
             <div className="flex justify-center py-8">
-              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+              <Spinner size="lg" />
             </div>
           ) : loadError ? (<div role="alert"><p>{loadError}</p><Button className="mt-3" variant="outline" onClick={() => void fetchCounts()}>Retry</Button></div>) : counts.length === 0 ? (
             <EmptyState

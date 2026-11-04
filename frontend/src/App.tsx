@@ -17,6 +17,7 @@ import { Login } from './pages/Login';
 import { AdminLayout } from './components/AdminLayout';
 
 import { Analytics as VercelAnalytics } from '@vercel/analytics/react';
+import { Spinner } from '@/components/ui/LoadingState';
 
 // Lazy-load all page components
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -56,7 +57,7 @@ const MANAGER_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
 
 const LoadingSpinner: React.FC = () => (
   <div className="min-h-screen flex items-center justify-center">
-    <div className="animate-spin h-12 w-12 border-4 border-primary border-t-transparent rounded-full" />
+    <Spinner size="lg" />
   </div>
 );
 

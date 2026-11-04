@@ -168,7 +168,7 @@ test('an unfinished calendar range cannot replace the current report period', as
   const picker = page.getByRole('dialog', { name: 'Sales dates', exact: true });
   await picker.locator('.calendar-day:not([data-outside-month]):not([data-disabled])').first().click();
   await expect(picker.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
-  await expect(picker.getByRole('status')).toContainText('Choose the end date');
+  await expect(picker.getByRole('status')).toContainText('Now choose the last day');
   await expect(page).toHaveURL(initial);
   await picker.locator('.calendar-day:not([data-outside-month]):not([data-disabled])').nth(3).click();
   await expect(picker.getByRole('button', { name: 'Apply', exact: true })).toBeEnabled();
@@ -184,15 +184,15 @@ test.describe('store calendar defaults', () => {
     await page.goto('/financial?tab=budgets');
     await page.getByRole('button', { name: 'Add Budget', exact: true }).click();
     const budget = page.getByRole('dialog', { name: 'Create Budget', exact: true });
-    await expect(budget.getByRole('textbox', { name: 'Start Date', exact: true })).toHaveValue('2025-12-31');
+    await expect(budget.getByRole('textbox', { name: 'Start Date', exact: true })).toHaveValue('Dec 31, 2025');
     await page.keyboard.press('Escape');
     await page.goto('/financial?tab=recurring');
     await page.getByRole('button', { name: 'Add Recurring Expense', exact: true }).click();
     const recurring = page.getByRole('dialog', { name: 'Add Recurring Expense', exact: true });
-    await expect(recurring.getByRole('textbox', { name: 'Next Due Date', exact: true })).toHaveValue('2025-12-31');
+    await expect(recurring.getByRole('textbox', { name: 'Next Due Date', exact: true })).toHaveValue('Dec 31, 2025');
     await page.keyboard.press('Escape');
     await page.goto('/lottery');
-    await expect(page.getByRole('textbox', { name: 'Business date', exact: true })).toHaveValue('2025-12-31');
+    await expect(page.getByRole('textbox', { name: 'Business date', exact: true })).toHaveValue('Dec 31, 2025');
     await expect(page.locator('input[type=date]')).toHaveCount(0);
     await page.goto('/insights/reports/exports');
     await expect(page.getByRole('button', { name: /^Scan data dates:/ })).toContainText('Dec 22, 2025');

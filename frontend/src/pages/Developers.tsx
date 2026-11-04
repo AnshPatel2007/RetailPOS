@@ -21,6 +21,7 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { formatDateTime } from '@/lib/utils';
 import { Code2, Plus, Trash2, Copy, KeyRound, Webhook, Zap, CheckCircle2, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Spinner } from '@/components/ui/LoadingState';
 
 const EVENT_LABELS: Record<string, string> = {
   'sale.completed': 'Sale completed',
@@ -120,7 +121,7 @@ export const Developers: React.FC = () => {
 
       {loading ? (
         <div className="flex justify-center py-12">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       ) : loadError ? (<div role="alert" className="p-4 space-y-3"><p>Integrations could not be loaded.</p><Button variant="outline" onClick={load}>Retry</Button></div>) : (
         <div className="space-y-8">

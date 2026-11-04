@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CheckCircle, XCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { expenseService } from '@/services/api';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface BulkActionsToolbarProps {
   selectedIds: string[];
@@ -14,11 +15,12 @@ export const BulkActionsToolbar: React.FC<BulkActionsToolbarProps> = ({
   onClearSelection,
   onSuccess,
 }) => {
+  const [confirm, confirmDialog] = useConfirm();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleBulkApprove = async () => {
-    if (!confirm(`Are you sure you want to approve ${selectedIds.length} expense(s)?`)) return;
+    if (!await confirm({ title: `Approve ${selectedIds.length} expense${selectedIds.length === 1 ? '' : 's'}?`, confirmLabel: 'Approve' })) return;
 
     setIsLoading(true);
     setError('');
@@ -34,7 +36,7 @@ export const BulkActionsToolbar: React.FC<BulkActionsToolbarProps> = ({
   };
 
   const handleBulkReject = async () => {
-    if (!confirm(`Are you sure you want to reject ${selectedIds.length} expense(s)?`)) return;
+    if (!await confirm({ title: `Reject ${selectedIds.length} expense${selectedIds.length === 1 ? '' : 's'}?`, confirmLabel: 'Reject', destructive: true })) return;
 
     setIsLoading(true);
     setError('');
@@ -52,6 +54,8 @@ export const BulkActionsToolbar: React.FC<BulkActionsToolbarProps> = ({
   if (selectedIds.length === 0) return null;
 
   return (
+    <>
+      {confirmDialog}
     <div className="bg-primary/10 border border-primary/20 rounded-md p-4 mb-4">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -94,5 +98,6 @@ export const BulkActionsToolbar: React.FC<BulkActionsToolbarProps> = ({
         <div className="mt-2 text-sm text-destructive">{error}</div>
       )}
     </div>
+    </>
   );
 };

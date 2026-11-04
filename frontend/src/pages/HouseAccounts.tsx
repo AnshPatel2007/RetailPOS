@@ -24,6 +24,7 @@ import { useUrlFilter, useUrlPage } from '@/hooks/useUrlFilter';
 import { can } from '@/lib/capabilities';
 import { AccountReceipt, useAccountOperation } from '@/hooks/useAccountOperation';
 import { AccountOperationFeedback, FundingFields, FundingMethod } from '@/components/accounts/AccountFunding';
+import { Spinner } from '@/components/ui/LoadingState';
 
 interface HouseAccount {
   id: string;
@@ -228,7 +229,7 @@ export const HouseAccounts: React.FC = () => {
       <div className="border rounded-lg overflow-hidden">
         {loading ? (
           <div className="flex justify-center py-12">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+            <Spinner size="lg" />
           </div>
         ) : loadError ? (<div role="alert" className="p-4"><p>{loadError}</p><Button onClick={() => void fetchAccounts()} variant="outline" className="mt-3">Retry</Button></div>) : accounts.length === 0 ? (
           <EmptyState

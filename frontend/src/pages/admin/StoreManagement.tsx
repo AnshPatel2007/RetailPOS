@@ -51,6 +51,8 @@ import {
   Cell,
 } from 'recharts';
 import toast from 'react-hot-toast';
+import { Spinner } from '@/components/ui/LoadingState';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface Location {
   id: string;
@@ -83,6 +85,7 @@ interface StoreDetails {
 const COLORS = CHART_COLORS;
 
 export const StoreManagement: React.FC = () => {
+  const [confirm, confirmDialog] = useConfirm();
   const navigate = useNavigate();
   const enterAdminView = useAdminViewStore(state => state.enterAdminView);
   const [showModal, setShowModal] = useState(false);
@@ -209,7 +212,7 @@ export const StoreManagement: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to deactivate this store?')) return;
+    if (!await confirm({ title: 'Deactivate this store?', message: 'Its sales history stays available, but no new sales or changes can be made there. Staff must be moved or deactivated first.', confirmLabel: 'Deactivate', destructive: true })) return;
 
     try {
       await locationService.delete(id);
@@ -245,6 +248,8 @@ export const StoreManagement: React.FC = () => {
 
 
   return (
+    <>
+      {confirmDialog}
     <ManagementPage className="space-y-6">
       <PageHeader
         title="Store Management"
@@ -317,7 +322,7 @@ export const StoreManagement: React.FC = () => {
         </CardHeader>
         {isLoading ? (
           <div className="p-8 text-center">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
+            <Spinner size="lg" className="mx-auto" />
           </div>
         ) : loadError ? (<div role="alert" className="p-4 space-y-3"><p>Stores could not be loaded.</p><Button variant="outline" onClick={loadLocations}>Retry</Button></div>) : locations.length === 0 ? (
           <div className="p-12 text-center">
@@ -591,7 +596,7 @@ export const StoreManagement: React.FC = () => {
 
             {isLoadingDetails ? (
               <div className="p-12 text-center">
-                <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
+                <Spinner size="lg" className="mx-auto" />
                 <p className="mt-4 text-muted-foreground">Loading store details...</p>
               </div>
             ) : detailError ? <div role="alert" className="p-6 space-y-3"><p>{detailError}</p><Button onClick={() => void loadStoreDetails(selectedStore)}>Retry store details</Button></div> : storeDetails ? (
@@ -860,5 +865,6 @@ export const StoreManagement: React.FC = () => {
         </div>
       )}
     </ManagementPage>
+    </>
   );
 };

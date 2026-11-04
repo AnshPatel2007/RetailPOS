@@ -3,7 +3,7 @@ import { Button, Dialog, DialogTrigger, RangeCalendar, RangeCalendarStateContext
 import { CalendarDate, today } from '@internationalized/date';
 import { CalendarDays, ChevronDown } from 'lucide-react';
 import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
-import { calendarDate, datePresets, inputDate, presetRange } from '@/lib/calendarDates';
+import { calendarDate, datePresets, friendlyDate, inputDate, presetRange } from '@/lib/calendarDates';
 import { ControlPopover, useSmallScreen } from './Overlay';
 import { CalendarMonthGrid, CalendarNavigation } from './DateControl';
 
@@ -15,6 +15,15 @@ function RangeSelectionObserver({ onChange }: { onChange: (selecting: boolean) =
   return null;
 }
 export interface DateRangeValue { startDate: string; endDate: string }
+/** A typed date that reads "Nov 4, 2026" when not being edited and accepts any common form. */
+function RangeDateField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const [text, setText] = useState(friendlyDate(value));
+  const [editing, setEditing] = useState(false);
+  useEffect(() => { if (!editing) setText(friendlyDate(value)); }, [value, editing]);
+  return <label>{label}<input aria-label={label + ' date'} value={text} placeholder="e.g. Nov 4, 2026"
+    onFocus={() => setEditing(true)} onBlur={() => { setEditing(false); setText(friendlyDate(value)); }}
+    onChange={event => { setText(event.target.value); onChange(inputDate(event.target.value) ?? event.target.value); }} /></label>;
+}
 export interface DateRangePickerProps extends DateRangeValue {
   onChange: (range: DateRangeValue) => void;
   timezone?: string;
@@ -51,11 +60,13 @@ export function DateRangePicker({ startDate, endDate, onChange, timezone, label 
       <div className="date-range-presets" aria-label="Date shortcuts">
         {datePresets.map(([key, title]) => { const range = presetRange(key, zone)!; const tooLong = maxDays && calendarDate(range.endDate)!.compare(calendarDate(range.startDate)!) >= maxDays;
           return <Button type="button" key={key} isDisabled={!!tooLong} className="date-preset" aria-pressed={startDate === range.startDate && endDate === range.endDate} onPress={() => apply(range)}>{title}</Button>; })}
-        <span className="date-custom-label">Custom range</span>
+        {allowOpenRange && <Button type="button" className="date-preset" aria-pressed={!startDate && !endDate} onPress={() => apply({ startDate: '', endDate: '' })}>{emptyLabel}</Button>}
       </div>
       <div className="date-range-main">
-        <div className="range-fields"><label>From<input aria-label="From date" value={draft.startDate} placeholder="YYYY-MM-DD" onChange={event => { const next = inputDate(event.target.value) ?? event.target.value; setDraft(previous => ({ ...previous, startDate: next })); const date = calendarDate(next); if (date) setFocused(date); }} /></label>
-          <label>Through<input aria-label="Through date" value={draft.endDate} placeholder="YYYY-MM-DD" onChange={event => setDraft(previous => ({ ...previous, endDate: inputDate(event.target.value) ?? event.target.value }))} /></label></div>
+        <div className="range-fields">
+          <RangeDateField label="From" value={draft.startDate} onChange={next => { setDraft(previous => ({ ...previous, startDate: next })); const date = calendarDate(next); if (date) setFocused(date); }} />
+          <RangeDateField label="Through" value={draft.endDate} onChange={next => setDraft(previous => ({ ...previous, endDate: next }))} />
+        </div>
         <RangeCalendar aria-label="Select date range" value={start && end && start.compare(end) <= 0 ? { start, end } : null} focusedValue={focused} onFocusChange={setFocused}
           visibleDuration={{ months: small ? 1 : 2 }} onChange={range => setDraft({ startDate: range.start.toString(), endDate: range.end.toString() })}>
           <RangeSelectionObserver onChange={setSelecting} />
@@ -64,7 +75,7 @@ export function DateRangePicker({ startDate, endDate, onChange, timezone, label 
         </RangeCalendar>
         {!valid && <p role="alert" className="field-error">{start && end && start.compare(end) > 0 ? 'End date must be on or after start date.' : maxDays && start && end ? `Choose no more than ${maxDays} days.` : 'Enter a valid date range.'}</p>}
       </div>
-      <div className="date-range-footer"><span className="field-description" role="status">{selecting ? 'Choose the end date.' : `Calendar: ${zone}`}</span><Button type="button" className="control-cancel" onPress={() => setOpen(false)}>Cancel</Button><Button type="button" className="control-apply" isDisabled={!valid || selecting} onPress={() => apply(draft)}>Apply</Button></div>
+      <div className="date-range-footer"><span className="field-description" role="status">{selecting ? 'Now choose the last day.' : `Dates follow the store's time zone (${zone.split('/').pop()!.replace(/_/g, ' ')}).`}</span><Button type="button" className="control-cancel" onPress={() => setOpen(false)}>Cancel</Button><Button type="button" className="control-apply" isDisabled={!valid || selecting} onPress={() => apply(draft)}>Apply</Button></div>
     </Dialog></ControlPopover>
   </DialogTrigger>;
 }

@@ -46,6 +46,7 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import toast from 'react-hot-toast';
+import { Spinner } from '@/components/ui/LoadingState';
 
 interface Supplier {
   id: string;
@@ -602,7 +603,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
   // search box) stays mounted — otherwise typing in search loses focus
   const loadingRow = (
     <div className="flex justify-center py-12">
-      <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+      <Spinner size="lg" />
     </div>
   );
 
