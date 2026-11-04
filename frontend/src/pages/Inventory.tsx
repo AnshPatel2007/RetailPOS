@@ -416,6 +416,7 @@ export const Inventory: React.FC = () => {
       {categoriesError && <div role="alert" className="mb-4 flex flex-wrap items-center gap-3"><p>{categoriesError}</p><Button variant="outline" onClick={() => void categoryUpdates.refresh()}>Retry categories</Button></div>}
 
       {view === 'packs' ? <PackCatalog locationId={locationId} canManage={canManage} refreshKey={packsRefresh}
+        onChanged={() => { productUpdates.refresh(); summaryUpdates.refresh(); }}
         onEdit={row => setPackTarget(row.kind === 'PACK' ? { mode: 'edit-pack', productId: row.productId, unitId: row.id } : { mode: 'edit-variety', productId: row.productId })} />
       : <DataPanel
         summary={<SummaryStrip items={[

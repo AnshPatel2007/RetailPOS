@@ -89,6 +89,50 @@ test("a variety pack's cost splits by count: $24 for 12 red, 6 blue, 6 orange", 
   for (const line of ['12 × $1.00 = $12.00', '6 × $1.00 = $6.00']) await expect(dialog.getByText(line).first()).toBeVisible();
 });
 
+test('packs open straight from the Packs list, only after confirming', async ({ page }) => {
+  await login(page, 'owner@example.test');
+  const stamp = Date.now();
+  // A carton pack with 2 unopened cartons on the shelf.
+  const single = await createProduct(page, { name: `Open Single ${stamp}`, sku: `OPEN-${stamp}`, price: 12.5, cost: 10, stockQuantity: 20 });
+  expect((await page.request.post(`/api/products/${single.id}/selling-units`, { headers: await auth(page), data: {
+    name: 'Carton', barcode: `70${stamp}`, unitsPerPackage: 10, price: 119.99 } })).status()).toBe(201);
+  const packaging = (await (await page.request.get(`/api/products/${single.id}/selling-units`, { headers: await auth(page) })).json()).data;
+  const carton = packaging.sellingUnits[0];
+  expect((await page.request.post(`/api/products/${single.id}/selling-units/${carton.id}/packaging`, { headers: await auth(page), data: {
+    action: 'count', quantity: 2, expectedVersion: carton.version, expectedStockVersion: packaging.stockVersion, requestKey: crypto.randomUUID() } })).status()).toBe(200);
+  // A variety pack with 2 in stock: 12 red and 12 blue inside.
+  const [red, blue] = await Promise.all(['Red', 'Blue'].map(flavor => createProduct(page, { name: `Open ${flavor} ${stamp}`, sku: `O${flavor}-${stamp}`, price: 2.49, cost: 1 })));
+  const variety = await createProduct(page, { name: `Open Variety ${stamp}`, sku: `OV-${stamp}`, price: 34.99, cost: 24, stockQuantity: 2 });
+  expect((await page.request.put(`/api/products/${variety.id}/bundle`, { headers: await auth(page), data: { components: [
+    { productId: red.id, quantity: 12 }, { productId: blue.id, quantity: 12 }] } })).status()).toBe(200);
+
+  await page.goto('/inventory?view=packs');
+  await page.getByRole('searchbox', { name: 'Search packs' }).fill(`${stamp}`);
+  const cartonRow = page.getByRole('row').filter({ hasText: `10 × Open Single ${stamp}` });
+  await expect(cartonRow).toContainText('2 unopened');
+
+  // A mistaken click changes nothing.
+  await cartonRow.getByRole('button', { name: 'Open one Carton', exact: true }).click();
+  const confirm = page.getByRole('dialog').filter({ hasText: 'Open one Carton?' });
+  await expect(confirm).toContainText(`One unopened Carton becomes 10 loose Open Single ${stamp} on the shelf`);
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(cartonRow).toContainText('2 unopened');
+
+  await cartonRow.getByRole('button', { name: 'Open one Carton', exact: true }).click();
+  await confirm.getByRole('button', { name: 'Open one pack', exact: true }).click();
+  await expect(cartonRow).toContainText('1 unopened');
+  expect((await getProduct(page, single.id)).stockQuantity).toBe(20);
+
+  const varietyRow = page.getByRole('row').filter({ hasText: `Open Variety ${stamp}` });
+  await varietyRow.getByRole('button', { name: `Open one Open Variety ${stamp}`, exact: true }).click();
+  const confirmVariety = page.getByRole('dialog').filter({ hasText: `Open one Open Variety ${stamp}?` });
+  await expect(confirmVariety).toContainText(`its 24 items are added: 12 Open Red ${stamp}, 12 Open Blue ${stamp}`);
+  await confirmVariety.getByRole('button', { name: 'Open one pack', exact: true }).click();
+  await expect(varietyRow).toContainText('1 in stock');
+  expect((await getProduct(page, red.id)).stockQuantity).toBe(12);
+  expect((await getProduct(page, blue.id)).stockQuantity).toBe(12);
+});
+
 test('receiving one carton at $100 at the stock screen makes each single cost $10', async ({ page }) => {
   await login(page, 'owner@example.test');
   const stamp = Date.now();
