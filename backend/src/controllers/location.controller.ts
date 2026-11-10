@@ -7,10 +7,11 @@ import { AuthRequest } from '../types';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { validateLocationAccess } from '../utils/locationFilter.util';
 import { can } from '../policies/capabilities';
-import { publicStoreSettings } from '../validators/storeSettings.validator';
+import { storeSettingsView } from '../validators/storeSettings.validator';
 
-const storeSettingsSelect = { id: true, name: true, address: true, city: true, state: true, zipCode: true, phone: true, email: true, taxRate: true, cardSurchargePercent: true, timezone: true, isActive: true, settings: true } as const;
-const publicLocationSettings = <T extends { settings: unknown }>(location: T) => ({ ...location, settings: publicStoreSettings(location.settings) });
+const storeSettingsSelect = { id: true, name: true, address: true, city: true, state: true, zipCode: true, phone: true, email: true, taxRate: true, cardSurchargePercent: true, timezone: true, isActive: true, settings: true, updatedAt: true } as const;
+// One shape for store settings wherever they are returned (also with the checkout quote).
+const publicLocationSettings = storeSettingsView;
 
 // Store settings always require an explicit store for platform preview.
 export const getMyStoreSettings = asyncHandler(async (req: AuthRequest, res: Response) => {

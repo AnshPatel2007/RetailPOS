@@ -205,17 +205,29 @@ export const POS: React.FC = () => {
     if (navigator.onLine) {
       quoteInFlight.current = true;
       try {
-        await useStoreSettingsStore.getState().fetchSettings(locationId || undefined);
-        const configuration = useStoreSettingsStore.getState();
-        if (!configuration.isLoaded || configuration.error) {
-          toast.error(configuration.error || 'Load current store settings before checkout.');
-          return;
-        }
-        const currentShift = await shiftService.getCurrent();
-        if (!currentShift.data.data?.id) { toast.error('Clock in before taking payment.'); return; }
-        setCheckoutShiftId(currentShift.data.data.id);
+        // One request: server prices, the open drawer and current store settings, read together.
         const { data } = await saleService.quote(items.map(item => ({ productId: item.product.id, quantity: item.quantity, price: item.product.price, discount: item.discount, priceOverride: item.priceOverride, name: item.product.name })));
-        useCartStore.getState().applyQuote(data.data);
+        const quote = data.data;
+        let shiftId: string | null;
+        if (quote.store !== undefined && quote.shiftId !== undefined) {
+          if (!locationId || !useStoreSettingsStore.getState().applyServerSettings(quote.store, locationId)) {
+            toast.error('Load current store settings before checkout.');
+            return;
+          }
+          shiftId = quote.shiftId;
+        } else {
+          // A server from before this change (mid-deploy): ask for the two separately, as before.
+          await useStoreSettingsStore.getState().fetchSettings(locationId || undefined);
+          const configuration = useStoreSettingsStore.getState();
+          if (!configuration.isLoaded || configuration.error) {
+            toast.error(configuration.error || 'Load current store settings before checkout.');
+            return;
+          }
+          shiftId = (await shiftService.getCurrent()).data.data?.id || null;
+        }
+        if (!shiftId) { toast.error('Clock in before taking payment.'); return; }
+        setCheckoutShiftId(shiftId);
+        useCartStore.getState().applyQuote(quote);
       } catch (error: any) {
         toast.error(error.response?.data?.error || 'Could not verify the checkout total. Try again before taking payment.');
         return;

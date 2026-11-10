@@ -381,3 +381,38 @@ test('Excel P&L preserves numeric daily facts, formulas, missing costs and sourc
   assert.equal(emptySheet.getCell('B8').result, 0);
   emptySheet.eachRow(row => { if (row.getCell(10).text === 'Gross margin') assert.equal(row.getCell(13).value, 'Unavailable'); });
 });
+
+function settingsFixture() {
+  const responses = [];
+  const locationService = {
+    getMySettings: () => new Promise(resolve => responses.push(resolve)),
+    updateMySettings: () => new Promise(resolve => responses.push(resolve)),
+  };
+  const { useStoreSettingsStore } = load('store/storeSettingsStore.ts', {
+    zustand: require('zustand'), 'zustand/middleware': { persist: initialize => initialize },
+    '@/services/api': { locationService }, '@/services/hardware': { hardware: { applyStoreBranding() {} } },
+  });
+  const store = (updatedAt, giftCard, id = 'store-a') => ({ id, name: 'Store', taxRate: 8, timezone: 'America/Chicago', updatedAt,
+    settings: { paymentMethods: { cash: true, card: true, giftCard, storeCredit: false } } });
+  return { settings: useStoreSettingsStore, store, answer: (index, data) => responses[index]({ data: { data } }) };
+}
+
+test('settings that arrive with the checkout quote load the store, but never replace a newer saved change', async () => {
+  const { settings, store, answer } = settingsFixture();
+  // The quote's settings are enough on their own: no separate settings request is needed.
+  assert.equal(settings.getState().applyServerSettings(store('2026-11-10T10:00:00.000Z', false), 'store-a'), true);
+  assert.equal(settings.getState().isLoaded, true);
+  assert.equal(settings.getState().storeInfo.taxRate, 8);
+  assert.equal(settings.getState().applyServerSettings(store('2026-11-10T10:00:00.000Z', false, 'store-b'), 'store-a'), false);
+
+  // The owner turns gift cards on while a quote read just before that change is still on its way.
+  const saving = settings.getState().savePaymentMethods({ cash: true, card: true, giftCard: true, storeCredit: false });
+  answer(0, store('2026-11-10T10:05:00.000Z', true));
+  await saving;
+  assert.equal(settings.getState().paymentMethods.giftCard, true);
+  assert.equal(settings.getState().applyServerSettings(store('2026-11-10T10:04:59.000Z', false), 'store-a'), true);
+  assert.equal(settings.getState().paymentMethods.giftCard, true);
+  // A later change made elsewhere still comes through.
+  settings.getState().applyServerSettings(store('2026-11-10T10:06:00.000Z', false), 'store-a');
+  assert.equal(settings.getState().paymentMethods.giftCard, false);
+});

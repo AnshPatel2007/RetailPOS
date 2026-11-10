@@ -23,6 +23,16 @@ export const updateStoreSettingsSchema = z.object({ body: z.object({
   notificationSettings: notificationSettingsSchema.optional(),
 }).strict().refine(body => Object.keys(body).some(key => key !== 'locationId'), 'Choose settings to update') });
 
+/** The store facts and settings a signed-in user of that store may read (same shape as GET /locations/my-settings). */
+export function storeSettingsView(location: { id: string; name: string; address: string; city: string; state: string; zipCode: string;
+  phone: string; email: string; taxRate: unknown; cardSurchargePercent: unknown; timezone: string; isActive: boolean; settings: unknown; updatedAt: Date }) {
+  return { id: location.id, name: location.name, address: location.address, city: location.city, state: location.state, zipCode: location.zipCode,
+    phone: location.phone, email: location.email, taxRate: location.taxRate, cardSurchargePercent: location.cardSurchargePercent,
+    timezone: location.timezone, isActive: location.isActive, settings: publicStoreSettings(location.settings),
+    // When the store was last changed: lets a register ignore an answer older than the one it already holds.
+    updatedAt: location.updatedAt };
+}
+
 /** Only supported operational settings leave the API, never arbitrary JSON. */
 export function publicStoreSettings(value: unknown) {
   const saved = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};

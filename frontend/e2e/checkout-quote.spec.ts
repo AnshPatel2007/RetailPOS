@@ -61,6 +61,30 @@ test('a failed final quote retains the checkout and requires a successful retry'
   await page.screenshot({ path: 'test-results/final-checkout-quote.png', fullPage: true });
 });
 
+test('pressing Charge asks the server once: prices, drawer and store settings arrive together', async ({ page }) => {
+  await login(page, 'loyalty@example.test');
+  await page.goto('/pos');
+  await page.getByRole('button', { name: /^Fixture Loyalty/ }).click();
+  const charge = page.getByRole('button', { name: 'Charge $1.10', exact: true });
+  await expect(charge).toBeEnabled();
+  // Settings and drawer used to be fetched one after the other before the quote.
+  let watching = false, quoted = false;
+  const beforeQuote: string[] = [];
+  page.on('request', request => {
+    const url = request.url();
+    if (url.endsWith('/api/sales/quote')) quoted = true;
+    else if (watching && !quoted && /\/api\/(locations\/my-settings|shifts\/current)/.test(url)) beforeQuote.push(url);
+  });
+  const quote = page.waitForResponse(response => response.url().endsWith('/api/sales/quote'));
+  watching = true;
+  await charge.click();
+  const body = (await (await quote).json()).data;
+  expect(typeof body.shiftId).toBe('string');
+  expect(body.store.name).toBeTruthy();
+  await expect(page.getByRole('dialog', { name: 'Payment', exact: true })).toBeVisible();
+  expect(beforeQuote).toEqual([]);
+});
+
 test('eligible products explain the EBT launch boundary without offering an unsafe tender', async ({ page }) => {
   await login(page, 'owner@example.test');
   const token = await page.evaluate(() => localStorage.getItem('token'));

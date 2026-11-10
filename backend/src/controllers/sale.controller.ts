@@ -8,7 +8,7 @@ import { priceSaleItems } from '../services/salePricing.service';
 import { resolveSellableProducts, sellPackages } from '../services/productSellingUnit.service';
 import { checkoutTotals } from '../services/checkoutTotals.service';
 import { assertCheckoutTendersAvailable, assertConfiguredTenders } from '../services/tenderAvailability.service';
-import { publicStoreSettings } from '../validators/storeSettings.validator';
+import { publicStoreSettings, storeSettingsView } from '../validators/storeSettings.validator';
 import { z } from 'zod';
 import { requireTransactionApproval, discountApprovalHash } from '../services/managerApproval.service';
 import { Response } from 'express';
@@ -905,11 +905,13 @@ export const quoteSale = asyncHandler(async (req: AuthRequest, res: Response) =>
   const locationId = req.user?.locationId;
   if (!locationId) throw new AppError('Sign in to a store to check out', 400);
   const { items, customerId } = req.body;
-  const [location, products, promotions, customer] = await prisma.$transaction(async tx => Promise.all([
+  const [location, products, promotions, customer, shift] = await prisma.$transaction(async tx => Promise.all([
     tx.location.findUnique({ where: { id: locationId } }),
     resolveSellableProducts(tx, { locationId, ids: items.filter((i: any) => !i.productId.startsWith('misc-')).map((i: any) => i.productId), includeInactive: true }),
     tx.promotion.findMany({ where: { isActive: true, locationId } }),
     customerId ? tx.customer.findFirst({ where: { id: customerId, locationId, isActive: true }, select: { loyaltyPoints: true } }) : Promise.resolve(null),
+    // The cashier's open drawer, so the register starts checkout with this one request.
+    tx.shift.findFirst({ where: { userId: req.user!.id, locationId, isClosed: false }, select: { id: true }, orderBy: { clockInAt: 'desc' } }),
   ]), { isolationLevel: 'RepeatableRead' });
   if (!location?.isActive) throw new AppError('Store is unavailable', 400);
   if (customerId && !customer) throw new AppError('Customer is unavailable in this store', 404);
@@ -920,5 +922,7 @@ export const quoteSale = asyncHandler(async (req: AuthRequest, res: Response) =>
   const settlement = checkoutTotals(pricing, req.body, customer?.loyaltyPoints ?? null, Number(location.cardSurchargePercent));
   // The initial catalog quote has no selected tender yet.
   if (req.body.paymentMethod || req.body.payments?.length) assertConfiguredTenders(req.body, location.settings, settlement.total);
-  res.json({ success: true, data: { ...pricing, ...settlement, products, promotions: activePromotions, taxRate: location.taxRate, cardSurchargePercent: location.cardSurchargePercent } });
+  res.json({ success: true, data: { ...pricing, ...settlement, products, promotions: activePromotions, taxRate: location.taxRate, cardSurchargePercent: location.cardSurchargePercent,
+    // Current drawer (null when not clocked in) and store settings, read in the same snapshot as the prices.
+    shiftId: shift?.id ?? null, store: storeSettingsView(location) } });
 });

@@ -51,6 +51,8 @@ interface StoreSettingsState {
 
   // Sync with backend
   fetchSettings: (locationId?: string) => Promise<void>;
+  /** Settings that arrived with another response (the checkout quote); false when they are for a different store. */
+  applyServerSettings: (location: { id: string } & Record<string, unknown>, expectedLocationId: string) => boolean;
   saveStoreInfo: (info: StoreInfo) => Promise<void>;
   saveTaxRate: (rate: number) => Promise<void>;
   saveReceiptSettings: (settings: ReceiptSettings) => Promise<void>;
@@ -93,8 +95,16 @@ let generation = 0;
 let pending: { locationId: string; promise: Promise<void> } | null = null;
 const defaults = () => ({ timezone: null as string | null, storeInfo: defaultStoreInfo, receiptSettings: defaultReceiptSettings, paymentMethods: defaultPaymentMethods, notificationSettings: defaultNotificationSettings });
 
+/** When the settings held now were last changed on the server (ISO time), for the store they belong to. */
+let held: { locationId: string; updatedAt: string } | null = null;
+
 export const useStoreSettingsStore = create<StoreSettingsState>()(persist((set, get) => {
   const accept = (data: any) => {
+    // Answers can arrive out of order (a settings read, a save, a checkout quote).
+    // One read before the latest change must never replace what that change saved.
+    const updatedAt = typeof data.updatedAt === 'string' ? data.updatedAt : null;
+    if (updatedAt && held && held.locationId === data.id && get().isLoaded && updatedAt < held.updatedAt) { set({ isLoading: false }); return; }
+    held = updatedAt ? { locationId: data.id, updatedAt } : null;
     const settings = data.settings || {};
     const storeInfo = { storeName: data.name || 'My Store', taxRate: data.taxRate || 0, address: data.address || '', city: data.city || '', state: data.state || '', phone: data.phone || '' };
     const receiptSettings = { ...defaultReceiptSettings, ...settings.receiptSettings };
@@ -134,13 +144,20 @@ export const useStoreSettingsStore = create<StoreSettingsState>()(persist((set, 
       pending = { locationId, promise };
       return promise;
     },
+    applyServerSettings: (location, expectedLocationId) => {
+      if (!location || location.id !== expectedLocationId) return false;
+      // Kept only when not older than what is held (see accept); a save or read
+      // still in flight applies its own, newer answer when it arrives.
+      accept(location);
+      return get().isLoaded && !get().error && get().locationId === expectedLocationId;
+    },
     saveStoreInfo: storeInfo => save({ storeInfo }),
     saveTaxRate: taxRate => save({ storeInfo: { taxRate } }),
     saveReceiptSettings: receiptSettings => save({ receiptSettings }),
     savePaymentMethods: paymentMethods => save({ paymentMethods }),
     saveNotificationSettings: notificationSettings => save({ notificationSettings }),
     reset: () => {
-      generation++; pending = null;
+      generation++; pending = null; held = null;
       hardware.applyStoreBranding(defaultStoreInfo, defaultReceiptSettings);
       set({ ...defaults(), locationId: null, isLoaded: false, isLoading: false, error: null });
     },

@@ -32,6 +32,30 @@ describe('Final checkout quote and locked settlement', () => {
     expect(Number((await prisma.drawerEntry.findFirstOrThrow()).amount)).toBe(5.18);
   });
 
+  it('returns the open drawer and the store settings with the prices, so checkout starts with one request', async () => {
+    await prisma.location.update({ where: { id: data.location.id }, data: { timezone: 'America/Chicago',
+      settings: { receiptSettings: { header: 'Hello', footer: 'Bye', showAddress: true, showTaxBreakdown: false }, internalNote: 'never leaves the server' } } });
+    const shift = await prisma.shift.findFirstOrThrow({ where: { userId: data.adminUser.id, isClosed: false } });
+    const quoted = await quote();
+    expect(quoted.status).toBe(200);
+    expect(quoted.body.data.shiftId).toBe(shift.id);
+    expect(quoted.body.data.store).toMatchObject({ id: data.location.id, name: 'Test Store', taxRate: 10, cardSurchargePercent: 3, timezone: 'America/Chicago', isActive: true,
+      settings: { receiptSettings: { header: 'Hello', footer: 'Bye', showAddress: true, showTaxBreakdown: false } } });
+    // Only the supported settings are returned, never arbitrary saved JSON.
+    expect(JSON.stringify(quoted.body.data.store)).not.toContain('never leaves the server');
+    // The same shape the settings endpoint returns.
+    const settings = await api.get('/api/locations/my-settings').withAuth(token).expectSuccess();
+    expect(quoted.body.data.store).toEqual(settings.body.data);
+
+    // Someone else's drawer is not this cashier's, and a closed drawer is no drawer.
+    const cashier = await createTestToken(data.cashierUser.id, 'CASHIER');
+    const other = await api.post('/api/sales/quote').withAuth(cashier).withBody({ items: items() }).execute();
+    expect(other.status).toBe(200);
+    expect(other.body.data.shiftId).toBeNull();
+    await api.post('/api/shifts/clock-out').withAuth(token).withBody({ endingCash: 0 }).expectStatus(200).execute();
+    expect((await quote()).body.data.shiftId).toBeNull();
+  });
+
   it('quotes customer redemption and card surcharge using the same rules as the sale', async () => {
     const intent = { customerId: data.customer.id, pointsRedeemed: 100, paymentMethod: 'CARD' };
     const quoted = await quote(intent);
