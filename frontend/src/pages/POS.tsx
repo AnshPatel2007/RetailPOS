@@ -10,7 +10,8 @@ import { ShoppingCart, X, DollarSign, Keyboard } from 'lucide-react';
 import { productService, saleService, locationService, categoryService, promotionService, shiftService } from '@/services/api';
 import { syncService } from '@/services/syncService';
 import { checkoutIdentity } from '@/lib/checkoutIdentity';
-import { offlineDb, db, TerminalCheckout } from '@/services/offlineDb';
+import { db, TerminalCheckout } from '@/services/offlineDb';
+import { cachedProducts, lookupPriceEmbedded, lookupScan, rememberProducts, warmRegisterCatalog } from '@/services/registerCatalog';
 import { TerminalRecovery } from '@/components/pos/TerminalRecovery';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -331,11 +332,21 @@ export const POS: React.FC = () => {
   // Load products when search/category changes (debounce search)
   const favoritesKey = selectedCategoryId === 'FAVORITES' ? favoriteIds.join(',') : '';
   useEffect(() => { setProductLimit(PRODUCT_PAGE); }, [search, selectedCategoryId, locationId]);
+  // What the grid currently shows. A scan typed into the search box clears it
+  // again before any search starts; the grid still shows those results, so
+  // nothing reloads. Once a load starts, the grid is no longer known to match
+  // until that load finishes, so an aborted or failed load always reloads.
+  const shownProducts = useRef('');
   useEffect(() => {
+    const key = JSON.stringify([search, selectedCategoryId, locationId, productsRetry, productLimit, favoritesKey]);
+    if (key === shownProducts.current) { setIsLoading(false); return; }
     const controller = new AbortController();
     if (productLimit === PRODUCT_PAGE) setIsLoading(true);
     setProductsError('');
-    const timer = setTimeout(() => { void loadProducts(controller.signal); }, search ? 300 : 0);
+    const timer = setTimeout(() => {
+      shownProducts.current = '';
+      void loadProducts(controller.signal).then(loaded => { if (loaded) shownProducts.current = key; });
+    }, search ? 300 : 0);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [search, selectedCategoryId, locationId, productsRetry, productLimit, favoritesKey]);
 
@@ -366,14 +377,23 @@ export const POS: React.FC = () => {
         setScanStatus({ kind: 'error', message, actions });
       };
 
+      const currentUser = useAuthStore.getState().user;
+      const scope = currentUser?.id && locationId ? { userId: currentUser.id, locationId } : null;
+      const offline = !navigator.onLine;
+
       // Price-embedded barcodes (2-prefix scale/deli labels): the barcode itself
       // carries the price; the item code identifies the product
       const embedded = parsePriceEmbeddedBarcode(barcode);
       if (embedded) {
-        setScanStatus({ kind: 'busy', message: 'Reading price label…' });
+        const local = scope ? await lookupPriceEmbedded(embedded.itemCode, barcode, scope) : null;
+        const cached = local?.kind === 'one' ? local.product : local?.kind === 'many' ? local.products[0] : null;
+        if (!cached && offline) {
+          problem(local?.kind === 'none' ? `No product is set up for price label ${embedded.itemCode}.` : 'Price labels cannot be read offline until the product list is saved on this register.', true);
+          return;
+        }
+        if (!cached) setScanStatus({ kind: 'busy', message: 'Reading price label…' });
         try {
-          const resp = await productService.getAll({ search: embedded.itemCode, isActive: true, limit: 10 });
-          const found = (resp.data.data || []).find(
+          const found = cached || ((await productService.getAll({ search: embedded.itemCode, isActive: true, limit: 10 })).data.data || []).find(
             (p: Product) =>
               p.priceEmbedded &&
               (p.barcode === embedded.itemCode || p.sku === embedded.itemCode || p.barcode === barcode)
@@ -413,30 +433,59 @@ export const POS: React.FC = () => {
         return;
       }
 
+      const sell = (product: Product) => {
+        if (!addItem(product)) { problem(saleHoldMessage(product)); return; }
+        added(product, product.price);
+      };
+      const choose = (count: number) => {
+        setSearch(barcode);
+        setScanStatus({ kind: 'info', message: `${count} products match ${barcode}. Tap the one you are selling.` });
+      };
+
+      // This register's own copy of the catalog answers first: no network
+      // request, and it keeps working offline. Checkout re-prices on the server.
+      const local = scope ? await lookupScan(barcode, scope) : null;
+      if (local?.kind === 'one') { sell(local.product); return; }
+      if (local?.kind === 'many') { choose(local.products.length); return; }
+      if (offline) {
+        problem(local?.kind === 'none' ? `No product has barcode ${barcode}.`
+          : `Could not look up ${barcode} offline. The product list is not saved on this register yet; reconnect once to save it.`, true);
+        return;
+      }
+
       setScanStatus({ kind: 'busy', message: `Looking up ${barcode}…` });
       try {
+        // Not in this register's copy yet (added moments ago): an exact barcode lookup.
+        const resolved = (await productService.resolveBarcode(barcode)).data.data.matches
+          .filter(match => match.kind !== 'SUPPLIER_CASE').map(match => match.product);
+        if (resolved.length && scope) void rememberProducts(resolved, scope, () => useAuthStore.getState().user?.id === scope.userId);
+        if (resolved.length === 1) { sell(resolved[0]); return; }
+        if (resolved.length > 1) { choose(resolved.length); return; }
+
+        // Still nothing: a typed SKU or name fragment, as before.
         const response = await productService.getAll({ search: barcode, isActive: true, limit: 10, includeSellingUnits: true });
         const found: Product[] = response.data.data;
         // A single can and its 12-pack share stock but have their own barcodes:
         // an exact barcode match decides which one was scanned.
         const exact = found.filter(p => p.barcode === barcode);
         const scanned = exact.length === 1 ? exact[0] : found.length === 1 ? found[0] : null;
-        if (scanned) {
-          if (!addItem(scanned)) { problem(saleHoldMessage(scanned)); return; }
-          added(scanned, scanned.price);
-        } else if (found.length > 1) {
-          setSearch(barcode);
-          setScanStatus({ kind: 'info', message: `${found.length} products match ${barcode}. Tap the one you are selling.` });
-        } else {
-          problem(`No product has barcode ${barcode}.`, true);
-        }
+        if (scanned) sell(scanned);
+        else if (found.length > 1) choose(found.length);
+        else problem(`No product has barcode ${barcode}.`, true);
       } catch {
         problem(`Could not look up ${barcode}. Check the connection and scan again.`);
       }
     };
     hardware.scanner.onScan(handleBarcodeScan);
     return () => { hardware.scanner.offScan(handleBarcodeScan); };
-  }, [addItem, isReadOnly, pendingPayment, paymentReady, paymentReadError, navigate]);
+  }, [addItem, isReadOnly, pendingPayment, paymentReady, paymentReadError, navigate, locationId]);
+
+  // Have the on-device barcode index ready before the first scan, and rebuilt after each catalog sync.
+  useEffect(() => {
+    if (!user?.id || !locationId || isReadOnly) return;
+    const scope = { userId: user.id, locationId };
+    return syncService.subscribe(state => { if (state.status !== 'syncing') warmRegisterCatalog(scope); });
+  }, [user?.id, locationId, isReadOnly]);
 
   // Keyboard shortcuts
   const handleKeyboardShortcuts = useCallback((e: KeyboardEvent) => {
@@ -501,7 +550,7 @@ export const POS: React.FC = () => {
     try {
       const isFavoritesTab = selectedCategoryId === 'FAVORITES';
       // Favorites load by id, so a starred item is found however large the catalog is.
-      if (isFavoritesTab && !favoriteIds.length) { setProducts([]); setHasMoreProducts(false); return; }
+      if (isFavoritesTab && !favoriteIds.length) { setProducts([]); setHasMoreProducts(false); return true; }
       const response = await productService.getAll({
         locationId: locationId || undefined,
         search,
@@ -511,7 +560,7 @@ export const POS: React.FC = () => {
         limit: isFavoritesTab ? Math.max(favoriteIds.length, 1) : productLimit,
         includeSellingUnits: true,
       }, signal);
-      if (signal.aborted) return;
+      if (signal.aborted) return false;
       let result = response.data.data;
       // Hide MISC product from grid — it's only used internally for ad-hoc charges
       result = result.filter((p: Product) => p.sku !== 'MISC-001');
@@ -521,20 +570,17 @@ export const POS: React.FC = () => {
       setProducts(result);
       const total = response.data.pagination?.total;
       setHasMoreProducts(!isFavoritesTab && typeof total === 'number' && total > response.data.data.length);
-
-      // Cache products for offline use (fire-and-forget)
       // The sync service caches the complete catalog; filtered pages must not replace it.
+      return true;
     } catch (error: any) {
-      if (signal.aborted || error.code === 'ERR_CANCELED') return;
+      if (signal.aborted || error.code === 'ERR_CANCELED') return false;
       // Fallback to cached products when offline
       if (!navigator.onLine) {
         try {
-          const cached = user?.id && locationId ? await offlineDb.getAllProducts({ userId: user.id, locationId }) : [];
-          if (signal.aborted) return;
-          if (!cached.length) throw new Error('No product cache available for this cashier and store');
-          let result = cached
-            .filter(p => p.isActive && p.sku !== 'MISC-001')
-            .map(p => ({ ...p, category: p.categoryName ? { id: p.categoryId || '', name: p.categoryName } : null }) as any);
+          const cached = user?.id && locationId ? await cachedProducts({ userId: user.id, locationId }) : [];
+          if (signal.aborted) return false;
+          if (!cached.length) throw new Error('No product cache available for this store');
+          let result = cached;
           if (search) {
             const q = search.toLowerCase();
             result = result.filter((p: any) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.barcode && p.barcode.includes(search)));
@@ -552,6 +598,8 @@ export const POS: React.FC = () => {
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
+    // Offline results are not remembered: the grid reloads from the server once back online.
+    return false;
   };
 
   const getCartQty = (productId: string): number => {

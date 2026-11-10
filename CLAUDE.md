@@ -109,6 +109,16 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   (change due, receipt options); nothing pops up, so the next scan always counts.
   Scanner input comes from `services/hardware.ts` (keyboard wedge; scan sounds). Products
   without photos show as compact text tiles.
+- **Scans are local-first**: `services/registerCatalog.ts` answers a scan from the
+  register's saved catalog (IndexedDB, `services/offlineDb.ts`) with no request, online
+  or offline; the server is asked (`GET /products/resolve-barcode`) only when the copy
+  has no match. `services/syncService.ts` keeps the copy current with
+  `GET /products?updatedSince=` (changed rows only) and downloads everything only for a
+  new store, a copy over 12 hours old, or a count mismatch. UPC/EAN forms of one code
+  match through `backend/src/utils/barcode.ts` (shared with the frontend). Checkout still
+  re-prices on the server, so a stale cached price is never charged. A computer set up
+  as a register keeps its store's product catalog across cashier sign-outs; customer
+  details are always cleared.
 - **Reports** (`pages/InsightsWorkspace.tsx`): Overview, Sales, Inventory (Stock Health),
   Staff (Employee Sales), Exports, one view each. The analysis extras (ABC, product
   matrix, forecast, what-if, anomalies, bundles, leaderboards, inventory report) were

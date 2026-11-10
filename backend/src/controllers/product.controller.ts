@@ -13,6 +13,8 @@ import path from 'path';
 import { assertOwnsRecord, getLocationFilter } from '../utils/locationFilter.util';
 import { lockInventory, moveInventory } from '../services/inventory.service';
 import { valueProducts } from '../services/inventoryValueRead.service';
+import { barcodeVariants } from '../utils/barcode';
+import { can } from '../policies/capabilities';
 
 /**
  * A product may only be moved into a category the caller's store owns. Keeping
@@ -43,18 +45,28 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
     ids,
     includeSellingUnits,
     excludeVarietyPacks,
+    updatedSince,
   } = req.query;
   // The register asks for packs too (a 12-pack is its own tile and barcode);
   // inventory screens list each product once with its packs nested.
   const withPacks = includeSellingUnits === 'true';
   const requestedIds = ids ? String(ids).split(',').filter(Boolean) : null;
+  // Register catalog sync: only products (or their packs) changed since the last
+  // sync, including ones archived since then, so the register can drop them.
+  // The time is read before querying, so a change made during this request is
+  // picked up by the next sync.
+  const serverTime = new Date();
+  const since = typeof updatedSince === 'string' && updatedSince ? new Date(updatedSince) : null;
+  if (since && !Number.isFinite(since.getTime())) throw new AppError('updatedSince must be a date', 400);
 
   const pageNum = Math.max(1, parseInt(page as string) || 1);
   const limitNum = Math.min(1000, Math.max(1, parseInt(limit as string) || 20));
   const skip = (pageNum - 1) * limitNum;
 
   // Build filter
-  const where: any = { ...getLocationFilter(req, req.query.locationId as string), sku: { not: 'MISC-001' } };
+  const locationScope = getLocationFilter(req, req.query.locationId as string);
+  const where: any = { ...locationScope, sku: { not: 'MISC-001' } };
+  const conditions: any[] = [];
 
   if (search) {
     where.OR = [
@@ -77,10 +89,13 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
   // Fetch a specific set of products (comma-separated ids)
   if (requestedIds) {
     // An id may be a pack's id; it resolves to the product it belongs to.
-    where.AND = [{ OR: [{ id: { in: requestedIds } }, { sellingUnits: { some: { id: { in: requestedIds } } } }] }];
+    conditions.push({ OR: [{ id: { in: requestedIds } }, { sellingUnits: { some: { id: { in: requestedIds } } } }] });
   }
+  if (since) conditions.push({ OR: [{ updatedAt: { gte: since } }, { sellingUnits: { some: { updatedAt: { gte: since } } } }] });
+  if (conditions.length) where.AND = conditions;
 
-  if (isActive !== undefined) {
+  // A sync must also see archived rows, so it ignores the active filter.
+  if (isActive !== undefined && !since) {
     where.isActive = isActive === 'true';
   }
   if (trackInventory !== undefined) where.trackInventory = trackInventory === 'true';
@@ -151,7 +166,8 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
         },
         skip,
         take: limitNum,
-        orderBy: { createdAt: 'desc' },
+        // The id keeps pages stable when several products share a creation time.
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
       }),
       prisma.product.count({ where }),
     ]);
@@ -160,12 +176,26 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
   const valued = await valueProducts(prisma, products);
   const rows = valued.flatMap(product => {
     const base = packagingSummary(product);
-    const units = withPacks ? product.sellingUnits.filter(unit => unit.isActive || requestedIds?.includes(unit.id)) : [];
+    // A sync also gets archived packs (isActive false) so the register drops them.
+    const units = withPacks ? product.sellingUnits.filter(unit => since || unit.isActive || requestedIds?.includes(unit.id)) : [];
     return [
       ...(!requestedIds || requestedIds.includes(product.id) ? [base] : []),
       ...units.filter(unit => !requestedIds || requestedIds.includes(unit.id)).map(unit => projectSellingUnit(product, unit)),
     ];
   });
+
+  // How many sellable rows (products and packs) the store has, so a register can
+  // tell when its copy is missing rows a "changed since" sync cannot report
+  // (a product deleted outright) and download everything again.
+  let activeTotal: number | undefined;
+  if (since) {
+    const active = { ...locationScope, isActive: true, sku: { not: 'MISC-001' } };
+    const [activeProducts, activePacks] = await Promise.all([
+      prisma.product.count({ where: active }),
+      prisma.productSellingUnit.count({ where: { isActive: true, product: active } }),
+    ]);
+    activeTotal = activeProducts + activePacks;
+  }
 
   res.json({
     success: true,
@@ -176,7 +206,44 @@ export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) 
       total,
       totalPages: Math.ceil(total / limitNum),
     },
+    serverTime: serverTime.toISOString(),
+    ...(activeTotal !== undefined ? { activeTotal } : {}),
   });
+});
+
+/**
+ * Exact barcode lookup for scanning: the register (when its own copy has no
+ * match) and receiving. UPC/EAN forms of one code match each other. Supplier
+ * case barcodes are for receiving and are only returned to managers.
+ * GET /api/products/resolve-barcode?code=
+ */
+export const resolveBarcode = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const code = typeof req.query.code === 'string' ? req.query.code.trim() : '';
+  if (!code || code.length > 100) throw new AppError('Scan or type a barcode', 400);
+  const { locationId } = getLocationFilter(req, req.query.locationId as string);
+  if (!locationId) throw new AppError('Select a store to look up barcodes', 400);
+  const variants = barcodeVariants(code);
+  const include = { category: { select: { id: true, name: true, color: true } }, sellingUnits: true } as const;
+  const sellable = { locationId, isActive: true, sku: { not: 'MISC-001' } };
+  const [products, packs, cases] = await Promise.all([
+    prisma.product.findMany({ where: { ...sellable, barcode: { in: variants } }, include, orderBy: { id: 'asc' } }),
+    prisma.productSellingUnit.findMany({ where: { locationId, isActive: true, barcode: { in: variants }, product: sellable },
+      include: { product: { include } }, orderBy: { id: 'asc' } }),
+    can(req.user?.role, 'inventory.read')
+      ? prisma.productSupplier.findMany({ where: { packBarcode: { in: variants }, product: sellable, supplier: { locationId } },
+        include: { supplier: { select: { id: true, name: true } }, product: { include } }, orderBy: { id: 'asc' } })
+      : Promise.resolve([]),
+  ]);
+  const valued = new Map((await valueProducts(prisma, [...products, ...packs.map(pack => pack.product), ...cases.map(link => link.product)]))
+    .map(product => [product.id, product]));
+  const matches = [
+    ...products.map(product => ({ kind: 'PRODUCT' as const, product: packagingSummary(valued.get(product.id)!) })),
+    ...packs.map(pack => ({ kind: 'PACK' as const, product: projectSellingUnit(valued.get(pack.product.id)!, pack) })),
+    ...cases.map(link => ({ kind: 'SUPPLIER_CASE' as const, product: packagingSummary(valued.get(link.product.id)!),
+      supplierCase: { supplierId: link.supplier.id, supplierName: link.supplier.name, packSize: link.packSize,
+        packCost: link.packCost === null ? null : Number(link.packCost) } })),
+  ];
+  res.json({ success: true, data: { code, matches } });
 });
 
 /**

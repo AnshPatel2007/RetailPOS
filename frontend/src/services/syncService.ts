@@ -43,10 +43,19 @@ class SyncService {
     useAuthStore.subscribe((state, previous) => {
       if (state.user?.id !== previous.user?.id || state.user?.locationId !== previous.user?.locationId) {
         this.updateState({ pendingSalesCount: 0, lastError: undefined, lastSyncTime: undefined, status: 'idle' });
+        this.lastCustomerSync = null;
         void this.initializeState();
+        // Bring the register's catalog up to date right after sign-in, not on the next timer tick.
+        if (state.user && this.isOnline) window.setTimeout(() => { void this.syncAll(); }, 0);
       }
     });
   }
+
+  /** Customers change rarely; the register refreshes its copy at most this often. */
+  private static CUSTOMER_REFRESH_MS = 15 * 60 * 1000;
+  /** A full catalog download replaces the copy at least this often, as a safety net. */
+  private static FULL_CATALOG_MS = 12 * 60 * 60 * 1000;
+  private lastCustomerSync: { key: string; at: number } | null = null;
 
   private async initializeState(): Promise<void> {
     const context = currentCacheScope();
@@ -120,8 +129,30 @@ class SyncService {
     }
   }
 
-  // Cache data from server
-  async cacheProducts(): Promise<void> {
+  /** Every page of the store's catalog for these filters, plus the server time and active count of the first page. */
+  private async downloadCatalog(params: Record<string, unknown>, isCurrent: () => boolean) {
+    const rows: any[] = [];
+    let serverTime: string | undefined, activeTotal: number | undefined;
+    for (let page = 1; ; page++) {
+      const response = await productService.getAll({ ...params, limit: 100, page, includeSellingUnits: true });
+      if (!isCurrent()) return null;
+      if (page === 1) { serverTime = response.data.serverTime; activeTotal = response.data.activeTotal; }
+      const batch = response.data.data;
+      rows.push(...batch);
+      // Pack rows are appended to each page; only base products count toward the page size.
+      if (batch.filter((p: { sellingUnitId?: string | null }) => !p.sellingUnitId).length < 100) break;
+    }
+    return { rows, serverTime, activeTotal };
+  }
+
+  /**
+   * Keep the register's copy of the catalog current. Normally only products
+   * changed since the last sync are fetched (one small request). The whole
+   * catalog is downloaded when there is no copy for this store, the copy is
+   * over 12 hours old, or the copy no longer has as many items as the server
+   * (a product deleted outright does not show up as a change).
+   */
+  async cacheProducts(forceFull = false): Promise<void> {
     if (!this.isOnline || !useAuthStore.getState().isAuthenticated || useAdminViewStore.getState().isAdminViewing) {
       console.log('Cannot cache products: offline');
       return;
@@ -130,24 +161,31 @@ class SyncService {
     const context = currentCacheScope();
     if (!context) return;
     try {
-      const products: any[] = [];
-      for (let page = 1; ; page++) {
-        const response = await productService.getAll({ limit: 100, page, isActive: true, includeSellingUnits: true });
-        if (!context.isCurrent()) return;
-        const batch = response.data.data;
-        products.push(...batch);
-        // Pack rows are appended to each page; only base products count toward the page size.
-        if (batch.filter((p: { sellingUnitId?: string | null }) => !p.sellingUnitId).length < 100) break;
+      const state = await offlineDb.getCatalogState();
+      const fresh = !forceFull && state?.locationId === context.scope.locationId && !!state.syncedThrough
+        && Date.now() - (state.fullAt ?? 0) < SyncService.FULL_CATALOG_MS;
+      if (fresh) {
+        // Overlap a few seconds so a change saved during the previous sync is not missed.
+        const since = new Date(new Date(state!.syncedThrough!).getTime() - 5000).toISOString();
+        const delta = await this.downloadCatalog({ updatedSince: since }, context.isCurrent);
+        if (!delta) return;
+        if (!await offlineDb.applyProductDelta(delta.rows, context.scope, context.isCurrent, delta.serverTime)) return this.cacheProducts(true);
+        if (delta.activeTotal === undefined || delta.activeTotal === await offlineDb.countActiveProducts()) {
+          if (delta.rows.length) console.log(`Updated ${delta.rows.length} catalog rows`);
+          return;
+        }
       }
-      await offlineDb.cacheProducts(products, context.scope, context.isCurrent);
-      console.log(`Cached ${products.length} products`);
+      const full = await this.downloadCatalog({ isActive: true }, context.isCurrent);
+      if (!full) return;
+      await offlineDb.cacheProducts(full.rows, context.scope, context.isCurrent, full.serverTime);
+      console.log(`Cached ${full.rows.length} products`);
     } catch (error) {
       console.error('Failed to cache products:', error);
       throw error;
     }
   }
 
-  async cacheCustomers(): Promise<void> {
+  async cacheCustomers(force = false): Promise<void> {
     if (!this.isOnline) {
       console.log('Cannot cache customers: offline');
       return;
@@ -155,6 +193,8 @@ class SyncService {
 
     const context = currentCacheScope();
     if (!context) return;
+    const key = context.scope.userId + ':' + context.scope.locationId;
+    if (!force && this.lastCustomerSync?.key === key && Date.now() - this.lastCustomerSync.at < SyncService.CUSTOMER_REFRESH_MS) return;
     try {
       const customers: any[] = [];
       for (let page = 1; ; page++) {
@@ -165,6 +205,7 @@ class SyncService {
         if (batch.length < 100) break;
       }
       await offlineDb.cacheCustomers(customers, context.scope, context.isCurrent);
+      this.lastCustomerSync = { key, at: Date.now() };
       console.log(`Cached ${customers.length} customers`);
     } catch (error) {
       console.error('Failed to cache customers:', error);
@@ -172,10 +213,11 @@ class SyncService {
     }
   }
 
-  async cacheAllData(): Promise<void> {
+  /** Normal sync: catalog changes and (every 15 minutes) customers. `force` downloads both in full. */
+  async cacheAllData(force = false): Promise<void> {
     await Promise.all([
-      this.cacheProducts(),
-      this.cacheCustomers(),
+      this.cacheProducts(force),
+      this.cacheCustomers(force),
     ]);
   }
 

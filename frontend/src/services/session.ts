@@ -22,7 +22,9 @@ export const clearSessionState = async (): Promise<void> => {
   // The register setup belongs to this computer and stays; a lock never outlives its session.
   useRegisterStore.getState().unlock();
   try {
-    await offlineDb.clearCachesForLogout();
+    // A computer set up as a register keeps its own store's product catalog, so
+    // the next cashier's scans work at once (and offline). Anything else is cleared.
+    await offlineDb.clearCachesForLogout(useRegisterStore.getState().device?.locationId ?? null);
   } catch {
     // IndexedDB may be unavailable (private browsing, etc.) — not fatal to logout
   }

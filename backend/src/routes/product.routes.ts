@@ -28,6 +28,7 @@ router.post('/imports/csv/preview', authorize('ADMIN', 'MANAGER'), asyncHandler(
 router.post('/imports/receipt/preview', authorize('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: import('express').Response) => res.json({ success: true, data: await previewInventoryImport(req, 'RECEIPT') })));
 router.post('/imports/:id/apply', authorize('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: import('express').Response) => res.json({ success: true, data: await applyInventoryImport(req) })));
 router.get('/low-stock', productController.getLowStockProducts);
+router.get('/resolve-barcode', productController.resolveBarcode);
 router.get('/movements', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), getInventoryHistory);
 router.get('/stats', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), productController.getProductStats);
 // Inventory > Packs: packs of one item and variety packs, listed on their own.

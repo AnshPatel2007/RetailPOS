@@ -205,6 +205,11 @@ export const twoFactorService = {
 /**
  * Pricing: target-margin rules, suggested prices and the price review list.
  */
+/** One barcode hit: a product, one of its packs, or (managers) a supplier's case of it. */
+export type BarcodeMatch =
+  | { kind: 'PRODUCT' | 'PACK'; product: import('@/types').Product }
+  | { kind: 'SUPPLIER_CASE'; product: import('@/types').Product; supplierCase: { supplierId: string; supplierName: string; packSize: number; packCost: number | null } };
+
 export type PriceRounding = 'CENT' | 'NICKEL' | 'NINE' | 'NINETY_NINE';
 export interface PriceRule { id: string; scope: 'STORE' | 'CATEGORY' | 'BRAND' | 'PRODUCT' | 'SELLING_UNIT'; scopeId: string; label: string; targetMargin: number; minMargin: number | null; rounding: PriceRounding }
 export const pricingService = {
@@ -225,6 +230,9 @@ export const productService = {
   getAll: (params?: any, signal?: AbortSignal) => api.get('/products', { params, signal }),
 
   getById: (id: string, signal?: AbortSignal) => api.get(`/products/${id}`, { signal }),
+
+  /** Exact barcode lookup (UPC/EAN forms match). Supplier case matches are returned to managers only. */
+  resolveBarcode: (code: string, signal?: AbortSignal) => api.get<{ success: boolean; data: { code: string; matches: BarcodeMatch[] } }>('/products/resolve-barcode', { params: { code }, signal }),
 
   getSellingUnits: (id: string, signal?: AbortSignal) => api.get(`/products/${id}/selling-units`, { signal }),
   // packCost: what one pack costs the store; the single's cost price becomes packCost / units.

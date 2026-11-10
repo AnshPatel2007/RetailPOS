@@ -25,7 +25,23 @@ export interface OfflineProduct {
   inventoryProductId?: string;
   sellingUnitId?: string;
   unitsPerPackage?: number;
+  /** Recall / prohibited-sale hold: the register refuses the item. */
+  saleBlockedReason?: string | null;
+  stockVersion?: number;
+  updatedAt?: string;
   syncedAt: number;
+}
+
+/**
+ * Which store the cached catalog belongs to and how fresh it is. `version`
+ * changes on every write so the register's in-memory barcode index knows when
+ * to rebuild; `syncedThrough` is the server time of the last sync.
+ */
+export interface CatalogCacheState extends OfflineCacheScope {
+  cachedAt: number;
+  fullAt?: number;
+  syncedThrough?: string;
+  version?: string;
 }
 
 export interface OfflineCustomer {
@@ -140,53 +156,94 @@ export class POSDatabase extends Dexie {
 // Create database instance
 export const db = new POSDatabase();
 
+const toOfflineProduct = (p: any): OfflineProduct => ({
+  id: p.id,
+  sku: p.sku,
+  name: p.name,
+  description: p.description,
+  categoryId: p.categoryId,
+  categoryName: p.category?.name,
+  cost: p.cost,
+  price: p.price,
+  stockQuantity: p.stockQuantity,
+  lowStockAlert: p.lowStockAlert,
+  barcode: p.barcode,
+  image: p.image,
+  isActive: p.isActive ?? false,
+  isTaxable: p.isTaxable ?? false,
+  trackInventory: p.trackInventory,
+  minimumAge: p.minimumAge,
+  ebtEligible: p.ebtEligible,
+  priceEmbedded: p.priceEmbedded,
+  inventoryProductId: p.inventoryProductId,
+  sellingUnitId: p.sellingUnitId ?? undefined,
+  unitsPerPackage: p.unitsPerPackage,
+  saleBlockedReason: p.saleBlockedReason ?? null,
+  stockVersion: p.stockVersion,
+  updatedAt: p.updatedAt,
+  syncedAt: Date.now(),
+});
+
+const CATALOG_STATE = 'products_cache_scope';
+const newVersion = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
 // Database operations
 export const offlineDb = {
   // Products
-  async cacheProducts(products: any[], scope: OfflineCacheScope, isCurrent: () => boolean): Promise<void> {
-    const offlineProducts: OfflineProduct[] = products.map(p => ({
-      id: p.id,
-      sku: p.sku,
-      name: p.name,
-      description: p.description,
-      categoryId: p.categoryId,
-      categoryName: p.category?.name,
-      cost: p.cost,
-      price: p.price,
-      stockQuantity: p.stockQuantity,
-      lowStockAlert: p.lowStockAlert,
-      barcode: p.barcode,
-      image: p.image,
-      isActive: p.isActive ?? false,
-      isTaxable: p.isTaxable ?? false,
-      trackInventory: p.trackInventory,
-      minimumAge: p.minimumAge,
-      ebtEligible: p.ebtEligible,
-      priceEmbedded: p.priceEmbedded,
-      inventoryProductId: p.inventoryProductId,
-      sellingUnitId: p.sellingUnitId ?? undefined,
-      unitsPerPackage: p.unitsPerPackage,
-      syncedAt: Date.now(),
-    }));
-
+  /** Replace the whole cached catalog (first download, another store, or a periodic full refresh). */
+  async cacheProducts(products: any[], scope: OfflineCacheScope, isCurrent: () => boolean, syncedThrough?: string): Promise<void> {
+    const offlineProducts = products.map(toOfflineProduct);
     await db.transaction('rw', db.products, db.settings, async () => {
       if (!isCurrent()) throw new Error('Cache session changed');
       await db.products.clear();
       await db.products.bulkPut(offlineProducts);
-      await db.settings.put({ key: 'products_cache_scope', value: { ...scope, cachedAt: Date.now() } });
+      const now = Date.now();
+      const state: CatalogCacheState = { ...scope, cachedAt: now, fullAt: now, syncedThrough, version: newVersion() };
+      await db.settings.put({ key: CATALOG_STATE, value: state });
       if (!isCurrent()) throw new Error('Cache session changed');
     });
     console.log(`Cached ${products.length} products to IndexedDB`);
+  },
+
+  /**
+   * Apply rows that changed on the server: active rows are added or replaced,
+   * archived ones removed. Only for the store the catalog already belongs to.
+   * Without `syncedThrough` (a single scan looked up on the server) the sync
+   * position is unchanged.
+   */
+  async applyProductDelta(rows: any[], scope: OfflineCacheScope, isCurrent: () => boolean, syncedThrough?: string): Promise<boolean> {
+    return db.transaction('rw', db.products, db.settings, async () => {
+      if (!isCurrent()) throw new Error('Cache session changed');
+      const state = (await db.settings.get(CATALOG_STATE))?.value as CatalogCacheState | undefined;
+      if (state?.locationId !== scope.locationId) return false;
+      const active = rows.filter(row => row.isActive).map(toOfflineProduct);
+      const archived = rows.filter(row => !row.isActive).map(row => row.id as string);
+      if (active.length) await db.products.bulkPut(active);
+      if (archived.length) await db.products.bulkDelete(archived);
+      const next: CatalogCacheState = { ...state, userId: scope.userId, cachedAt: Date.now(),
+        syncedThrough: syncedThrough ?? state.syncedThrough, version: active.length || archived.length ? newVersion() : state.version };
+      await db.settings.put({ key: CATALOG_STATE, value: next });
+      return true;
+    });
+  },
+
+  async getCatalogState(): Promise<CatalogCacheState | undefined> {
+    return (await db.settings.get(CATALOG_STATE))?.value;
+  },
+
+  async countActiveProducts(): Promise<number> {
+    return db.products.filter(p => p.isActive).count();
   },
 
   async getProducts(): Promise<OfflineProduct[]> {
     return db.products.filter(p => p.isActive).toArray();
   },
 
+  /** The cached catalog when it belongs to this store (products are store data, not personal). */
   async getAllProducts(scope: OfflineCacheScope): Promise<OfflineProduct[]> {
     return db.transaction('r', db.products, db.settings, async () => {
-      const cached = (await db.settings.get('products_cache_scope'))?.value;
-      if (cached?.userId !== scope.userId || cached?.locationId !== scope.locationId) return [];
+      const cached = (await db.settings.get(CATALOG_STATE))?.value;
+      if (cached?.locationId !== scope.locationId) return [];
       return db.products.toArray();
     });
   },
@@ -409,7 +466,19 @@ export const offlineDb = {
   // different cashier logging into a different store never sees stale
   // pricing/inventory) but deliberately leaves pendingSales untouched —
   // wiping unsynced sales would permanently lose revenue records.
-  async clearCachesForLogout(): Promise<void> {
+  async clearCachesForLogout(keepCatalogForLocation?: string | null): Promise<void> {
+    // A cashier switch on the same store's register keeps that store's product
+    // catalog, so the next person's first scans stay local and nothing is
+    // downloaded again. Customer details never stay behind a sign-out.
+    const state = keepCatalogForLocation ? (await db.settings.get(CATALOG_STATE))?.value as CatalogCacheState | undefined : undefined;
+    if (state && state.locationId === keepCatalogForLocation) {
+      await db.transaction('rw', db.settings, db.customers, async () => {
+        await db.customers.clear();
+        await db.settings.clear();
+        await db.settings.put({ key: CATALOG_STATE, value: state });
+      });
+      return;
+    }
     await Promise.all([
       db.products.clear(),
       db.customers.clear(),
