@@ -26,7 +26,9 @@ test('receipt scans recognize compact and legacy references without confusing pr
 });
 
 test('receipt totals and names use booked sale facts for first print and reprint', () => {
-  const { receiptFromSale } = load('services/receiptFromSale.ts', { '@/lib/money': load('../../backend/src/utils/moneyNumbers.ts') });
+  const { receiptFromSale } = load('services/receiptFromSale.ts', { '@/lib/money': load('../../backend/src/utils/moneyNumbers.ts'),
+    '@/lib/utils': { formatCurrency: amount => '$' + Number(amount).toFixed(2), formatDateTime: date => new Date(date).toISOString(), formatEnumLabel: value => String(value) },
+    '@/store/storeSettingsStore': { useStoreSettingsStore: { getState: () => ({ timezone: null }) } } });
   const sale = { saleNumber: 'SALE-1', createdAt: '2026-10-15T12:00:00Z', subtotal: 3, discount: 1, tax: 0.3, surcharge: 0, total: 2.3, amountPaid: 5, changeDue: 2.7, paymentMethod: 'CASH', pointsEarned: 2, pointsRedeemed: 100,
     items: [{ productName: 'Original name', price: 1, quantity: 3, product: { name: 'Renamed product', price: 99 } }], customer: { firstName: 'A', lastName: 'Customer', loyaltyPoints: 9999 } };
   const first = receiptFromSale(sale);
@@ -101,7 +103,7 @@ test('bulk recovery refuses malformed, incomplete, duplicate or fractional-cent 
 });
 
 // Execute the actual TypeScript modules with browser/API boundaries replaced.
-test('cart additions and quantity edits cannot exceed tracked stock', () => {
+test('recorded stock never limits the cart; recalls and invalid quantities do', () => {
   const { useCartStore } = load('store/cartStore.ts', {
     zustand: require('zustand'), 'zustand/middleware': { persist: initialize => initialize },
     '@/lib/money': load('../../backend/src/utils/moneyNumbers.ts'),
@@ -109,15 +111,16 @@ test('cart additions and quantity edits cannot exceed tracked stock', () => {
   });
   const cart = useCartStore.getState();
   const product = { id: 'tracked', price: 10, trackInventory: true, stockQuantity: 2 };
-  assert.equal(cart.addItem(product), true);
-  assert.equal(cart.addItem(product), true);
-  assert.equal(cart.addItem(product), false);
-  assert.equal(useCartStore.getState().items[0].quantity, 2);
-  cart.updateQuantity(product.id, 3);
-  assert.equal(useCartStore.getState().items[0].quantity, 2);
+  // The customer is holding the item: a third unit sells although two are recorded.
+  for (let unit = 0; unit < 3; unit++) assert.equal(cart.addItem(product), true);
+  assert.equal(useCartStore.getState().items[0].quantity, 3);
+  cart.updateQuantity(product.id, 5);
+  assert.equal(useCartStore.getState().items[0].quantity, 5);
+  assert.equal(cart.addItem({ ...product, id: 'empty', stockQuantity: 0 }), true);
   for (const quantity of [0, -1, 0.5, NaN, Infinity]) assert.equal(cart.addItem(product, quantity), false);
-  assert.equal(cart.addItem({ ...product, id: 'empty', stockQuantity: 0 }), false);
-  assert.equal(cart.addItem({ ...product, id: 'untracked', trackInventory: false, stockQuantity: 0 }), true);
+  // A recall or prohibited-sale hold is the one thing that refuses an item.
+  assert.equal(cart.addItem({ ...product, id: 'recalled', saleBlockedReason: 'Recalled by supplier' }), false);
+  assert.equal(useCartStore.getState().items.some(item => item.product.id === 'recalled'), false);
   cart.updateQuantity(product.id, 0);
   assert.equal(useCartStore.getState().items.some(item => item.product.id === product.id), false);
 });
