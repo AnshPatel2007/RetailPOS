@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { saleComplete } from './utils/sale-complete';
 import fs from 'fs';
 
 test('a void with a lost response survives reload and retries without a second payout or restock', async ({ page }) => {
@@ -16,9 +17,9 @@ test('a void with a lost response survives reload and retries without a second p
   await payment.getByRole('button', { name: 'Charge $22.00', exact: true }).click();
   const created = await saved; expect(created.status()).toBe(201);
   const sale = (await created.json()).data;
-  await page.getByRole('dialog', { name: 'Receipt', exact: true }).getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(saleComplete(page)).toBeVisible();
   await page.goto('/reports');
-  const summary = page.getByText('Net collected (including tax)', { exact: true }).locator('..');
+  const summary = page.getByText('Sales after refunds (incl. tax)', { exact: true }).locator('..');
   await expect(summary).toContainText('$22.00');
   const row = page.getByRole('row').filter({ hasText: sale.saleNumber }).filter({ has: page.getByTitle('View details', { exact: true }) });
   await row.getByTitle('View details', { exact: true }).click();
@@ -64,6 +65,6 @@ test('a void with a lost response survives reload and retries without a second p
   const csv = fs.readFileSync((await (await download).path())!, 'utf8');
   expect(csv).toContain('"SALE"'); expect(csv).toContain('"VOID"'); expect(csv).toContain('"-22.00","-2.00"');
   await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Overview', exact: true }).click();
-  await expect(page.getByText("Today's Net Collections", { exact: true }).locator('..')).toContainText('$0.00');
+  await expect(page.getByText('Sales today', { exact: true }).locator('..')).toContainText('$0.00');
   await expect(page.getByText('Voids', { exact: true }).locator('..')).toContainText('$22.00');
 });

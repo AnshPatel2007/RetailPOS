@@ -1,4 +1,6 @@
 import { lineMoney } from '@/lib/money';
+import { formatCurrency, formatDateTime, formatEnumLabel } from '@/lib/utils';
+import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import type { Receipt } from './hardware';
 
 interface BookedSale {
@@ -15,11 +17,11 @@ interface BookedSale {
 // Item amounts are before discounts; the summary deducts all booked discounts.
 export function receiptFromSale(sale: BookedSale): Receipt {
   return {
-    saleNumber: sale.saleNumber, date: new Date(sale.createdAt).toLocaleString(),
+    saleNumber: sale.saleNumber, date: formatDateTime(sale.createdAt, useStoreSettingsStore.getState().timezone || undefined),
     items: sale.items.map(item => ({ name: item.productName, quantity: item.quantity, price: item.price, total: lineMoney(item.price, item.quantity) })),
     subtotal: sale.subtotal, tax: sale.tax, discount: sale.discount, surcharge: sale.surcharge || undefined, total: sale.total,
     savings: sale.discount || undefined, amountPaid: sale.amountPaid, change: Math.max(0, sale.changeDue),
-    paymentMethod: (sale.payments?.length || 0) > 1 ? sale.payments!.map(payment => payment.paymentMethod + ': $' + payment.amount.toFixed(2)).join(' / ') : sale.paymentMethod,
+    paymentMethod: (sale.payments?.length || 0) > 1 ? sale.payments!.map(payment => formatEnumLabel(payment.paymentMethod) + ': ' + formatCurrency(payment.amount)).join(' / ') : formatEnumLabel(sale.paymentMethod),
     employeeName: sale.user ? sale.user.firstName + ' ' + sale.user.lastName : '',
     customerName: sale.customer ? sale.customer.firstName + ' ' + sale.customer.lastName : undefined,
     pointsEarned: sale.pointsEarned ?? undefined, pointsRedeemed: sale.pointsRedeemed ?? undefined,

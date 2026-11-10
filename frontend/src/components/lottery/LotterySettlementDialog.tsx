@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/Checkbox';
 import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -32,7 +33,7 @@ export function LotterySettlementDialog({ locationId, start, end, existing, bloc
           <LotteryMoneyFields fields={[[ 'netDue', 'Printed net due (+ / −)' ], [ 'bankSweep', 'Bank sweep (+ / −, optional)' ]]} values={form} onChange={(key, value) => update(key, value ?? (key === 'bankSweep' ? null : ''))} />
         </section>
         <Input label="Reconciliation evidence / correction reason" value={form.reason} maxLength={2000} onChange={e => update('reason', e.target.value)} />
-        <label className="flex gap-2 items-center min-h-11 text-sm"><input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} />I compared these totals with the settlement statement and confirmed the reporting period.</label>
+        <Checkbox label="I compared these totals with the settlement statement and confirmed the reporting period." checked={verified} onChange={e => setVerified(e.target.checked)} />
       </fieldset>
     </div>
   </Modal>;

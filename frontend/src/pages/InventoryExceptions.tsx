@@ -1,3 +1,5 @@
+import { LoadingState } from '@/components/ui/LoadingState';
+import { Alert } from '@/components/ui/Alert';
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, ClipboardCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -89,7 +91,6 @@ export const InventoryExceptions: React.FC = () => {
     } catch (err: any) {
       if (err?.name !== 'CanceledError') setError(err.response?.data?.error || 'Could not load this list');
     } finally { setLoading(false); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, page, locationId]);
 
   useEffect(() => { const controller = new AbortController(); load(controller.signal); return () => controller.abort(); }, [load]);
@@ -125,16 +126,16 @@ export const InventoryExceptions: React.FC = () => {
       <PageHeader
         title="Inventory Exceptions"
         secondaryTabs={<PageTabs secondary label="Exception view" value={view} onChange={value => { setView(value as View); setPage(1); }}
-          items={[{ id: 'open', label: 'Needs review' }, { id: 'resolved', label: 'Resolved' }, { id: 'all', label: 'All' },
-            { id: 'corrections', label: 'Corrections' }, { id: 'unmatched', label: 'Added without invoice' }]} />}
+          items={[{ id: 'open', label: 'Needs Review' }, { id: 'resolved', label: 'Resolved' }, { id: 'all', label: 'All' },
+            { id: 'corrections', label: 'Corrections' }, { id: 'unmatched', label: 'Added Without Invoice' }]} />}
       />
       <p className="text-sm text-muted-foreground mb-4">
         {view === 'corrections' ? 'Products that were sold, received or returned under the wrong item. Sale amounts are never changed; the cost of goods follows what actually left the store.'
           : view === 'unmatched' ? 'Stock recorded as received without a supplier invoice (a delivery that was never entered, or a shortfall that was counted back). Enter the real cost when the invoice arrives; the difference is posted once, in the current period.'
           : 'The register never stops a sale because recorded stock ran out. When a sale takes an item below zero, it appears here so the store can find out why.'}
       </p>
-      {error && <div role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error} <Button variant="outline" size="sm" onClick={() => load()}>Retry</Button></div>}
-      {loading && <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>}
+      {error && <Alert tone="error" className="mb-4" title={error} action={<Button variant="outline" size="sm" onClick={() => load()}>Retry</Button>} />}
+      {loading && <LoadingState />}
       {empty && <EmptyState icon={ClipboardCheck}
         title={view === 'corrections' ? 'No corrections yet' : view === 'unmatched' ? 'Nothing waiting for an invoice' : view === 'resolved' ? 'No resolved exceptions yet' : 'No inventory exceptions'}
         hint={view === 'open' ? 'Every item has a recorded quantity of zero or more, or its discrepancy was reviewed.' : undefined} />}
@@ -146,7 +147,7 @@ export const InventoryExceptions: React.FC = () => {
         </TableRow></TableHeader>
         <TableBody>{rows.map(row => (
           <TableRow key={row.id} className="cursor-pointer" onClick={() => open(row.id)}>
-            <TableCell><div className="font-medium">{row.product.name}</div><div className="text-xs text-muted-foreground">{row.product.sku}{row.product.barcode ? ` · ${row.product.barcode}` : ''}</div></TableCell>
+            <TableCell><button type="button" className="text-left font-medium hover:underline focus-visible:underline" onClick={event => { event.stopPropagation(); open(row.id); }}>{row.product.name}</button><div className="text-xs text-muted-foreground">{row.product.sku}{row.product.barcode ? ` · ${row.product.barcode}` : ''}</div></TableCell>
             <TableCell className={`text-right tabular-nums ${row.currentQuantity < 0 ? 'text-destructive font-medium' : ''}`}>{row.currentQuantity}</TableCell>
             <TableCell className="text-right tabular-nums">{row.lowestQuantity}</TableCell>
             <TableCell className="text-right tabular-nums">{row.occurrenceCount}</TableCell>
@@ -157,6 +158,7 @@ export const InventoryExceptions: React.FC = () => {
       </Table>}
       {showsExceptions && pagination.totalPages > 1 && <Pagination page={page} totalPages={pagination.totalPages} onPageChange={setPage} totalItems={pagination.total} itemName="exceptions" />}
 
+      {view === 'corrections' && !loading && corrections.length >= 500 && <p className="mb-2 text-sm text-muted-foreground">Showing the latest 500 corrections.</p>}
       {view === 'corrections' && !loading && corrections.length > 0 && <Table>
         <TableHeader><TableRow>
           <TableHead>Date</TableHead><TableHead>Recorded as</TableHead><TableHead>Actually</TableHead><TableHead className="text-right">Units</TableHead>
@@ -176,6 +178,7 @@ export const InventoryExceptions: React.FC = () => {
         })}</TableBody>
       </Table>}
 
+      {view === 'unmatched' && !loading && unmatched.length >= 500 && <p className="mb-2 text-sm text-muted-foreground">Showing the latest 500 entries.</p>}
       {view === 'unmatched' && !loading && unmatched.length > 0 && <Table>
         <TableHeader><TableRow>
           <TableHead>Date</TableHead><TableHead>Product</TableHead><TableHead className="text-right">Units</TableHead>

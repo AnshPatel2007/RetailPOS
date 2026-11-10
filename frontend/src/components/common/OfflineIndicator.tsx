@@ -1,3 +1,4 @@
+import { formatDate } from '@/lib/utils';
 import React, { useState } from 'react';
 import { OfflineReview } from './OfflineReview';
 import { WifiOff, RefreshCw, Cloud, CloudOff, AlertCircle } from 'lucide-react';
@@ -42,7 +43,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
     if (minutes < 60) return `${minutes}m ago`;
     const hours = Math.floor(minutes / 60);
     if (hours < 24) return `${hours}h ago`;
-    return new Date(timestamp).toLocaleDateString();
+    return formatDate(timestamp);
   };
 
   const handleSync = async () => {

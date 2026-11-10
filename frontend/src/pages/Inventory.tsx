@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/Checkbox';
 import { MarginPricing } from '@/components/inventory/MarginPricing';
 import { ProductPacksSection } from '@/components/inventory/ProductPacksSection';
 import { SupplierCasesEditor } from '@/components/inventory/SupplierCasesEditor';
@@ -9,7 +10,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ADJUSTMENT_REASONS } from '@/components/inventory/StockAdjustmentModal';
 import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useRef, useCallback, useId } from 'react';
-import { api, productService, categoryService } from '@/services/api';
+import { api, productService, categoryService, apiErrorMessage } from '@/services/api';
+import { useConfirm } from '@/components/ui/useConfirm';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useAuthStore } from '@/store/authStore';
 import { can } from '@/lib/capabilities';
@@ -39,6 +41,7 @@ import '@/styles/products.css';
 import { Spinner } from '@/components/ui/LoadingState';
 
 export const Inventory: React.FC = () => {
+  const [confirm, confirmDialog] = useConfirm();
   const { locationId, isReadOnly } = useEffectiveLocation();
   const role = useAuthStore(state => state.user?.role);
   const userId = useAuthStore(state => state.user?.id);
@@ -344,7 +347,21 @@ export const Inventory: React.FC = () => {
       summaryUpdates.refresh();
       toast.success('Product deleted');
     } catch (error) {
-      toast.error('Failed to delete product');
+      // A product with sales or stock history cannot be deleted; offer to archive it instead.
+      if ((error as { response?: { status?: number } }).response?.status === 409) {
+        const archive = await confirm({ title: 'Archive this product instead?', message: apiErrorMessage(error, 'This product has history and cannot be deleted.') + ' Archiving hides it from the register and lists but keeps its records.', confirmLabel: 'Archive' });
+        if (!archive) return;
+        try {
+          await productService.update(id, { isActive: false });
+          productUpdates.refresh();
+          summaryUpdates.refresh();
+          toast.success('Product archived');
+        } catch (archiveError) {
+          toast.error(apiErrorMessage(archiveError, 'Failed to archive product'));
+        }
+        return;
+      }
+      toast.error(apiErrorMessage(error, 'Failed to delete product'));
     }
   };
 
@@ -390,6 +407,17 @@ export const Inventory: React.FC = () => {
     setShowModal(true);
   };
 
+  // The register links here with ?newBarcode=… when a scan found nothing: open
+  // Add single item with that barcode filled in (Auto-fill looks it up), then tidy the address.
+  const newBarcode = searchParams.get('newBarcode');
+  useEffect(() => {
+    if (newBarcode === null) return;
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete('newBarcode'); return next; }, { replace: true });
+    if (!canManage || !newBarcode.trim()) return;
+    openCreateModal();
+    lookup.changeBarcode(newBarcode.trim().slice(0, 100));
+  }, [newBarcode, canManage]);
+
   const activePacks = (packaging.data?.sellingUnits || []).filter(unit => unit.isActive);
   const typedCost = parseFloat(formData.cost), typedPrice = parseFloat(formData.price);
   const costHint = activePacks.length && typedCost >= 0
@@ -408,6 +436,7 @@ export const Inventory: React.FC = () => {
 
   return (
     <ManagementPage className="products-workspace">
+      {confirmDialog}
       <PageHeader title="Products" actions={<>
         {canManage && view === 'singles' && <Button variant="outline" onClick={() => setShowCSVImportModal(true)}><Upload size={16} />Import CSV</Button>}
         {view === 'singles' && <Button variant="outline" disabled={isLoading || !!loadError || !products.length} onClick={() => { setSelectedForLabels(products); setShowLabelPrintModal(true); }}><Tag size={16} />Print Labels</Button>}
@@ -416,7 +445,7 @@ export const Inventory: React.FC = () => {
           ? <Button variant="primary" onClick={openCreateModal}><Plus size={16} />Add single item</Button>
           : <Button variant="primary" onClick={() => setPackTarget({ mode: 'create' })}><Plus size={16} />Add pack</Button>)}
       </>} />
-      <PageTabs label="Inventory view" secondary value={view} items={[{ id: 'singles', label: 'Single items' }, { id: 'packs', label: 'Packs' }]}
+      <PageTabs label="Inventory view" secondary value={view} items={[{ id: 'singles', label: 'Single Items' }, { id: 'packs', label: 'Packs' }]}
         onChange={id => setSearchParams(params => { const next = new URLSearchParams(params); if (id === 'packs') next.set('view', 'packs'); else next.delete('view'); return next; }, { replace: true })} />
 
       <AutoRefreshStatus state={productUpdates} />
@@ -554,10 +583,10 @@ export const Inventory: React.FC = () => {
             <FormSection title="Selling rules">
               <div className="space-y-4">
                 <div className="product-choice-grid">
-                  <label><input type="checkbox" checked={formData.isTaxable} onChange={e => setFormData({ ...formData, isTaxable: e.target.checked })} className="rounded border-input" /><span>Taxable item</span></label>
-                  <label><input type="checkbox" checked={formData.isActive} onChange={e => setFormData({ ...formData, isActive: e.target.checked })} className="rounded border-input" /><span>Active</span></label>
-                  <label title="SNAP/EBT can pay for this item"><input type="checkbox" checked={formData.ebtEligible} onChange={e => setFormData({ ...formData, ebtEligible: e.target.checked })} className="rounded border-input" /><span>EBT / SNAP eligible</span></label>
-                  <label title="The scanned scale or deli barcode contains the price"><input type="checkbox" checked={formData.priceEmbedded} onChange={e => setFormData({ ...formData, priceEmbedded: e.target.checked })} className="rounded border-input" /><span>Price-embedded barcode</span></label>
+                  <Checkbox label="Taxable item" checked={formData.isTaxable} onChange={e => setFormData({ ...formData, isTaxable: e.target.checked })} />
+                  <Checkbox label="Active" checked={formData.isActive} onChange={e => setFormData({ ...formData, isActive: e.target.checked })} />
+                  <Checkbox label="EBT / SNAP eligible" checked={formData.ebtEligible} onChange={e => setFormData({ ...formData, ebtEligible: e.target.checked })} title="SNAP/EBT can pay for this item" />
+                  <Checkbox label="Price-embedded barcode" checked={formData.priceEmbedded} onChange={e => setFormData({ ...formData, priceEmbedded: e.target.checked })} title="The scanned scale or deli barcode contains the price" />
                 </div>
                 <Select label="Age restriction" value={formData.minimumAge} onChange={e => lookup.editIdentity('minimumAge', e.target.value)}>
                   <option value="">None</option><option value="18">18+ (lottery)</option><option value="21">21+ (alcohol, tobacco, vape)</option>
@@ -616,7 +645,7 @@ export const Inventory: React.FC = () => {
             <FormSection collapsible title="Advanced" summary={advancedSummary} description="Rarely needed settings.">
               <div className="space-y-4">
                 <div className="product-choice-grid">
-                  <label><input type="checkbox" checked={formData.trackInventory} onChange={e => setFormData({ ...formData, trackInventory: e.target.checked })} className="rounded border-input" /><span>Track inventory</span></label>
+                  <Checkbox label="Track inventory" checked={formData.trackInventory} onChange={e => setFormData({ ...formData, trackInventory: e.target.checked })} />
                 </div>
                 <p className="text-xs text-muted-foreground">The register never blocks a sale because recorded stock is zero or negative. A negative balance opens an inventory exception for review.</p>
                 <div className="product-field-grid">

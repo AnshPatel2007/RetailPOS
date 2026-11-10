@@ -1,11 +1,13 @@
+import { formatTime } from '@/lib/utils';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertTriangle, Sun, Moon, MonitorSmartphone } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Sun, Moon, MonitorSmartphone, Lock } from 'lucide-react';
 import { shiftService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { OfflineIndicator } from '@/components/common/OfflineIndicator';
+import { useRegisterStore, canLockRegister } from '@/store/registerStore';
 
 interface CurrentShift {
   clockInAt: string;
@@ -21,6 +23,8 @@ export const POSTopBar: React.FC = () => {
   const { user } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
   const storeName = useStoreSettingsStore((s) => s.storeInfo.storeName);
+  const registerDevice = useRegisterStore((s) => s.device);
+  const lockRegister = useRegisterStore((s) => s.lock);
 
   // undefined = loading/unknown, null = not clocked in
   const [currentShift, setCurrentShift] = useState<CurrentShift | null | undefined>(undefined);
@@ -43,8 +47,6 @@ export const POSTopBar: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const formatTime = (d: Date | string) =>
-    new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   return (
     <header className="pos-topbar min-h-14 shrink-0 flex flex-wrap items-center gap-x-2 gap-y-1 py-1 px-2 sm:px-3 border-b border-border bg-card">
@@ -53,7 +55,7 @@ export const POSTopBar: React.FC = () => {
         <button
           onClick={() => navigate('/dashboard')}
           className="h-11 w-11 shrink-0 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
-          title="Back to Dashboard (Esc)"
+          title="Back to Dashboard"
           aria-label="Back to Dashboard"
         >
           <ArrowLeft className="h-[18px] w-[18px]" />
@@ -117,6 +119,17 @@ export const POSTopBar: React.FC = () => {
         >
           <MonitorSmartphone className="h-4 w-4" />
         </button>
+
+        {user && canLockRegister(user, registerDevice) && (
+          <button
+            onClick={() => lockRegister(user.id)}
+            className="h-11 shrink-0 flex items-center gap-1.5 px-3 rounded-md hover:bg-accent transition-colors text-sm font-medium"
+            title="Lock the register between customers; your PIN unlocks it"
+          >
+            <Lock className="h-4 w-4" aria-hidden="true" />
+            Lock
+          </button>
+        )}
 
         <button
           onClick={toggleTheme}

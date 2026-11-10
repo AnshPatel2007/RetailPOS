@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/Checkbox';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/Button';
@@ -60,7 +61,7 @@ export function LotteryBookDialog({ locationId, date, barcodeEnabled, checkpoint
         {(adding || intent === 'move' || intent === 'resume') && <Input label="Rack / bin" value={slot} maxLength={80} onChange={e => setSlot(e.target.value)} />}
         <Input label={kind === 'replace' ? 'New book next unsold ticket' : opening ? 'Opening number' : adding ? 'Next unsold ticket' : 'Closing number'} description="The next ticket available to sell." inputMode="numeric" value={nextTicket} maxLength={6} onChange={e => setTicket(e.target.value)} />
         {intent === 'loss' && <Input label="Tickets removed but not sold" description="Missing, damaged or stolen tickets within today's counted movement." value={loss} type="number" min="0" step="1" onChange={e => setLoss(e.target.value)} />}
-        {opening && owner && <label className="flex gap-2 min-h-11 items-center text-sm"><input type="checkbox" checked={resetOpening} onChange={e => setResetOpening(e.target.checked)} />Confirm a different starting number after the tracking gap</label>}
+        {opening && owner && <Checkbox label="Confirm a different starting number after the tracking gap" checked={resetOpening} onChange={e => setResetOpening(e.target.checked)} />}
         {(adding || kind === 'adjust' || resetOpening) && <div className={adding ? 'sm:col-span-2' : ''}><Input label={adding ? 'Opening verification notes' : 'Reason for this change'} value={reason} maxLength={2000} onChange={e => setReason(e.target.value)} /></div>}
       </fieldset>}
       {selected && adding && <p className="text-xs text-muted-foreground">Tickets {selected.firstTicket}–{selected.lastTicket} · {lotteryMoney(selected.pricePerTicket)} each. This opening does not record earlier sales.</p>}

@@ -50,7 +50,7 @@ export const saleScope = (scope: Scope) => Prisma.sql`
 export async function getFinancialMetrics(scope: Scope, range?: MetricRange, db: QueryClient = prisma) {
   const [row] = await db.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
     WITH sold AS (
-      SELECT s.id, s."sourceType", s.total::numeric, s.tax::numeric, s.discount::numeric
+      SELECT s.id, s."locationId", s."createdAt", s."sourceType", s.total::numeric, s.tax::numeric, s.discount::numeric
       FROM sales s WHERE ${recordedSaleSql} AND ${saleScope(scope)}
         AND ${dateCondition(Prisma.sql`s."createdAt"`, range)}
     ), sold_lines AS MATERIALIZED (
@@ -125,6 +125,13 @@ export async function getFinancialMetrics(scope: Scope, range?: MetricRange, db:
       (SELECT COALESCE(SUM(cost), 0) FROM sold_lines) AS cost,
       (SELECT COALESCE(SUM("bookedCost"), 0) FROM sold_lines) AS "bookedSaleCosts",
       (SELECT COALESCE(SUM("estimatedCost"), 0) FROM sold_lines) AS "estimatedSaleCosts",
+      -- Units sold beyond recorded stock carry a provisional cost; profit waits until
+      -- a manager resolves the stock exception those sales belong to.
+      (SELECT COUNT(DISTINCT x.id) FROM sale_items i JOIN sold s ON s.id = i."saleId"
+        LEFT JOIN reported_inventory_values v ON v.id = i."inventoryEntryId"
+        JOIN inventory_exceptions x ON x."productId" = COALESCE(v."productId", i."productId") AND x."locationId" = s."locationId"
+          AND x.status <> 'RESOLVED' AND (x."triggerSaleId" = s.id OR x."firstNegativeAt" <= s."createdAt")
+        WHERE i."costStatus" = 'ESTIMATED') AS "pendingStockProblems",
       (SELECT COALESCE(SUM(amount), 0) FROM inventory_adjustments) AS "inventoryCostAdjustments",
       (SELECT COUNT(*) FROM inventory_adjustments WHERE amount IS NULL) AS "missingInventoryCosts",
       (SELECT COALESCE(SUM(COALESCE(e."inputValue", e."valueChange")),0) FROM reported_inventory_values e WHERE e.kind = 'PURCHASE'
@@ -170,9 +177,11 @@ export function summarizeFinancialMetrics(row: Record<string, unknown>) {
   const inventoryCostAdjustments = money(value(row.inventoryCostAdjustments));
   const recordedSaleCosts = money(value(row.cost) - value(row.returnedCost) - value(row.voidCost));
   const costIncomplete = missingCosts + value(row.missingInventoryCosts);
-  const costOfGoodsSold = costIncomplete ? null : money(recordedSaleCosts + inventoryCostAdjustments);
   const estimatedSaleCosts = money(value(row.estimatedSaleCosts));
   const costEstimated = !costIncomplete && estimatedSaleCosts !== 0;
+  // Profit is never shown on an estimate: it waits for the open stock exceptions.
+  const pendingStockProblems = costIncomplete ? 0 : value(row.pendingStockProblems);
+  const costOfGoodsSold = costIncomplete || pendingStockProblems ? null : money(recordedSaleCosts + inventoryCostAdjustments);
   const grossProfit = legacyVoids || netSales === null || costOfGoodsSold === null ? null : money(netSales - costOfGoodsSold);
   const expenses = money(value(row.expenses));
   const inventoryPurchases = money(value(row.inventoryPurchases));
@@ -191,16 +200,20 @@ export function summarizeFinancialMetrics(row: Record<string, unknown>) {
     recordedSaleCosts: missingCosts ? null : recordedSaleCosts, inventoryCostAdjustments: value(row.missingInventoryCosts) ? null : inventoryCostAdjustments,
     saleCostCorrections: money(value(row.cost) - value(row.bookedSaleCosts)), receivedInventoryPurchases: money(value(row.receivedInventoryPurchases)),
     estimatedSaleCosts,
-    costCompleteness: { complete: !costIncomplete, missingRecords: costIncomplete, estimated: costEstimated, estimatedAmount: estimatedSaleCosts,
-      label: costIncomplete ? 'Cost information incomplete' : costEstimated ? 'Includes estimated costs' : 'Recorded costs', reviewPath: '/financial?tab=inventory&costTab=missing' },
+    costCompleteness: { complete: !costIncomplete && !pendingStockProblems, missingRecords: costIncomplete, estimated: costEstimated, estimatedAmount: estimatedSaleCosts,
+      pendingStockProblems,
+      label: costIncomplete ? 'Cost information incomplete' : pendingStockProblems ? 'Waiting on stock exceptions' : costEstimated ? 'Includes estimated costs' : 'Recorded costs',
+      reviewPath: pendingStockProblems ? '/inventory/stock-control/exceptions' : '/financial?tab=inventory&costTab=missing' },
     grossProfit, expenses, operatingExpenses: expenses, inventoryPurchases, recordedExpenses: money(expenses + inventoryPurchases),
     operatingProfit, otherIncome, lotteryEarnings,
     earningsCompleteness: { complete: !missingLotteryDays, pendingDays: missingLotteryDays, reviewPath: '/lottery?tab=reports', label: missingLotteryDays ? 'Lottery earnings pending' : 'Confirmed earnings' },
     netProfit: operatingProfit === null || missingLotteryDays ? null : money(operatingProfit + otherIncome),
     grossMargin: margin(grossProfit), operatingMargin: margin(operatingProfit),
-    costBasis: costIncomplete || legacyVoids ? 'UNAVAILABLE' : costEstimated ? 'ESTIMATED' : 'HISTORICAL',
+    costBasis: costIncomplete || legacyVoids || pendingStockProblems ? 'UNAVAILABLE' : costEstimated ? 'ESTIMATED' : 'HISTORICAL',
     unavailableReason: legacyVoids ? 'Older voids have no recorded reversal date; historical profit requires review.' : taxUnavailable ? 'Original refund tax allocations are unavailable.'
-      : costIncomplete ? 'Cost information incomplete. Review missing inventory and sale costs.' : missingLotteryDays ? 'Lottery earnings pending. Reconcile commissions in Lottery reports.' : null,
+      : costIncomplete ? 'Cost information incomplete. Review missing inventory and sale costs.'
+      : pendingStockProblems ? `Some items sold more than recorded stock. Resolve ${pendingStockProblems} stock ${pendingStockProblems === 1 ? 'exception' : 'exceptions'} in Stock Control to see profit.`
+      : missingLotteryDays ? 'Lottery earnings pending. Reconcile commissions in Lottery reports.' : null,
   };
 }
 
@@ -271,14 +284,17 @@ export async function getProductFinancialMetrics(scope: Scope, range?: MetricRan
     WITH movements AS (
       SELECT i."productId", i."productName", i.sku, i.quantity, i.total::numeric AS collected,
         i.tax::numeric AS tax, CASE WHEN i."inventoryEntryId" IS NOT NULL THEN c."cogsAmount" ELSE COALESCE(i."costAmount", i."unitCost" * i.quantity) END AS cost,
-        CASE WHEN i."inventoryEntryId" IS NOT NULL THEN c."cogsAmount" IS NULL ELSE i."costAmount" IS NULL AND i."unitCost" IS NULL END AS missing
+        CASE WHEN i."inventoryEntryId" IS NOT NULL THEN c."cogsAmount" IS NULL ELSE i."costAmount" IS NULL AND i."unitCost" IS NULL END AS missing,
+        i."costStatus" = 'ESTIMATED' AND EXISTS (SELECT 1 FROM inventory_exceptions x
+          WHERE x."productId" = COALESCE(c."productId", i."productId") AND x."locationId" = s."locationId"
+            AND x.status <> 'RESOLVED' AND (x."triggerSaleId" = s.id OR x."firstNegativeAt" <= s."createdAt")) AS pending
       FROM sale_items i JOIN sales s ON s.id = i."saleId"
       LEFT JOIN reported_inventory_values c ON c.id = i."inventoryEntryId"
       WHERE ${recordedSaleSql} AND ${saleScope(scope)} AND ${dateCondition(Prisma.sql`s."createdAt"`, range)}
       UNION ALL
       SELECT i."productId", i."productName", i.sku, -ri.quantity, -ri.amount::numeric,
         -ri."taxAmount", CASE WHEN c.id IS NOT NULL THEN c."cogsAmount" ELSE -ri."costReturned" END,
-        (CASE WHEN c.id IS NOT NULL THEN c."cogsAmount" IS NULL ELSE ri."costReturned" IS NULL END) OR ri."taxAmount" IS NULL
+        (CASE WHEN c.id IS NOT NULL THEN c."cogsAmount" IS NULL ELSE ri."costReturned" IS NULL END) OR ri."taxAmount" IS NULL, FALSE
       FROM refund_items ri JOIN refunds r ON r.id = ri."refundId"
       JOIN sale_items i ON i.id = ri."saleItemId" JOIN sales s ON s.id = r."saleId"
       LEFT JOIN reported_inventory_values c ON c."sourceKey" = 'refund-line:' || r.id || ':' || i.id
@@ -286,7 +302,7 @@ export async function getProductFinancialMetrics(scope: Scope, range?: MetricRan
       UNION ALL
       SELECT i->>'productId', i->>'productName', i->>'sku', -(i->>'quantity')::int, -(i->>'amount')::numeric,
         -(i->>'taxAmount')::numeric, CASE WHEN c.id IS NOT NULL THEN c."cogsAmount" ELSE -(i->>'costReversed')::numeric END,
-        CASE WHEN c.id IS NOT NULL THEN c."cogsAmount" IS NULL ELSE (i->>'costReversed') IS NULL END
+        CASE WHEN c.id IS NOT NULL THEN c."cogsAmount" IS NULL ELSE (i->>'costReversed') IS NULL END, FALSE
       FROM sale_voids v JOIN sales s ON s.id = v."saleId" CROSS JOIN LATERAL jsonb_array_elements(v.items) i
       LEFT JOIN reported_inventory_values c ON c."sourceKey" = 'void-line:' || (i->>'saleItemId')
       WHERE ${saleScope(scope)} AND ${dateCondition(Prisma.sql`v."createdAt"`, range)}
@@ -305,18 +321,18 @@ export async function getProductFinancialMetrics(scope: Scope, range?: MetricRan
       BOOL_OR(missing) OR (SELECT count > 0 FROM unknown_returns)
         OR EXISTS (SELECT 1 FROM unknown_voids v WHERE v."productId" = movements."productId") AS missing,
       EXISTS (SELECT 1 FROM unknown_voids v WHERE v."productId" = movements."productId") AS "incompleteVoids",
-      (SELECT count > 0 FROM unknown_returns) AS "incompleteReturns"
+      (SELECT count > 0 FROM unknown_returns) AS "incompleteReturns", BOOL_OR(pending) AS pending
     FROM movements GROUP BY "productId"
   `);
   return rows.map(row => {
     const revenue = money(value(row.collected));
     const netSales = money(revenue - value(row.tax));
-    const profit = row.missing ? null : money(netSales - value(row.cost));
+    const profit = row.missing || row.pending ? null : money(netSales - value(row.cost));
     return {
       productId: String(row.productId), productName: String(row.productName), sku: String(row.sku),
       quantitySold: value(row.quantity), revenue, netSales: row.incompleteReturns ? null : netSales,
       profit, margin: profit !== null && netSales > 0 ? money(profit / netSales * 100) : null,
-      costBasis: row.missing ? 'UNAVAILABLE' : 'HISTORICAL', incompleteReturns: Boolean(row.incompleteReturns), incompleteVoids: Boolean(row.incompleteVoids),
+      costBasis: row.missing || row.pending ? 'UNAVAILABLE' : 'HISTORICAL', costPendingStockReview: Boolean(row.pending), incompleteReturns: Boolean(row.incompleteReturns), incompleteVoids: Boolean(row.incompleteVoids),
     };
   });
 }

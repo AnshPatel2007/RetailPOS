@@ -133,6 +133,9 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
         quantity: delta,
         type: reason,
         notes: notes || undefined,
+        // "Set to" is worked out from the count shown here; if a sale changed it
+        // meanwhile, the server refuses rather than recording the wrong total.
+        ...(adjustmentType === 'set' ? { expectedVersion: product.stockVersion } : {}),
         idempotencyKey: requestKey,
       });
       setRequestKey(crypto.randomUUID());
@@ -142,7 +145,9 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
       onSuccess();
       onClose();
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error || 'Failed to adjust stock';
+      const errorMessage = err.response?.status === 409 && adjustmentType === 'set'
+        ? 'Stock changed since you opened this (a sale or another adjustment). Close and reopen it to see the current count, then set it again.'
+        : err.response?.data?.error || 'Failed to adjust stock';
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {

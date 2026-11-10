@@ -5,10 +5,13 @@ import { useUrlFilter, useUrlPage, useUrlObject } from '@/hooks/useUrlFilter';
 import { InventoryPurchaseSummary } from '@/components/financial/InventoryPurchaseSummary';
 import { DigestDeliveryControls } from '@/components/reports/DigestDeliveryControls';
 import { EmployeeSalesTab } from '@/components/reports/EmployeeSalesTab';
+import { Badge } from '@/components/ui/Badge';
+import { AboutNumbers } from '@/components/common/AboutNumbers';
+import { presetRange } from '@/lib/calendarDates';
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { reportService, saleService } from '@/services/api';
-import { formatCurrency, formatChartCurrency, formatEnumLabel, CHART_COLORS } from '@/lib/utils';
+import { formatCurrency, formatChartCurrency, formatEnumLabel, CHART_COLORS, formatDateTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 import { today } from '@internationalized/date';
@@ -47,9 +50,6 @@ import { SalesFilters } from '@/components/reports/SalesFilters';
 import { SaleDetailsModal } from '@/components/reports/SaleDetailsModal';
 import { SalesBulkActions } from '@/components/reports/SalesBulkActions';
 import { BulkRefundActions } from '@/components/reports/BulkRefundActions';
-import { InventoryFilters } from '@/components/reports/InventoryFilters';
-import { InventoryDetailsModal } from '@/components/reports/InventoryDetailsModal';
-import { InventoryBulkActions } from '@/components/reports/InventoryBulkActions';
 import { FilterDropdown } from '@/components/common/FilterDropdown';
 import { ExportPreviewModal } from '@/components/reports/ExportPreviewModal';
 import { DataVisualizationCard } from '@/components/reports/DataVisualizationCard';
@@ -66,7 +66,10 @@ import { useAuthStore } from '@/store/authStore';
 import { invalidateScopedQueries, useScopedQuery } from '@/hooks/useScopedQuery';
 import { Spinner } from '@/components/ui/LoadingState';
 
-export type ReportView = 'overall' | 'sales' | 'inventory' | 'employee' | 'stock-health' | 'exports';
+/** A missing figure reads as a dash, never as $0.00. */
+const money = (value: number | null | undefined) => value == null ? '\u2014' : formatCurrency(value);
+
+export type ReportView = 'overall' | 'sales' | 'employee' | 'stock-health' | 'exports';
 export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
   const scopeUser = useAuthStore(state => state.user);
   const reportToday = today(useCalendarTimezone());
@@ -98,25 +101,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
   });
 
   // Export preview state
-  const [showExportPreview, setShowExportPreview] = useState<'sales' | 'inventory' | null>(null);
-
-  // Inventory-specific state
-  const [showProductDetails, setShowProductDetails] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<any>(null);
-  const [showInventoryFilters, setShowInventoryFilters] = useState(false);
-  const [inventorySearchQuery, setInventorySearchQuery] = useUrlFilter('stockSearch');
-  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
-  const [inventoryFilters, setInventoryFilters] = useUrlObject('stockFilters', {
-    category: [] as string[],
-    stockStatus: [] as string[],
-    minPrice: '',
-    maxPrice: '',
-    trackInventory: null as boolean | null,
-    isActive: null as boolean | null,
-    startDate: reportToday.subtract({ days: 30 }).toString(),
-    endDate: reportToday.toString(),
-    showCharts: false as boolean,
-  });
+  const [showExportPreview, setShowExportPreview] = useState<'sales' | null>(null);
 
 
   const salesParams = () => ({ startDate: salesFilters.startDate, endDate: salesFilters.endDate,
@@ -129,18 +114,16 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
   const params = activeTab === 'sales' ? { ...salesParams(), search: readySearch || undefined, page: salesPage, refundPage, voidPage } : { locationId: locationId || undefined };
   const reportQuery = useScopedQuery<any>(['reports', activeTab, params], async signal => {
     if (activeTab === 'sales') return (await reportService.getSales(params, signal)).data.data;
-    if (activeTab === 'overall') return (await reportService.getOverall(params, signal)).data.data;
-    return (await reportService.getInventory(params, signal)).data.data;
-  }, ['sales', 'overall', 'inventory'].includes(activeTab));
+    return (await reportService.getOverall(params, signal)).data.data;
+  }, ['sales', 'overall'].includes(activeTab));
   const salesData: SalesReportData | null = activeTab === 'sales' ? reportQuery.data : null;
   const overallData = activeTab === 'overall' ? reportQuery.data : null;
-  const inventoryData = activeTab === 'inventory' ? reportQuery.data : null;
   const isLoading = reportQuery.loading || (activeTab === 'sales' && readySearch !== salesSearchQuery);
   const reportError = reportQuery.stale ? '' : reportQuery.error;
   const saleDetail = useScopedQuery<Sale>(['report-sale', saleRecord, locationId], async signal => (await saleService.getById(saleRecord, signal)).data.data, activeTab === 'sales' && !!saleRecord);
   const loadReports = () => { invalidateScopedQueries(); };
-  useEffect(() => { setSelectedSaleIds([]); setSelectedProductIds([]); }, [activeTab, salesPage, salesFilters, salesSearchQuery, inventoryFilters, locationId, scopeUser?.id, scopeUser?.locationId]);
-  useEffect(() => { setShowExportPreview(null); setSelectedProduct(null); setShowProductDetails(false); }, [activeTab, locationId, scopeUser?.id, scopeUser?.locationId]);
+  useEffect(() => { setSelectedSaleIds([]); }, [activeTab, salesPage, salesFilters, salesSearchQuery, locationId, scopeUser?.id, scopeUser?.locationId]);
+  useEffect(() => { setShowExportPreview(null); }, [activeTab, locationId, scopeUser?.id, scopeUser?.locationId]);
 
   // Sales helper functions
   const handleSalesExport = async (format: 'csv' | 'pdf') => {
@@ -186,149 +169,15 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
   const visibleSales = filteredSales;
   const salesEmployees = salesData?.employees || [];
 
-  // Inventory helper functions
-  const handleInventoryExport = async (format: 'csv' | 'pdf') => {
-    try {
-      const params = {
-        ...inventoryFilters,
-        category: inventoryFilters.category.join(','),
-        stockStatus: inventoryFilters.stockStatus.join(','),
-        locationId: locationId || undefined,
-      };
-
-      const response =
-        format === 'csv'
-          ? await reportService.exportInventoryCSV(params)
-          : await reportService.exportInventoryPDF(params);
-
-      // Create download link
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `inventory-export.${format}`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      toast.success(`Exported inventory as ${format.toUpperCase()}`);
-    } catch (error) {
-      console.error(`Failed to export ${format}:`, error);
-      toast.error(`Failed to export ${format}`);
-    }
-  };
-
-  const toggleProductSelection = (id: string) => {
-    setSelectedProductIds((prev) =>
-      prev.includes(id) ? prev.filter((productId) => productId !== id) : [...prev, id]
-    );
-  };
-
-  const toggleSelectAllProducts = () => {
-    if (selectedProductIds.length === filteredProducts.length) {
-      setSelectedProductIds([]);
-    } else {
-      setSelectedProductIds(filteredProducts.map((product) => product.id));
-    }
-  };
-
-  // Filter and search inventory
-  const filteredProducts = React.useMemo(() => {
-    if (!inventoryData?.products) return [];
-
-    let filtered = [...inventoryData.products];
-
-    // Apply search
-    if (inventorySearchQuery) {
-      const query = inventorySearchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (product: any) =>
-          product.sku.toLowerCase().includes(query) ||
-          product.name.toLowerCase().includes(query) ||
-          product.barcode?.toLowerCase().includes(query)
-      );
-    }
-
-    // Apply filters
-    if (inventoryFilters.category.length > 0) {
-      filtered = filtered.filter((product: any) =>
-        inventoryFilters.category.includes(product.categoryId)
-      );
-    }
-    if (inventoryFilters.minPrice) {
-      filtered = filtered.filter((product: any) =>
-        product.price >= parseFloat(inventoryFilters.minPrice)
-      );
-    }
-    if (inventoryFilters.maxPrice) {
-      filtered = filtered.filter((product: any) =>
-        product.price <= parseFloat(inventoryFilters.maxPrice)
-      );
-    }
-    if (inventoryFilters.trackInventory !== null) {
-      filtered = filtered.filter((product: any) =>
-        product.trackInventory === inventoryFilters.trackInventory
-      );
-    }
-    if (inventoryFilters.isActive !== null) {
-      filtered = filtered.filter((product: any) =>
-        product.isActive === inventoryFilters.isActive
-      );
-    }
-    if (inventoryFilters.stockStatus.length > 0) {
-      filtered = filtered.filter((product: any) => {
-        if (!product.trackInventory) return inventoryFilters.stockStatus.includes('Not Tracked');
-        if (product.stockQuantity === 0) return inventoryFilters.stockStatus.includes('Out of Stock');
-        if (product.stockQuantity <= product.lowStockAlert) return inventoryFilters.stockStatus.includes('Low Stock');
-        return inventoryFilters.stockStatus.includes('In Stock');
-      });
-    }
-
-    // Apply date range filter (defensive client-side filtering based on updatedAt)
-    if (inventoryFilters.startDate || inventoryFilters.endDate) {
-      filtered = filtered.filter((product: any) => {
-        if (!product.updatedAt) return false;
-        const productDate = new Date(product.updatedAt);
-        const productTime = productDate.getTime();
-
-        if (inventoryFilters.startDate) {
-          const startDate = new Date(inventoryFilters.startDate + 'T00:00:00');
-          if (productTime < startDate.getTime()) return false;
-        }
-
-        if (inventoryFilters.endDate) {
-          const endDate = new Date(inventoryFilters.endDate + 'T23:59:59.999');
-          if (productTime > endDate.getTime()) return false;
-        }
-
-        return true;
-      });
-    }
-
-    return filtered;
-  }, [inventoryData?.products, inventorySearchQuery, inventoryFilters]);
-
-  // Get unique categories from inventory data
-  const inventoryCategories = React.useMemo(() => {
-    if (!inventoryData?.products) return [];
-    const categoryMap = new Map();
-    inventoryData.products.forEach((product: any) => {
-      if (product.category && !categoryMap.has(product.categoryId)) {
-        categoryMap.set(product.categoryId, {
-          id: product.categoryId,
-          name: product.category.name,
-        });
-      }
-    });
-    return Array.from(categoryMap.values());
-  }, [inventoryData?.products]);
-
+  // The platform administrator picks a store above; Stock Health and Exports work
+  // inside a store, so they stay in store preview for that role.
   const tabs = [
-    { id: 'sales', label: 'Sales Reports' },
-    { id: 'inventory', label: 'Inventory Reports' },
+    { id: 'sales', label: 'Transactions & Refunds' },
     { id: 'stock-health', label: 'Stock Health' },
     { id: 'overall', label: 'Overall Report' },
     { id: 'employee', label: 'Employee Sales' },
     { id: 'exports', label: 'Exports' },
-  ];
+  ].filter(tab => view || scopeUser?.role !== 'SUPER_ADMIN' || !['stock-health', 'exports'].includes(tab.id));
 
   // Chart colors
 
@@ -346,12 +195,6 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                 Export
               </Button>
             )}
-            {activeTab === 'inventory' && filteredProducts.length > 0 && (
-              <Button variant="outline" onClick={() => setShowExportPreview('inventory')}>
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </Button>
-            )}
           </>
         }
         tabs={!view && <PageTabs label="Report views" items={tabs} value={activeTab} onChange={id => setActiveTab(id as ReportView)} />}
@@ -362,19 +205,22 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
       {/* Overall Report */}
       {activeTab === 'overall' && overallData && (
         <div className="space-y-6">
-          <div className="flex flex-wrap items-start gap-x-4 gap-y-2 text-xs text-muted-foreground"><p>Calendar: {overallData.period?.timezone}.</p><details className="max-w-xl"><summary className="cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">About these figures</summary><p className="mt-2 text-sm leading-5">Rolling periods include today through the report time. Collections include tax and deduct returns and voids when recorded.</p></details></div>
+          <AboutNumbers timezone={overallData.period?.timezone}>
+            <p>The last 7 and 30 days include today up to now. Sales include tax; refunds and voids come off on the day they happen.</p>
+            <p>Payment totals count each tender a sale used; refunds come off the tender they were paid back to. Top customers are ranked by lifetime spend.</p>
+          </AboutNumbers>
           {overallData.historyWarning && <p role="status" className="text-sm text-warning">{overallData.historyWarning}</p>}
           {/* Revenue Overview */}
           <div>
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <DollarSign className="h-5 w-5 text-success" />
-              Net Collections Overview
+              Sales Overview
             </h2>
             <SummaryStrip emphasis items={[
-              { label: "Today's Net Collections", value: formatCurrency(overallData.revenue?.today?.total || 0), detail: `${overallData.revenue?.today?.transactions ?? 'Unknown'} transactions` },
-              { label: 'Last 7 Days', value: formatCurrency(overallData.revenue?.week?.total || 0), detail: overallData.revenue?.week?.growth == null ? 'Comparison unavailable' : `${overallData.revenue.week.growth >= 0 ? '+' : '−'}${Math.abs(overallData.revenue.week.growth).toFixed(1)}% vs preceding 7 days` },
-              { label: 'Last 30 Days', value: formatCurrency(overallData.revenue?.month?.total || 0), detail: overallData.revenue?.month?.growth == null ? 'Comparison unavailable' : `${overallData.revenue.month.growth >= 0 ? '+' : '−'}${Math.abs(overallData.revenue.month.growth).toFixed(1)}% vs preceding 30 days` },
-              { label: 'Last 365 Days', value: formatCurrency(overallData.revenue?.year?.total || 0), detail: `${overallData.revenue?.year?.transactions ?? 'Unknown'} transactions` },
+              { label: 'Sales today', value: money(overallData.revenue?.today?.total), detail: `${overallData.revenue?.today?.transactions ?? 'Unknown'} ${overallData.revenue?.today?.transactions === 1 ? 'sale' : 'sales'}` },
+              { label: 'Last 7 Days', value: money(overallData.revenue?.week?.total), detail: overallData.revenue?.week?.growth == null ? 'Comparison unavailable' : `${overallData.revenue.week.growth >= 0 ? '+' : '−'}${Math.abs(overallData.revenue.week.growth).toFixed(1)}% vs preceding 7 days` },
+              { label: 'Last 30 Days', value: money(overallData.revenue?.month?.total), detail: overallData.revenue?.month?.growth == null ? 'Comparison unavailable' : `${overallData.revenue.month.growth >= 0 ? '+' : '−'}${Math.abs(overallData.revenue.month.growth).toFixed(1)}% vs preceding 30 days` },
+              { label: 'Last 365 Days', value: money(overallData.revenue?.year?.total), detail: `${overallData.revenue?.year?.transactions ?? 'Unknown'} transactions` },
             ]} />
           </div>
 
@@ -387,10 +233,10 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                 Profitability (Last 30 Days)
               </h2>
               <Link
-                to="/financial?tab=pnl"
+                to={'/financial?tab=pnl&pnlMonth=' + presetRange('thisMonth', overallData.period?.timezone || 'UTC')!.startDate.slice(0, 7)}
                 className="text-sm text-primary hover:underline flex items-center gap-1"
               >
-                View Full P&L
+                This Month's P&amp;L
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
@@ -398,7 +244,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
               { label: 'Gross Profit', value: overallData.profitability?.grossProfit == null ? 'Unavailable' : formatCurrency(overallData.profitability.grossProfit), detail: overallData.profitability?.grossMargin == null ? 'Margin unavailable' : overallData.profitability.grossMargin.toFixed(1) + '% margin' },
               { label: 'Net Profit', value: overallData.profitability?.netProfit == null ? 'Unavailable' : formatCurrency(overallData.profitability.netProfit), detail: overallData.profitability?.netMargin == null ? 'Margin unavailable' : overallData.profitability.netMargin.toFixed(1) + '% margin' },
               { label: 'Cost of Goods Sold', value: overallData.profitability?.costOfGoodsSold == null ? 'Unavailable' : formatCurrency(overallData.profitability.costOfGoodsSold) },
-              { label: 'Operating Expenses', value: formatCurrency(overallData.profitability?.totalExpenses || 0) },
+              { label: 'Operating Expenses', value: money(overallData.profitability?.totalExpenses) },
             ]} />
             <div className="mt-4 space-y-2">
               {!!overallData.profitability?.otherIncome && <div className="flex justify-between text-sm"><span>Other income included in net profit</span><span>{formatCurrency(overallData.profitability.otherIncome)}</span></div>}
@@ -411,7 +257,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Activity className="h-5 w-5" />
-                Daily Net Collections (Last 30 Days)
+                Daily Sales (Last 30 Days)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -430,13 +276,13 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                       tickFormatter={formatChartCurrency}
                     />
                     <Tooltip
-                      formatter={(value: any) => [formatCurrency(value), 'Net collected']}
+                      formatter={(value: any) => [formatCurrency(value), 'Sales after refunds']}
                       labelFormatter={(label) => String(label)}
                     />
                     <Line
                       type="monotone"
                       dataKey="sales"
-                      stroke="#3b82f6"
+                      stroke="hsl(var(--primary))"
                       strokeWidth={2}
                       dot={false}
                     />
@@ -467,23 +313,23 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
                     <p className="text-sm text-muted-foreground">Total Customers</p>
-                    <p className="text-xl font-bold">{overallData.customers?.total || 0}</p>
+                    <p className="text-xl font-bold">{overallData.customers?.total ?? '\u2014'}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">New in Last 30 Days</p>
-                    <p className="text-xl font-bold text-success">{overallData.customers?.new || 0}</p>
+                    <p className="text-xl font-bold text-success">{overallData.customers?.new ?? '\u2014'}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Returning</p>
-                    <p className="text-xl font-bold">{overallData.customers?.returning || 0}</p>
+                    <p className="text-xl font-bold">{overallData.customers?.returning ?? '\u2014'}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Avg Lifetime Value</p>
-                    <p className="text-xl font-bold">{formatCurrency(overallData.customers?.avgLifetimeValue || 0)}</p>
+                    <p className="text-sm text-muted-foreground">Average Spent per Customer</p>
+                    <p className="text-xl font-bold">{money(overallData.customers?.avgLifetimeValue)}</p>
                   </div>
                 </div>
                 <div className="pt-4 border-t">
-                  <p className="text-sm font-medium mb-2">Top Customers</p>
+                  <p className="text-sm font-medium mb-2">Top Customers (All Time)</p>
                   <div className="space-y-2 max-h-48 overflow-y-auto">
                     {(overallData.customers?.topCustomers || []).slice(0, 5).map((customer: any, index: number) => (
                       <div key={customer.id} className="flex justify-between items-center text-sm">
@@ -510,7 +356,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
                     <p className="text-sm text-muted-foreground">Total Products</p>
-                    <p className="text-xl font-bold">{overallData.inventory?.totalProducts || 0}</p>
+                    <p className="text-xl font-bold">{overallData.inventory?.totalProducts ?? '\u2014'}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Inventory Value</p>
@@ -518,11 +364,11 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Low Stock</p>
-                    <p className="text-xl font-bold text-warning">{overallData.inventory?.lowStockCount || 0}</p>
+                    <p className="text-xl font-bold text-warning">{overallData.inventory?.lowStockCount ?? '\u2014'}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Out of Stock</p>
-                    <p className="text-xl font-bold text-destructive">{overallData.inventory?.outOfStockCount || 0}</p>
+                    <p className="text-xl font-bold text-destructive">{overallData.inventory?.outOfStockCount ?? '\u2014'}</p>
                   </div>
                 </div>
                 {(overallData.inventory?.lowStockItems?.length > 0 || overallData.inventory?.outOfStockItems?.length > 0) && (
@@ -600,11 +446,13 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
               </CardHeader>
               <CardContent>
                 {(overallData.salesByCategory && overallData.salesByCategory.length > 0) ? (
-                  <div className="h-64">
+                  <div className="h-64" role="img" aria-label={'Sales by category: ' + overallData.salesByCategory.map((entry: { name: string; revenue: number }) => `${entry.name} ${formatCurrency(entry.revenue)}`).join(', ')}>
+                    <div aria-hidden="true" className="h-full">
                     <ResponsiveContainer width="100%" height="100%">
                       {overallData.salesByCategory.some((entry: { revenue: number }) => entry.revenue < 0) || overallData.salesByCategory.reduce((sum: number, entry: { revenue: number }) => sum + entry.revenue, 0) <= 0 ?
-                        <BarChart data={overallData.salesByCategory}><XAxis dataKey="name" tick={{ fontSize: 12 }} /><YAxis /><ReferenceLine y={0} stroke="currentColor" /><Tooltip formatter={(value: number) => formatCurrency(value)} /><Bar dataKey="revenue" fill="#3b82f6" isAnimationActive={false} /></BarChart> : <PieChart>
+                        <BarChart data={overallData.salesByCategory} accessibilityLayer={false}><XAxis dataKey="name" tick={{ fontSize: 12 }} /><YAxis /><ReferenceLine y={0} stroke="currentColor" /><Tooltip formatter={(value: number) => formatCurrency(value)} /><Bar dataKey="revenue" fill="hsl(var(--primary))" isAnimationActive={false} /></BarChart> : <PieChart accessibilityLayer={false}>
                         <Pie
+                          rootTabIndex={-1}
                           data={overallData.salesByCategory}
                           dataKey="revenue"
                           nameKey="name"
@@ -620,6 +468,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                         <Tooltip formatter={(value) => formatCurrency(value as number)} />
                       </PieChart>}
                     </ResponsiveContainer>
+                    </div>
                   </div>
                 ) : (
                   <div className="h-64 flex items-center justify-center text-muted-foreground">
@@ -638,11 +487,11 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <CreditCard className="h-5 w-5" />
-                  Payment Labels (Last 30 Days)
+                  Payments (Last 30 Days)
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-xs text-muted-foreground mb-3">Original sale labels and refund methods; split-tender settlement is separate.</p>
+                <p className="text-xs text-muted-foreground mb-3">Each tender a sale used, less refunds paid back to it.</p>
                 <div className="space-y-3">
                   {(overallData.paymentMethods || []).map((pm: any) => (
                     <div key={pm.method} className="flex items-center justify-between">
@@ -673,7 +522,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                   Employee Performance (Last 30 Days)
                 </CardTitle>
                 <Link
-                  to="/analytics"
+                  to="/insights/reports/staff"
                   className="text-sm text-primary hover:underline flex items-center gap-1"
                 >
                   View Details
@@ -686,7 +535,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                     <TableRow>
                       <TableHead>Employee</TableHead>
                       <TableHead className="text-right">Sales</TableHead>
-                      <TableHead className="text-right">AOV</TableHead>
+                      <TableHead className="text-right">Average Sale</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -749,7 +598,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
               <CardContent>
                 <div className="space-y-4">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-2">Average Original Order Value</p>
+                    <p className="text-sm text-muted-foreground mb-2">Average Sale (Before Refunds)</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div className="text-center p-2 bg-muted rounded">
                         <p className="text-xs text-muted-foreground">Today</p>
@@ -884,9 +733,9 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
           {isLoading && <p role="status" className="mb-3 text-sm text-muted-foreground">Updating report. These are the previous results.</p>}
 
           <SummaryStrip className="mb-4" items={[
-            { label: 'Net collected (including tax)', value: formatCurrency(salesData.summary?.totalSales || 0) },
+            { label: 'Sales after refunds (incl. tax)', value: formatCurrency(salesData.summary?.totalSales || 0) },
             { label: 'Transactions', value: salesData.summary?.totalTransactions ?? 'Unavailable' },
-            { label: 'Avg Order Value', value: salesData.summary?.averageOrderValue == null ? 'Unavailable' : formatCurrency(salesData.summary.averageOrderValue) },
+            { label: 'Average sale', value: salesData.summary?.averageOrderValue == null ? 'Unavailable' : formatCurrency(salesData.summary.averageOrderValue) },
             { label: 'Total Discount', value: salesData.summary?.totalDiscount == null ? 'Unavailable' : formatCurrency(salesData.summary.totalDiscount) },
           ]} />
 
@@ -894,8 +743,8 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
             <span>Refunds issued: <span className="tabular-nums text-foreground">{formatCurrency(salesData.summary.refunds)}</span> ({salesData.summary.refundCount})</span>
             <span>Voids recorded: <span className="tabular-nums text-foreground">{formatCurrency(salesData.summary.voids)}</span> ({salesData.summary.voidCount})</span>
             <span>Net sales before tax: <span className="tabular-nums text-foreground">{salesData.summary.netSales === null ? 'Unavailable' : formatCurrency(salesData.summary.netSales)}</span></span>
-            <details className="w-full"><summary className="inline-flex min-h-9 cursor-pointer items-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">About these figures</summary>
-              <p className="mt-1 max-w-3xl text-sm leading-6">Calendar: {salesData.period.timezone}. Filters apply to the original sale; returns and voids use their reversal date. Tender filters match the original sale's primary tender label. The payment chart uses recorded split-tender amounts and actual refund destinations.</p>
+            <details className="w-full"><summary className="inline-flex min-h-9 cursor-pointer items-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">About these numbers</summary>
+              <p className="mt-1 max-w-3xl text-sm leading-6">Store time: {salesData.period.timezone}. Filters pick sales by the sale itself; refunds and voids count on the day they happened. The payment filter matches each sale's main payment type. The payment chart uses the actual split payments and where each refund went.</p>
             </details>
           </div>
           {salesData.pagination.entryCount > 5000 && <p role="status" className="mb-4 text-sm">Direct CSV and PDF downloads support up to 5,000 entries. Narrow the dates or filters.{scopeUser?.role === 'ADMIN' && <> For a full store CSV, <Link to="/settings/jobs" className="underline text-primary">queue a saved export</Link>.</>}</p>}
@@ -904,28 +753,28 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
             <Table><TableHeader><TableRow><TableHead>Original sale</TableHead><TableHead>Void date</TableHead><TableHead>Reason</TableHead><TableHead className="text-right">Reversed</TableHead></TableRow></TableHeader>
               <TableBody>{salesData.voids.map(event => <TableRow key={event.id}>
                 <TableCell><button className="text-primary underline" onClick={() => setSaleRecord(event.sale.id)}>{event.sale.saleNumber}</button></TableCell>
-                <TableCell>{new Date(event.createdAt).toLocaleString(undefined, { timeZone: salesData.period.timezone })}</TableCell><TableCell>{event.reason}</TableCell><TableCell className="text-right tabular-nums">{formatCurrency(event.amount)}</TableCell>
+                <TableCell>{formatDateTime(event.createdAt, salesData.period.timezone)}</TableCell><TableCell>{event.reason}</TableCell><TableCell className="text-right tabular-nums">{formatCurrency(event.amount)}</TableCell>
               </TableRow>)}</TableBody>
             </Table>
-            <div aria-label="Void pages"><Pagination page={salesData.pagination.voids.page} totalPages={salesData.pagination.voids.totalPages} totalItems={salesData.pagination.voids.total} itemName="voids" onPageChange={value => setVoidPageRaw(String(value))} /></div>
+            <nav aria-label="Void pages"><Pagination page={salesData.pagination.voids.page} totalPages={salesData.pagination.voids.totalPages} totalItems={salesData.pagination.voids.total} itemName="voids" onPageChange={value => setVoidPageRaw(String(value))} /></nav>
           </CardContent></Card>}
           {salesData.refunds.length > 0 && <Card className="mb-6"><CardHeader><CardTitle>Returns issued in this period</CardTitle></CardHeader><CardContent>
             <Table><TableHeader><TableRow><TableHead>Original sale</TableHead><TableHead>Return date</TableHead><TableHead>Tender</TableHead><TableHead className="text-right">Returned</TableHead></TableRow></TableHeader>
               <TableBody>{salesData.refunds.map(refund => <TableRow key={refund.id}>
                 <TableCell><button className="text-primary underline" onClick={() => setSaleRecord(refund.sale.id)}>{refund.sale.saleNumber}</button></TableCell>
-                <TableCell>{new Date(refund.createdAt).toLocaleString(undefined, { timeZone: salesData.period.timezone })}</TableCell><TableCell>{refund.tenders?.length ? refund.tenders.map((part, index) => <p key={index}>{part.method.replace(/_/g, ' ')}: {formatCurrency(part.amount)}{part.reference ? ` (${part.reference})` : ''}</p>) : refund.method || 'Unavailable'}</TableCell><TableCell className="text-right tabular-nums">{formatCurrency(refund.amount)}</TableCell>
+                <TableCell>{formatDateTime(refund.createdAt, salesData.period.timezone)}</TableCell><TableCell>{refund.tenders?.length ? refund.tenders.map((part, index) => <p key={index}>{formatEnumLabel(part.method)}: {formatCurrency(part.amount)}{part.reference ? ` (${part.reference})` : ''}</p>) : refund.method || 'Unavailable'}</TableCell><TableCell className="text-right tabular-nums">{formatCurrency(refund.amount)}</TableCell>
               </TableRow>)}</TableBody>
             </Table>
-            <div aria-label="Return pages"><Pagination page={salesData.pagination.refunds.page} totalPages={salesData.pagination.refunds.totalPages} totalItems={salesData.pagination.refunds.total} itemName="returns" onPageChange={value => setRefundPageRaw(String(value))} /></div>
+            <nav aria-label="Return pages"><Pagination page={salesData.pagination.refunds.page} totalPages={salesData.pagination.refunds.totalPages} totalItems={salesData.pagination.refunds.total} itemName="returns" onPageChange={value => setRefundPageRaw(String(value))} /></nav>
           </CardContent></Card>}
 
           {/* Payment Method Breakdown */}
           {salesFilters.showCharts && salesData.paymentBreakdown && Object.keys(salesData.paymentBreakdown).length > 0 && (
             <div className="mb-6">
               <DataVisualizationCard
-                title="Net collected by payment method"
+                title="Sales after refunds, by payment type"
                 data={Object.entries(salesData.paymentBreakdown).map(([method, data]: [string, any]) => ({
-                  name: method.replace(/_/g, ' '),
+                  name: formatEnumLabel(method),
                   value: data.total,
                   count: data.count,
                 }))}
@@ -937,7 +786,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
           {salesFilters.showCharts && salesData.employeeBreakdown && Object.keys(salesData.employeeBreakdown).length > 0 && (
             <div className="mb-6">
               <DataVisualizationCard
-                title="Net collected by original cashier"
+                title="Sales after refunds, by cashier"
                 data={Object.values(salesData.employeeBreakdown).map((data: any) => ({
                   name: data.name,
                   value: data.total,
@@ -958,7 +807,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                   ? `Filtered Sales (${salesData.pagination.sales.total})`
                   : 'All Sales'}
               </CardTitle>
-              <p className="text-sm text-muted-foreground">Showing {visibleSales.length} of {salesData.pagination.sales.total} original sales. Totals and charts cover the entire filtered range.</p>
+              <p className="text-sm text-muted-foreground">Showing {visibleSales.length} of {salesData.pagination.sales.total} sales. Totals and charts cover everything that matches the filters.</p>
             </CardHeader>
             <Table>
               <TableHeader>
@@ -1023,34 +872,24 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                       <TableCell>
                         <span className="font-mono text-sm">{sale.saleNumber}</span>{sale.sourceType === 'DAILY_SUMMARY' && <p className="text-xs text-muted-foreground">Daily summary</p>}
                       </TableCell>
-                      <TableCell>{sale.sourceType === 'DAILY_SUMMARY' ? sale.sourceData?.businessDate : new Date(sale.createdAt).toLocaleString(undefined, { timeZone: salesData.period.timezone })}</TableCell>
+                      <TableCell>{sale.sourceType === 'DAILY_SUMMARY' ? sale.sourceData?.businessDate : formatDateTime(sale.createdAt, salesData.period.timezone)}</TableCell>
                       <TableCell>
                         {sale.sourceType === 'DAILY_SUMMARY' ? 'Not supplied' : sale.customer
                           ? `${sale.customer.firstName} ${sale.customer.lastName}`
                           : 'Walk-in'}
                       </TableCell>
                       <TableCell>
-                        {sale.sourceType === 'DAILY_SUMMARY' ? 'Not supplied' : sale.user ? `${sale.user.firstName} ${sale.user.lastName}` : 'N/A'}
+                        {sale.sourceType === 'DAILY_SUMMARY' ? 'Not supplied' : sale.user ? `${sale.user.firstName} ${sale.user.lastName}` : '\u2014'}
                       </TableCell>
                       <TableCell>
-                        <span className="text-xs px-2 py-1 rounded bg-muted">
-                          {sale.sourceType === 'DAILY_SUMMARY' ? 'Recorded totals' : sale.paymentMethod.replace(/_/g, ' ')}
-                        </span>
+                        <Badge variant="secondary">
+                          {sale.sourceType === 'DAILY_SUMMARY' ? 'Recorded totals' : formatEnumLabel(sale.paymentMethod)}
+                        </Badge>
                       </TableCell>
                       <TableCell>
-                        <span
-                          className={`text-xs px-2 py-1 rounded ${
-                            sale.status === 'COMPLETED'
-                              ? 'bg-success/10 text-success'
-                              : sale.status === 'PENDING'
-                              ? 'bg-warning/10 text-warning'
-                              : sale.status === 'HOLD'
-                              ? 'bg-primary/10 text-primary'
-                              : 'bg-destructive/10 text-destructive'
-                          }`}
-                        >
-                          {sale.status}
-                        </span>
+                        <Badge variant={sale.status === 'COMPLETED' ? 'success' : sale.status === 'PENDING' ? 'warning' : sale.status === 'HOLD' ? 'default' : 'destructive'}>
+                          {formatEnumLabel(sale.status)}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {formatCurrency(sale.total)}
@@ -1060,8 +899,9 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
                           onClick={() => {
                             setSaleRecord(sale.id);
                           }}
-                          className="p-1 hover:bg-accent rounded"
+                          className="p-1 hover:bg-accent rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           title="View details"
+                          aria-label={`View sale ${sale.saleNumber}`}
                         >
                           <Eye className="h-4 w-4" />
                         </button>
@@ -1073,7 +913,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
             </Table>
           </Card>
 
-          <div aria-label="Sale pages"><Pagination page={salesData.pagination.sales.page} totalPages={salesData.pagination.sales.totalPages} onPageChange={setSalesPage} totalItems={salesData.pagination.sales.total} itemName="sales" /></div>
+          <nav aria-label="Sale pages"><Pagination page={salesData.pagination.sales.page} totalPages={salesData.pagination.sales.totalPages} onPageChange={setSalesPage} totalItems={salesData.pagination.sales.total} itemName="sales" /></nav>
         </fieldset>
       )}
 
@@ -1082,253 +922,6 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
         {saleDetail.error && <div role="alert"><p>{saleDetail.error}</p><Button onClick={saleDetail.refresh}>Retry sale</Button></div>}
       </Modal>}
       <SaleDetailsModal isOpen={activeTab === 'sales' && !!saleRecord && !!saleDetail.data && !saleDetail.error} onClose={() => setSaleRecord('')} sale={saleDetail.data} refreshing={saleDetail.loading || saleDetail.refreshing} onSuccess={loadReports} />
-
-      {/* Inventory Report */}
-      {activeTab === 'inventory' && inventoryData && (
-        <>
-          {/* Search & Filter Bar */}
-          <div className="report-filter-toolbar flex flex-wrap items-center gap-2 mb-3">
-            <DateRangePicker label="Product creation dates" startDate={inventoryFilters.startDate} endDate={inventoryFilters.endDate} timezone={inventoryData?.period?.timezone} onChange={range => setInventoryFilters({ ...inventoryFilters, ...range })} />
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search by SKU, product name, or barcode..."
-                value={inventorySearchQuery}
-                onChange={(e) => setInventorySearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Button
-              variant={inventoryFilters.showCharts ? 'default' : 'outline'}
-              onClick={() => setInventoryFilters({ ...inventoryFilters, showCharts: !inventoryFilters.showCharts })}
-              title="Toggle charts visualization"
-            >
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Charts
-            </Button>
-            <div className="relative">
-              <Button
-                variant={showInventoryFilters ? 'default' : 'outline'}
-                onClick={() => setShowInventoryFilters(!showInventoryFilters)}
-              >
-                <Filter className="h-4 w-4 mr-2" />
-                Filters
-                {(inventoryFilters.category.length > 0 ||
-                  inventoryFilters.stockStatus.length > 0 ||
-                  inventoryFilters.trackInventory !== null ||
-                  inventoryFilters.isActive !== null) && (
-                  <span className="ml-2 bg-primary-foreground text-primary rounded-full px-2 py-0.5 text-xs">
-                    {inventoryFilters.category.length +
-                      inventoryFilters.stockStatus.length +
-                      (inventoryFilters.trackInventory !== null ? 1 : 0) +
-                      (inventoryFilters.isActive !== null ? 1 : 0)}
-                  </span>
-                )}
-              </Button>
-
-              {/* Filters Dropdown */}
-              <FilterDropdown
-                isOpen={showInventoryFilters}
-                onClose={() => setShowInventoryFilters(false)}
-                title="Inventory Filters"
-              >
-                <InventoryFilters
-                  filters={inventoryFilters}
-                  onFilterChange={setInventoryFilters}
-                  onClear={() =>
-                    setInventoryFilters({
-                      category: [],
-                      stockStatus: [],
-                      minPrice: '',
-                      maxPrice: '',
-                      trackInventory: null,
-                      isActive: null,
-                      startDate: reportToday.subtract({ days: 30 }).toString(),
-                      endDate: reportToday.toString(),
-                      showCharts: false as boolean,
-                    })
-                  }
-                  categories={inventoryCategories}
-                />
-              </FilterDropdown>
-            </div>
-          </div>
-          <FilterChips filters={inventoryFilters} onChange={setInventoryFilters} count={filteredProducts.length} lookup={Object.fromEntries(inventoryCategories.map((category: { id: string; name: string }) => [category.id, category.name]))} />
-
-          {/* Bulk Actions Toolbar */}
-          <InventoryBulkActions
-            selectedIds={selectedProductIds}
-            onClearSelection={() => setSelectedProductIds([])}
-            onSuccess={loadReports}
-            categories={inventoryCategories}
-          />
-
-          <SummaryStrip className="mb-4" items={[
-            { label: 'Total Products', value: inventoryData.summary?.totalProducts || 0 },
-            { label: 'Inventory Value', value: inventoryData.summary?.totalInventoryValue == null ? 'Unavailable' : formatCurrency(inventoryData.summary.totalInventoryValue) },
-            { label: 'Retail Value', value: formatCurrency(inventoryData.summary?.totalRetailValue || 0) },
-            { label: 'Potential Profit', value: formatCurrency(inventoryData.summary?.potentialProfit || 0) },
-          ]} />
-
-          {/* Inventory Table */}
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                {inventorySearchQuery ||
-                inventoryFilters.category.length > 0 ||
-                inventoryFilters.stockStatus.length > 0 ||
-                inventoryFilters.trackInventory !== null ||
-                inventoryFilters.isActive !== null
-                  ? `Filtered Products (${filteredProducts.length})`
-                  : 'All Products'}
-              </CardTitle>
-            </CardHeader>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">
-                    <input
-                      type="checkbox"
-                      checked={
-                        filteredProducts.length > 0 &&
-                        selectedProductIds.length === filteredProducts.length
-                      }
-                      onChange={toggleSelectAllProducts}
-                      className="cursor-pointer"
-                    />
-                  </TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Stock</TableHead>
-                  <TableHead>Cost</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredProducts.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={10}>
-                      <EmptyState
-                        icon={Package}
-                        title="No products found"
-                        hint="Try adjusting your search or filters"
-                      />
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredProducts.slice(0, 50).map((product: any) => {
-                    const stockStatus = !product.trackInventory
-                      ? { label: 'N/T', color: 'text-muted-foreground' }
-                      : product.stockQuantity === 0
-                      ? { label: 'Out', color: 'text-destructive' }
-                      : product.stockQuantity <= product.lowStockAlert
-                      ? { label: 'Low', color: 'text-warning' }
-                      : { label: 'OK', color: 'text-success' };
-
-                    return (
-                      <TableRow
-                        key={product.id}
-                        className="cursor-pointer hover:bg-accent"
-                        onClick={(e) => {
-                          if (
-                            (e.target as HTMLElement).tagName === 'INPUT' ||
-                            (e.target as HTMLElement).closest('button')
-                          ) {
-                            return;
-                          }
-                          setSelectedProduct(product);
-                          setShowProductDetails(true);
-                        }}
-                      >
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={selectedProductIds.includes(product.id)}
-                            onChange={() => toggleProductSelection(product.id)}
-                            className="cursor-pointer"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <span className="font-mono text-sm">{product.sku}</span>
-                        </TableCell>
-                        <TableCell className="font-medium max-w-xs truncate">
-                          {product.name}
-                        </TableCell>
-                        <TableCell>{product.category?.name || '-'}</TableCell>
-                        <TableCell>
-                          <span className={stockStatus.color + ' font-medium'}>
-                            {product.trackInventory ? product.stockQuantity : 'N/A'}
-                          </span>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {formatCurrency(product.cost)}
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {formatCurrency(product.price)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <span
-                              className={`text-xs px-2 py-1 rounded ${
-                                product.isActive
-                                  ? 'bg-success/10 text-success'
-                                  : 'bg-destructive/10 text-destructive'
-                              }`}
-                            >
-                              {product.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                            <span
-                              className={`text-xs px-2 py-1 rounded bg-muted ${stockStatus.color}`}
-                            >
-                              {stockStatus.label}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right font-medium font-mono">
-                          {formatCurrency(product.cost * product.stockQuantity)}
-                        </TableCell>
-                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => {
-                              setSelectedProduct(product);
-                              setShowProductDetails(true);
-                            }}
-                            className="p-1 hover:bg-accent rounded"
-                            title="View details"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </Card>
-
-          {filteredProducts.length > 50 && (
-            <p className="text-sm text-muted-foreground text-center mt-2">
-              Showing 50 of {filteredProducts.length} products. Use filters or export to view all.
-            </p>
-          )}
-
-          {/* Product Details Modal */}
-          <InventoryDetailsModal
-            isOpen={showProductDetails}
-            onClose={() => {
-              setShowProductDetails(false);
-              setSelectedProduct(null);
-            }}
-            product={selectedProduct}
-          />
-        </>
-      )}
 
       {/* Employee Sales Tab */}
       {activeTab === 'employee' && (
@@ -1356,19 +949,11 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
         <ExportPreviewModal
           isOpen={!!showExportPreview}
           onClose={() => setShowExportPreview(null)}
-          type={showExportPreview}
-          data={showExportPreview === 'sales' ? salesData?.entries || [] : filteredProducts}
-          totalItems={showExportPreview === 'sales' ? salesData?.pagination.entryCount : undefined}
-          onExportCSV={async () => {
-            if (showExportPreview === 'sales') await handleSalesExport('csv');
-            else await handleInventoryExport('csv');
-            setShowExportPreview(null);
-          }}
-          onExportPDF={async () => {
-            if (showExportPreview === 'sales') await handleSalesExport('pdf');
-            else await handleInventoryExport('pdf');
-            setShowExportPreview(null);
-          }}
+          type="sales"
+          data={salesData?.entries || []}
+          totalItems={salesData?.pagination.entryCount}
+          onExportCSV={async () => { await handleSalesExport('csv'); setShowExportPreview(null); }}
+          onExportPDF={async () => { await handleSalesExport('pdf'); setShowExportPreview(null); }}
         />
       )}
     </ManagementPage>

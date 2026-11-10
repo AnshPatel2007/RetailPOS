@@ -71,5 +71,5 @@ test('a previously saved safe drop remains recoverable after the movement contro
   await page.getByRole('button', { name: 'Retry saved cash movement', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Retry saved cash movement', exact: true })).toHaveCount(0);
   await expect(page.getByText('$80.00', { exact: true })).toBeVisible();
-  await expect(page.getByText('SAFE DROP — Safe drop test', { exact: true })).toHaveCount(1);
+  await expect(page.getByText('Safe Drop — Safe drop test', { exact: true })).toHaveCount(1);
 });

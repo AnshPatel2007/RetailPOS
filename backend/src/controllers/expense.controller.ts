@@ -539,6 +539,22 @@ export const bulkRejectExpenses = asyncHandler(async (req: AuthRequest, res: Res
   });
 });
 
+/** The same rows the Expenses list shows: its search box, amount range and, unless a
+ * status is chosen, everything except rejected expenses. */
+function listedExpenseFilter(query: AuthRequest['query'], hasStatus: boolean): Record<string, unknown> {
+  const filter: Record<string, unknown> = {};
+  if (!hasStatus) filter.status = { not: 'REJECTED' };
+  const search = typeof query.search === 'string' ? query.search.trim() : '';
+  if (search) filter.OR = ['expenseNumber', 'description', 'vendor', 'invoiceNumber']
+    .map(field => ({ [field]: { contains: search, mode: 'insensitive' } }));
+  const min = Number(query.minAmount), max = Number(query.maxAmount);
+  const amount: Record<string, number> = {};
+  if (query.minAmount !== undefined && query.minAmount !== '' && Number.isFinite(min)) amount.gte = min;
+  if (query.maxAmount !== undefined && query.maxAmount !== '' && Number.isFinite(max)) amount.lte = max;
+  if (Object.keys(amount).length) filter.amount = amount;
+  return filter;
+}
+
 /**
  * Export expenses to CSV
  * GET /api/expenses/export/csv
@@ -555,6 +571,7 @@ export const exportExpensesCSV = asyncHandler(async (req: AuthRequest, res: Resp
   if (categoryFilter) where.category = categoryFilter;
   const statusFilter = parseListFilter(status);
   if (statusFilter) where.status = statusFilter;
+  Object.assign(where, listedExpenseFilter(req.query, !!statusFilter));
 
   if (dateFilter) {
     where.expenseDate = dateFilter;
@@ -609,6 +626,7 @@ export const exportExpensesPDF = asyncHandler(async (req: AuthRequest, res: Resp
   if (categoryFilter) where.category = categoryFilter;
   const statusFilter = parseListFilter(status);
   if (statusFilter) where.status = statusFilter;
+  Object.assign(where, listedExpenseFilter(req.query, !!statusFilter));
 
   if (dateFilter) {
     where.expenseDate = dateFilter;

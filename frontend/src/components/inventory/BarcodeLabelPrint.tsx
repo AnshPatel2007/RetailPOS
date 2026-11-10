@@ -1,3 +1,4 @@
+import { formatCurrency } from '@/lib/utils';
 import React, { useState } from 'react';
 import JsBarcode from 'jsbarcode';
 import { Modal } from '@/components/ui/Modal';
@@ -85,7 +86,7 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
             <div class="product-name">${esc(item.product.name)}</div>
             <div class="barcode">${svg}</div>
             <div class="code-text">${esc(code)}</div>
-            <div class="price">$${item.product.price.toFixed(2)}</div>
+            <div class="price">${formatCurrency(Number(item.product.price))}</div>
           </div>
         `);
       })

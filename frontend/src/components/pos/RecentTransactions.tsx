@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { saleService } from '@/services/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { ChevronDown, ChevronUp, CreditCard, Banknote, Clock, Receipt } from 'lucide-react';
 
 interface RecentSale {
@@ -99,7 +99,7 @@ export const RecentTransactions: React.FC<RecentTransactionsProps> = ({
                         )}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {getRelativeTime(sale.createdAt)} · {new Date(sale.createdAt).toLocaleString()}
+                        {getRelativeTime(sale.createdAt)} · {formatDateTime(sale.createdAt)}
                         {sale.status === 'REFUNDED' && (
                           <span className="ml-1 text-destructive font-medium">Refunded</span>
                         )}

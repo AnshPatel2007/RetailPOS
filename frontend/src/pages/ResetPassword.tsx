@@ -72,7 +72,7 @@ export const ResetPassword: React.FC = () => {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
-                <div className="p-3 bg-destructive/10 border border-destructive rounded-md">
+                <div role="alert" className="p-3 bg-destructive/10 border border-destructive rounded-md">
                   <p className="text-sm text-destructive">{error}</p>
                 </div>
               )}

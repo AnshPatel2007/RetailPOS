@@ -6,7 +6,7 @@ import { OperationRecovery } from '@/components/common/OperationRecovery';
 import React, { useState, useEffect, useRef, useId } from 'react';
 import { customerService, analyticsService } from '@/services/api';
 import { Customer } from '@/types';
-import { formatCurrency } from '@/lib/utils';
+import { formatEnumLabel, formatCurrency, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
@@ -38,13 +38,15 @@ import { Spinner } from '@/components/ui/LoadingState';
 import { Checkbox } from '@/components/ui/Checkbox';
 
 export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }) => {
-  const { locationId } = useEffectiveLocation();
+  const { locationId, isReadOnly } = useEffectiveLocation();
+  const [saving, setSaving] = useState(false);
   const requestVersion = useRef(0);
   const [loadError, setLoadError] = useState('');
   const [analysis, setAnalysis] = useUrlFilter('analysis', 'overview', false);
   const activeTab = view === 'directory' ? 'directory' : analysis === 'segments' ? 'segments' : 'insights';
   const { user } = useAuthStore();
-  const canDelete = can(user?.role, 'customer.manage');
+  const canDelete = !isReadOnly && can(user?.role, 'customer.manage');
+  const canEdit = !isReadOnly && can(user?.role, 'customer.edit');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useUrlFilter('search');
@@ -194,7 +196,9 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
+    // One click, one customer: a second click while saving is ignored.
+    if (saving) return;
+    setSaving(true);
     try {
       if (editingCustomer) {
         await customerService.update(editingCustomer.id, formData);
@@ -208,6 +212,8 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
       toast.success(editingCustomer ? 'Customer updated' : 'Customer created');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to save customer');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -288,7 +294,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
       <PageHeader
         title={view === 'directory' ? 'Customers' : 'Customer Insights'}
         subtitle={view === 'directory' ? 'Find customers and manage their contact details.' : 'Understand customer activity and plan owner-approved campaigns.'}
-        actions={view === 'directory' ? (can(user?.role, 'customer.edit') && <Button variant="primary" onClick={openCreateModal}><Plus className="h-4 w-4 mr-2" />Add Customer</Button>) : isAdmin && <Button variant="outline" onClick={() => setShowCampaignModal(true)}><Megaphone className="h-4 w-4 mr-2" />Email Campaign</Button>}
+        actions={view === 'directory' ? (canEdit && <Button variant="primary" onClick={openCreateModal}><Plus className="h-4 w-4 mr-2" />Add Customer</Button>) : isAdmin && <Button variant="outline" onClick={() => setShowCampaignModal(true)}><Megaphone className="h-4 w-4 mr-2" />Email Campaign</Button>}
         tabs={view === 'insights' ? <PageTabs label="Customer analysis" value={analysis === 'segments' ? 'segments' : 'overview'} items={[{ id: 'overview', label: 'Overview' }, { id: 'segments', label: 'Customer Segments' }]} onChange={setAnalysis} /> : undefined}
       />
       {autoRefresh.notice}
@@ -303,7 +309,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
       >
         {isLoading ? <div className="p-8 text-center" role="status"><Spinner size="md" className="mx-auto" /><p className="mt-3 text-muted-foreground">Loading customers...</p></div>
           : customers.length === 0 ? <EmptyState icon={UsersIcon} title="No customers found" hint={search ? 'Try another search or clear it to see all customers.' : 'Add a customer to keep contact details and purchase history together.'} />
-            : <CustomerDirectoryTable customers={customers} canDelete={canDelete} onView={viewCustomerDetail} onEdit={handleEdit} onDelete={customer => setDeleteTargetId(customer.id)} />}
+            : <CustomerDirectoryTable customers={customers} canDelete={canDelete} canEdit={canEdit} onView={viewCustomerDetail} onEdit={handleEdit} onDelete={customer => setDeleteTargetId(customer.id)} />}
       </DataPanel>}
 
       {/* Insights Tab */}
@@ -361,7 +367,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
                         <TableCell className="text-right">{customer.visitCount}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">{formatCurrency(customer.avgOrderValue)}</TableCell>
                         <TableCell className="text-muted-foreground">
-                          {customer.lastVisit ? new Date(customer.lastVisit).toLocaleDateString() : 'Never'}
+                          {customer.lastVisit ? formatDate(customer.lastVisit) : 'Never'}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -426,11 +432,20 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
                     </div>
                     <span className="font-bold">{customerData.segments.byRecency.lost.count}</span>
                   </div>
+                  {customerData.segments.byRecency.noVisits && <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 bg-muted-foreground rounded-full"></span>
+                      <span>{customerData.segments.byRecency.noVisits.label}</span>
+                    </div>
+                    <span className="font-bold">{customerData.segments.byRecency.noVisits.count}</span>
+                  </div>}
                 </div>
-                <div className="h-48 mt-4">
+                <div className="h-48 mt-4" role="img" aria-label={`Customer recency: ${customerData.segments.byRecency.active.count} active, ${customerData.segments.byRecency.atRisk.count} at risk, ${customerData.segments.byRecency.lost.count} lost`}>
+                  <div aria-hidden="true" className="h-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <RechartsPieChart>
+                    <RechartsPieChart accessibilityLayer={false}>
                       <Pie
+                        rootTabIndex={-1}
                         data={[
                           { name: 'Active', value: customerData.segments.byRecency.active.count },
                           { name: 'At Risk', value: customerData.segments.byRecency.atRisk.count },
@@ -443,13 +458,14 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
                         paddingAngle={5}
                         dataKey="value"
                       >
-                        <Cell fill="#10b981" />
-                        <Cell fill="#f59e0b" />
-                        <Cell fill="#ef4444" />
+                        <Cell fill="hsl(var(--success))" />
+                        <Cell fill="hsl(var(--warning))" />
+                        <Cell fill="hsl(var(--destructive))" />
                       </Pie>
                       <Tooltip />
                     </RechartsPieChart>
                   </ResponsiveContainer>
+                  </div>
                 </div>
               </Card>
 
@@ -493,6 +509,13 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
                       </p>
                     </div>
                   </div>
+                  {customerData.segments.byValue.noPurchases && <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <UsersIcon className="w-4 h-4 text-muted-foreground" />
+                      <span>{customerData.segments.byValue.noPurchases.label}</span>
+                    </div>
+                    <p className="font-bold">{customerData.segments.byValue.noPurchases.count}</p>
+                  </div>}
                 </div>
               </Card>
             </div>
@@ -514,7 +537,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
         title={editingCustomer ? 'Edit Customer' : 'Add New Customer'}
         description={editingCustomer ? undefined : 'Name and phone are all you need. Add the rest any time.'}
         size="lg"
-        footer={<div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setShowModal(false); resetForm(); }}>Cancel</Button><Button type="submit" form={customerFormId}>{editingCustomer ? 'Update Customer' : 'Create Customer'}</Button></div>}
+        footer={<div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setShowModal(false); resetForm(); }}>Cancel</Button><Button type="submit" form={customerFormId} disabled={saving}>{saving ? 'Saving…' : editingCustomer ? 'Update Customer' : 'Create Customer'}</Button></div>}
       >
         <form id={customerFormId} onSubmit={handleSubmit} className="customer-form space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -723,7 +746,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
                   selectedCustomer.loyaltyTier === 'GOLD' ? 'warning' :
                   selectedCustomer.loyaltyTier === 'SILVER' ? 'secondary' : 'default'
                 }>
-                  {selectedCustomer.loyaltyTier || 'BRONZE'}
+                  {formatEnumLabel(selectedCustomer.loyaltyTier || 'BRONZE')}
                 </Badge>
               </div>
               <div>
@@ -769,12 +792,12 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
                       {customerHistory.map((sale: any) => (
                         <TableRow key={sale.id}>
                           <TableCell className="font-mono text-sm">{sale.saleNumber}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{new Date(sale.createdAt).toLocaleDateString()}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{formatDate(sale.createdAt)}</TableCell>
                           <TableCell className="text-sm">{sale.items?.length || 0}</TableCell>
                           <TableCell className="font-medium">{formatCurrency(sale.total)}</TableCell>
                           <TableCell>
                             <Badge variant={sale.status === 'COMPLETED' ? 'success' : sale.status === 'REFUNDED' ? 'destructive' : 'secondary'}>
-                              {sale.status}
+                              {formatEnumLabel(sale.status)}
                             </Badge>
                           </TableCell>
                         </TableRow>
@@ -785,11 +808,11 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
               )}
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            {canEdit && <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={() => { setShowDetailModal(false); handleEdit(selectedCustomer); }}>
                 <Edit className="w-4 h-4 mr-1" /> Edit
               </Button>
-            </div>
+            </div>}
           </div>
         )}
       </Modal>
@@ -799,7 +822,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
         onClose={() => setDeleteTargetId(null)}
         onConfirm={() => deleteTargetId && handleDelete(deleteTargetId)}
         title="Delete customer?"
-        message="This is a soft delete — the customer record is kept and can be restored."
+        message="The customer is removed from the directory. Their past sales keep their name."
         destructive
         confirmLabel="Delete"
       />

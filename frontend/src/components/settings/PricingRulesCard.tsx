@@ -60,7 +60,7 @@ export const PricingRulesCard: React.FC<{ editable: boolean }> = ({ editable }) 
   const example = priceForMargin(1.5, toFraction(store.target) ?? NaN, store.rounding);
   const overrides = rules.filter(rule => rule.scope !== 'STORE');
   return (
-    <Card>
+    <Card className="lg:col-span-2">
       <CardHeader><CardTitle className="flex items-center"><Tags className="h-5 w-5 mr-2" />Pricing</CardTitle></CardHeader>
       <CardContent className="space-y-6">
         <fieldset disabled={!editable || busy} className="space-y-3">
@@ -91,7 +91,7 @@ export const PricingRulesCard: React.FC<{ editable: boolean }> = ({ editable }) 
                 </tr>))}</tbody>
             </table>
           )}
-          <div className="grid gap-3 sm:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <Select label="Applies to" value={draft.scope} onChange={e => setDraft({ ...draft, scope: e.target.value as 'CATEGORY' | 'BRAND', scopeId: '' })}>
               <option value="CATEGORY">Category</option><option value="BRAND">Brand</option>
             </Select>
@@ -111,7 +111,7 @@ export const PricingRulesCard: React.FC<{ editable: boolean }> = ({ editable }) 
               setDraft({ ...draft, scopeId: '', target: '', minimum: '' });
           }}>Add target</Button>
         </fieldset>
-        <p className="text-xs text-muted-foreground">Prices never change on their own. Review items under target in <Link className="text-primary hover:underline" to="/inventory/purchasing/price-review">Price Review</Link>.</p>
+        <p className="text-xs text-muted-foreground">Prices never change on their own. Review items under target in <Link className="text-primary underline underline-offset-2" to="/inventory/purchasing/price-review">Price Review</Link>.</p>
       </CardContent>
     </Card>
   );

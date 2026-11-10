@@ -17,20 +17,20 @@ test('employee collection totals and signed details reconcile, with visible retr
   await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Staff', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Employee report temporarily unavailable');
   unavailable = false; await page.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(page.getByText('Net collected', { exact: true }).first().locator('..')).toContainText('$11.00');
+  await expect(page.getByText('Sales after refunds', { exact: true }).first().locator('..')).toContainText('$11.00');
   await page.route('**/api/reports/sales?*', route => route.fulfill({ status: 503, json: { error: 'Activity temporarily unavailable' } }), { times: 1 });
   await page.getByRole('button', { name: 'View activity for Reporting Fixture', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Activity - Reporting Fixture', exact: true });
   await expect(modal.getByRole('alert')).toContainText('Activity temporarily unavailable');
   await modal.getByRole('button', { name: 'Retry details', exact: true }).click();
-  await expect(modal).toContainText('2 sale, return and void entries.');
+  await expect(modal).toContainText('2 entries (sales, refunds and voids).');
   await expect(modal.getByText('REPORT-PRIOR', { exact: true })).toBeVisible();
   await expect(modal.getByText('-$11.00', { exact: true })).toBeVisible();
   await expect(modal.getByText('$22.00', { exact: true })).toBeVisible();
   await modal.screenshot({ path: 'test-results/employee-activity-light.png', animations: 'disabled' });
   await page.keyboard.press('Escape'); await expect(modal).toHaveCount(0);
   await chooseJanuary(page);
-  await expect(page.getByText('Net collected', { exact: true }).first().locator('..')).toContainText('$22.00');
+  await expect(page.getByText('Sales after refunds', { exact: true }).first().locator('..')).toContainText('$22.00');
 });
 
 test('employee date filters ignore a late response from the previous period', async ({ page }) => {
@@ -38,7 +38,7 @@ test('employee date filters ignore a late response from the previous period', as
   await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Staff', exact: true }).click();
   await page.getByRole('button', { name: 'View activity for Reporting Fixture', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Activity - Reporting Fixture', exact: true });
-  await expect(modal).toContainText('2 sale, return and void entries.');
+  await expect(modal).toContainText('2 entries (sales, refunds and voids).');
   await page.keyboard.press('Escape');
   let release!: () => void, observed!: () => void, completed!: () => void;
   const delayed = new Promise<void>(resolve => { release = resolve; });
@@ -47,7 +47,7 @@ test('employee date filters ignore a late response from the previous period', as
   await page.route('**/api/reports/employee-sales*', async route => { const response = await route.fetch(); observed(); await delayed; try { await route.fulfill({ response }); } finally { completed(); } }, { times: 1 });
   await page.evaluate(() => window.dispatchEvent(new Event('focus'))); await started;
   await chooseJanuary(page);
-  const total = page.getByText('Net collected', { exact: true }).first().locator('..');
+  const total = page.getByText('Sales after refunds', { exact: true }).first().locator('..');
   await expect(total).toContainText('$22.00');
   release(); await finished;
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));

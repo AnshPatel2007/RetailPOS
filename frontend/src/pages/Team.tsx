@@ -1,3 +1,5 @@
+import { formatEnumLabel } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
 import { Select } from '@/components/ui/Select';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
@@ -263,7 +265,7 @@ export const Team: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <Badge variant={u.role === 'MANAGER' ? 'default' : 'secondary'}>
-                      {u.role.replace(/_/g, ' ')}
+                      {formatEnumLabel(u.role)}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -312,8 +314,8 @@ export const Team: React.FC = () => {
             required
           />
           <div>
-            <label className="block text-sm font-medium mb-1">Role</label>
             <Select
+              label="Role"
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -343,8 +345,8 @@ export const Team: React.FC = () => {
           </div>
           <Input label="Email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required />
           <div>
-            <label className="block text-sm font-medium mb-1">Role</label>
             <Select
+              label="Role"
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -353,10 +355,7 @@ export const Team: React.FC = () => {
               <option value="MANAGER">Manager</option>
             </Select>
           </div>
-          <label className="flex items-center space-x-2">
-            <input type="checkbox" checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} className="rounded border-input" />
-            <span className="text-sm">Active</span>
-          </label>
+          <Checkbox label="Active" checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} />
           <div className="flex gap-3 pt-2">
             <Button type="button" variant="outline" className="flex-1" onClick={() => { setShowEditModal(false); setEditingUser(null); }}>Cancel</Button>
             <Button type="submit" variant="primary" className="flex-1" disabled={submitting}>

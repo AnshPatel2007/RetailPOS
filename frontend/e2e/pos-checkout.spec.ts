@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { saleComplete } from './utils/sale-complete';
 import { login, TEST_CASHIER } from './utils/auth-helper';
 test('quantity replaces the default digit and then appends; recorded stock never caps the quantity', async ({ page }) => {
   await login(page, TEST_CASHIER.email); await page.goto('/pos');
@@ -17,32 +18,37 @@ test('quantity replaces the default digit and then appends; recorded stock never
   await expect(pad).not.toContainText(/in stock|available/i);
 });
 
-test('cashier discount requires manager approval and leaves the cashier signed in', async ({ page }) => {
+test('cashier discount is approved by a manager before payment and leaves the cashier signed in', async ({ page }) => {
   await login(page, TEST_CASHIER.email); await page.goto('/pos');
   await page.getByRole('button', { name: /^Fixture Coffee/ }).click();
   await page.getByRole('button', { name: 'Actions for Fixture Coffee', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Item discount', exact: true }).click();
   await page.getByLabel('Item discount amount').fill('1');
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
-  await page.getByRole('button', { name: 'Charge $9.90', exact: true }).click();
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
-  await payment.getByRole('button', { name: 'Exact', exact: true }).click();
-  await payment.getByRole('button', { name: 'Charge $9.90', exact: true }).click();
   const approval = page.getByRole('dialog', { name: 'Manager approval', exact: true });
-  await expect(approval.getByText(/Checkout with discount or price change/)).toContainText('$9.90');
+  // Approval comes before payment: cancelling it means no payment is taken.
+  await page.getByRole('button', { name: 'Charge $9.90', exact: true }).click();
+  await expect(approval.getByText(/Discount or price change on this sale/)).toContainText('$1.00');
   await page.keyboard.press('Escape');
   await expect(approval).toHaveCount(0);
-  await expect(payment).toBeVisible();
-  await expect(payment.getByRole('status', { name: 'Payment balance', exact: true })).toContainText('confirmation pending');
-  await payment.getByRole('button', { name: 'Retry saving sale', exact: true }).click();
+  await expect(payment).toHaveCount(0);
+  await page.getByRole('button', { name: 'Charge $9.90', exact: true }).click();
   await approval.getByLabel('Reason', { exact: true }).fill('Damaged packaging');
   await approval.getByLabel('Manager email').fill('manager@example.test');
   await approval.getByLabel('Manager password').fill('BrowserTest123!');
-  const saved = page.waitForResponse(r => r.url().endsWith('/api/sales') && r.request().method() === 'POST' && r.status() === 201);
   await approval.getByRole('button', { name: 'Approve this action' }).click();
+  await expect(payment).toBeVisible();
+  await expect(payment.getByText('Manager approval needed', { exact: true })).toHaveCount(0);
+  // The approved sale saves without asking again.
+  const saved = page.waitForResponse(r => r.url().endsWith('/api/sales') && r.request().method() === 'POST' && r.status() === 201);
+  await payment.getByRole('button', { name: 'Exact', exact: true }).click();
+  await payment.getByRole('button', { name: 'Charge $9.90', exact: true }).click();
   const result = await (await saved).json();
   expect(result.data.total).toBe(9.9);
-  await expect(page.getByText('Cart is empty', { exact: true })).toBeVisible();
+  await expect(approval).toHaveCount(0);
+  // The finished sale shows in the cart (no pop-up); the cashier is still signed in.
+  await expect(saleComplete(page)).toBeVisible();
   await page.goto('/customers');
   await expect(page.getByRole('link', { name: 'Customer Insights', exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Customers', exact: true })).toBeVisible();

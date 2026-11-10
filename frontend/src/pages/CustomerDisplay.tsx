@@ -111,10 +111,34 @@ export const CustomerDisplay: React.FC = () => {
             <span>Tax</span>
             <span className="tabular-nums">{formatCurrency(state!.tax)}</span>
           </div>
+          {!!state!.payment?.pointsDiscount && (
+            <div className="flex justify-between text-success">
+              <span>Points used</span>
+              <span className="tabular-nums">-{formatCurrency(state!.payment.pointsDiscount)}</span>
+            </div>
+          )}
+          {!!state!.payment?.surcharge && (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Card surcharge</span>
+              <span className="tabular-nums">{formatCurrency(state!.payment.surcharge)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-4xl font-bold pt-3 border-t">
             <span>Total</span>
-            <span className="tabular-nums">{formatCurrency(state!.total)}</span>
+            <span className="tabular-nums">{formatCurrency(state!.payment?.due ?? state!.total)}</span>
           </div>
+          {!!state!.payment?.paid && (
+            <>
+              <div className="flex justify-between text-muted-foreground">
+                <span>Paid</span>
+                <span className="tabular-nums">{formatCurrency(state!.payment.paid)}</span>
+              </div>
+              <div className="flex justify-between text-2xl font-semibold">
+                <span>Remaining</span>
+                <span className="tabular-nums">{formatCurrency(Math.max(0, Math.round((state!.payment.due - state!.payment.paid) * 100) / 100))}</span>
+              </div>
+            </>
+          )}
         </div>
       </footer>
     </div>

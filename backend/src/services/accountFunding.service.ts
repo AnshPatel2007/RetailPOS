@@ -6,6 +6,7 @@ import { AppError } from '../utils/errorHandler';
 import { assertOwnsRecord } from '../utils/locationFilter.util';
 import { can } from '../policies/capabilities';
 import { requestHash } from './managerApproval.service';
+import { reportCalendar } from './reportDates.service';
 import { cashAmount, cents, dollars, lockCurrentDrawer, postDrawerEntry } from './drawer.service';
 
 const common = { amount: z.number().finite().positive(), idempotencyKey: z.string().uuid(), reference: z.string().trim().max(120).optional(), notes: z.string().trim().max(500).optional() };
@@ -61,7 +62,13 @@ export async function fundAccount(req: AuthRequest, tx: Prisma.TransactionClient
   if (kind === 'GIFT_ISSUE') {
     const input = giftSchema.parse(body);
     if (input.customerId) await lockAccountCustomer(tx, req, input.customerId);
-    const expiry = input.expiresAt ? new Date(input.expiresAt) : null;
+    // A date-only expiry is good through the end of that day in the store's time zone.
+    let expiry: Date | null = null;
+    if (input.expiresAt && /^\d{4}-\d{2}-\d{2}$/.test(input.expiresAt)) {
+      const store = await tx.location.findUnique({ where: { id: req.user.locationId! }, select: { timezone: true } });
+      const [year, month, day] = input.expiresAt.split('-').map(Number);
+      expiry = new Date(reportCalendar(store?.timezone || 'UTC').midnight(year, month, day + 1).getTime() - 1);
+    } else if (input.expiresAt) expiry = new Date(input.expiresAt);
     if (expiry && (!Number.isFinite(expiry.getTime()) || expiry <= new Date())) throw new AppError('Expiry must be a valid future date', 400);
     const card = await tx.giftCard.create({ data: {
       code: randomBytes(8).toString('hex').toUpperCase().match(/.{1,4}/g)!.join('-'),

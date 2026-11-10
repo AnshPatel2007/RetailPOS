@@ -79,7 +79,9 @@ const PriceReview: React.FC = () => {
         : <Card><CardContent className="pt-5">
           <Table>
             <TableHeader><TableRow>
-              <TableHead className="w-10"><span className="sr-only">Apply</span></TableHead>
+              <TableHead className="w-10"><input type="checkbox" aria-label="Select every item" disabled={isReadOnly || !rows.length}
+                checked={rows.length > 0 && rows.every(row => selected.has(rowKey(row)))}
+                onChange={e => setSelected(e.target.checked ? new Set(rows.map(rowKey)) : new Set())} className="h-4 w-4 accent-primary" /></TableHead>
               <TableHead>Item</TableHead><TableHead className="text-right">Cost</TableHead><TableHead className="text-right">Price</TableHead>
               <TableHead className="text-right">Margin</TableHead><TableHead className="text-right">Target</TableHead><TableHead className="text-right">New price</TableHead>
             </TableRow></TableHeader>

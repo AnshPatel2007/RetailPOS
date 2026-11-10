@@ -1,8 +1,9 @@
 import { SidebarUserFooter } from './common/SidebarUserFooter';
 import React, { useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { PanelLeftClose, PanelLeftOpen, Menu, X, Search } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Menu, X, Search, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
+import { useRegisterStore, canLockRegister } from '@/store/registerStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useLayoutStore } from '@/store/layoutStore';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
@@ -40,8 +41,10 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
+  const registerDevice = useRegisterStore(state => state.device);
+  const lockRegister = useRegisterStore(state => state.lock);
   const { theme, toggleTheme } = useThemeStore();
-  const { isSidebarCollapsed, isMobileMenuOpen, toggleSidebar, setMobileMenuOpen } = useLayoutStore();
+  const { isSidebarCollapsed, isMobileMenuOpen, toggleSidebar, setMobileMenuOpen, openSection, setOpenSection } = useLayoutStore();
   const quickFind = useQuickFindStore();
   // Show which store you're operating — mirrors the POS top bar
   const settingsStoreName = useStoreSettingsStore((s) => s.storeInfo.storeName);
@@ -72,6 +75,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname, setMobileMenuOpen]);
+
+  // The menu section holding the current page opens by itself (one section open at a time).
+  const activeSection = sidebarSections.find(section => section.title && section.items.some(item => isPathActive(location.pathname, item.href)))?.title || null;
+  useEffect(() => {
+    if (activeSection) setOpenSection(activeSection);
+  }, [activeSection, location.pathname, setOpenSection]);
 
   const handleLogout = async () => {
     await logout();
@@ -129,7 +138,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     );
   };
 
-  const sidebarContent = (
+  const sidebarContent = (place: 'mobile' | 'desktop') => (
     <>
       {/* Logo + collapse toggle */}
       <div className={cn(
@@ -149,6 +158,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 onClick={toggleSidebar}
                 className="hidden lg:flex p-1.5 rounded-md hover:bg-accent transition-colors text-muted-foreground"
                 title="Collapse sidebar"
+                aria-label="Collapse sidebar"
               >
                 <PanelLeftClose className="h-4 w-4" />
               </button>
@@ -167,6 +177,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             onClick={toggleSidebar}
             className="p-1.5 rounded-md hover:bg-accent transition-colors text-muted-foreground"
             title="Expand sidebar"
+            aria-label="Expand sidebar"
           >
             <PanelLeftOpen className="h-4 w-4" />
           </button>
@@ -186,15 +197,32 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* Navigation */}
       <nav aria-label="Main" className="flex-1 px-2 pb-4 pt-2 overflow-y-auto">
-        {sections.map((section, index) => (
-          <div key={section.title || 'start'} className={cn(index > 0 && (isSidebarCollapsed || !showTitles ? 'mt-2 border-t border-border pt-2' : 'mt-3'))}>
-            {showTitles && section.title && !isSidebarCollapsed && <p className="px-3 pb-1 text-xs font-semibold text-muted-foreground">{section.title}</p>}
-            <div className="space-y-0.5">{section.items.map(renderNavItem)}</div>
-          </div>
-        ))}
+        {sections.map((section, index) => {
+          // Titled sections fold: a heading opens its pages, and opening one closes the others.
+          // The icon-only sidebar and short menus (cashiers) keep every page in view.
+          const folding = showTitles && !!section.title && !isSidebarCollapsed;
+          const open = !folding || openSection === section.title;
+          const id = `sidebar-${place}-${(section.title || 'start').toLowerCase().replace(/[^a-z]+/g, '-')}`;
+          const hiddenAlert = folding && !open && exceptionCount > 0 && section.items.some(item => item.href === STOCK_CONTROL);
+          return (
+            <div key={section.title || 'start'} className={cn(index > 0 && (isSidebarCollapsed || !showTitles ? 'mt-2 border-t border-border pt-2' : 'mt-1'))}>
+              {folding && (
+                <button type="button" aria-expanded={open} aria-controls={id} aria-description={hiddenAlert ? exceptionLabel : undefined}
+                  onClick={() => setOpenSection(open ? null : section.title || null)}
+                  className="sidebar-section-toggle flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                  <span className="flex-1 text-left">{section.title}</span>
+                  {hiddenAlert && <span className="rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-5 text-destructive-foreground tabular-nums" aria-hidden="true">{exceptionCount}</span>}
+                  <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', open && 'rotate-180')} aria-hidden="true" />
+                </button>
+              )}
+              <div id={id} hidden={!open} className="space-y-0.5">{section.items.map(renderNavItem)}</div>
+            </div>
+          );
+        })}
       </nav>
 
-      <SidebarUserFooter name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} role={user?.role || ''} theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout} collapsed={isSidebarCollapsed} />
+      <SidebarUserFooter name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} role={user?.role || ''} theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout} collapsed={isSidebarCollapsed}
+        onLock={user && canLockRegister(user, registerDevice) ? () => lockRegister(user.id) : undefined} />
     </>
   );
 
@@ -205,6 +233,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         onClick={() => setMobileMenuOpen(true)}
         className="lg:hidden fixed top-3 left-3 z-50 p-2 rounded-md bg-card border border-border shadow-sm hover:bg-accent transition-colors"
         title="Open menu"
+        aria-label="Open menu"
       >
         <Menu className="h-5 w-5" />
       </button>
@@ -236,7 +265,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         >
           <X className="h-5 w-5" />
         </button>
-        {sidebarContent}
+        {sidebarContent('mobile')}
       </aside>
 
       {/* Sidebar — desktop */}
@@ -246,7 +275,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           isSidebarCollapsed ? 'w-16' : 'w-60'
         )}
       >
-        {sidebarContent}
+        {sidebarContent('desktop')}
       </aside>
 
       {/* Main content */}

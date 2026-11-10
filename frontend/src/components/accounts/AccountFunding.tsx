@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
-import { formatCurrency, formatDateTime } from '@/lib/utils';
+import { formatCurrency, formatDateTime, formatEnumLabel } from '@/lib/utils';
 import { useAccountOperation } from '@/hooks/useAccountOperation';
 import toast from 'react-hot-toast';
 
@@ -37,7 +37,7 @@ export function AccountOperationFeedback({ operation }: { operation: ReturnType<
   const receipt = operation.receipt;
   const rows = receipt ? [
     ['Transaction', titles[receipt.record.kind]], ['Account', receipt.label], ['Receipt', receipt.record.id],
-    ['Recorded', formatDateTime(receipt.record.createdAt)], ['Method / source', receipt.record.paymentMethod.replace(/_/g, ' ')],
+    ['Recorded', formatDateTime(receipt.record.createdAt)], ['Method / source', formatEnumLabel(receipt.record.paymentMethod)],
     ['Amount', formatCurrency(receipt.record.amount)], ['Balance before', formatCurrency(receipt.record.balanceBefore)],
     ['Balance after this transaction', formatCurrency(receipt.record.balanceAfter)],
     ...(receipt.record.reference ? [['Terminal reference', receipt.record.reference]] : []),

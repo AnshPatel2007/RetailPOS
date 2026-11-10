@@ -64,7 +64,7 @@ export const getGiftCard = asyncHandler(async (req: AuthRequest, res: Response) 
  */
 export const getGiftCardStats = asyncHandler(async (req: AuthRequest, res: Response) => {
   const scope = getSharedOrOwnFilter(req, req.query.locationId as string);
-  const [activeStats, totalCount] = await Promise.all([
+  const [activeStats, totalCount, allStats] = await Promise.all([
     prisma.giftCard.aggregate({
       where: {
         ...scope,
@@ -75,14 +75,19 @@ export const getGiftCardStats = asyncHandler(async (req: AuthRequest, res: Respo
       _count: true,
     }),
     prisma.giftCard.count({ where: scope }),
+    // Balances left on expired or deactivated cards are still shown, apart from usable ones.
+    prisma.giftCard.aggregate({ where: scope, _sum: { currentBalance: true } }),
   ]);
+  const outstandingBalance = Math.round(Number((activeStats._sum.currentBalance || 0)) * 100) / 100;
+  const allBalances = Math.round(Number((allStats._sum.currentBalance || 0)) * 100) / 100;
 
   res.json({
     success: true,
     data: {
       totalCards: totalCount,
       activeCards: activeStats._count,
-      outstandingBalance: Math.round(Number((activeStats._sum.currentBalance || 0)) * 100) / 100,
+      outstandingBalance,
+      inactiveBalance: Math.round((allBalances - outstandingBalance) * 100) / 100,
     },
   });
 });

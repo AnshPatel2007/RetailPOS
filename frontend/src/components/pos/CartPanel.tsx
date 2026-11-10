@@ -9,6 +9,7 @@ import { Receipt } from '@/services/hardware';
 import { hardware } from '@/services/hardware';
 import { useConfirm } from '@/components/ui/useConfirm';
 import { Kbd } from '@/components/ui/Kbd';
+import { SaleComplete, type CompletedSale } from '@/components/pos/SaleComplete';
 import {
   Trash2,
   Printer,
@@ -31,6 +32,11 @@ interface CartPanelProps {
   onCheckout: () => void;
   onHoldSale: () => void;
   onClose?: () => void;
+  /** The sale that just finished: change due and receipt options until the next item. */
+  completedSale?: CompletedSale | null;
+  onViewReceipt?: () => void;
+  onEmailReceipt?: (email: string) => Promise<void>;
+  onDismissCompleted?: () => void;
 }
 
 export const CartPanel: React.FC<CartPanelProps> = ({
@@ -43,6 +49,10 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   onCheckout,
   onHoldSale,
   onClose,
+  completedSale,
+  onViewReceipt,
+  onEmailReceipt,
+  onDismissCompleted,
 }) => {
   const [confirm, confirmDialog] = useConfirm();
   const {
@@ -138,7 +148,15 @@ export const CartPanel: React.FC<CartPanelProps> = ({
 
       {/* Cart items */}
       <div data-cart-items className="pos-cart-items">
-        {items.length === 0 ? (
+        {items.length === 0 && completedSale ? (
+          <SaleComplete
+            sale={completedSale}
+            onPrint={onPrintReceipt}
+            onViewReceipt={onViewReceipt}
+            onEmail={onEmailReceipt}
+            onDismiss={() => onDismissCompleted?.()}
+          />
+        ) : items.length === 0 ? (
           <div className="text-center py-10">
             <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
               <ShoppingCart className="h-6 w-6 text-muted-foreground" />

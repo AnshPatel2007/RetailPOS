@@ -1,6 +1,6 @@
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { api } from '@/services/api';
 import { formatCurrency } from '@/lib/utils';
 import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
@@ -12,6 +12,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ArrowRight, Award } from 'lucide-react';
+import { Alert } from '@/components/ui/Alert';
+import { LoadingState } from '@/components/ui/LoadingState';
 
 interface LocationStats {
   locationId: string;
@@ -30,8 +32,9 @@ interface LocationStats {
   pendingSales: number;
   refundCount: number;
   refundAmount: number;
-  taxCollected: number;
-  inventoryValue: number;
+  taxCharged: number;
+  inventoryValue: number | null;
+  unavailableReason: string | null;
 }
 
 interface StoreDetails {
@@ -70,14 +73,12 @@ interface DashboardData {
     totalRefunds: number;
     totalRefundAmount: number;
     totalTaxCharged: number;
-    totalInventoryValue: number;
+    totalInventoryValue: number | null;
   };
   period: string;
   globalMetrics: {
     totalCustomers: number;
     newCustomers: number;
-    topProducts: any[];
-    cashDiscrepancies: any[];
   };
 }
 
@@ -91,16 +92,19 @@ const PERIODS = [
 ];
 const displayProfit = (value: number | null) => value === null ? '\u2014' : formatCurrency(value);
 const displayMargin = (value: number | null) => value === null ? '\u2014' : value.toFixed(1) + '%';
+/** One rule for every money-result color: losses red, gains green, unknown grey. */
+const resultTone = (value: number | null) => value === null ? 'text-muted-foreground' : value < 0 ? 'text-destructive' : 'text-success';
 
 export const AdminDashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [period, setPeriod] = useState('30');
   const query = useScopedQuery<{ stats: DashboardData; stores: StoreDetails[] }>(['admin-dashboard', period], async signal => {
-    const [stats, stores] = await Promise.all([api.get('/locations/stats/overview', { params: { period }, signal }), api.get('/locations', { signal })]);
+    const [stats, stores] = await Promise.all([api.get('/locations/stats/overview', { params: { period }, signal }), api.get('/locations', { params: { include: 'stats' }, signal })]);
     return { stats: stats.data.data, stores: stores.data.data };
   });
   const data = query.data?.stats;
   const stores = query.data?.stores || [];
-  const periodLabel = PERIODS.find(option => option.value === period)!.label;
+  const periodDescription = PERIODS.find(option => option.value === period)!.description;
   const header = <PageHeader title="Admin Dashboard" toolbar={<PageTabs label="Dashboard time period" value={period} onChange={setPeriod}
     items={PERIODS.map(option => ({ id: option.value, label: <span aria-label={option.description}>{option.label}</span> }))} />} />;
 
@@ -108,7 +112,7 @@ export const AdminDashboard: React.FC = () => {
     return (
       <div className="space-y-6">
         {header}
-        <p role="status" className="text-sm text-muted-foreground">Loading dashboard...</p>
+        <LoadingState label="Loading dashboard…" />
       </div>
     );
   }
@@ -117,8 +121,8 @@ export const AdminDashboard: React.FC = () => {
     return (
       <div className="space-y-6">
         {header}
-        <div role="alert" className="rounded-md border p-4 space-y-3"><p>Dashboard data is unavailable.</p>
-          <Button variant="outline" onClick={query.refresh} disabled={query.refreshing}>Retry</Button></div>
+        <Alert tone="error" title="Dashboard data is unavailable."
+          action={<Button variant="outline" onClick={query.refresh} disabled={query.refreshing}>Retry</Button>} />
       </div>
     );
   }
@@ -126,17 +130,19 @@ export const AdminDashboard: React.FC = () => {
   // Calculate additional metrics
   const avgOrderValue = data.totals.totalTransactions > 0
     ? data.totals.totalGrossCollected / data.totals.totalTransactions
-    : 0;
+    : null;
+  const profitReason = data.locations.find(location => location.profit === null)?.unavailableReason || 'Cost information incomplete';
 
   const profitMargin = data.totals.margin;
 
-  const totalTodayRevenue = stores.reduce((sum, store) => sum + store.todayRevenue, 0);
+  const totalTodayRevenue = stores.reduce((sum, store) => sum + (store.todayRevenue ?? 0), 0);
   const totalProducts = data.totals.totalProducts;
 
   // Find top performing store
-  const topStore = data.locations.length > 0
+  const leader = data.locations.length > 0
     ? data.locations.reduce((max, loc) => loc.revenue > max.revenue ? loc : max)
     : null;
+  const topStore = leader && leader.revenue > 0 ? leader : null;
 
   // Store cards with detailed info
   const storeCards = stores.map(store => {
@@ -158,9 +164,10 @@ export const AdminDashboard: React.FC = () => {
       <AutoRefreshStatus state={query} />
 
       <SummaryStrip emphasis items={[
-        { label: periodLabel + ' Revenue', value: formatCurrency(data.totals.totalRevenue), detail: data.totals.totalTransactions + ' orders' },
+        { label: 'Sales after refunds', value: formatCurrency(data.totals.totalRevenue), detail: `${periodDescription} · ${data.totals.totalTransactions} orders` },
         { label: 'Operating expenses', value: formatCurrency(data.totals.totalOperatingExpenses), detail: 'Merchandise costs are deducted through COGS' },
-        { label: 'Net income', value: displayProfit(data.totals.totalProfit), detail: data.totals.totalProfit === null ? 'Cost information incomplete' : 'Net margin: ' + displayMargin(profitMargin) },
+        { label: 'Net income', value: displayProfit(data.totals.totalProfit), detail: data.totals.totalProfit === null ? profitReason : 'Net margin: ' + displayMargin(profitMargin),
+          tone: data.totals.totalProfit !== null && data.totals.totalProfit < 0 ? 'danger' : 'default' },
         { label: 'Stores', value: stores.length, detail: stores.filter(s => s.isActive).length + ' active' },
       ]} />
       <section aria-label="Operational activity" className="space-y-3">
@@ -175,14 +182,14 @@ export const AdminDashboard: React.FC = () => {
       <details className="rounded-lg border bg-card p-4">
         <summary className="cursor-pointer font-medium focus-visible:outline-ring">More store metrics</summary>
         <SummaryStrip className="mt-4" items={[
-          { label: 'Today', value: formatCurrency(totalTodayRevenue), detail: 'Revenue' },
-          { label: 'Avg Order Value', value: formatCurrency(avgOrderValue) },
+          { label: 'Sales today', value: formatCurrency(totalTodayRevenue), detail: "After refunds, each store's own day" },
+          { label: 'Average sale', value: avgOrderValue === null ? '\u2014' : formatCurrency(avgOrderValue) },
           { label: 'Products', value: totalProducts },
           { label: 'Users', value: data.totals.totalUsers },
-          { label: 'Top Store', value: topStore?.locationName || 'N/A' },
+          { label: 'Top store', value: topStore?.locationName || '\u2014' },
           { label: 'Inventory Value', value: data.totals.totalInventoryValue == null ? 'Unavailable' : formatCurrency(data.totals.totalInventoryValue) },
           { label: 'Tax Charged', value: formatCurrency(data.totals.totalTaxCharged), detail: 'Before refunds' },
-          { label: 'Customers', value: data.globalMetrics?.totalCustomers || 0, detail: (data.globalMetrics?.newCustomers || 0) + ' new in this period' },
+          { label: 'Customers', value: data.globalMetrics?.totalCustomers ?? 0, detail: (data.globalMetrics?.newCustomers ?? 0) + ' new in this period' },
         ]} />
       </details>
 
@@ -190,11 +197,9 @@ export const AdminDashboard: React.FC = () => {
       <div>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Store Details</h2>
-          <Link to="/admin/stores">
-            <Button variant="outline" size="sm">
-              Manage Stores <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </Link>
+          <Button variant="outline" size="sm" onClick={() => navigate('/admin/stores')}>
+            Manage Stores <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {storeCards.map((store) => {
@@ -218,21 +223,21 @@ export const AdminDashboard: React.FC = () => {
                 <CardContent className="space-y-3">
                   {/* Today's Revenue */}
                   <div className="flex justify-between items-center p-2 bg-success/10 rounded">
-                    <span className="text-sm text-success">Today</span>
+                    <span className="text-sm text-success">Sales today</span>
                     <span className="font-bold text-success">
-                      {formatCurrency(store.todayRevenue)}
+                      {formatCurrency(store.todayRevenue ?? 0)}
                     </span>
                   </div>
 
                   {/* Period Stats */}
                   <div className="grid grid-cols-1 gap-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Revenue:</span>
+                      <span className="text-muted-foreground">Sales after refunds:</span>
                       <span className="font-medium">{formatCurrency(store.periodRevenue)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground" title="Includes recorded merchandise costs, operating expenses and other income">Net income:</span>
-                      <span className="font-medium text-success">
+                      <span className={`font-medium ${resultTone(store.periodProfit)}`}>
                         {displayProfit(store.periodProfit)}
                       </span>
                     </div>
@@ -244,7 +249,7 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground" title="Net income divided by net sales before tax">Net margin:</span>
-                      <span className={`font-medium ${margin === null ? 'text-muted-foreground' : margin >= 0 ? 'text-success' : 'text-destructive'}`}>
+                      <span className={`font-medium ${resultTone(margin)}`}>
                         {displayMargin(margin)}
                       </span>
                     </div>
@@ -265,7 +270,7 @@ export const AdminDashboard: React.FC = () => {
                       <p className="text-xs text-muted-foreground">Users</p>
                     </div>
                     <div className="text-center">
-                      <p className="font-bold">{store.totalRevenue > 0 ? formatCurrency(store.totalRevenue) : '$0'}</p>
+                      <p className="font-bold">{formatCurrency(store.totalRevenue ?? 0)}</p>
                       <p className="text-xs text-muted-foreground">All Time</p>
                     </div>
                   </div>
@@ -293,25 +298,25 @@ export const AdminDashboard: React.FC = () => {
               <TableHeader>
                 <TableRow className="border-b">
                   <TableHead className="text-left py-3 px-4 font-medium">Store</TableHead>
-                  <TableHead className="text-right py-3 px-4 font-medium">Revenue</TableHead>
+                  <TableHead className="text-right py-3 px-4 font-medium">Sales after refunds</TableHead>
                   <TableHead className="text-right py-3 px-4 font-medium">Operating expenses</TableHead>
                   <TableHead className="text-right py-3 px-4 font-medium" title="Includes recorded merchandise costs, operating expenses and other income">Net income</TableHead>
                   <TableHead className="text-right py-3 px-4 font-medium" title="Net income divided by net sales before tax">Net margin</TableHead>
                   <TableHead className="text-right py-3 px-4 font-medium">Orders</TableHead>
-                  <TableHead className="text-right py-3 px-4 font-medium">Avg Order</TableHead>
+                  <TableHead className="text-right py-3 px-4 font-medium">Average sale</TableHead>
                   <TableHead className="text-right py-3 px-4 font-medium">Users</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.locations.map((loc, index) => {
+                {data.locations.map((loc) => {
                   const margin = loc.margin;
-                  const avgOrder = loc.transactions > 0 ? loc.grossCollected / loc.transactions : 0;
+                  const avgOrder = loc.transactions > 0 ? loc.grossCollected / loc.transactions : null;
 
                   return (
                     <TableRow key={loc.locationId} className="border-b hover:bg-accent/50">
                       <TableCell className="py-3 px-4">
                         <div className="flex items-center gap-2">
-                          {index === 0 && <Award className="h-4 w-4 text-warning" />}
+                          {loc.locationId === topStore?.locationId && <Award className="h-4 w-4 text-warning" aria-label="Top store this period" />}
                           <span className="font-medium">{loc.locationName}</span>
                         </div>
                       </TableCell>
@@ -321,37 +326,37 @@ export const AdminDashboard: React.FC = () => {
                       <TableCell className="text-right py-3 px-4">
                         {formatCurrency(loc.operatingExpenses)}
                       </TableCell>
-                      <TableCell className="text-right py-3 px-4 font-medium">
+                      <TableCell className={`text-right py-3 px-4 font-medium ${resultTone(loc.profit)}`} title={loc.profit === null ? loc.unavailableReason || undefined : undefined}>
                         {displayProfit(loc.profit)}
                       </TableCell>
                       <TableCell className="text-right py-3 px-4">
-                        <span className={margin === null ? 'text-muted-foreground' : margin >= 20 ? 'text-success' : margin >= 10 ? 'text-warning' : 'text-destructive'}>
+                        <span className={resultTone(margin)}>
                           {displayMargin(margin)}
                         </span>
                       </TableCell>
                       <TableCell className="text-right py-3 px-4">{loc.transactions}</TableCell>
-                      <TableCell className="text-right py-3 px-4">{formatCurrency(avgOrder)}</TableCell>
+                      <TableCell className="text-right py-3 px-4">{avgOrder === null ? '\u2014' : formatCurrency(avgOrder)}</TableCell>
                       <TableCell className="text-right py-3 px-4">{loc.activeUsers}</TableCell>
                     </TableRow>
                   );
                 })}
                 {/* Totals Row */}
                 <TableRow className="bg-muted/50 font-bold">
-                  <TableCell className="py-3 px-4">TOTAL</TableCell>
+                  <TableCell className="py-3 px-4">Total</TableCell>
                   <TableCell className="text-right py-3 px-4 text-success">
                     {formatCurrency(data.totals.totalRevenue)}
                   </TableCell>
                   <TableCell className="text-right py-3 px-4">
                     {formatCurrency(data.totals.totalOperatingExpenses)}
                   </TableCell>
-                  <TableCell className="text-right py-3 px-4">
+                  <TableCell className={`text-right py-3 px-4 ${resultTone(data.totals.totalProfit)}`}>
                     {displayProfit(data.totals.totalProfit)}
                   </TableCell>
                   <TableCell className="text-right py-3 px-4">
                     {displayMargin(profitMargin)}
                   </TableCell>
                   <TableCell className="text-right py-3 px-4">{data.totals.totalTransactions}</TableCell>
-                  <TableCell className="text-right py-3 px-4">{formatCurrency(avgOrderValue)}</TableCell>
+                  <TableCell className="text-right py-3 px-4">{avgOrderValue === null ? '\u2014' : formatCurrency(avgOrderValue)}</TableCell>
                   <TableCell className="text-right py-3 px-4">{data.totals.totalUsers}</TableCell>
                 </TableRow>
               </TableBody>

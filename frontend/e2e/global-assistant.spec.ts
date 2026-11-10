@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { openMenuSection } from './utils/menu-helper';
 
 const open = async (page: import('@playwright/test').Page) => {
   await page.getByRole('button', { name: 'Open POS assistant', exact: true }).click();
@@ -107,7 +108,7 @@ test('owner analysis persists across navigation and customer display uses an iso
   await dialog.getByRole('textbox').fill('Show sales today');
   await dialog.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(dialog.getByRole('log')).toContainText('Authorized store answer.');
-  await page.getByRole('button', { name: 'Inventory', exact: true }).click();
+  await openMenuSection(page, 'Products');
   await page.getByRole('link', { name: 'Products', exact: true }).filter({ visible: true }).click();
   await expect(page).toHaveURL(/\/inventory$/);
   await expect(page.getByRole('heading', { name: 'Products', exact: true })).toBeVisible();
@@ -154,7 +155,7 @@ test('transaction dialogs take priority and a late owner response cannot enter a
     try { await route.fulfill({ json: { data: { answer: 'Private late owner answer.' } } }); } catch { /* The old scope aborted its request. */ }
   });
   await login(page, 'owner@example.test');
-  await page.getByRole('button', { name: 'Inventory', exact: true }).click();
+  await openMenuSection(page, 'Products');
   await page.getByRole('link', { name: 'Products', exact: true }).filter({ visible: true }).click();
   const dialog = await open(page);
   await dialog.getByRole('textbox').fill('Private question');

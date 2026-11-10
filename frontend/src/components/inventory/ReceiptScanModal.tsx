@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/Checkbox';
 import { Select } from '@/components/ui/Select';
 import React, { useState, useRef } from 'react';
 import { Upload, Camera, Loader2, Check, AlertTriangle, Trash2 } from 'lucide-react';
@@ -526,7 +527,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                       </div>
                     )}
 
-                    {item.unitCost === 0 && <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={item.zeroCostConfirmed || false} onChange={e => updateItem(index, { zeroCostConfirmed: e.target.checked })} />These goods are confirmed free</label>}
+                    {item.unitCost === 0 && <Checkbox label="These goods are confirmed free" checked={item.zeroCostConfirmed || false} onChange={e => updateItem(index, { zeroCostConfirmed: e.target.checked })} />}
                     {/* Line total */}
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">

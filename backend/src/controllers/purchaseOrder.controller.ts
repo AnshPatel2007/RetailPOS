@@ -364,16 +364,34 @@ export const getSuggestedOrders = asyncHandler(async (req: AuthRequest, res: Res
       _sum: { quantity: true, inventoryQuantity: true },
     }),
   ]);
+  // Units refunded in the same window were not real demand.
+  const [refundedRows, openOrderRows] = await Promise.all([
+    prisma.refundItem.findMany({
+      where: { refund: { createdAt: { gte: cutoff }, sale: { status: { in: ['COMPLETED', 'REFUNDED'] }, ...locationFilter } } },
+      select: { quantity: true, saleItem: { select: { productId: true, unitsPerPackage: true } } },
+    }),
+    // Stock already ordered and not yet received is not suggested again.
+    prisma.purchaseOrderItem.findMany({
+      where: { purchaseOrder: { status: { in: ['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED'] }, ...locationFilter } },
+      select: { productId: true, quantity: true, receivedQty: true, damagedQty: true, rejectedQty: true },
+    }),
+  ]);
 
   const soldMap = new Map<string, number>();
   for (const row of soldRows) soldMap.set(row.productId, (soldMap.get(row.productId) || 0)
     + (row.sellingUnitId ? row._sum.inventoryQuantity || 0 : row._sum.quantity || 0));
+  for (const row of refundedRows) soldMap.set(row.saleItem.productId, Math.max(0, (soldMap.get(row.saleItem.productId) || 0)
+    - row.quantity * Math.max(1, row.saleItem.unitsPerPackage || 1)));
+  const onOrderMap = new Map<string, number>();
+  for (const row of openOrderRows) onOrderMap.set(row.productId, (onOrderMap.get(row.productId) || 0)
+    + Math.max(0, row.quantity - row.receivedQty - row.damagedQty - row.rejectedQty));
 
   interface SuggestedItem {
     productId: string;
     name: string;
     sku: string;
     stock: number;
+    onOrder: number;
     lowStockAlert: number;
     velocityPerDay: number;
     daysOfCover: number | null;
@@ -393,14 +411,18 @@ export const getSuggestedOrders = asyncHandler(async (req: AuthRequest, res: Res
     const sold = soldMap.get(p.id) || 0;
     const velocity = sold / VELOCITY_DAYS;
     const daysOfCover = velocity > 0 ? Math.round((p.stockQuantity / velocity) * 10) / 10 : null;
+    const onOrder = onOrderMap.get(p.id) || 0;
+    // What will be on the shelf once open orders arrive decides whether to order more.
+    const expected = p.stockQuantity + onOrder;
+    const expectedCover = velocity > 0 ? expected / velocity : null;
 
-    const belowThreshold = p.lowStockAlert > 0 && p.stockQuantity <= p.lowStockAlert;
-    const runningOut = velocity > 0 && (daysOfCover as number) < URGENT_DAYS;
+    const belowThreshold = p.lowStockAlert > 0 && expected <= p.lowStockAlert;
+    const runningOut = velocity > 0 && (expectedCover as number) < URGENT_DAYS;
     if (!belowThreshold && !runningOut) continue;
 
     // Enough for two weeks of selling, or back above 2× the alert threshold
-    const coverQty = Math.ceil(velocity * COVER_TARGET_DAYS) - p.stockQuantity;
-    const thresholdQty = p.lowStockAlert > 0 ? p.lowStockAlert * 2 - p.stockQuantity : 0;
+    const coverQty = Math.ceil(velocity * COVER_TARGET_DAYS) - expected;
+    const thresholdQty = p.lowStockAlert > 0 ? p.lowStockAlert * 2 - expected : 0;
     const link = p.suppliers[0];
     // Suppliers sell in cases: round up to whole cases and their minimum order.
     const suggestedQty = roundToCases(Math.max(coverQty, thresholdQty, 1), link?.packSize, link?.minOrder);
@@ -419,6 +441,7 @@ export const getSuggestedOrders = asyncHandler(async (req: AuthRequest, res: Res
       name: p.name,
       sku: p.sku,
       stock: p.stockQuantity,
+      onOrder,
       lowStockAlert: p.lowStockAlert,
       velocityPerDay: Math.round(velocity * 100) / 100,
       daysOfCover,

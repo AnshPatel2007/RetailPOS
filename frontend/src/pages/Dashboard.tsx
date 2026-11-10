@@ -8,9 +8,10 @@ import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
 import { PageHeader } from '@/components/common/PageHeader';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
+import { AboutNumbers } from '@/components/common/AboutNumbers';
 import { Button } from '@/components/ui/Button';
 import { can } from '@/lib/capabilities';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDate, formatDateTime, formatEnumLabel, formatChartCurrency } from '@/lib/utils';
 import { useInventoryExceptionCount } from '@/hooks/useInventoryExceptionCount';
 import {
   BarChart,
@@ -72,11 +73,11 @@ const formatHourLabel = (timestamp: number, timezone: string): string => new Int
 const DashboardHeader = ({ timezone, firstName }: { timezone: string; firstName?: string }) => {
   const [now, setNow] = useState(new Date());
   useEffect(() => { const timer = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(timer); }, []);
-  const hour = Number(now.toLocaleString('en-US', { timeZone: timezone, hour: 'numeric', hourCycle: 'h23' }));
+  const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hourCycle: 'h23' }).format(now));
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   return <PageHeader title={`${greeting}, ${firstName || 'there'}`} actions={
-    <div className="text-right"><p className="text-sm font-medium">{now.toLocaleDateString(undefined, { timeZone: timezone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-      <p className="text-xs text-muted-foreground">{now.toLocaleTimeString(undefined, { timeZone: timezone, hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' })}</p></div>
+    <div className="text-right"><p className="text-sm font-medium">{new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long' }).format(now)}, {formatDate(now, timezone)}</p>
+      <p className="text-xs text-muted-foreground">{new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(now)}</p></div>
   } />;
 };
 
@@ -141,14 +142,18 @@ const DashboardContent: React.FC = () => {
       <DashboardHeader timezone={timezone} firstName={user?.firstName} />
       <AutoRefreshStatus state={query} />
 
-      <p className="mb-4 text-sm text-muted-foreground">Collections include tax, less refunds and voids recorded in each period. Calendar: {timezone}. {user?.role === 'CASHIER' && 'Showing activity for your sales.'}</p>
+      {user?.role === 'CASHIER' && <p className="mb-2 text-sm text-muted-foreground">Showing your own sales.</p>}
+      <AboutNumbers className="mb-4" timezone={timezone}>
+        <p>Sales include tax. Refunds and voids come off on the day they happen, so a refund today lowers today&apos;s sales even when the sale was earlier.</p>
+        <p>Average sale uses today&apos;s sales before any refunds.</p>
+      </AboutNumbers>
       {metrics.historyWarning && <p role="status" className="mb-4 text-sm text-warning">{metrics.historyWarning}</p>}
-      {metrics.todayVoidCount > 0 && <p className="mb-4 text-sm text-muted-foreground">Voids today: {metrics.todayVoidCount} ({formatCurrency(metrics.todayVoids)}), already deducted from collections.</p>}
+      {metrics.todayVoidCount > 0 && <p className="mb-4 text-sm text-muted-foreground">{metrics.todayVoidCount} {metrics.todayVoidCount === 1 ? 'sale was' : 'sales were'} voided today ({formatCurrency(metrics.todayVoids)}), already taken out of these totals.</p>}
       <SummaryStrip className="mb-6" items={[
-        { label: "Today's Collections", value: formatCurrency(metrics.todaySales || 0), detail: <>{metrics.todayTransactions || 0} {metrics.todayTransactions === 1 ? 'transaction' : 'transactions'}<TrendBadge trend={metrics.todayTrend} label="vs yesterday" /></> },
-        { label: '7-Day Collections', value: formatCurrency(metrics.weekSales || 0), detail: <TrendBadge trend={metrics.weekTrend} label="vs prev week" /> },
-        { label: '30-Day Collections', value: formatCurrency(metrics.monthSales || 0), detail: <TrendBadge trend={metrics.monthTrend} label="vs prev month" /> },
-        { label: 'Avg Order Value', value: metrics.averageOrderValue == null ? 'N/A' : formatCurrency(metrics.averageOrderValue), detail: 'Original purchases today' },
+        { label: 'Sales today', value: formatCurrency(metrics.todaySales || 0), detail: <>{metrics.todayTransactions || 0} {metrics.todayTransactions === 1 ? 'sale' : 'sales'}<TrendBadge trend={metrics.todayTrend} label="vs same time yesterday" /></> },
+        { label: 'Last 7 days', value: formatCurrency(metrics.weekSales || 0), detail: <TrendBadge trend={metrics.weekTrend} label="vs the 7 days before" /> },
+        { label: 'Last 30 days', value: formatCurrency(metrics.monthSales || 0), detail: <TrendBadge trend={metrics.monthTrend} label="vs the 30 days before" /> },
+        { label: 'Average sale', value: metrics.averageOrderValue == null ? 'N/A' : formatCurrency(metrics.averageOrderValue), detail: 'Today, before refunds' },
       ]} />
 
       {/* Charts row - wider chart + top products */}
@@ -156,20 +161,20 @@ const DashboardContent: React.FC = () => {
         {/* Hourly sales chart - takes 2 cols */}
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Collections Last 12 Hours</CardTitle>
+            <CardTitle>Sales in the Last 12 Hours</CardTitle>
           </CardHeader>
           <CardContent>
             {hourlyData.every(entry => entry.total === 0) ? (
               <div className="h-[180px] flex flex-col items-center justify-center text-muted-foreground">
                 <BarChart3 className="h-10 w-10 mb-2 opacity-30" />
-                <p className="text-sm">No collection activity in the last 12 hours</p>
+                <p className="text-sm">No sales in the last 12 hours</p>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={264}>
                 <BarChart data={hourlyData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                   <XAxis dataKey="label" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${v}`} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={formatChartCurrency} axisLine={false} tickLine={false} />
                   <Tooltip content={<CustomTooltip />} cursor={{ fill: 'hsl(var(--accent))' }} />
                   <defs>
                     <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
@@ -189,7 +194,7 @@ const DashboardContent: React.FC = () => {
         <Card>
           <CardHeader>
             <CardTitle>Top Products Today</CardTitle>
-            <p className="text-xs text-muted-foreground">By net collections, including returns and voids.</p>
+            <p className="text-xs text-muted-foreground">By sales after refunds and voids.</p>
           </CardHeader>
           <CardContent>
             {metrics.productWarning && <p role="status" className="mb-3 text-xs text-warning">{metrics.productWarning}</p>}
@@ -238,7 +243,7 @@ const DashboardContent: React.FC = () => {
           { label: 'Stock alerts', value: metrics?.lowStockCount || 0, tone: metrics?.lowStockCount ? 'warning' as const : 'default' as const, href: '/inventory' },
         ] : []),
         ...(canInventory && exceptionCount > 0 ? [{ label: 'Inventory exceptions', value: exceptionCount, detail: 'Sold below recorded stock', tone: 'danger' as const, href: '/inventory/stock-control/exceptions' }] : []),
-        ...(canReports ? [{ label: 'Refunds today', value: metrics?.todayRefundCount || 0, detail: (metrics?.todayRefunds || 0) > 0 ? formatCurrency(metrics?.todayRefunds || 0) : undefined, href: '/reports' }] : []),
+        ...(canReports ? [{ label: 'Refunds today', value: metrics?.todayRefundCount || 0, detail: (metrics?.todayRefunds || 0) > 0 ? formatCurrency(metrics?.todayRefunds || 0) : undefined, href: '/insights/reports/sales' }] : []),
       ]} />
 
       {/* Bottom row: Recent sales + Low stock + Payment breakdown */}
@@ -263,10 +268,10 @@ const DashboardContent: React.FC = () => {
                         {sale.customerName || sale.saleNumber}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {sale.paymentMethod.replace(/_/g, ' ')} · {timeAgo(sale.createdAt)} / {sale.status.toLowerCase()}
+                        {formatEnumLabel(sale.paymentMethod)} · {timeAgo(sale.createdAt)} · {formatEnumLabel(sale.status)}
                       </p>
                       <time dateTime={sale.createdAt} className="block text-xs text-muted-foreground">
-                        {new Date(sale.createdAt).toLocaleString('en-US', { timeZone: timezone, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}
+                        {formatDateTime(sale.createdAt, timezone)}
                       </time>
                     </div>
                     <span className="text-sm font-bold ml-3 shrink-0">{formatCurrency(sale.total)}</span>
@@ -340,7 +345,7 @@ const DashboardContent: React.FC = () => {
                     <div key={pb.method}>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-sm font-medium capitalize">
-                          {pb.method.replace(/_/g, ' ').toLowerCase()}
+                          {formatEnumLabel(pb.method)}
                         </span>
                         <span className="text-sm font-bold">{formatCurrency(pb.total)}</span>
                       </div>
@@ -352,7 +357,7 @@ const DashboardContent: React.FC = () => {
                           />
                         </div>}
                         <span className="text-xs text-muted-foreground text-right">
-                          {pb.count} original sales / {pct === null ? 'Share unavailable' : pct.toFixed(0) + '%'}
+                          {pb.count} {pb.count === 1 ? 'sale' : 'sales'} / {pct === null ? 'Share unavailable' : pct.toFixed(0) + '%'}
                         </span>
                       </div>
                     </div>
@@ -375,7 +380,7 @@ const DashboardContent: React.FC = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-muted-foreground mb-3">Up to 10 active shifts. Collections follow the original sale shift, less its returns and voids. Drawer payouts are shown in Shifts.</p>
+            <p className="text-xs text-muted-foreground mb-3">Up to 10 open shifts. Each sale counts on the shift that made it, after its refunds and voids. Drawer payouts are in Shifts.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {activeShifts.map((shift) => (
                 <div key={shift.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
@@ -415,7 +420,7 @@ const DashboardContent: React.FC = () => {
               <p className="font-medium">Customers</p>
               <p className="text-xs text-muted-foreground">View directory</p>
             </button>
-            {canReports && (<button onClick={() => navigate('/reports')} className="p-4 border border-border rounded-lg hover:bg-accent hover:border-primary transition-colors text-left">
+            {canReports && (<button onClick={() => navigate('/insights/reports')} className="p-4 border border-border rounded-lg hover:bg-accent hover:border-primary transition-colors text-left">
               <TrendingUp className="h-6 w-6 mb-2 text-primary" />
               <p className="font-medium">Reports</p>
               <p className="text-xs text-muted-foreground">See analytics</p>

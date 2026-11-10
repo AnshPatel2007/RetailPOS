@@ -1,3 +1,4 @@
+import { Badge } from '@/components/ui/Badge';
 import { ManagementPage } from '@/components/common/Workspace';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -27,6 +28,7 @@ interface SuggestedItem {
   name: string;
   sku: string;
   stock: number;
+  onOrder?: number;
   lowStockAlert: number;
   velocityPerDay: number;
   daysOfCover: number | null;
@@ -97,8 +99,11 @@ export const SuggestedOrders: React.FC = () => {
   const activeItems = (g: SupplierGroup) =>
     g.items.filter((i) => !excluded.has(i.productId) && qtyFor(i) > 0);
 
+  // Case-bought items cost whole cases, the same way the server totals them.
+  const lineCost = (i: SuggestedItem) => (i.packSize || 1) > 1 && i.packCost != null
+    ? i.packCost * Math.ceil(qtyFor(i) / i.packSize!) : i.cost * qtyFor(i);
   const groupTotal = (g: SupplierGroup) =>
-    Math.round(activeItems(g).reduce((s, i) => s + i.cost * qtyFor(i), 0) * 100) / 100;
+    Math.round(activeItems(g).reduce((s, i) => s + lineCost(i), 0) * 100) / 100;
 
   const handleCreatePO = async (g: SupplierGroup) => {
     if (!canManage || !g.supplierId || creatingFor) return;
@@ -134,7 +139,7 @@ export const SuggestedOrders: React.FC = () => {
   return (
     <ManagementPage className="">
       <PageHeader
-        title="Suggested Orders"
+        title="Reorder Suggestions"
         subtitle={
           meta
             ? `Based on ${meta.velocityWindowDays}-day sales velocity, targeting ${meta.coverTargetDays} days of cover`
@@ -198,7 +203,7 @@ export const SuggestedOrders: React.FC = () => {
                   </div>
 
                   <div className="border rounded-lg overflow-hidden">
-                    <Table scrollLabel="Suggested Orders records">
+                    <Table scrollLabel="Reorder suggestions">
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-8"></TableHead>
@@ -218,6 +223,7 @@ export const SuggestedOrders: React.FC = () => {
                               <TableCell>
                                 <input
                                   type="checkbox"
+                                  aria-label={`Include ${item.name} in the order`}
                                   checked={!isExcluded}
                                   onChange={() =>
                                     setExcluded((prev) => {
@@ -234,10 +240,10 @@ export const SuggestedOrders: React.FC = () => {
                                 <span className="font-medium">{item.name}</span>
                                 <span className="text-muted-foreground text-xs ml-2">{item.sku}</span>
                                 {item.urgent && (
-                                  <span className="ml-2 inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
-                                    <AlertTriangle className="h-2.5 w-2.5" />
-                                    {item.stock === 0 ? 'OUT' : 'URGENT'}
-                                  </span>
+                                  <Badge variant="destructive" className="ml-2 gap-1">
+                                    <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                                    {item.stock <= 0 ? 'Out of stock' : 'Urgent'}
+                                  </Badge>
                                 )}
                               </TableCell>
                               <TableCell className="text-right tabular-nums">
@@ -245,6 +251,7 @@ export const SuggestedOrders: React.FC = () => {
                                 {item.lowStockAlert > 0 && (
                                   <span className="text-muted-foreground text-xs"> / {item.lowStockAlert}</span>
                                 )}
+                                {!!item.onOrder && <span className="block text-xs text-muted-foreground">+{item.onOrder} on order</span>}
                               </TableCell>
                               <TableCell className="text-right tabular-nums">{item.velocityPerDay}</TableCell>
                               <TableCell className="text-right tabular-nums">
@@ -270,6 +277,7 @@ export const SuggestedOrders: React.FC = () => {
                                 </> : <input
                                   type="number"
                                   min="0"
+                                  aria-label={`Order quantity for ${item.name}`}
                                   value={qtyFor(item)}
                                   onChange={(e) =>
                                     setQtyOverrides((prev) => ({
@@ -282,7 +290,7 @@ export const SuggestedOrders: React.FC = () => {
                                 />}
                               </TableCell>
                               <TableCell className="text-right tabular-nums">
-                                {formatCurrency(item.cost * qtyFor(item))}
+                                {formatCurrency(lineCost(item))}
                               </TableCell>
                             </TableRow>
                           );

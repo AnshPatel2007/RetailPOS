@@ -8,7 +8,7 @@ import { expensePeriod } from '../services/expenseDates.service';
 import { getSalesReportData, salesReportCSV } from '../services/salesReport.service';
 import { sendSalesReportPdf } from '../services/salesReportPdf.service';
 import { Response } from 'express';
-import { getReportRange } from '../services/reportDates.service';
+import { getReportCalendar, getReportRange } from '../services/reportDates.service';
 import { getProductFinancialMetrics } from '../services/financialMetrics.service';
 import { asyncHandler } from '../utils/errorHandler';
 import prisma from '../config/database';
@@ -188,8 +188,9 @@ export const getExpenseReport = asyncHandler(async (req: AuthRequest, res: Respo
     },
   });
 
-  // Calculate summary
-  const totalExpenses = rc(expenses.reduce((sum, exp) => sum + Number(exp.amount), 0));
+  // Totals count approved and paid spend, the same rule as Profit & Loss; pending is shown on its own.
+  const counted = expenses.filter(exp => exp.status === 'APPROVED' || exp.status === 'PAID');
+  const totalExpenses = rc(counted.reduce((sum, exp) => sum + Number(exp.amount), 0));
   const pendingExpenses = rc(expenses
     .filter((exp) => exp.status === 'PENDING')
     .reduce((sum, exp) => sum + Number(exp.amount), 0));
@@ -198,7 +199,7 @@ export const getExpenseReport = asyncHandler(async (req: AuthRequest, res: Respo
     .reduce((sum, exp) => sum + Number(exp.amount), 0));
 
   // Group by category
-  const byCategory = expenses.reduce((acc: any, exp) => {
+  const byCategory = counted.reduce((acc: any, exp) => {
     if (!acc[exp.category]) {
       acc[exp.category] = {
         category: exp.category,
@@ -237,6 +238,7 @@ export const getExpenseReport = asyncHandler(async (req: AuthRequest, res: Respo
     success: true,
     data: {
       period: { timezone },
+      // Managers see payroll in the totals (it is an operating expense) but not its wage details.
       expenses: req.user?.role === 'ADMIN' ? expenses : expenses.filter(e => e.category !== 'PAYROLL'),
       summary: {
         totalExpenses,
@@ -557,11 +559,13 @@ const SHRINKAGE_TYPES = ['DAMAGED', 'LOST', 'THEFT', 'EXPIRED', 'WASTE', 'OTHER'
  */
 export const getStockHealthReport = asyncHandler(async (req: AuthRequest, res: Response) => {
   const days = Math.min(Math.max(parseInt(String(req.query.days || 30), 10) || 30, 7), 365);
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-
-  const locationId = req.user?.locationId || undefined;
+  // The selected (or previewed) store, with whole store-local days, today included.
+  const scope = getLocationFilter(req, req.query.locationId as string);
+  const locationId = scope.locationId || undefined;
+  const calendar = await getReportCalendar(scope);
+  const cutoff = calendar.day(-(days - 1));
   const revenueStatuses = { in: [SaleStatus.COMPLETED, SaleStatus.REFUNDED] };
+  const storeSql = locationId ? Prisma.sql`s."locationId" = ${locationId}` : Prisma.sql`s."locationId" IS NOT NULL`;
 
   const [products, soldRows, lastSaleRows, shrinkLogs] = await Promise.all([
     // Active tracked catalog (misc pseudo-product excluded)
@@ -582,15 +586,18 @@ export const getStockHealthReport = asyncHandler(async (req: AuthRequest, res: R
         category: { select: { id: true, name: true } },
       },
     }),
-    // Units sold per product inside the window
-    prisma.saleItem.groupBy({
-      by: ['productId'],
-      where: {
-        createdAt: { gte: cutoff },
-        sale: { status: revenueStatuses, ...(locationId ? { locationId } : {}) },
-      },
-      _sum: { quantity: true },
-    }),
+    // Stock units sold per product inside the window (a pack counts its units), less
+    // units refunded in the window: the same quantities the stock movements record.
+    prisma.$queryRaw<{ productId: string; units: number }[]>(Prisma.sql`
+      SELECT "productId", SUM(units)::int AS units FROM (
+        SELECT i."productId", COALESCE(i."inventoryQuantity", i.quantity) AS units
+        FROM sale_items i JOIN sales s ON s.id = i."saleId"
+        WHERE s.status IN ('COMPLETED', 'REFUNDED') AND ${storeSql} AND s."createdAt" >= ${cutoff}
+        UNION ALL
+        SELECT i."productId", -(ri.quantity * GREATEST(i."unitsPerPackage", 1))
+        FROM refund_items ri JOIN refunds r ON r.id = ri."refundId" JOIN sale_items i ON i.id = ri."saleItemId" JOIN sales s ON s.id = r."saleId"
+        WHERE s.status IN ('COMPLETED', 'REFUNDED') AND ${storeSql} AND r."createdAt" >= ${cutoff}
+      ) movements GROUP BY "productId"`),
     // Most recent sale per product (all time) — shown for dead-stock rows
     prisma.saleItem.groupBy({
       by: ['productId'],
@@ -603,14 +610,14 @@ export const getStockHealthReport = asyncHandler(async (req: AuthRequest, res: R
         type: { in: SHRINKAGE_TYPES },
         quantity: { lt: 0 },
         createdAt: { gte: cutoff },
-        ...(locationId ? { product: { locationId } } : {}),
+        ...(locationId ? { product: { locationId } } : { product: { locationId: { not: null } } }),
       },
       include: { product: { select: { name: true, sku: true, cost: true, price: true } } },
       orderBy: { createdAt: 'desc' },
     }),
   ]);
 
-  const soldMap = new Map(soldRows.map((r) => [r.productId, r._sum.quantity || 0]));
+  const soldMap = new Map(soldRows.filter(r => Number(r.units) > 0).map((r) => [r.productId, Number(r.units)]));
   const lastSaleMap = new Map(lastSaleRows.map((r) => [r.productId, r._max.createdAt]));
   const valuedProducts = await valueProducts(prisma, products);
   const lossEntries = shrinkLogs.length ? await prisma.$queryRaw<{ id: string; cogsAmount: Prisma.Decimal | null }[]>(Prisma.sql`
@@ -620,7 +627,7 @@ export const getStockHealthReport = asyncHandler(async (req: AuthRequest, res: R
   const sumKnown = (values: (number | null)[]) => values.some(value => value === null) ? null : rc(values.reduce<number>((sum, value) => sum + (value || 0), 0));
 
   // ---- Dead stock: on hand but zero sales in the window ----
-  const deadStock = valuedProducts
+  const allDeadStock = valuedProducts
     .filter((p) => p.stockQuantity > 0 && !soldMap.has(p.id))
     .map((p) => ({
       id: p.id,
@@ -634,14 +641,15 @@ export const getStockHealthReport = asyncHandler(async (req: AuthRequest, res: R
       retailValue: rc(Number(p.price) * p.stockQuantity),
       lastSoldAt: lastSaleMap.get(p.id) || null,
     }))
-    .sort((a, b) => (b.stockValue || 0) - (a.stockValue || 0))
-    .slice(0, 200);
-
+    .sort((a, b) => (b.stockValue || 0) - (a.stockValue || 0));
+  // Totals cover every dead-stock item; only the list is shortened.
+  const deadStock = allDeadStock.slice(0, 200);
   const deadStockTotals = {
-    products: deadStock.length,
-    units: deadStock.reduce((s, p) => s + p.stockQuantity, 0),
-    stockValue: sumKnown(deadStock.map(p => p.stockValue)),
-    retailValue: rc(deadStock.reduce((s, p) => s + p.retailValue, 0)),
+    products: allDeadStock.length,
+    listed: deadStock.length,
+    units: allDeadStock.reduce((s, p) => s + p.stockQuantity, 0),
+    stockValue: sumKnown(allDeadStock.map(p => p.stockValue)),
+    retailValue: rc(allDeadStock.reduce((s, p) => s + p.retailValue, 0)),
   };
 
   // ---- Sell-through by category: sold / (sold + on hand) ----

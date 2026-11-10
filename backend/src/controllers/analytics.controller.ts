@@ -221,31 +221,30 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
   const thirtyDaysAgo = calendar.day(-30);
   const sixtyDaysAgo = calendar.day(-60);
 
-  // Get customer segments by recency
-  const [activeCustomers, atRiskCustomers, lostCustomers] = await Promise.all([
+  // Deleted (inactive) customers are left out of every segment.
+  const activeFilter = { ...locationFilter, isActive: true };
+  const [activeCustomers, atRiskCustomers, lostCustomers, noVisitCustomers] = await Promise.all([
     prisma.customer.count({
-      where: { lastVisitAt: { gte: thirtyDaysAgo, lte: now }, ...locationFilter },
+      where: { lastVisitAt: { gte: thirtyDaysAgo, lte: now }, ...activeFilter },
     }),
     prisma.customer.count({
       where: {
         lastVisitAt: { gte: sixtyDaysAgo, lt: thirtyDaysAgo },
-        ...locationFilter,
+        ...activeFilter,
       },
     }),
     prisma.customer.count({
-      where: {
-        OR: [
-          { lastVisitAt: { lt: sixtyDaysAgo } },
-          { lastVisitAt: null },
-        ],
-        ...locationFilter,
-      },
+      where: { lastVisitAt: { lt: sixtyDaysAgo }, ...activeFilter },
+    }),
+    // Customers who have never bought are not "lost": they never visited.
+    prisma.customer.count({
+      where: { lastVisitAt: null, ...activeFilter },
     }),
   ]);
 
   // Get customer value segments
   const customers = await prisma.customer.findMany({
-    where: { ...locationFilter },
+    where: activeFilter,
     select: {
       id: true,
       firstName: true,
@@ -259,20 +258,24 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
     },
   });
 
-  // Calculate value tiers
+  // Value tiers rank customers who have spent something: the top 10% are VIP,
+  // the next 30% Regular, the rest Occasional. Customers with no spend sit apart,
+  // so a store where most customers have $0 does not call everyone VIP.
   const sortedBySpend = [...customers].sort((a, b) => Number(b.totalSpent) - Number(a.totalSpent));
   const totalCustomers = customers.length;
-
-  const vipThreshold = sortedBySpend[Math.floor(totalCustomers * 0.1)]?.totalSpent || 0;
-  const regularThreshold = sortedBySpend[Math.floor(totalCustomers * 0.4)]?.totalSpent || 0;
-
-  const vipCustomers = customers.filter(c => Number(c.totalSpent) >= Number(vipThreshold));
-  const regularCustomers = customers.filter(c => Number(c.totalSpent) >= Number(regularThreshold) && Number(c.totalSpent) < Number(vipThreshold));
-  const occasionalCustomers = customers.filter(c => Number(c.totalSpent) < Number(regularThreshold));
+  const spenders = sortedBySpend.filter(c => Number(c.totalSpent) > 0);
+  const vipCount = spenders.length ? Math.max(1, Math.ceil(spenders.length * 0.1)) : 0;
+  const regularCount = Math.max(0, Math.min(spenders.length - vipCount, Math.ceil(spenders.length * 0.4) - vipCount));
+  const vipCustomers = spenders.slice(0, vipCount);
+  const regularCustomers = spenders.slice(vipCount, vipCount + regularCount);
+  const occasionalCustomers = spenders.slice(vipCount + regularCount);
+  const noPurchaseCount = totalCustomers - spenders.length;
+  const vipThreshold = vipCustomers.length ? vipCustomers[vipCustomers.length - 1].totalSpent : null;
+  const regularThreshold = regularCustomers.length ? regularCustomers[regularCustomers.length - 1].totalSpent : null;
 
   // New vs returning analysis (last 30 days)
   const newCustomersCount = await prisma.customer.count({
-    where: { createdAt: { gte: thirtyDaysAgo, lte: now }, ...locationFilter },
+    where: { createdAt: { gte: thirtyDaysAgo, lte: now }, ...activeFilter },
   });
 
   const returningCustomerSales = await prisma.sale.count({
@@ -281,6 +284,7 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
       status: 'COMPLETED',
       customer: {
         createdAt: { lt: thirtyDaysAgo },
+        isActive: true,
       },
       ...locationFilter,
     },
@@ -340,6 +344,7 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
           active: { count: activeCustomers, label: 'Active (30 days)' },
           atRisk: { count: atRiskCustomers, label: 'At Risk (31-60 days)' },
           lost: { count: lostCustomers, label: 'Lost (60+ days)' },
+          noVisits: { count: noVisitCustomers, label: 'No visits yet' },
         },
         byValue: {
           vip: {
@@ -350,7 +355,7 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
           },
           regular: {
             count: regularCustomers.length,
-            label: 'Regular (Top 40%)',
+            label: 'Regular (next 30%)',
             threshold: regularThreshold,
             totalSpent: rc(regularCustomers.reduce((sum, c) => sum + Number(c.totalSpent), 0)),
           },
@@ -359,6 +364,7 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
             label: 'Occasional',
             totalSpent: rc(occasionalCustomers.reduce((sum, c) => sum + Number(c.totalSpent), 0)),
           },
+          noPurchases: { count: noPurchaseCount, label: 'No purchases yet', totalSpent: 0 },
         },
       },
       acquisition: {

@@ -1,3 +1,4 @@
+import { friendlyDate } from '@/lib/calendarDates';
 import { today as calendarToday } from '@internationalized/date';
 import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
 import { can } from '@/lib/capabilities';
@@ -18,10 +19,10 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { lotteryService } from '@/services/api';
+import { lotteryService, apiErrorMessage } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import toast from 'react-hot-toast';
-import { cn } from '@/lib/utils';
+import { cn, formatDate, formatDateTime, formatTime } from '@/lib/utils';
 
 interface DailyEntryTableProps {
   locationId?: string;
@@ -538,7 +539,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
         selectedDate,
         user: user?.email,
       });
-      toast.error(error.response?.data?.message || 'Failed to close day');
+      toast.error(apiErrorMessage(error, 'Failed to close day'));
     } finally {
       setSaving(false);
     }
@@ -556,7 +557,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
       if (onUpdate) onUpdate();
     } catch (error: any) {
       logger.error('Failed to reopen day', { error: error.message, selectedDate });
-      toast.error(error.response?.data?.message || error.response?.data?.error || 'Failed to reopen day');
+      toast.error(apiErrorMessage(error, 'Failed to reopen day'));
     } finally {
       setSaving(false);
     }
@@ -637,7 +638,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
           <div className="bg-card border border-border shadow-lg rounded px-4 py-2 flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-success" />
             <span className="text-sm text-foreground">
-              Saved at {lastSaved.toLocaleTimeString()}
+              Saved at {formatTime(lastSaved)}
             </span>
           </div>
         </div>
@@ -679,7 +680,7 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                 Viewing past date - entries are read-only
               </p>
               <p className="text-xs text-warning mt-1">
-                Only today's date ({new Date().toLocaleDateString()}) can be edited. Historical data cannot be modified.
+                Only today's date ({formatDate(new Date())}) can be edited. Historical data cannot be modified.
               </p>
             </div>
           </div>
@@ -739,12 +740,8 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
                     Entry Date
                   </div>
                   <div className="text-2xl font-bold text-foreground">
-                    {new Date(selectedDate).toLocaleDateString('en-US', {
-                      weekday: 'short',
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric'
-                    })}
+                    {/* A business-day string is a store date, not a UTC instant. */}
+                    {friendlyDate(selectedDate)}
                   </div>
                   <div className={cn(
                     "text-xs font-medium mt-1 flex items-center gap-1.5",
@@ -1034,13 +1031,13 @@ export const DailyEntryTable: React.FC<DailyEntryTableProps> = ({
             <div className="text-xs text-muted-foreground space-y-1 pt-3 border-t border-border bg-muted/50 px-3 py-2 rounded">
               {dayStatus.isClosed && dayStatus.closedAt && (
                 <div>
-                  <strong>Closed:</strong> {new Date(dayStatus.closedAt).toLocaleString()}
+                  <strong>Closed:</strong> {formatDateTime(dayStatus.closedAt)}
                   {dayStatus.closedBy && ` by ${dayStatus.closedBy}`}
                 </div>
               )}
               {dayStatus.updatedAt && (
                 <div>
-                  <strong>Last updated:</strong> {new Date(dayStatus.updatedAt).toLocaleString()}
+                  <strong>Last updated:</strong> {formatDateTime(dayStatus.updatedAt)}
                   {dayStatus.updatedBy && ` by ${dayStatus.updatedBy}`}
                 </div>
               )}

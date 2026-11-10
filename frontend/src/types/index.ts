@@ -13,6 +13,9 @@ export interface User {
   location?: Location;
   createdAt: string;
   lastLoginAt: string | null;
+  twoFactorEnabled?: boolean;
+  /** A register PIN is set (the PIN itself never reaches the browser). */
+  hasPin?: boolean;
 }
 
 export interface Location {

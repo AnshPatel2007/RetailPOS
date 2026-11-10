@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import type { Location, Prisma, User } from '@prisma/client';
 import { resolveUserAssignment } from '../utils/userPermissions';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -120,6 +121,14 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
+  await completeSignIn(req, res, user);
+});
+
+/**
+ * Start a session for a verified user: refresh cookie, access token, last login and
+ * the LOGIN activity entry. Shared by password and register PIN sign-in.
+ */
+export const completeSignIn = async (req: Request, res: Response, user: User & { location: Location | null }, details?: Prisma.InputJsonValue) => {
   const refreshToken = generateRefreshToken();
   const session = await createLoginSession(user, refreshToken, req.headers['user-agent'] || 'Unknown', req.ip);
   const token = generateToken({
@@ -145,6 +154,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
       locationId: user.locationId,
+      ...(details !== undefined ? { details } : {}),
     },
   });
 
@@ -169,10 +179,11 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
         locationId: user.locationId,
         location: user.location,
         twoFactorEnabled: user.twoFactorEnabled,
+        hasPin: !!user.pinHash,
       },
     },
   });
-});
+};
 
 /**
  * Refresh access token
@@ -248,6 +259,7 @@ export const getCurrentUser = asyncHandler(async (req: AuthRequest, res: Respons
       isActive: true,
       locationId: true,
       twoFactorEnabled: true,
+      pinHash: true,
       location: {
         select: {
           id: true,
@@ -267,9 +279,11 @@ export const getCurrentUser = asyncHandler(async (req: AuthRequest, res: Respons
     throw new AppError('User not found', 404);
   }
 
+  // Only whether a register PIN is set ever leaves the server, never its hash.
+  const { pinHash, ...profile } = user;
   res.json({
     success: true,
-    data: user,
+    data: { ...profile, hasPin: !!pinHash },
   });
 });
 

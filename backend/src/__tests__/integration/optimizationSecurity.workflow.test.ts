@@ -55,7 +55,7 @@ describe('Optimization: store isolation and capability boundaries', () => {
       await prisma.giftCard.create({ data: { code, locationId, initialBalance: amount, currentBalance: amount } });
     }
     const stats = await api.get('/api/gift-cards/stats').withAuth(owner).expectStatus(200).execute();
-    expect(stats.body.data).toEqual({ totalCards: 1, activeCards: 1, outstandingBalance: 20 });
+    expect(stats.body.data).toEqual({ totalCards: 1, activeCards: 1, outstandingBalance: 20, inactiveBalance: 0 });
     await api.get('/api/gift-cards/UNASSIGNED').withAuth(owner).expectStatus(404).execute();
     await api.get('/api/customers').withAuth(otherOwner).expectStatus(200).execute().then(r => expect(r.body.data).toHaveLength(0));
   });

@@ -1,10 +1,10 @@
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatEnumLabel } from '@/lib/utils';
 
 import { refundTenderSelection } from '@/services/refundTenderSelection';
 import type { RefundTenderOption, RefundTenderEdits } from '@/services/refundTenderSelection';
-const label = (method: string) => method.replace(/_/g, ' ');
+const label = (method: string) => formatEnumLabel(method);
 
 export function RefundTenderEditor({ options, amount, hasCustomer, edits, onChange, idPrefix = '' }: { options: RefundTenderOption[]; amount: number; hasCustomer: boolean;
   edits: RefundTenderEdits; onChange: (edits: RefundTenderEdits) => void; idPrefix?: string }) {

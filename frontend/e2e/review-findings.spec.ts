@@ -60,7 +60,7 @@ for (const tender of ['cash', 'split']) test(`immediate product taps and scans r
   await page.goto('/inventory'); await page.getByPlaceholder('Search by name, SKU, or barcode...').fill(item.sku);
   await expect(page.getByRole('row').filter({ hasText: item.name }).getByText('Out of Stock', { exact: true })).toBeVisible();
   await page.goto('/dashboard');
-  await expect(page.getByText("Today's Collections", { exact: true }).locator('..')).toContainText((before.todaySales + 27).toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
+  await expect(page.getByText('Sales today', { exact: true }).locator('..')).toContainText((before.todaySales + 27).toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
 });
 
 test('age-restricted quick add still requires a valid DOB before payment', async ({ page }) => {
@@ -118,7 +118,7 @@ test('empty collections, stock thresholds and full sidebar names remain clear', 
     await route.fulfill({ response, json: body });
   });
   await page.setViewportSize({ width: 1366, height: 768 }); await login(page, 'owner@example.test');
-  await expect(page.getByText('No collection activity in the last 12 hours', { exact: true })).toBeVisible();
+  await expect(page.getByText('No sales in the last 12 hours', { exact: true })).toBeVisible();
   await expect(page.getByText('Out of stock · Min stock: 5', { exact: true })).toBeVisible();
   const name = page.locator('[data-sidebar-store-name]').filter({ visible: true });
   await expect(name).toHaveText('A&P Food and Liquor');

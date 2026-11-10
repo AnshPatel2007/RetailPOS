@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/Checkbox';
 import React, { useCallback, useEffect, useId, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Boxes, PackageOpen } from 'lucide-react';
@@ -315,9 +316,9 @@ export const PackForm: React.FC<{
                 </Select>
               </div>
               <div className="product-choice-grid">
-                <label><input type="checkbox" checked={variety.isTaxable} onChange={e => setVariety({ ...variety, isTaxable: e.target.checked })} /><span>Taxable item</span></label>
-                <label><input type="checkbox" checked={variety.ebtEligible} onChange={e => setVariety({ ...variety, ebtEligible: e.target.checked })} /><span>EBT / SNAP eligible</span></label>
-                <label><input type="checkbox" checked={variety.isActive} onChange={e => setVariety({ ...variety, isActive: e.target.checked })} /><span>Active</span></label>
+                <Checkbox label="Taxable item" checked={variety.isTaxable} onChange={e => setVariety({ ...variety, isTaxable: e.target.checked })} />
+                <Checkbox label="EBT / SNAP eligible" checked={variety.ebtEligible} onChange={e => setVariety({ ...variety, ebtEligible: e.target.checked })} />
+                <Checkbox label="Active" checked={variety.isActive} onChange={e => setVariety({ ...variety, isActive: e.target.checked })} />
               </div>
               <Select label="Age restriction" value={variety.minimumAge} onChange={e => setVariety({ ...variety, minimumAge: e.target.value })}>
                 <option value="">None</option><option value="18">18+ (lottery)</option><option value="21">21+ (alcohol, tobacco, vape)</option>

@@ -17,6 +17,10 @@ import {
 import { EmptyState } from '@/components/common/EmptyState';
 import { PackageX } from 'lucide-react';
 import { SummaryStrip } from '@/components/common/Workspace';
+import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
+import { Badge } from '@/components/ui/Badge';
+import { Alert } from '@/components/ui/Alert';
+import { LoadingState } from '@/components/ui/LoadingState';
 
 const costCurrency = (value: number | null) => value == null ? 'Unavailable' : formatCurrency(value);
 
@@ -37,10 +41,11 @@ const WINDOWS = [30, 60, 90];
  */
 export const StockHealthTab: React.FC = () => {
   const [days, setDays] = useState(30);
+  const timezone = useCalendarTimezone();
   const query = useScopedQuery<any>(['stock-health', days], async signal => (await api.get('/reports/stock-health', { params: { days }, signal })).data.data);
   const data = query.data;
-  if (query.loading) return <p role="status" className="py-8 text-muted-foreground">Loading stock health...</p>;
-  if (!data) return <div role="alert" className="flex flex-wrap items-center gap-3 py-4"><p>{query.error || 'Stock health is unavailable.'}</p><Button variant="outline" onClick={query.refresh}>Retry</Button></div>;
+  if (query.loading) return <LoadingState label="Loading stock health…" />;
+  if (!data) return <Alert tone="error" title={query.error || 'Stock health is unavailable.'} action={<Button variant="outline" onClick={query.refresh}>Retry</Button>} />;
 
   const { deadStock, sellThrough, shrinkage } = data;
 
@@ -121,16 +126,14 @@ export const StockHealthTab: React.FC = () => {
                 {shrinkage.recent.map((e: any) => (
                   <TableRow key={e.id}>
                     <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
-                      {formatDate(e.createdAt)}
+                      {formatDate(e.createdAt, timezone)}
                     </TableCell>
                     <TableCell>
                       <span className="font-medium">{e.productName}</span>
                       <span className="text-muted-foreground text-xs ml-2">{e.sku}</span>
                     </TableCell>
                     <TableCell>
-                      <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
-                        {REASON_LABELS[e.reason] || e.reason}
-                      </span>
+                      <Badge variant="destructive">{REASON_LABELS[e.reason] || e.reason}</Badge>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{e.units}</TableCell>
                     <TableCell className="text-right tabular-nums">{costCurrency(e.costValue)}</TableCell>
@@ -199,6 +202,9 @@ export const StockHealthTab: React.FC = () => {
         <h2 className="text-lg font-semibold mb-3">
           Dead stock <span className="text-sm font-normal text-muted-foreground">— in stock, zero sales in {days} days</span>
         </h2>
+        {deadStock.totals.listed !== undefined && deadStock.totals.listed < deadStock.totals.products && (
+          <p className="mb-2 text-sm text-muted-foreground">Showing the {deadStock.totals.listed} items with the most money tied up, of {deadStock.totals.products}. The totals above include all of them.</p>
+        )}
         {deadStock.products.length === 0 ? (
           <Card>
             <CardContent className="py-8">
@@ -238,7 +244,7 @@ export const StockHealthTab: React.FC = () => {
                       {formatCurrency(p.retailValue)}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
-                      {p.lastSoldAt ? formatDate(p.lastSoldAt) : 'Never'}
+                      {p.lastSoldAt ? formatDate(p.lastSoldAt, timezone) : 'Never'}
                     </TableCell>
                   </TableRow>
                 ))}

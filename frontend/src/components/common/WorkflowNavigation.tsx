@@ -34,9 +34,8 @@ export function StockControlNavigation({ children }: { children: React.ReactNode
   const count = useInventoryExceptionCount(can(user?.role, 'inventory.read') && (user?.role !== 'SUPER_ADMIN' || isAdminViewing), user?.role === 'SUPER_ADMIN' ? locationId : null);
   const views = stockControlViews.map(view => view.path.endsWith('/exceptions') && count > 0 ? { ...view, label: (
     <>Exceptions
-      {/* In-flow (the tab bar scrolls and would clip an absolutely placed badge); self-start lifts it to the top-right. */}
-      <span className="-mr-1 -mt-2 self-start min-w-[1.25rem] rounded-full bg-destructive px-1 text-center text-[11px] font-semibold leading-5 text-destructive-foreground tabular-nums"
-        aria-label={`${count} need review`}>{count}</span>
+      {/* Sits on the tab's top-right corner without widening it; the tab bar leaves room so it isn't clipped. */}
+      <span className="page-tab-badge" aria-label={`${count} need review`}>{count}</span>
     </>) } : view);
   return <WorkflowNavigation label="Inventory / Stock Control" views={views}>{children}</WorkflowNavigation>;
 }

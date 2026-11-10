@@ -1,9 +1,11 @@
+import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
+import { printHtml } from '@/lib/print';
 import { ManagementPage } from '@/components/common/Workspace';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useRef } from 'react';
 import { shiftService } from '@/services/api';
 import { Shift } from '@/types';
-import { formatCurrency, formatDateTime, formatTime, cn } from '@/lib/utils';
+import { formatCurrency, formatDateTime, formatTime, cn, formatEnumLabel } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
@@ -32,7 +34,11 @@ import { Spinner } from '@/components/ui/LoadingState';
 import { Alert } from '@/components/ui/Alert';
 import { DrawerCountHelper } from '@/components/shifts/DrawerCountHelper';
 
+/** Drawer over/short colors: even is green, over is amber, short is red. */
+const overShortTone = (difference: number) => Math.abs(difference) < 0.005 ? 'text-success' : difference > 0 ? 'text-warning' : 'text-destructive';
+
 export const Shifts: React.FC = () => {
+  const timezone = useCalendarTimezone();
   const user = useAuthStore(state => state.user);
   const { locationId } = useEffectiveLocation();
   const canClock = can(user?.role, 'shift.own');
@@ -125,16 +131,16 @@ export const Shifts: React.FC = () => {
       const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
       const line = (label: string, value: string, bold = false) =>
         `<tr${bold ? ' style="font-weight:bold;border-top:1px solid #000;"' : ''}><td>${escapeHtml(label)}</td><td style="text-align:right;">${escapeHtml(value)}</td></tr>`;
-      const money = (n: number | null | undefined) => (n === null || n === undefined ? '—' : `$${n.toFixed(2)}`);
+      const money = (n: number | null | undefined) => (n === null || n === undefined ? '—' : formatCurrency(n));
 
       const tenderRows = Object.entries(z.tenderBreakdown as Record<string, { count: number; total: number }>)
-        .map(([m, d]) => line(`${m.replace(/_/g, ' ')} (${d.count})`, money(d.total)))
+        .map(([m, d]) => line(`${formatEnumLabel(m)} (${d.count})`, money(d.total)))
         .join('');
       const movementRows = (z.cashMovements as any[])
         .map((m) =>
           line(
-            `${m.type.replace(/_/g, ' ')} — ${m.reason}`,
-            `${m.type === 'PAID_IN' ? '+' : '-'}${money(m.amount)}`
+            `${formatEnumLabel(m.type)} — ${m.reason}`,
+            money(m.type === 'PAID_IN' ? m.amount : -m.amount)
           )
         )
         .join('');
@@ -149,7 +155,7 @@ export const Shifts: React.FC = () => {
       </style></head><body>
         <h2>Z-REPORT</h2>
         <p class="center">${escapeHtml(z.location || '')}<br/>${escapeHtml(z.cashier)}<br/>
-        ${new Date(z.clockInAt).toLocaleString()} — ${z.clockOutAt ? new Date(z.clockOutAt).toLocaleString() : 'OPEN'}</p>
+        ${formatDateTime(z.clockInAt, timezone)} — ${z.clockOutAt ? formatDateTime(z.clockOutAt, timezone) : 'Still open'}</p>
         <div class="rule"></div>
         <table>
           ${line('Transactions', String(z.totalTransactions))}
@@ -166,8 +172,8 @@ export const Shifts: React.FC = () => {
         <table>
           ${line('Starting Cash', money(z.startingCash))}
           ${line('Cash Sales (after change)', money(z.cashSales))}
-          ${line('Cash Refunds', '-' + money(z.cashRefunds))}
-          ${line('Cash Voids', '-' + money(z.cashVoids))}
+          ${line('Cash Refunds', money(z.cashRefunds == null ? null : -z.cashRefunds))}
+          ${line('Cash Voids', money(z.cashVoids == null ? null : -z.cashVoids))}
           ${line('Gift Card Cash Funding', money(z.cashGiftFunding))}
           ${line('House Account Cash Payments', money(z.cashHousePayments))}
           ${line('Movements (net)', money(z.cashMovementNet))}
@@ -177,17 +183,10 @@ export const Shifts: React.FC = () => {
         </table>
         ${z.reconciliationWarning ? `<p>${escapeHtml(z.reconciliationWarning)}</p>` : ''}
         <div class="rule"></div>
-        <p class="center">Printed ${new Date().toLocaleString()}</p>
-        <script>window.onload = function() { window.print(); }</script>
+        <p class="center">Printed ${formatDateTime(new Date(), timezone)}</p>
       </body></html>`;
 
-      const win = window.open('', '_blank', 'width=400,height=700');
-      if (win) {
-        win.document.write(html);
-        win.document.close();
-      } else {
-        toast.error('Popup blocked — allow popups to print the Z-report');
-      }
+      if (!await printHtml(html)) toast.error('The Z-report could not be sent to the printer. Try again.');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to load Z-report');
     }
@@ -243,7 +242,7 @@ export const Shifts: React.FC = () => {
       />
       {autoRefresh.notice}
       {pendingMovement && <div role="status" className="mb-4 p-3 rounded-lg border border-warning/40 bg-warning/10 space-y-2">
-        <p>Saved cash movement: {pendingMovement.label.replace(/_/g, ' ')} {formatCurrency(pendingMovement.amount)}. Retry to confirm the recorded result. Do not move the cash twice.</p>
+        <p>Saved cash movement: {formatEnumLabel(pendingMovement.label)} {formatCurrency(pendingMovement.amount)}. Retry to confirm the recorded result. Do not move the cash twice.</p>
         <Button onClick={() => submitCashMovement(pendingMovement)} disabled={movementSubmitting}>Retry saved cash movement</Button>
       </div>}
 
@@ -306,7 +305,7 @@ export const Shifts: React.FC = () => {
                   {((currentShift as any).cashMovements as any[]).map((m) => (
                     <div key={m.id} className="flex justify-between text-sm">
                       <span className="text-muted-foreground">
-                        {m.type.replace(/_/g, ' ')} — {m.reason}
+                        {formatEnumLabel(m.type)} — {m.reason}
                       </span>
                       <span className={`font-medium tabular-nums ${m.type === 'PAID_IN' ? 'text-success' : 'text-warning'}`}>
                         {m.type === 'PAID_IN' ? '+' : '-'}{formatCurrency(m.amount)}
@@ -369,11 +368,11 @@ export const Shifts: React.FC = () => {
                       )}
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm">{formatDateTime(shift.clockInAt)}</span>
+                      <span className="text-sm">{formatDateTime(shift.clockInAt, timezone)}</span>
                     </TableCell>
                     <TableCell>
                       {shift.clockOutAt ? (
-                        <span className="text-sm">{formatDateTime(shift.clockOutAt)}</span>
+                        <span className="text-sm">{formatDateTime(shift.clockOutAt, timezone)}</span>
                       ) : (
                         // Status already says Active; repeating it here read as two states.
                         <span className="text-sm text-muted-foreground" aria-label="Still open">—</span>
@@ -395,13 +394,7 @@ export const Shifts: React.FC = () => {
                     <TableCell>
                       {shift.cashDifference !== null ? (
                         <span
-                          className={
-                            shift.cashDifference === 0
-                              ? 'text-success'
-                              : shift.cashDifference > 0
-                              ? 'text-primary'
-                              : 'text-destructive'
-                          }
+                          className={overShortTone(shift.cashDifference)}
                         >
                           {formatCurrency(shift.cashDifference)}
                         </span>
@@ -484,24 +477,24 @@ export const Shifts: React.FC = () => {
       >
         {currentShift && (() => {
           const shift = currentShift as typeof currentShift & { totalCashSales?: number; cashMovementNet?: number; expectedDrawer?: number };
-          const expected = shift.expectedDrawer ?? shift.startingCash + (shift.totalCashSales ?? shift.totalSales);
+          const expected = shift.expectedDrawer ?? (shift.totalCashSales == null ? null : shift.startingCash + shift.totalCashSales);
           // Only lines that moved money are shown; zero rows were noise.
           const lines: [string, number][] = [
-            ['Cash sales (after change)', shift.totalCashSales ?? shift.totalSales],
+            ['Cash sales (after change)', shift.totalCashSales ?? 0],
             ['Cash refunds & voids paid', -((shift.cashRefunds || 0) + (shift.cashVoids || 0))],
             ['Gift card cash funding', shift.cashGiftFunding || 0],
             ['House account cash payments', shift.cashHousePayments || 0],
             ['Cash movements (net)', shift.cashMovementNet ?? 0],
           ];
           const counted = endingCash.trim() !== '' && Number.isFinite(Number(endingCash)) ? Number(endingCash) : null;
-          const diff = counted === null ? null : Math.round((counted - expected) * 100) / 100;
+          const diff = counted === null || expected === null ? null : Math.round((counted - expected) * 100) / 100;
           return (
             <form id="clock-out-form" className="space-y-4" onSubmit={event => { event.preventDefault(); void handleClockOut(); }}>
               {shift.reconciliationWarning && <Alert tone="warning">{shift.reconciliationWarning}</Alert>}
               <div className="rounded-lg border">
                 <div className="flex items-baseline justify-between gap-3 border-b px-4 py-3">
                   <span className="text-sm font-medium">Expected in drawer</span>
-                  <span className="text-xl font-semibold tabular-nums">{formatCurrency(expected)}</span>
+                  <span className="text-xl font-semibold tabular-nums">{expected === null ? 'Unavailable' : formatCurrency(expected)}</span>
                 </div>
                 <dl className="space-y-1 px-4 py-3 text-sm">
                   <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Starting cash</dt><dd className="tabular-nums">{formatCurrency(shift.startingCash)}</dd></div>
@@ -561,7 +554,7 @@ export const Shifts: React.FC = () => {
               </div>
               <div className="p-3 bg-muted rounded-lg">
                 <p className="text-sm text-muted-foreground">Cash Difference</p>
-                <p className={`text-xl font-bold ${Math.abs(shiftSummary.cashDifference) < 0.01 ? 'text-success' : 'text-destructive'}`}>
+                <p className={`text-xl font-bold ${overShortTone(shiftSummary.cashDifference)}`}>
                   {formatCurrency(shiftSummary.cashDifference)}
                 </p>
               </div>
@@ -573,7 +566,7 @@ export const Shifts: React.FC = () => {
               <div className="divide-y">
                 {Object.entries(shiftSummary.paymentBreakdown).map(([method, data]: [string, any]) => (
                   <div key={method} className="flex justify-between items-center px-3 py-2 text-sm">
-                    <span>{method.replace(/_/g, ' ')}</span>
+                    <span>{formatEnumLabel(method)}</span>
                     <div className="text-right">
                       <span className="font-medium">{formatCurrency(data.total)}</span>
                       <span className="text-muted-foreground ml-2">({data.count} txn{data.count !== 1 ? 's' : ''})</span>

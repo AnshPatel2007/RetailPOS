@@ -1,3 +1,4 @@
+import { Badge } from '@/components/ui/Badge';
 import { ManagementPage } from '@/components/common/Workspace';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
@@ -112,7 +113,7 @@ export const Developers: React.FC = () => {
         subtitle="API keys for the read-only /api/v1 endpoints, and webhooks for live events — see API.md in the project root"
         icon={Code2}
         actions={<>
-          <Link className="page-action" to="/settings/jobs">Delivery Jobs</Link>
+          <Link className="page-action" to="/settings/jobs">Email &amp; Export Jobs</Link>
           <Button variant="outline" onClick={() => { setNewKey(null); setShowKeyModal(true); }}><Plus className="h-4 w-4 mr-2" />New API Key</Button>
           <Button onClick={() => { setNewSecret(null); setShowHookModal(true); }}><Plus className="h-4 w-4 mr-2" />Add Webhook</Button>
         </>}
@@ -245,20 +246,18 @@ export const Developers: React.FC = () => {
                           ) : 'Never'}
                         </TableCell>
                         <TableCell>
-                          <button
-                            onClick={async () => {
-                              try {
-                                await developerService.updateWebhook(w.id, { isActive: !w.isActive });
-                                load();
-                              } catch { toast.error('Failed to update'); }
-                            }}
-                            className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                              w.isActive ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
-                            }`}
-                            title={w.failCount >= 20 ? 'Auto-disabled after repeated failures — click to re-enable' : 'Toggle'}
-                          >
-                            {w.isActive ? 'Active' : 'Disabled'}
-                          </button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={w.isActive ? 'success' : 'secondary'}>{w.isActive ? 'Active' : 'Turned off'}</Badge>
+                            {/* A real button, so turning a webhook on or off is never mistaken for a status label. */}
+                            <Button variant="outline" size="sm" aria-label={`${w.isActive ? 'Turn off' : 'Turn on'} webhook ${w.url}`}
+                              title={!w.isActive && w.failCount >= 20 ? 'Turned off after repeated failures' : undefined}
+                              onClick={async () => {
+                                try {
+                                  await developerService.updateWebhook(w.id, { isActive: !w.isActive });
+                                  load();
+                                } catch { toast.error('Failed to update'); }
+                              }}>{w.isActive ? 'Turn off' : 'Turn on'}</Button>
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex gap-1 justify-end">
@@ -271,6 +270,7 @@ export const Developers: React.FC = () => {
                               className="text-destructive"
                               onClick={() => setDeleteHookTarget(w)}
                               title="Delete"
+                              aria-label={`Delete webhook ${w.url}`}
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>
@@ -406,7 +406,7 @@ export const Developers: React.FC = () => {
           setRevokeTarget(null);
         }}
         title="Revoke API key?"
-        message={revokeTarget ? `"${revokeTarget.name}" will stop working immediately. Anything using it will get 401s.` : ''}
+        message={revokeTarget ? `"${revokeTarget.name}" will stop working immediately. Anything using it will be refused access.` : ''}
         destructive
         confirmLabel="Revoke"
       />

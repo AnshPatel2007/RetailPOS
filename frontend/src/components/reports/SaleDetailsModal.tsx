@@ -4,7 +4,7 @@ import { XCircle, RotateCcw, CreditCard, User, Calendar } from 'lucide-react';
 import { Sale } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, formatEnumLabel } from '@/lib/utils';
 import { SaleVoidDialog } from './SaleVoidDialog';
 import { useAuthStore } from '@/store/authStore';
 
@@ -86,7 +86,7 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
               <CreditCard className="h-4 w-4 text-muted-foreground" />
               <div>
                 <p className="text-xs text-muted-foreground">Original primary tender</p>
-                <p className="font-medium text-sm">{historical ? 'Card recorded; remaining tender unspecified' : sale.paymentMethod.replace(/_/g, ' ')}</p>
+                <p className="font-medium text-sm">{historical ? 'Card recorded; remaining tender unspecified' : formatEnumLabel(sale.paymentMethod)}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">

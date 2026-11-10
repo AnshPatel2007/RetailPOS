@@ -28,6 +28,8 @@ interface CartState {
   taxRate: number;
   cardSurchargePercent: number; // location's card-surcharge rate (0 = off)
   heldSales: HeldSale[];
+  /** The store the held sales belong to; they stay on this register across sign-ins there. */
+  heldLocationId: string | null;
   promotions: Promotion[]; // active promotions, refreshed by the POS page (not persisted)
 
   applyQuote: (quote: any) => void;
@@ -44,6 +46,8 @@ interface CartState {
   setPromotions: (promotions: Promotion[]) => void;
   clearCart: () => void;
   resetForLogout: () => void;
+  /** Keep held sales only when the register is signed in to the same store. */
+  adoptHeldSalesFor: (locationId: string) => void;
 
   // Hold sales
   holdSale: () => void;
@@ -75,6 +79,7 @@ export const useCartStore = create<CartState>()(
       taxRate: 0,
       cardSurchargePercent: 0,
       heldSales: [],
+      heldLocationId: null,
       promotions: [],
 
       applyQuote: (quote) => set({
@@ -202,18 +207,24 @@ export const useCartStore = create<CartState>()(
         });
       },
 
-      // Unlike clearCart (used mid-session after checkout), this also drops
-      // held sales and location-specific settings so a different cashier
-      // logging into a different store never sees the previous session's data
+      // Unlike clearCart (used mid-session after checkout), this also drops the
+      // store's settings. Held sales stay on the register for the next cashier at
+      // the same store; adoptHeldSalesFor drops them if another store signs in.
       resetForLogout: () => {
         set({
           items: [],
           customer: null,
           notes: '',
-          heldSales: [],
           taxRate: 0,
           cardSurchargePercent: 0,
         });
+      },
+
+      adoptHeldSalesFor: (locationId: string) => {
+        const { heldLocationId, heldSales } = get();
+        if (heldLocationId === locationId) return;
+        // Sales held before the store was recorded were made in this sign-in, so they are kept.
+        set({ heldLocationId: locationId, heldSales: heldLocationId === null ? heldSales : [] });
       },
 
       holdSale: () => {
@@ -397,6 +408,7 @@ export const useCartStore = create<CartState>()(
         taxRate: state.taxRate,
         cardSurchargePercent: state.cardSurchargePercent,
         heldSales: state.heldSales,
+        heldLocationId: state.heldLocationId,
       }),
     }
   )

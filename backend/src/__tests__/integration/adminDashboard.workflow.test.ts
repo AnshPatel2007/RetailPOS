@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto';
 import { prisma, seedTestData, TestData } from './setup';
 import { api, createTestToken } from './helpers';
+import { getFinancialMetrics } from '../../services/financialMetrics.service';
+import { reportCalendar } from '../../services/reportDates.service';
 
 describe('Super-admin dashboard', () => {
   let data: TestData;
@@ -24,7 +26,7 @@ describe('Super-admin dashboard', () => {
     await prisma.expense.create({ data: { expenseNumber: randomUUID(), category: 'OTHER', description: 'Pending expense', amount: 999, status: 'PENDING', userId: data.adminUser.id, locationId: data.location.id } });
     const result = await overview();
     expect(result.totals).toMatchObject({ totalRevenue: 110, totalTransactions: 1, totalTaxCharged: 10, totalExpenses: 30, totalProfit: 50, margin: 50 });
-    expect(result.locations[0]).toMatchObject({ estimatedCost: 20, profit: 50, margin: 50 });
+    expect(result.locations[0]).toMatchObject({ costOfGoodsSold: 20, costBasis: 'HISTORICAL', profit: 50, margin: 50 });
   });
 
   it('does not claim 100% margins when cost data is missing or there are no sales', async () => {
@@ -91,5 +93,26 @@ describe('Super-admin dashboard', () => {
     await api.get('/api/locations/stats/overview').withAuth(ownerToken).expectStatus(403).execute();
     await api.get('/api/locations/stats/overview').withAuth(await createTestToken(data.cashierUser.id, 'CASHIER')).expectStatus(403).execute();
     await api.get('/api/reports/dashboard').withAuth(ownerToken).expectStatus(200).execute();
+  });
+  it('store list totals match the store dashboard: after refunds, no voided or pending sales, store-local today', async () => {
+    const plain = (await api.get('/api/locations').withAuth(superToken).expectStatus(200).execute()).body.data;
+    expect(plain[0].todayRevenue).toBeUndefined(); // store pickers do not pay for sales totals
+    const today = await sale({ pricingVersion: 1, items: { create: { productId: data.product.id, sku: data.product.sku, productName: data.product.name, quantity: 2, price: 50, tax: 10, total: 110, unitCost: 10 } } });
+    await sale({ status: 'PENDING', total: 500 });
+    await sale({ status: 'HOLD', total: 400 });
+    await sale({ status: 'VOIDED', total: 300 });
+    await sale({ createdAt: new Date(Date.now() - 40 * 86400000), total: 70, tax: 0 });
+    await prisma.refund.create({ data: { saleId: today.id, amount: 22, taxAmount: 2, reason: 'Partial', refundedBy: data.adminUser.id } });
+    const [store] = (await api.get('/api/locations').withAuth(superToken).withQuery({ include: 'stats' }).expectStatus(200).execute()).body.data;
+    const location = await prisma.location.findUniqueOrThrow({ where: { id: data.location.id } });
+    const now = new Date();
+    const dashboardToday = await getFinancialMetrics({ locationId: data.location.id }, { gte: reportCalendar(location.timezone || 'UTC', now).day(), lte: now });
+    expect(store).toMatchObject({ todayRevenue: dashboardToday.netCollected, totalRevenue: 158, totalSales: 2 });
+    expect(store.todayRevenue).toBe(88);
+    const detail = (await api.get(`/api/locations/${data.location.id}/stats`).withAuth(superToken).withQuery({ period: 30 }).expectStatus(200).execute()).body.data;
+    expect(detail).toMatchObject({ totalRevenue: 158, periodRevenue: 88, periodTransactions: 1, averageOrderValue: 110 });
+    expect(detail.topProducts[0]).toMatchObject({ productId: data.product.id, name: data.product.name });
+    expect(detail.userPerformance[0]).toMatchObject({ userId: data.adminUser.id, userName: `${data.adminUser.firstName} ${data.adminUser.lastName}`, total: 88 });
+    await api.get(`/api/locations/${data.location.id}/stats`).withAuth(superToken).withQuery({ period: 'junk' }).expectStatus(400).execute();
   });
 });

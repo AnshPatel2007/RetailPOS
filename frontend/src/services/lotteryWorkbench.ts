@@ -1,3 +1,4 @@
+import { formatCurrency } from '@/lib/utils';
 import { api } from './api';
 import { z } from 'zod';
 import { lotteryReportSchema, lotteryRackSchema } from '../../../backend/src/validators/lotteryV2.validator';
@@ -19,7 +20,7 @@ export interface LotteryEvent { id: string; action: string; dayId: string | null
 export interface LotteryReports { days: LotteryDay[]; events: LotteryEvent[]; settlements: LotterySettlement[]; corrections: LotteryEvent[]; earnings: { id: string; dayId: string | null; settlementId: string | null; recognizedAt: string; amount: string; reason: string }[] }
 export const lotteryRead = async <T>(path: string, locationId: string, signal?: AbortSignal, params?: Record<string, unknown>): Promise<T> =>
   (await api.get('/lottery/v2' + path, { params: { ...params, locationId }, signal })).data.data;
-export const lotteryMoney = (value: string | number | null | undefined) => value == null ? 'Pending' : Number(value).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+export const lotteryMoney = (value: string | number | null | undefined) => value == null ? 'Pending' : formatCurrency(Number(value));
 export const manualLottery = (settings: LotterySettings) => ['MANUAL', 'BOTH'].includes(settings.mode);
 export const lotteryBookStatus = (status: string) => ({ ACTIVE: 'On rack', PAUSED: 'Paused', DEPLETED: 'Sold out', RETURNED: 'Returned', LOST: 'Missing / stolen' }[status] || status);
 export const lotteryError = (error: unknown) => (error as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Unable to complete this request. Your draft is retained.';

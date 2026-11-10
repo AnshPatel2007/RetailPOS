@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/Checkbox';
 import { RefObject, useMemo, useState } from 'react';
 import { ScanLine } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -18,7 +19,7 @@ export function LotteryScratchStage({ day, report, blocked, countsBlocked, manag
   const rows = useMemo(() => [...day.checkpoints].sort((a, b) => a.slot.localeCompare(b.slot, undefined, { numeric: true }) || a.id.localeCompare(b.id)), [day.checkpoints]);
   const counted = rows.filter(row => row.openingVerified && row.closingPosition !== null).length, closed = day.status === 'CLOSED';
   return <div className="space-y-4">
-    {manualLottery(day.configuration) && <LotterySection title="Scratch-ticket rack" actions={<div className="flex flex-wrap items-center gap-4 text-sm"><span role="status">{counted} of {rows.length} books counted</span><label className="inline-flex items-center gap-2 min-h-9 max-sm:min-h-11"><input type="checkbox" checked={needsCounting} onChange={e => setNeedsCounting(e.target.checked)} />Needs counting</label></div>}>
+    {manualLottery(day.configuration) && <LotterySection title="Scratch-ticket rack" actions={<div className="flex flex-wrap items-center gap-4 text-sm"><span role="status">{counted} of {rows.length} books counted</span><Checkbox label="Needs counting" checked={needsCounting} onChange={e => setNeedsCounting(e.target.checked)} /></div>}>
       {!closed && <form onSubmit={e => { e.preventDefault(); void submitScan(); }} className="flex flex-wrap items-end gap-2">
         <div className="flex-1 min-w-48"><Input ref={scanner} label="Inventory barcode" value={scan} onChange={e => setScan(e.target.value)} maxLength={100} autoComplete="off" disabled={countsBlocked || !day.configuration.barcodeProfile} placeholder="Scan the next unsold ticket" /></div>
         <Button type="submit" variant="outline" disabled={countsBlocked || !scan || !day.configuration.barcodeProfile}><ScanLine />Save scan</Button>

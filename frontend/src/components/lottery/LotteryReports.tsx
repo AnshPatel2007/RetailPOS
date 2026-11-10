@@ -1,3 +1,4 @@
+import { friendlyDate } from '@/lib/calendarDates';
 import { ReactNode, useEffect } from 'react';
 import { today } from '@internationalized/date';
 import { useNavigate } from 'react-router-dom';
@@ -35,7 +36,7 @@ export function LotteryReports({ locationId, onActionsChange }: { locationId: st
     {data && <><div className="grid gap-3 grid-cols-2 lg:grid-cols-4">{[['Scratch sales', sum('scratchSales')], ['Online sales', sum('onlineSales')], ['Prizes paid', sum('payouts')], ['Net collections', sum('netCollections')]].map(([label, amount]) => <div key={label} className="rounded-lg border bg-card p-4"><p className="text-sm text-muted-foreground">{label}</p><p className="text-2xl font-semibold tabular-nums">{lotteryMoney(amount)}</p></div>)}</div>
       <p className="text-xs text-muted-foreground">Period totals include closed days and recorded corrections.</p>
       <div className="overflow-x-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Scratch sales</TableHead><TableHead className="text-right">Online sales</TableHead><TableHead className="text-right">Prizes paid</TableHead><TableHead className="text-right">Collections</TableHead><TableHead className="text-right">Lottery earnings</TableHead></TableRow></TableHeader><TableBody>
-        {data.days.map(day => <TableRow key={day.id}><TableCell><Button variant="ghost" onClick={() => navigate('/lottery?tab=daily&date=' + day.businessDate + '&lotteryView=online')}>{day.businessDate}</Button></TableCell><TableCell>{day.status === 'CLOSED' ? 'Closed' : 'Draft'}</TableCell>
+        {data.days.map(day => <TableRow key={day.id}><TableCell><Button variant="ghost" onClick={() => navigate('/lottery?tab=daily&date=' + day.businessDate + '&lotteryView=online')}>{friendlyDate(day.businessDate)}</Button></TableCell><TableCell>{day.status === 'CLOSED' ? 'Closed' : 'Draft'}</TableCell>
           {(['scratchSales', 'onlineSales', 'payouts', 'netCollections'] as const).map(key => <TableCell key={key} className="text-right tabular-nums">{lotteryMoney(day.totals?.[key])}</TableCell>)}<TableCell className="text-right tabular-nums">{day.earningsPending ? 'Pending' : day.earningsIncomplete ? 'Recorded separately' : lotteryMoney(day.totals?.earnings)}</TableCell></TableRow>)}
         {!data.days.length && <TableRow><TableCell colSpan={7}>No daily entries in this period.</TableCell></TableRow>}
       </TableBody></Table></div>

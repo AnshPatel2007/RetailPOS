@@ -1,3 +1,5 @@
+import { Checkbox } from '@/components/ui/Checkbox';
+import { formatDateTime } from '@/lib/utils';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -58,7 +60,7 @@ export function DigestDeliveryControls({ userId, storeId }: { userId: string; st
         <AutoRefreshStatus state={updates} />
         {retry ? <div className="space-y-4">
           <p>Retry delivery to {retry.recipientEmail}</p>
-          {retry.status === 'REVIEW' && <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} className="mt-1" />I checked the provider's delivery history and confirmed this email was not delivered.</label>}
+          {retry.status === 'REVIEW' && <Checkbox label="I checked the provider's delivery history and confirmed this email was not delivered." checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />}
           <label className="block text-sm">Reason for retry<textarea value={reason} onChange={event => setReason(event.target.value)} maxLength={500} className="block mt-2 w-full rounded-md border border-input bg-background p-3" /></label>
           <div className="flex gap-2"><Button disabled={busy || reason.trim().length < 8 || (retry.status === 'REVIEW' && !confirmed)} onClick={submitRetry}>Queue retry</Button><Button variant="outline" disabled={busy} onClick={() => setRetry(null)}>Back to history</Button></div>
         </div> : <>
@@ -66,7 +68,7 @@ export function DigestDeliveryControls({ userId, storeId }: { userId: string; st
           {!loading && !error && deliveries.length === 0 && <p>No daily digests have been queued for this store.</p>}
           <div className="space-y-3">{deliveries.map(delivery => <div key={delivery.id} className="rounded-md border border-border p-4 space-y-2">
             <div className="flex flex-wrap justify-between gap-2"><p className="font-medium break-all">{delivery.recipientEmail}</p><p className="text-sm">{statuses[delivery.status]}</p></div>
-            <p className="text-sm text-muted-foreground">{delivery.subject}</p><p className="text-xs text-muted-foreground">{new Date(delivery.createdAt).toLocaleString()} | Attempts: {delivery.attempts}</p>
+            <p className="text-sm text-muted-foreground">{delivery.subject}</p><p className="text-xs text-muted-foreground">{formatDateTime(delivery.createdAt)} | Attempts: {delivery.attempts}</p>
             {delivery.errorCode && <p className="text-sm">{failure(delivery.errorCode)}</p>}
             {['FAILED', 'REVIEW'].includes(delivery.status) && <Button variant="outline" onClick={() => { setRetry(delivery); setReason(''); setConfirmed(false); }}>Review retry</Button>}
           </div>)}</div>

@@ -1,3 +1,4 @@
+import { formatDate } from '@/lib/utils';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -134,7 +135,7 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
             <p className="text-xs text-muted-foreground">
               Born on or before{' '}
               <span className="font-semibold text-foreground">
-                {cutoff.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                {formatDate(cutoff)}
               </span>
             </p>
             <p className="text-xs text-muted-foreground mt-1 truncate" title={itemNames.join(', ')}>
@@ -162,7 +163,7 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
                 ID scanned — customer is {scannedAge}
               </p>
               <p className="text-xs text-muted-foreground">
-                DOB {scannedDob.toLocaleDateString()}
+                DOB {formatDate(scannedDob)}
               </p>
             </div>
             {scannedAge >= requiredAge ? (

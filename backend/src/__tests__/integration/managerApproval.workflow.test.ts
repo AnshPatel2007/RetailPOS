@@ -96,4 +96,28 @@ describe('Manager approvals without changing the cashier session', () => {
     expect(results.map(r => r.status).sort()).toEqual([200, 428]);
     expect(await prisma.refund.count()).toBe(1);
   });
+  it('approves a discount at the register before payment: any tender, once, for those exact lines', async () => {
+    const line = { productId: data.product.id, quantity: 1, price: 10, priceOverride: true };
+    const issued = await post('/api/approvals', { email: data.adminUser.email, password: 'Admin123!', reason: 'Damaged box',
+      request: { method: 'POST', path: '/api/sales/discount-approval', body: { items: [line] } } }).expect(201);
+    expect(issued.body.data.expiresIn).toBe(900);
+    const token = issued.body.data.token as string;
+    // The payment is chosen after approval: the manager approved the line, not the tender.
+    const sale = (paid: number) => ({ items: [line], paymentMethod: 'CASH', amountPaid: paid, expectedTotal: 11, idempotencyKey: randomUUID() });
+    // A changed price is a different discount and needs its own approval.
+    await post('/api/sales', { ...sale(20), items: [{ ...line, price: 9 }], expectedTotal: 9.9 }, token).expect(428);
+    await post('/api/sales', sale(50), token).expect(201);
+    // Single use: the next sale with the same lines needs a new approval.
+    await post('/api/sales', sale(20), token).expect(428);
+    expect(await prisma.sale.count()).toBe(1);
+    // A register approval never authorizes a refund.
+    const sold = await prisma.sale.findFirstOrThrow();
+    await post(`/api/sales/${sold.id}/refund`, { amount: 1, reason: 'Price adjustment', refundMethod: 'CASH' }, token).expect(428);
+    // Nothing to approve is refused, and an expired register approval is not accepted.
+    await post('/api/approvals', { email: data.adminUser.email, password: 'Admin123!', reason: 'None', request: { method: 'POST', path: '/api/sales/discount-approval', body: { items: [{ productId: data.product.id, quantity: 1, price: 10 }] } } }).expect(400);
+    const late = (await post('/api/approvals', { email: data.adminUser.email, password: 'Admin123!', reason: 'Damaged box',
+      request: { method: 'POST', path: '/api/sales/discount-approval', body: { items: [line] } } }).expect(201)).body.data.token as string;
+    await prisma.managerApproval.updateMany({ where: { consumedAt: null }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    await post('/api/sales', sale(20), late).expect(428);
+  });
 });

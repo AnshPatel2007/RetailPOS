@@ -64,13 +64,17 @@ describe('Variety packs', () => {
       await opening(orange.id, 0, 0);
       // Two oranges were sold from the open pack before anyone recorded opening it.
       await post('/api/sales', { items: [{ productId: orange.id, quantity: 2, price: 2.49 }], paymentMethod: 'CASH', amountPaid: 6, idempotencyKey: randomUUID() }).expect(201);
-      expect((await getFinancialMetrics({ locationId: data.location.id })).costOfGoodsSold).toBe(2); // estimated at $1.00
+      // Sold beyond recorded stock: cost is provisional, so profit waits for the stock exception.
+      const waiting = await getFinancialMetrics({ locationId: data.location.id });
+      expect(waiting.costOfGoodsSold).toBeNull(); expect(waiting.estimatedSaleCosts).toBe(2); // estimated at $1.00
       await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 6 }, { productId: lemon.id, quantity: 6 }] }).expect(200);
       await post(`/api/products/${pack.id}/open-bundle`, { quantity: 1, idempotencyKey: randomUUID() }).expect(200);
       // $9 / 12 items = $0.75 each, whatever oranges and lemons cost alone.
       expect(await value(orange.id)).toEqual({ quantity: 4, value: 3 }); // 6 at $0.75, 2 already sold
       expect(await value(lemon.id)).toEqual({ quantity: 6, value: 4.5 });
-      // The two sold oranges now carry their real cost ($0.75 each).
+      // Once the manager resolves the exception, the two sold oranges carry their real cost ($0.75 each).
+      const exception = await prisma.inventoryException.findUniqueOrThrow({ where: { openProductId: orange.id } });
+      await post(`/api/inventory-exceptions/${exception.id}/resolve`, { resolution: 'OTHER', notes: 'Pack opened before it was recorded' }).expect(200);
       expect((await getFinancialMetrics({ locationId: data.location.id })).costOfGoodsSold).toBe(1.5);
     });
 

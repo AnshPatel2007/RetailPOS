@@ -139,6 +139,12 @@ model User {
   twoFactorSetupExpires      DateTime?
   twoFactorLastStep           Int?
   twoFactorVersion            Int                  @default(0)
+  /// Register PIN (bcrypt). PIN failures lock PIN sign-in only, never the password.
+  pinHash                    String?
+  pinSetAt                   DateTime?
+  pinFailedAttempts          Int                  @default(0)
+  pinLockoutUntil            DateTime?
+  registerDevicesCreated     RegisterDevice[]     @relation("RegisterDeviceCreator")
   activityLogs               ActivityLog[]
   expenses                   Expense[]
   refreshTokens              RefreshToken[]
@@ -196,7 +202,26 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+/// A computer a manager has set up as a register: staff there sign in with name + PIN.
+/// Only a SHA-256 hash of the register's secret is stored.
+model RegisterDevice {
+  id          String    @id @default(uuid())
+  locationId  String
+  name        String
+  tokenHash   String    @unique
+  createdById String?
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  location    Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  createdBy   User?     @relation("RegisterDeviceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([locationId])
+  @@map("register_devices")
+}
+
 model Location {
+  registerDevices RegisterDevice[]
   costingActivatedAt DateTime?
   historicalIncome HistoricalIncome[]
   operationReceipts OperationReceipt[]

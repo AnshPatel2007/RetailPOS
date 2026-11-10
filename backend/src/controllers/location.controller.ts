@@ -1,4 +1,6 @@
 import { getAdminDashboard } from '../services/adminDashboard.service';
+import { getFinancialMetrics, getProductFinancialMetrics, getFinancialBreakdowns } from '../services/financialMetrics.service';
+import { reportCalendar } from '../services/reportDates.service';
 import { Response } from 'express';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
@@ -51,49 +53,32 @@ export const updateMyStoreSettings = asyncHandler(async (req: AuthRequest, res: 
   res.json({ success: true, data: publicLocationSettings(location) });
 });
 
-// Get all locations (super-admin only)
-export const getAllLocations = asyncHandler(async (_req: AuthRequest, res: Response) => {
+// Get all locations (super-admin only). Sales totals are added only when asked
+// for (?include=stats), so store pickers do not pay for them.
+export const getAllLocations = asyncHandler(async (req: AuthRequest, res: Response) => {
   const locations = await prisma.location.findMany({
-    include: {
-      _count: {
-        select: {
-          users: true,
-          products: true,
-          sales: true,
-        },
-      },
-    },
+    include: { _count: { select: { users: true, products: true, sales: true } } },
     orderBy: { name: 'asc' },
   });
+  if (req.query.include !== 'stats') { res.json({ success: true, data: locations }); return; }
 
-  // Get sales totals for each location
-  const locationsWithStats = await Promise.all(
-    locations.map(async (location: any) => {
-      const salesStats = await prisma.sale.aggregate({
-        where: { locationId: location.id },
-        _sum: { total: true },
-        _count: true,
-      });
-
-      const todaySales = await prisma.sale.aggregate({
-        where: {
-          locationId: location.id,
-          createdAt: {
-            gte: new Date(new Date().setHours(0, 0, 0, 0)),
-          },
-        },
-        _sum: { total: true },
-      });
-
-      return {
-        ...location,
-        totalRevenue: salesStats._sum.total || 0,
-        totalSales: salesStats._count,
-        todayRevenue: todaySales._sum.total || 0,
-      };
-    })
-  );
-
+  // The same booked-sales definition as the store dashboard: sales after refunds
+  // and voids, with "today" starting at midnight in each store's own timezone.
+  const now = new Date();
+  const locationsWithStats = await Promise.all(locations.map(async location => {
+    const calendar = reportCalendar(location.timezone || 'UTC', now);
+    const [allTime, today] = await Promise.all([
+      getFinancialMetrics({ locationId: location.id }, { lte: now }),
+      getFinancialMetrics({ locationId: location.id }, { gte: calendar.day(), lte: now }),
+    ]);
+    return {
+      ...location,
+      totalRevenue: allTime.netCollected,
+      totalSales: allTime.transactions ?? allTime.recordedReceiptCount,
+      todayRevenue: today.netCollected,
+      todayTransactions: today.transactions ?? today.recordedReceiptCount,
+    };
+  }));
   res.json({ success: true, data: locationsWithStats });
 });
 
@@ -243,9 +228,19 @@ export const createLocation = asyncHandler(async (req: AuthRequest, res: Respons
 });
 
 // Update location
+// Only store details may be edited here; ids, settings and costing history are not.
+const editableLocationFields = ['name', 'address', 'city', 'state', 'zipCode', 'country', 'phone', 'email', 'taxRate',
+  'cardSurchargePercent', 'currency', 'timezone', 'businessHours', 'isActive'] as const;
 export const updateLocation = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const updateData = req.body;
+  const updateData: Record<string, unknown> = {};
+  for (const field of editableLocationFields) if (req.body?.[field] !== undefined) updateData[field] = req.body[field];
+  if (typeof updateData.timezone === 'string') {
+    try { new Intl.DateTimeFormat('en-US', { timeZone: updateData.timezone }); }
+    catch { throw new AppError('Choose a valid timezone', 400); }
+  }
+  if (updateData.isActive !== undefined && typeof updateData.isActive !== 'boolean') throw new AppError('Active must be true or false', 400);
+  if (!await prisma.location.findUnique({ where: { id }, select: { id: true } })) throw new AppError('Location not found', 404);
 
   const location = await prisma.location.update({
     where: { id },
@@ -277,103 +272,50 @@ export const deleteLocation = asyncHandler(async (req: AuthRequest, res: Respons
   res.json({ success: true, data: location, message: 'Location deactivated' });
 });
 
-// Get location stats for dashboard
+// Get location stats for the platform store detail. Every figure comes from the
+// shared booked-sales metrics, so it matches the store's own dashboard and P&L.
 export const getLocationStats = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const { period = '30' } = req.query;
+  const days = Number(req.query.period ?? 30);
+  if (!Number.isInteger(days) || days < 1 || days > 366) throw new AppError('Choose a period between 1 and 366 days', 400);
+  const location = await prisma.location.findUnique({ where: { id }, select: { id: true, timezone: true } });
+  if (!location) throw new AppError('Location not found', 404);
 
-  const daysAgo = new Date();
-  daysAgo.setDate(daysAgo.getDate() - parseInt(period as string));
-
-  const [
-    totalSales,
-    periodSales,
-    topProducts,
-    userPerformance,
-    expenseTotal,
-  ] = await Promise.all([
-    // Total sales
-    prisma.sale.aggregate({
-      where: { locationId: id },
-      _sum: { total: true },
-      _count: true,
-    }),
-    // Sales in period
-    prisma.sale.aggregate({
-      where: {
-        locationId: id,
-        createdAt: { gte: daysAgo },
-      },
-      _sum: { total: true },
-      _count: true,
-    }),
-    // Top products
-    prisma.saleItem.groupBy({
-      by: ['productId'],
-      where: {
-        sale: { locationId: id, createdAt: { gte: daysAgo } },
-      },
-      _sum: { quantity: true, total: true },
-      orderBy: { _sum: { total: 'desc' } },
-      take: 5,
-    }),
-    // User performance
-    prisma.sale.groupBy({
-      by: ['userId'],
-      where: {
-        locationId: id,
-        createdAt: { gte: daysAgo },
-      },
-      _sum: { total: true },
-      _count: true,
-    }),
-    // Expenses
-    prisma.expense.aggregate({
-      where: {
-        locationId: id,
-        createdAt: { gte: daysAgo },
-      },
-      _sum: { amount: true },
-    }),
+  const now = new Date();
+  const calendar = reportCalendar(location.timezone || 'UTC', now);
+  // "Last N days" are whole store-local days, today included.
+  const range = { gte: calendar.day(-(days - 1)), lte: now };
+  const scope = { locationId: id };
+  const [allTime, period, products, staff] = await Promise.all([
+    getFinancialMetrics(scope, { lte: now }),
+    getFinancialMetrics(scope, range),
+    getProductFinancialMetrics(scope, range),
+    getFinancialBreakdowns(scope, range, calendar.timezone, calendar.day(), prisma, ['employee']),
   ]);
-
-  // Get product names for top products
-  const productIds = topProducts.map((p: any) => p.productId);
-  const products = await prisma.product.findMany({
-    where: { id: { in: productIds } },
-    select: { id: true, name: true },
-  });
-
-  const topProductsWithNames = topProducts.map((p: any) => ({
-    ...p,
-    productName: products.find((prod: any) => prod.id === p.productId)?.name || 'Unknown',
-  }));
-
-  // Get user names for performance
-  const userIds = userPerformance.map((u: any) => u.userId).filter(Boolean) as string[];
-  const users = await prisma.user.findMany({
-    where: { id: { in: userIds } },
-    select: { id: true, firstName: true, lastName: true },
-  });
-
-  const userPerformanceWithNames = userPerformance.map((u: any) => ({
-    ...u,
-    userName: u.userId
-      ? `${users.find((usr: any) => usr.id === u.userId)?.firstName || ''} ${users.find((usr: any) => usr.id === u.userId)?.lastName || ''}`.trim() || 'Unknown'
-      : 'Unknown',
-  }));
+  const userIds = staff.map(row => row.key).filter(Boolean);
+  const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, firstName: true, lastName: true } });
+  const nameOf = (userId: string) => {
+    const user = users.find(candidate => candidate.id === userId);
+    return user ? `${user.firstName} ${user.lastName}`.trim() : 'Unknown';
+  };
 
   res.json({
     success: true,
     data: {
-      totalRevenue: totalSales._sum.total || 0,
-      totalTransactions: totalSales._count,
-      periodRevenue: periodSales._sum.total || 0,
-      periodTransactions: periodSales._count,
-      periodExpenses: expenseTotal._sum.amount || 0,
-      periodProfit: Number((periodSales._sum.total || 0)) - Number((expenseTotal._sum.amount || 0)),
-      topProducts: topProductsWithNames,
-      userPerformance: userPerformanceWithNames,
+      timezone: calendar.timezone, rangeStart: range.gte, rangeEnd: now,
+      totalRevenue: allTime.netCollected,
+      totalTransactions: allTime.transactions,
+      periodRevenue: period.netCollected,
+      periodTransactions: period.transactions,
+      periodExpenses: period.operatingExpenses,
+      // Profit is shown only when every cost is known; otherwise the reason is given.
+      periodProfit: period.netProfit,
+      profitUnavailableReason: period.netProfit === null ? period.unavailableReason : null,
+      averageOrderValue: period.transactions ? Math.round(period.grossCollected / period.transactions * 100) / 100 : null,
+      topProducts: products.sort((a, b) => b.revenue - a.revenue || a.productId.localeCompare(b.productId)).slice(0, 5)
+        .map(product => ({ productId: product.productId, name: product.productName, revenue: product.revenue, quantity: product.quantitySold })),
+      userPerformance: staff.filter(row => row.total > 0).sort((a, b) => b.total - a.total)
+        .map(row => ({ userId: row.key, userName: nameOf(row.key), total: row.total, transactions: row.count })),
     },
   });
 });

@@ -1,3 +1,4 @@
+import { Badge } from '@/components/ui/Badge';
 import { ManagementPage } from '@/components/common/Workspace';
 import { Select } from '@/components/ui/Select';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
@@ -17,7 +18,7 @@ import {
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
-import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils';
+import { formatCurrency, formatDate, formatDateTime, formatEnumLabel } from '@/lib/utils';
 import {
   Search,
   Plus,
@@ -68,6 +69,8 @@ export const StoreCredits: React.FC = () => {
   const [loadError, setLoadError] = useState('');
   const [page, setPage] = useUrlPage();
   const [totalPages, setTotalPages] = useState(1);
+  const [totalOutstanding, setTotalOutstanding] = useState<number | null>(null);
+  const customerSearchVersion = useRef(0);
   const [search, setSearch] = useUrlFilter('search');
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -100,6 +103,7 @@ export const StoreCredits: React.FC = () => {
       setLoadError('');
       setAccounts(res.data.data);
       setTotalPages(res.data.pagination.totalPages);
+      setTotalOutstanding(typeof res.data.summary?.outstanding === 'number' ? res.data.summary.outstanding : null);
     } catch (failure) {
       if (quiet) throw failure;
       if (version === requestVersion.current) setLoadError('Unable to load accounts. Try again.');
@@ -146,11 +150,13 @@ export const StoreCredits: React.FC = () => {
       setCustomerResults([]);
       return;
     }
+    // Only the newest search may fill the list, so slow answers never overwrite newer typing.
+    const version = ++customerSearchVersion.current;
     try {
       const res = await customerService.getAll({ search: query, limit: 5 });
-      setCustomerResults(res.data.data || []);
+      if (version === customerSearchVersion.current) setCustomerResults(res.data.data || []);
     } catch {
-      // ignore
+      if (version === customerSearchVersion.current) setCustomerResults([]);
     }
   };
 
@@ -189,7 +195,7 @@ export const StoreCredits: React.FC = () => {
     <ManagementPage className="">
       <PageHeader
         title="Store Credits"
-        subtitle="Issue and track customer store credit balances"
+        subtitle={`Issue and track customer store credit balances${totalOutstanding ? ` · ${formatCurrency(totalOutstanding)} owed to customers in total` : ''}`}
         icon={Wallet}
         actions={
           <>
@@ -208,6 +214,7 @@ export const StoreCredits: React.FC = () => {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Search by name, phone, or email..."
+          aria-label="Search store credit accounts"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -386,13 +393,9 @@ export const StoreCredits: React.FC = () => {
                 <div key={tx.id} className="flex items-center justify-between px-4 py-2">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                        tx.type === 'CREDIT' ? 'bg-success/10 text-success' :
-                        tx.type === 'DEBIT' ? 'bg-destructive/10 text-destructive' :
-                        'bg-info/10 text-info'
-                      }`}>
-                        {tx.type}
-                      </span>
+                      <Badge variant={tx.type === 'CREDIT' ? 'success' : tx.type === 'DEBIT' ? 'destructive' : 'default'}>
+                        {tx.type === 'CREDIT' ? 'Credit added' : tx.type === 'DEBIT' ? 'Credit used' : formatEnumLabel(tx.type)}
+                      </Badge>
                       {tx.operation && <Button variant="outline" size="sm" onClick={() => operation.showReceipt(tx.operation!, selectedAccount ? selectedAccount.customer.firstName + ' ' + selectedAccount.customer.lastName : 'Store credit')}>Receipt</Button>}
                       {!tx.operation && tx.type === 'CREDIT' && !tx.saleId && <p className="text-xs text-muted-foreground">Original source details unavailable</p>}
                       {tx.notes && <span className="text-xs text-muted-foreground">{tx.notes}</span>}

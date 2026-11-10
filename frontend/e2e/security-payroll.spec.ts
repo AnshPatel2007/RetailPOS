@@ -57,7 +57,7 @@ test('payroll reviews and cash-payment recovery survive reload and drawer closur
   await dialog.getByRole('button', { name: 'Record payment', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('Result uncertain');
   await page.reload();
-  await expect(dialog).toBeVisible(); await expect(dialog).toContainText('PAID');
+  await expect(dialog).toBeVisible(); await expect(dialog).toContainText('— Paid');
   const token = await page.evaluate(() => localStorage.getItem('token'));
   const closed = await page.request.post('/api/shifts/clock-out', { headers: { Authorization: 'Bearer ' + token }, data: { endingCash: 40 } });
   expect(closed.status()).toBe(200); expect((await closed.json()).data).toMatchObject({ expectedCash: 40, cashDifference: 0 });

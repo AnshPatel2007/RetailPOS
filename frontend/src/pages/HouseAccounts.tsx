@@ -1,7 +1,8 @@
+import { useConfirm } from '@/components/ui/useConfirm';
 import { ManagementPage } from '@/components/common/Workspace';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { houseAccountService, customerService } from '@/services/api';
+import { houseAccountService, customerService, apiErrorMessage } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -16,7 +17,7 @@ import {
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
-import { formatCurrency, formatDateTime } from '@/lib/utils';
+import { formatCurrency, formatDateTime, formatEnumLabel } from '@/lib/utils';
 import { Search, Plus, BookUser, History, Mail, DollarSign } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
@@ -67,6 +68,8 @@ export const HouseAccounts: React.FC = () => {
   const [loadError, setLoadError] = useState('');
   const [page, setPage] = useUrlPage();
   const [totalPages, setTotalPages] = useState(1);
+  const [totalOutstanding, setTotalOutstanding] = useState<number | null>(null);
+  const [confirmAccount, confirmDialog] = useConfirm();
   const [search, setSearch] = useUrlFilter('search');
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -107,6 +110,7 @@ export const HouseAccounts: React.FC = () => {
       setLoadError('');
       setAccounts(res.data.data);
       setTotalPages(res.data.pagination.totalPages);
+      setTotalOutstanding(typeof res.data.summary?.outstanding === 'number' ? res.data.summary.outstanding : null);
     } catch (failure) {
       if (quiet) throw failure;
       if (version === requestVersion.current) setLoadError('Unable to load accounts. Try again.');
@@ -194,15 +198,15 @@ export const HouseAccounts: React.FC = () => {
     }
   };
 
-  const totalOutstanding = Math.round(accounts.reduce((s, a) => s + a.balance, 0) * 100) / 100;
 
   const autoRefresh = useLegacyPageRefresh((current, signal) => fetchAccounts(true, current, signal), { key: JSON.stringify([page, debouncedSearch]), paused: loading });
 
   return (
     <ManagementPage className="">
+      {confirmDialog}
       <PageHeader
         title="House Accounts"
-        subtitle={`Charge-to-account for trusted customers${totalOutstanding > 0 ? ` · ${formatCurrency(totalOutstanding)} outstanding on this page` : ''}`}
+        subtitle={`Charge-to-account for trusted customers${totalOutstanding ? ` · ${formatCurrency(totalOutstanding)} owed in total` : ''}`}
         icon={BookUser}
         actions={
           <>
@@ -258,7 +262,7 @@ export const HouseAccounts: React.FC = () => {
               {accounts.map((acc) => {
                 const available = Math.max(0, Math.round((acc.creditLimit - acc.balance) * 100) / 100);
                 return (
-                  <TableRow key={acc.id} className={!acc.isActive ? 'opacity-60' : undefined}>
+                  <TableRow key={acc.id} className={!acc.isActive ? 'bg-muted/40' : undefined}>
                     <TableCell>
                       <p className="font-medium">{acc.customer.firstName} {acc.customer.lastName}</p>
                       <p className="text-xs text-muted-foreground">{acc.customer.phone || acc.customer.email || ''}</p>
@@ -271,11 +275,18 @@ export const HouseAccounts: React.FC = () => {
                     <TableCell>
                       <button
                         disabled={!manage}
+                        aria-label={`${acc.isActive ? 'Freeze' : 'Reopen'} the account for ${acc.customer.firstName} ${acc.customer.lastName}`}
                         onClick={async () => {
+                          const freezing = acc.isActive;
+                          if (!await confirmAccount({
+                            title: freezing ? 'Freeze this house account?' : 'Reopen this house account?',
+                            message: freezing ? 'The customer can no longer charge to it. Payments are still accepted.' : 'The customer can charge to it again, up to the credit limit.',
+                            confirmLabel: freezing ? 'Freeze' : 'Reopen', destructive: freezing,
+                          })) return;
                           try {
                             await houseAccountService.update(acc.id, { isActive: !acc.isActive });
                             fetchAccounts();
-                          } catch { toast.error('Failed to update'); }
+                          } catch (error) { toast.error(apiErrorMessage(error, 'Failed to update the account')); }
                         }}
                         className={`text-xs font-medium px-1.5 py-0.5 rounded ${
                           acc.isActive ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
@@ -287,7 +298,7 @@ export const HouseAccounts: React.FC = () => {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex gap-1 justify-end">
-                        <Button variant="outline" size="sm" onClick={() => openHistory(acc)} title="History">
+                        <Button variant="outline" size="sm" onClick={() => openHistory(acc)} title="History" aria-label="History">
                           <History className="h-3 w-3" />
                         </Button>
                         {manage && <Button
@@ -295,6 +306,7 @@ export const HouseAccounts: React.FC = () => {
                           size="sm"
                           onClick={() => handleEmailStatement(acc)}
                           title="Email statement"
+                          aria-label="Email statement"
                           disabled={!acc.customer.email}
                         >
                           <Mail className="h-3 w-3" />
@@ -451,7 +463,7 @@ export const HouseAccounts: React.FC = () => {
                   <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
                     tx.type === 'CHARGE' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'
                   }`}>
-                    {tx.type}
+                    {formatEnumLabel(tx.type)}
                   </span>
                   {tx.operation && <Button variant="outline" size="sm" onClick={() => operation.showReceipt(tx.operation!, historyAccount ? historyAccount.customer.firstName + ' ' + historyAccount.customer.lastName : 'House account')}>Receipt</Button>}
                   {!tx.operation && tx.type === 'PAYMENT' && <p className="text-xs text-muted-foreground">Original payment details unavailable</p>}
@@ -459,8 +471,9 @@ export const HouseAccounts: React.FC = () => {
                   <div className="text-xs text-muted-foreground mt-0.5">{formatDateTime(tx.createdAt)}</div>
                 </div>
                 <div className="text-right">
-                  <div className={`font-medium ${tx.type === 'PAYMENT' ? 'text-success' : ''}`}>
-                    {tx.type === 'PAYMENT' ? '-' : '+'}{formatCurrency(tx.amount)}
+                  {/* Charges add to what is owed; payments and refund reversals (stored negative) reduce it. */}
+                  <div className={`font-medium ${tx.type === 'PAYMENT' || tx.amount < 0 ? 'text-success' : ''}`}>
+                    {tx.type === 'PAYMENT' || tx.amount < 0 ? '−' : '+'}{formatCurrency(Math.abs(tx.amount))}
                   </div>
                   <div className="text-xs text-muted-foreground">Owes: {formatCurrency(tx.balanceAfter)}</div>
                 </div>

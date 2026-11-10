@@ -11,9 +11,9 @@ test('owner correction recovery records one immutable adjustment after a lost re
   await page.getByRole('button',{name:'Record correction',exact:true}).click();await expect(page.getByRole('alert')).toContainText('Result uncertain');
   await page.reload();const saved=page.waitForResponse(response=>response.url().endsWith('/reconciliation/corrections')&&response.status()===200);await page.getByRole('button',{name:'Retry saved operation',exact:true}).click();
   const response=await saved;expect(response.request().postDataJSON()).toEqual(original);expect((await response.json()).replayed).toBe(true);
-  const receipt=page.getByRole('dialog',{name:'Reconciliation Receipt',exact:true});await expect(receipt).toContainText('TILL-PROOF-5');await page.keyboard.press('Escape');
+  const receipt=page.getByRole('dialog',{name:'Correction Receipt',exact:true});await expect(receipt).toContainText('TILL-PROOF-5');await page.keyboard.press('Escape');
   const auth={Authorization:'Bearer '+await page.evaluate(()=>localStorage.getItem('token'))};expect((await(await page.request.get('/api/shifts/current',{headers:auth})).json()).data.expectedDrawer).toBe(105);
-  await page.getByRole('button',{name:'History',exact:true}).click();await expect(page.getByText('Verified till correction',{exact:false})).toBeVisible();
+  await page.getByRole('button',{name:'Correction History',exact:true}).click();await expect(page.getByText('Verified till correction',{exact:false})).toBeVisible();
 });
 
 test('manager books verified queued cash without repricing and retains the original browser evidence',async({page})=>{
@@ -29,7 +29,7 @@ test('manager books verified queued cash without repricing and retains the origi
   await review.getByRole('button',{name:/Review cash \$11\.00/}).click();await chooseOption(selectField(review, 'Verified outcome'), 'Book the verified original cash receipt');
   await review.getByLabel('Reconciliation reason',{exact:true}).fill('Original receipt verified against drawer');await review.getByLabel('Original evidence reference',{exact:true}).fill('OFFLINE-PROOF-11');await review.getByRole('checkbox',{name:/I checked original records/}).check();
   await review.getByRole('button',{name:'Record reviewed outcome',exact:true}).click();await expect(review.getByRole('heading',{name:'Pending cash sales (0)',exact:true})).toBeVisible();
-  await expect(review).toContainText('BOOK CASH: FINAL');
+  await expect(review).toContainText('Book Cash: Done');
   const state=await page.evaluate(async()=>new Promise<any[]>((resolve,reject)=>{const open=indexedDB.open('POSOfflineDB');open.onsuccess=()=>{const db=open.result,tx=db.transaction('pendingSales','readonly'),query=tx.objectStore('pendingSales').getAll();query.onsuccess=()=>{resolve(query.result);db.close();};query.onerror=()=>reject(query.error);};}));
   expect(state.find(record=>record.localId===localId)).toMatchObject({synced:true,reconciliation:{status:'FINAL'}});
   expect((await(await page.request.get('/api/shifts/current',{headers:auth})).json()).data.expectedDrawer).toBe(111);
@@ -44,11 +44,6 @@ test('export queue survives a lost response and shows stable job details on phon
   const dialog=page.getByRole('dialog',{name:'Job Details',exact:true});await expect(dialog).toContainText('Queued');await expect(page).toHaveURL(/job=/);await page.reload();await expect(dialog).toContainText('No delivery attempts yet.');
   await page.screenshot({path:info.outputPath('job-desktop-light.png'),fullPage:true,animations:'disabled'});await page.setViewportSize({width:390,height:844});await page.evaluate(()=>document.documentElement.classList.add('dark'));await page.screenshot({path:info.outputPath('job-phone-dark.png'),fullPage:true,animations:'disabled'});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-});
-
-test('insufficient inventory and anomaly history renders unavailable without making background requests to inactive views',async({page})=>{
-  await login(page,'jobs@example.test');await page.goto('/insights/reports/inventory?view=predictions');await expect(page.getByRole('heading',{name:'Inventory Planning',exact:true})).toBeVisible();await expect(page.getByText('Demand estimates are unavailable',{exact:false})).toBeVisible();
-  await page.goto('/insights/reports/overview?view=anomalies');await expect(page.getByText('Analysis unavailable:',{exact:false})).toBeVisible();await expect(page.getByText('Unavailable',{exact:true}).first()).toBeVisible();
 });
 
 test('failed job detail refresh disables reviewed retry and keyboard skips the disabled fieldset', async ({ page }) => {
@@ -143,7 +138,7 @@ test('closing a pending offline hold retains its recovery key until the local re
   });
   await page.getByRole('button', { name: 'Register recovery and connection status', exact: true }).click();
   await review.getByRole('button', { name: 'Retry saved operation', exact: true }).click();
-  await expect(review).toContainText('HOLD: HOLD');
+  await expect(review).toContainText('Hold: On hold');
   await expect.poll(async () => page.evaluate(async id => new Promise<string | undefined>((resolve, reject) => {
     const open = indexedDB.open('POSOfflineDB'); open.onerror = () => reject(open.error);
     open.onsuccess = () => { const db = open.result, tx = db.transaction('pendingSales', 'readonly'), query = tx.objectStore('pendingSales').getAll();

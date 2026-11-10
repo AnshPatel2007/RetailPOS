@@ -8,8 +8,8 @@ import { StoreConnections } from '@/components/StoreConnections';
 import { LotteryConfiguration } from '@/components/lottery/LotteryConfiguration';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useFocusTrap, isTopFocusTrap } from '@/hooks/useFocusTrap';
-import { locationService } from '@/services/api';
-import { formatCurrency, CHART_COLORS } from '@/lib/utils';
+import { locationService, apiErrorMessage } from '@/services/api';
+import { formatCurrency, CHART_COLORS, formatDateTime } from '@/lib/utils';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -83,6 +83,16 @@ interface StoreDetails {
 }
 
 const COLORS = CHART_COLORS;
+const STORE_TIMEZONES = [
+  { value: 'America/New_York', label: 'Eastern' },
+  { value: 'America/Chicago', label: 'Central' },
+  { value: 'America/Denver', label: 'Mountain' },
+  { value: 'America/Phoenix', label: 'Mountain (Arizona, no daylight saving)' },
+  { value: 'America/Los_Angeles', label: 'Pacific' },
+  { value: 'America/Anchorage', label: 'Alaska' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii' },
+  { value: 'America/Puerto_Rico', label: 'Atlantic (Puerto Rico)' },
+];
 
 export const StoreManagement: React.FC = () => {
   const [confirm, confirmDialog] = useConfirm();
@@ -129,7 +139,7 @@ export const StoreManagement: React.FC = () => {
   });
 
 
-  const query = useScopedQuery<Location[]>(['admin-stores'], async signal => (await locationService.getAll(signal)).data.data);
+  const query = useScopedQuery<Location[]>(['admin-stores'], async signal => (await locationService.getAllWithStats(signal)).data.data);
   const locations = query.data || [], isLoading = query.loading, loadLocations = query.refresh;
   const loadError = query.stale ? '' : query.error;
 
@@ -223,6 +233,17 @@ export const StoreManagement: React.FC = () => {
     }
   };
 
+  const handleReactivate = async (location: Location) => {
+    if (!await confirm({ title: 'Reactivate this store?', message: 'Staff assigned to it can sign in and sell there again.', confirmLabel: 'Reactivate' })) return;
+    try {
+      await locationService.update(location.id, { isActive: true });
+      toast.success('Store reactivated');
+      loadLocations();
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Failed to reactivate store'));
+    }
+  };
+
   const resetForm = () => {
     setEditingLocation(null);
     setFormData({
@@ -300,7 +321,7 @@ export const StoreManagement: React.FC = () => {
                 <TableHead>Location</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead className="text-right">Users</TableHead>
-                <TableHead className="text-right">Revenue</TableHead>
+                <TableHead className="text-right">Sales After Refunds</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -332,7 +353,7 @@ export const StoreManagement: React.FC = () => {
                   <TableCell className="text-right whitespace-nowrap">
                     <p className="font-medium">{formatCurrency(location.totalRevenue)}</p>
                     <p className="text-sm text-muted-foreground">
-                      Today: {formatCurrency(location.todayRevenue)}
+                      Today: {formatCurrency(location.todayRevenue ?? 0)}
                     </p>
                   </TableCell>
                   <TableCell>
@@ -370,6 +391,10 @@ export const StoreManagement: React.FC = () => {
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
+                      {!location.isActive && (
+                        <Button variant="outline" size="sm" aria-label={`Reactivate store ${location.name}`}
+                          onClick={(e) => { e.stopPropagation(); void handleReactivate(location); }}>Reactivate</Button>
+                      )}
                       {location.isActive && (
                         <Button
                           variant="ghost"
@@ -487,10 +512,8 @@ export const StoreManagement: React.FC = () => {
                 value={formData.timezone}
                 onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
               >
-                <option value="America/New_York">Eastern</option>
-                <option value="America/Chicago">Central</option>
-                <option value="America/Denver">Mountain</option>
-                <option value="America/Los_Angeles">Pacific</option>
+                {!STORE_TIMEZONES.some(zone => zone.value === formData.timezone) && formData.timezone && <option value={formData.timezone}>{formData.timezone}</option>}
+                {STORE_TIMEZONES.map(zone => <option key={zone.value} value={zone.value}>{zone.label}</option>)}
               </Select>
               <Input
                 label="Currency"
@@ -557,7 +580,7 @@ export const StoreManagement: React.FC = () => {
                         <div>
                           <p className="text-sm text-muted-foreground">Revenue</p>
                           <p className="metric-value text-2xl font-semibold">
-                            {formatCurrency(storeDetails.stats?.periodRevenue || 0)}
+                            {formatCurrency(storeDetails.stats?.periodRevenue ?? 0)}
                           </p>
                         </div>
                       </div>
@@ -573,6 +596,7 @@ export const StoreManagement: React.FC = () => {
                           <p className="metric-value text-2xl font-semibold">
                             {typeof storeDetails.stats?.periodProfit === 'number' ? formatCurrency(storeDetails.stats.periodProfit) : 'Unavailable'}
                           </p>
+                          {storeDetails.stats?.profitUnavailableReason && <p className="text-xs text-muted-foreground">{storeDetails.stats.profitUnavailableReason}</p>}
                         </div>
                       </div>
                     </CardContent>
@@ -585,7 +609,7 @@ export const StoreManagement: React.FC = () => {
                         <div>
                           <p className="text-sm text-muted-foreground">Transactions</p>
                           <p className="metric-value text-2xl font-semibold">
-                            {storeDetails.stats?.periodTransactions || 0}
+                            {storeDetails.stats?.periodTransactions ?? '—'}
                           </p>
                         </div>
                       </div>
@@ -613,23 +637,23 @@ export const StoreManagement: React.FC = () => {
                     <CardContent className="p-4">
                       <p className="text-sm text-muted-foreground">Expenses</p>
                       <p className="text-xl font-bold text-destructive">
-                        {formatCurrency(storeDetails.stats?.periodExpenses || 0)}
+                        {formatCurrency(storeDetails.stats?.periodExpenses ?? 0)}
                       </p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <p className="text-sm text-muted-foreground">Total Revenue (All Time)</p>
+                      <p className="text-sm text-muted-foreground">Sales After Refunds (All Time)</p>
                       <p className="text-xl font-bold">
-                        {formatCurrency(storeDetails.location?.totalRevenue || 0)}
+                        {formatCurrency(storeDetails.stats?.totalRevenue ?? 0)}
                       </p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <p className="text-sm text-muted-foreground">Avg Order Value</p>
+                      <p className="text-sm text-muted-foreground">Average Sale</p>
                       <p className="text-xl font-bold">
-                        {formatCurrency(storeDetails.location?.averageOrderValue || 0)}
+                        {typeof storeDetails.stats?.averageOrderValue === 'number' ? formatCurrency(storeDetails.stats.averageOrderValue) : '—'}
                       </p>
                     </CardContent>
                   </Card>
@@ -651,7 +675,7 @@ export const StoreManagement: React.FC = () => {
                               <XAxis dataKey="name" fontSize={10} />
                               <YAxis fontSize={12} />
                               <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                              <Bar dataKey="totalRevenue" fill="#3b82f6" name="Revenue" />
+                              <Bar dataKey="revenue" fill="hsl(var(--primary))" name="Sales" />
                             </BarChart>
                           </ResponsiveContainer>
                         </div>
@@ -663,7 +687,7 @@ export const StoreManagement: React.FC = () => {
                   {storeDetails.stats?.userPerformance && storeDetails.stats.userPerformance.length > 0 && (
                     <Card>
                       <CardHeader>
-                        <CardTitle>User Performance</CardTitle>
+                        <CardTitle>Sales by Employee</CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="h-64">
@@ -671,7 +695,7 @@ export const StoreManagement: React.FC = () => {
                             <PieChart>
                               <Pie
                                 data={storeDetails.stats.userPerformance}
-                                dataKey="totalSales"
+                                dataKey="total"
                                 nameKey="userName"
                                 cx="50%"
                                 cy="50%"
@@ -761,7 +785,7 @@ export const StoreManagement: React.FC = () => {
                                   : 'Walk-in'}
                               </TableCell>
                               <TableCell>
-                                {new Date(sale.createdAt).toLocaleString()}
+                                {formatDateTime(sale.createdAt)}
                               </TableCell>
                               <TableCell className="text-right font-medium">
                                 {formatCurrency(sale.total)}

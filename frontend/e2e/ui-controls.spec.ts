@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { openMenuSection } from './utils/menu-helper';
 import { chooseOption, selectField } from './utils/select-helper';
 
 test('month picker supports year entry, keyboard selection and focus restoration', async ({ page }, info) => {
@@ -94,7 +95,8 @@ test('date ranges and additional filters commit only on Apply', async ({ page },
   const applied = new URL(page.url()).searchParams.get('salesFilters')!;
   expect(JSON.parse(applied)).toMatchObject({ startDate: '2024-02-29', endDate: '2024-03-01' });
   const selectedPeriodUrl = page.url();
-  await page.getByRole('link', { name: 'Finances', exact: true }).click();
+  await openMenuSection(page, 'Money & reports');
+  await page.getByRole('link', { name: 'Finances', exact: true }).filter({ visible: true }).click();
   await expect(page.getByRole('heading', { name: 'Finances', exact: true })).toBeVisible();
   await page.goBack(); await expect(page).toHaveURL(selectedPeriodUrl);
   await expect(page.getByRole('button', { name: /^Sales dates:/ })).toContainText('Feb 29, 2024');

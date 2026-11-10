@@ -4,9 +4,7 @@ import { seedDemo } from './seed-demo';
 
 test.describe.configure({ mode: 'serial' });
 
-const insights = ['overview?view=summary', 'overview?view=comparison', 'overview?view=forecast', 'overview?view=whatif', 'overview?view=health',
-  'overview?view=anomalies', 'sales?view=transactions', 'inventory?view=stock-health', 'inventory?view=catalog', 'inventory?view=abc',
-  'inventory?view=products', 'inventory?view=predictions', 'inventory?view=bundles', 'staff?view=sales', 'staff?view=performance', 'exports']
+const insights = ['overview?view=summary', 'sales?view=transactions', 'inventory?view=stock-health', 'staff?view=sales', 'exports']
   .map(view => '/insights/reports/' + view);
 const financial = [...['expenses', 'budgets', 'recurring', 'pnl', 'inventory'].map(tab => '/financial?tab=' + tab),
   ...['balances', 'valuation', 'missing', 'ledger', 'reconciliation'].map(costTab => '/financial?tab=inventory&costTab=' + costTab)];

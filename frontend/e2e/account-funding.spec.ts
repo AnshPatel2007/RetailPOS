@@ -28,7 +28,7 @@ test('gift cash funding recovers once after a lost response and a reload', async
   expect((await replay).status()).toBe(200);
   const receipt = page.getByRole('dialog', { name: 'Account receipt', exact: true });
   await expect(receipt.getByText('Gift card issued', { exact: true })).toBeVisible();
-  await expect(receipt.getByText('CASH', { exact: true })).toBeVisible();
+  await expect(receipt.getByText('Cash', { exact: true })).toBeVisible();
   await receipt.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('button', { name: 'History', exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'History', exact: true }).click();
@@ -84,7 +84,7 @@ test('store credit requires a reason and preserves a reprintable source record',
   await form.getByLabel('Credit reason', { exact: true }).fill('Customer service goodwill');
   await form.getByRole('button', { name: 'Issue Credit', exact: true }).click();
   const receipt = page.getByRole('dialog', { name: 'Account receipt', exact: true });
-  await expect(receipt.getByText('GOODWILL', { exact: true })).toBeVisible();
+  await expect(receipt.getByText('Goodwill', { exact: true })).toBeVisible();
   await expect(receipt.getByText('Customer service goodwill', { exact: true })).toBeVisible();
   await receipt.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'History', exact: true }).click();

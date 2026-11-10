@@ -1,3 +1,4 @@
+import { formatDate } from '@/lib/utils';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { today } from '@internationalized/date';
 import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
@@ -79,9 +80,6 @@ export const DailySummary: React.FC<DailySummaryProps> = ({ locationId, onAction
     }).format(value || 0);
   };
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString();
-  };
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, string> = {

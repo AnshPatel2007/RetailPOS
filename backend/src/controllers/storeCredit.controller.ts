@@ -15,7 +15,8 @@ export const listAccounts = asyncHandler(async (req: AuthRequest, res: Response)
   const limitNum = Math.min(parseInt(limit) || 25, 100);
   const skip = (pageNum - 1) * limitNum;
 
-  const where: any = { ...getSharedOrOwnFilter(req, req.query.locationId as string) };
+  const scope = getSharedOrOwnFilter(req, req.query.locationId as string);
+  const where: any = { ...scope };
   if (search) {
     where.customer = {
       OR: [
@@ -39,10 +40,13 @@ export const listAccounts = asyncHandler(async (req: AuthRequest, res: Response)
     }),
     prisma.storeCreditAccount.count({ where }),
   ]);
+  // Credit the store owes customers, across every account.
+  const owed = await prisma.storeCreditAccount.aggregate({ where: scope, _sum: { balance: true } });
 
   res.json({
     success: true,
     data: accounts,
+    summary: { outstanding: Math.round(Number(owed._sum.balance || 0) * 100) / 100 },
     pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
   });
 });

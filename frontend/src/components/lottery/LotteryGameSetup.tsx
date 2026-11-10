@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ReactNode, useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -37,7 +38,7 @@ export function LotteryGameSetup({ locationId, readOnly, onActionsChange }: { lo
         {([['binNumber', 'Bin number'], ['ticketName', 'Lottery name'], ['gameNumber', 'Game number'], ['pricePerTicket', 'Ticket price'], ['firstTicket', 'Lowest ticket number'], ['lastTicket', 'Highest ticket number'], ['startingNumber', 'Starting number']] as const).map(([key, label]) =>
           <Input key={key} label={label} value={form[key]} inputMode={['ticketName', 'binNumber'].includes(key) ? 'text' : 'decimal'} onChange={e => setForm({ ...form, [key]: e.target.value })} />)}
         <Select label="Numbering direction" value={form.countDirection} onChange={e => setForm({ ...form, countDirection: e.target.value })}><option value="ASC">Numbers go up</option><option value="DESC">Numbers go down</option></Select>
-        <label className="flex items-center gap-2 min-h-11 text-sm"><input type="checkbox" checked={form.isActive} onChange={e => setForm({ ...form, isActive: e.target.checked })} />Show in daily entry</label>
+        <Checkbox label="Show in daily entry" checked={form.isActive} onChange={e => setForm({ ...form, isActive: e.target.checked })} />
       </fieldset><p className="text-xs text-muted-foreground">Starting number is used for the first entry only. Later opening numbers carry forward automatically. Game changes apply to new daily entries.</p></div>
     </Modal>}
   </div>;

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { saleComplete } from './utils/sale-complete';
 
 test('sales pages keep full-range totals and a recoverable sale URL after reload', async ({ page }) => {
   await login(page, 'reporting@example.test');
@@ -26,7 +27,7 @@ test('sales pages keep full-range totals and a recoverable sale URL after reload
     return route.fulfill({ json: { success: true, data: { ...originalDetail, id, saleNumber: 'PAGED-' + id.slice(6) } } });
   });
   await page.goto('/insights/reports/sales');
-  const total = page.getByText('Net collected (including tax)', { exact: true }).locator('..');
+  const total = page.getByText('Sales after refunds (incl. tax)', { exact: true }).locator('..');
   await expect(total).toContainText('$101.00');
   const pages = page.getByLabel('Sale pages', { exact: true });
   await expect(pages).toContainText('Page 1 of 3 (101 sales)');
@@ -79,10 +80,10 @@ test('a completed checkout invalidates the cached sales report before returning 
   const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
   await payment.getByRole('button', { name: 'Exact', exact: true }).click();
   await payment.getByRole('button', { name: 'Charge $11.00', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Receipt', exact: true }).getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(saleComplete(page)).toBeVisible();
   // Router navigation keeps this application's in-memory cache alive.
   await page.goBack();
-  const total = page.getByText('Net collected (including tax)', { exact: true }).locator('..');
+  const total = page.getByText('Sales after refunds (incl. tax)', { exact: true }).locator('..');
   await expect(total).toContainText(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(before + 11));
   expect(requests).toBeGreaterThan(priorRequests);
 });

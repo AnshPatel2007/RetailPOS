@@ -38,7 +38,7 @@ test('a carton is added from the Packs tab and its cost sets the single cost', a
   expect(Number((await getProduct(page, single.id)).cost)).toBe(10);
 
   // Single items stay on their own tab; variety packs and packs are not listed there.
-  await page.getByRole('button', { name: 'Single items', exact: true }).click();
+  await page.getByRole('button', { name: 'Single Items', exact: true }).click();
   await expect(page.getByRole('row').filter({ hasText: `Red Single ${stamp}` })).toBeVisible();
 });
 

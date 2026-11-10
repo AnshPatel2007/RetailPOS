@@ -7,7 +7,7 @@ import { authenticate, authorize } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { can } from '../policies/capabilities';
-import { approvalAction, approvalToken, hashToken, requestHash } from '../services/managerApproval.service';
+import { approvalAction, approvalToken, discountApprovalHash, discountedLines, DISCOUNT_APPROVAL_MINUTES, DISCOUNT_APPROVAL_PATH, hashToken, requestHash } from '../services/managerApproval.service';
 import { verifyTOTPCode } from '../controllers/twoFactor.controller';
 
 const router = Router();
@@ -19,14 +19,18 @@ router.post('/preview', asyncHandler(async (req: AuthRequest, res: Response) => 
   const action = approvalAction(request.path, request.method);
   if (action === 'checkout.override') {
     const body = request.body as { expectedTotal?: number; items?: { productId: string; name?: string; price: number; quantity: number; discount?: number; priceOverride?: boolean }[] };
-    if (!Number.isFinite(body.expectedTotal) || !body.items?.length) throw new AppError('Refresh checkout before requesting approval', 400);
-    const products = await prisma.product.findMany({ where: { id: { in: body.items.map(i => i.productId) }, locationId: req.user!.locationId } });
-    const items = body.items.map(item => {
+    const atRegister = request.path === DISCOUNT_APPROVAL_PATH;
+    if (atRegister ? !discountedLines(body.items).length : (!Number.isFinite(body.expectedTotal) || !body.items?.length)) throw new AppError('Refresh checkout before requesting approval', 400);
+    const products = await prisma.product.findMany({ where: { id: { in: body.items!.map(i => i.productId) }, locationId: req.user!.locationId } });
+    const items = (atRegister ? body.items!.filter(item => Math.round(Number(item.discount || 0) * 100) > 0 || item.priceOverride === true) : body.items!).map(item => {
       const product = products.find(p => p.id === item.productId);
       if (!product && !item.productId.startsWith('misc-')) throw new AppError('Product not found at this store', 404);
       return { name: product?.name || item.name || 'Misc Item', quantity: item.quantity, price: Number(item.priceOverride || !product ? item.price : product.price), discount: item.discount || 0 };
     });
-    res.json({ success: true, data: { action: 'Checkout with discount or price change', amount: body.expectedTotal, items } });
+    const discountTotal = Math.round(items.reduce((sum, item) => sum + (item.discount || 0), 0) * 100) / 100;
+    res.json({ success: true, data: atRegister
+      ? { action: 'Discount or price change on this sale', amount: discountTotal, items }
+      : { action: 'Checkout with discount or price change', amount: body.expectedTotal, items } });
     return;
   }
   const saleId = request.path.split('/')[3];
@@ -54,9 +58,15 @@ router.post('/', asyncHandler(async (req: AuthRequest, res: Response) => {
     if (updated.failedLoginAttempts >= 5) await prisma.user.update({ where: { id: manager.id }, data: { lockoutUntil: new Date(Date.now() + 15 * 60_000) } });
     throw new AppError(manager.twoFactorEnabled && passwordValid ? 'Enter a valid manager authentication code' : 'Manager verification failed', 403);
   }
+  // A register discount approval covers the discounted lines for one sale; other approvals cover one exact request.
+  const atRegister = body.request.path === DISCOUNT_APPROVAL_PATH;
+  if (atRegister && !discountedLines((body.request.body as { items?: unknown }).items).length) throw new AppError('There is no discount or price change to approve', 400);
   const token = approvalToken();
-  await prisma.managerApproval.create({ data: { tokenHash: hashToken(token), requestHash: requestHash(body.request.method, body.request.path, body.request.body), cashierId: req.user!.id, managerId: manager.id, locationId: req.user!.locationId!, action, reason: body.reason, expiresAt: new Date(Date.now() + 2 * 60_000) } });
+  await prisma.managerApproval.create({ data: { tokenHash: hashToken(token),
+    requestHash: atRegister ? discountApprovalHash((body.request.body as { items?: unknown }).items) : requestHash(body.request.method, body.request.path, body.request.body),
+    cashierId: req.user!.id, managerId: manager.id, locationId: req.user!.locationId!, action, reason: body.reason,
+    expiresAt: new Date(Date.now() + (atRegister ? DISCOUNT_APPROVAL_MINUTES : 2) * 60_000) } });
   await prisma.user.update({ where: { id: manager.id }, data: { failedLoginAttempts: 0, lockoutUntil: null } });
-  res.status(201).json({ success: true, data: { token, expiresIn: 120 } });
+  res.status(201).json({ success: true, data: { token, expiresIn: (atRegister ? DISCOUNT_APPROVAL_MINUTES : 2) * 60 } });
 }));
 export default router;

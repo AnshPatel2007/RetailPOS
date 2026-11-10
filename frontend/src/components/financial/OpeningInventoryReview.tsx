@@ -1,3 +1,4 @@
+import { formatCurrency } from '@/lib/utils';
 import { useEffect, useState } from 'react';
 import { api } from '@/services/api';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
@@ -21,7 +22,7 @@ type Props = {
   onRetry: () => Promise<unknown>;
 };
 const pageSize = 25;
-const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+const money = (value: number) => formatCurrency(value);
 function quantityError(row: Draft) {
   const number = Number(row.confirmedQuantity);
   return !row.confirmedQuantity.trim() || !Number.isInteger(number) || number < 0 || number > 2147483647

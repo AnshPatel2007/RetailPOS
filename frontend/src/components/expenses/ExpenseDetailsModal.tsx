@@ -4,7 +4,7 @@ import { FileText, CheckCircle, XCircle, Trash2, Edit } from 'lucide-react';
 import { Expense } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatEnumLabel } from '@/lib/utils';
 import { displayStoreDate } from '@/lib/storeDates';
 import { expenseService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
@@ -136,7 +136,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-muted-foreground">Category</p>
-              <p className="font-medium">{expense.category.replace(/_/g, ' ')}</p>
+              <p className="font-medium">{formatEnumLabel(expense.category)}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Expense Date</p>

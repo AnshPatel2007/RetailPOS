@@ -3,7 +3,7 @@ import { TerminalCheckout, db } from '@/services/offlineDb';
 import { saleService } from '@/services/api';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { finishPaymentSession } from '@/services/paymentSession';
 
@@ -51,7 +51,7 @@ export function TerminalRecovery({ attempt, persisted, onRecovered }: {
         <dl className="space-y-2 break-words text-sm">
           <div><dt className="text-muted-foreground">Sale total</dt><dd>{formatCurrency(attempt.total)}</dd></div>
           <div><dt className="text-muted-foreground">Terminal approval reference</dt><dd>{attempt.references.join(', ')}</dd></div>
-          <div><dt className="text-muted-foreground">Recorded on this register</dt><dd>{new Date(attempt.createdAt).toLocaleString()}</dd></div>
+          <div><dt className="text-muted-foreground">Recorded on this register</dt><dd>{formatDateTime(attempt.createdAt)}</dd></div>
           <div><dt className="text-muted-foreground">Checkout reference</dt><dd>{attempt.key}</dd></div>
         </dl>
         <p className="text-sm text-muted-foreground">Retry saving uses the original transaction and cannot charge the terminal. If it still fails, ask a manager to compare this reference with the terminal and sales history.</p>

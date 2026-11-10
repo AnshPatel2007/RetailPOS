@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDate } from '@/lib/utils';
 import { FileText, FileSpreadsheet } from 'lucide-react';
 import {
   Table,
@@ -79,7 +79,7 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                 <TableRow key={sale.id}>
                   <TableCell className="font-mono text-xs">{sale.saleNumber}</TableCell>
                   <TableCell className="text-xs">
-                    {sale.storeDate || new Date(sale.createdAt).toLocaleDateString()}
+                    {sale.storeDate || formatDate(sale.createdAt)}
                   </TableCell>
                   <TableCell className="text-xs">
                     {typeof sale.customer === 'string' ? sale.customer : sale.customer
@@ -115,10 +115,10 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                 <TableRow key={product.id}>
                   <TableCell className="font-mono text-xs">{product.sku}</TableCell>
                   <TableCell className="text-xs">{product.name}</TableCell>
-                  <TableCell className="text-xs">{product.category?.name || '-'}</TableCell>
+                  <TableCell className="text-xs">{product.category?.name || '—'}</TableCell>
                   <TableCell className="text-right text-xs">{product.stockQuantity}</TableCell>
                   <TableCell className="text-right text-xs">
-                    {formatCurrency(product.costPrice || 0)}
+                    {(product.cost ?? product.costPrice) == null ? '—' : formatCurrency(Number(product.cost ?? product.costPrice))}
                   </TableCell>
                   <TableCell className="text-right text-xs font-medium">
                     {formatCurrency(product.price)}
@@ -148,7 +148,7 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                 <TableRow key={exp.id}>
                   <TableCell className="font-mono text-xs">{exp.expenseNumber}</TableCell>
                   <TableCell className="text-xs">
-                    {new Date(exp.date || exp.createdAt).toLocaleDateString()}
+                    {formatDate(exp.date || exp.createdAt)}
                   </TableCell>
                   <TableCell className="text-xs max-w-[200px] truncate">{exp.description}</TableCell>
                   <TableCell className="text-xs">{exp.category}</TableCell>
@@ -183,7 +183,7 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
                   <TableCell className="text-right text-xs">{formatCurrency(loc.revenue)}</TableCell>
                   <TableCell className="text-right text-xs">{loc.transactions}</TableCell>
                   <TableCell className="text-right text-xs">{formatCurrency(loc.expenses)}</TableCell>
-                  <TableCell className="text-right text-xs font-medium">{formatCurrency(loc.profit)}</TableCell>
+                  <TableCell className="text-right text-xs font-medium">{loc.profit == null ? 'Unavailable' : formatCurrency(loc.profit)}</TableCell>
                   <TableCell className="text-right text-xs">{loc.activeUsers}</TableCell>
                 </TableRow>
               ))}

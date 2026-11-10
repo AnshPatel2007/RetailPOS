@@ -1,5 +1,6 @@
 /* Register geometry stays independent of management-page density. */
 .pos-workspace { height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: hsl(var(--muted) / .3); }
+.dark .pos-workspace { background: hsl(var(--background)); }
 .pos-mobile-cart-button[hidden] { display: none; }
 .pos-workspace-body { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .pos-catalog { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
@@ -20,6 +21,25 @@
 .pos-product-price { font-size: 18px; line-height: 26px; font-weight: 650; letter-spacing: -.02em; overflow-wrap: anywhere; }
 .pos-product-favorite { position: absolute; top: 4px; right: 4px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: hsl(var(--card) / .9); }
 .pos-product-favorite:hover { background: hsl(var(--accent)); }
+/* Text tiles: catalogs without most photos skip the empty image box (about 25 items on a laptop). */
+.pos-product-grid.is-text { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.pos-product-tile.is-text .pos-product-button { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr auto auto; align-content: space-between; min-height: 88px; padding: 10px 12px; border-left: 4px solid var(--tile-accent, hsl(var(--border))); }
+.pos-product-tile.is-text .pos-product-button.has-thumb { grid-template-columns: 40px minmax(0, 1fr); column-gap: 10px; }
+.pos-product-thumb { grid-row: 1 / 4; width: 40px; height: 40px; border-radius: 6px; overflow: hidden; background: hsl(var(--muted) / .45); }
+.pos-product-tile.is-text .pos-product-name { min-height: 0; padding-right: 26px; }
+.pos-product-tile.is-text .pos-product-price { font-size: 17px; line-height: 24px; }
+.pos-product-tile.is-text .pos-product-qty { top: auto; left: auto; bottom: 8px; right: 8px; }
+/* Scan feedback: last item added inside the search box; problems and their next steps under it. */
+.pos-product-search input.pos-search-with-chip { padding-right: min(55%, 360px); }
+.pos-scan-chip { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 6px; max-width: min(53%, 350px); height: 32px; padding: 0 10px; border-radius: 6px; font-size: 13px; font-weight: 600; }
+.pos-scan-chip.is-added { background: hsl(var(--success) / .1); color: hsl(var(--success-text)); }
+.pos-scan-chip.is-busy { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+.pos-scan-problem { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; padding: 6px 6px 6px 12px; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--muted) / .6); }
+.pos-scan-problem.is-error { border-color: hsl(var(--destructive) / .35); background: hsl(var(--destructive) / .07); color: hsl(var(--destructive-text)); }
+.pos-scan-problem .app-button { color: hsl(var(--foreground)); }
+/* The sale that just finished: change due first, receipt options, then "scan the next item". */
+.pos-sale-complete { display: grid; gap: 14px; margin: 12px 0; padding: 16px; border: 1px solid hsl(var(--success) / .35); border-radius: 10px; background: hsl(var(--success) / .06); }
+.pos-sale-complete-strip { display: none; }
 .pos-desktop-cart { display: flex; flex-shrink: 0; width: 440px; min-height: 0; border-left: 1px solid hsl(var(--border)); }
 .pos-cart { display: flex; flex-direction: column; width: 100%; min-height: 0; background: hsl(var(--card)); }
 .pos-cart-header { flex-shrink: 0; padding: 12px; border-bottom: 1px solid hsl(var(--border)); }
@@ -71,10 +91,12 @@
   .pos-mobile-cart-button { display: flex; bottom: max(16px, env(safe-area-inset-bottom)); right: 16px; height: 52px; padding: 0 20px; border-radius: 12px; box-shadow: 0 5px 18px rgb(0 0 0 / .15); }
   .pos-catalog-scroll { padding-bottom: 88px; }
   .pos-shortcuts { display: none; }
+  .pos-sale-complete-strip { display: flex; flex-shrink: 0; align-items: center; gap: 10px; margin: 10px 16px 0; padding: 6px 6px 6px 12px; border: 1px solid hsl(var(--success) / .35); border-radius: 10px; background: hsl(var(--success) / .08); }
 }
 @media (max-width: 639px) {
   .pos-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .pos-product-search { padding: 10px 12px 8px; }
+  .pos-sale-complete-strip { margin: 10px 12px 0; }
   .pos-category-bar { padding: 4px 12px 10px; }
   .pos-catalog-scroll { padding-left: 12px; padding-right: 12px; }
   .pos-product-button { padding: 10px; }
@@ -89,6 +111,7 @@
   .pos-cart-tool, .pos-cart .pos-cart-tool.app-button, .pos-cart-line-main .action-menu-icon { width: 44px; height: 44px; min-height: 44px; }
   .pos-quantity-button { min-width: 44px; height: 44px; }
   .pos-cart-line-main { grid-template-columns: minmax(0, 1fr) auto minmax(65px, auto) 44px; }
+  .pos-product-tile.is-text .pos-product-name { padding-right: 38px; }
   .pos-line-editor input, .pos-line-editor button, .pos-sale-note { min-height: 44px; }
   .pos-shortcuts { display: none; }
 }

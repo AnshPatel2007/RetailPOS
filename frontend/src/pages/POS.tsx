@@ -2,6 +2,7 @@ import { receiptFromSale } from '@/services/receiptFromSale';
 import { isSaleReference, normalizeSaleReference } from '@/lib/receiptReference';
 import { lineMoney, roundMoney, taxMoney } from '@/lib/money';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ModalOverlay, Modal as AriaModal, Dialog } from 'react-aria-components';
 import { OverlayLevel } from '@/components/ui/Overlay';
 import '@/styles/checkout.css';
@@ -16,7 +17,8 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
-import { useApprovalStore } from '@/store/approvalStore';
+import { useApprovalStore, requestManagerApproval } from '@/store/approvalStore';
+import { approvalCovers, approvalKey, DISCOUNT_APPROVAL_PATH, type CheckoutLine, type DiscountApproval } from '@/services/discountApproval';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useFavoritesStore } from '@/store/favoritesStore';
 import { Product } from '@/types';
@@ -29,7 +31,8 @@ import { publishDisplayState } from '@/lib/customerDisplay';
 import { ReceiptPreviewModal } from '@/components/pos/ReceiptPreviewModal';
 import { QuickRefundModal } from '@/components/pos/QuickRefundModal';
 import { HeldSalesModal } from '@/components/pos/HeldSalesModal';
-import { ProductGrid } from '@/components/pos/ProductGrid';
+import { ProductGrid, type ScanStatus } from '@/components/pos/ProductGrid';
+import { SaleComplete, paymentLabel, type CompletedSale } from '@/components/pos/SaleComplete';
 import { CartPanel } from '@/components/pos/CartPanel';
 import { POSTopBar } from '@/components/pos/POSTopBar';
 import { LinkedCustomer } from '@/components/pos/CustomerLinkSection';
@@ -56,6 +59,10 @@ export const POS: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [productsError, setProductsError] = useState('');
   const [productsRetry, setProductsRetry] = useState(0);
+  // Products shown per page of the grid; "Show more" adds the next set.
+  const PRODUCT_PAGE = 50;
+  const [productLimit, setProductLimit] = useState(PRODUCT_PAGE);
+  const [hasMoreProducts, setHasMoreProducts] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState<'CASH' | 'CARD' | undefined>(undefined);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -65,6 +72,13 @@ export const POS: React.FC = () => {
   const [lastReceipt, setLastReceipt] = useState<Receipt | null>(null);
   const [lastSaleId, setLastSaleId] = useState<string | null>(null);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
+  const receiptPreviewOpen = useRef(false);
+  useEffect(() => { receiptPreviewOpen.current = showReceiptPreview; }, [showReceiptPreview]);
+  // The sale that just finished stays in the cart (change due, receipt options)
+  // until the next item is added. Nothing pops up, so the next scan always counts.
+  const [completedSale, setCompletedSale] = useState<CompletedSale | null>(null);
+  const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null);
+  const navigate = useNavigate();
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [refundSaleId, setRefundSaleId] = useState<string>();
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
@@ -108,7 +122,7 @@ export const POS: React.FC = () => {
     getTax, getTotal, setTaxRate, setCustomer,
     getLineBreakdown, setPromotions, getEbtEligibleTotal, getRequiredAge,
     setCardSurchargePercent, cardSurchargePercent, taxRate,
-    heldSales, holdSale, restoreHeldSale, discardHeldSale,
+    heldSales, holdSale, restoreHeldSale, discardHeldSale, adoptHeldSalesFor,
     cleanupExpiredHeldSales,
   } = useCartStore();
 
@@ -158,8 +172,17 @@ export const POS: React.FC = () => {
     if (items.length === 0 && ageVerification) setAgeVerification(null);
   }, [items.length]);
 
+  // The first item of the next sale replaces the finished sale's summary
+  useEffect(() => {
+    if (items.length > 0) setCompletedSale(null);
+  }, [items.length]);
+
   /** All checkout entry points funnel through here so the age gate always runs */
   const quoteInFlight = React.useRef(false);
+  // A manager's approval of this sale's discounts, taken before payment (see services/discountApproval).
+  const discountApproval = React.useRef<DiscountApproval | null>(null);
+  const checkoutLines = (): CheckoutLine[] => useCartStore.getState().items.map(item => ({ productId: item.product.id, quantity: item.quantity,
+    price: item.product.price, discount: item.discount, ...(item.priceOverride ? { priceOverride: true } : {}), name: item.product.name }));
   const startCheckout = async (method?: 'CASH' | 'CARD') => {
     if (isReadOnly || isProcessing || useApprovalStore.getState().request) return;
     if (terminalLoading || terminalStorageError) { toast.error(terminalStorageError || 'Checking saved terminal payments. Please wait.'); return; }
@@ -198,6 +221,21 @@ export const POS: React.FC = () => {
       } finally { quoteInFlight.current = false; }
     }
     quoteInFlight.current = false;
+    // A cashier's discount or price change is approved now, before any money is taken.
+    if (user?.role === 'CASHIER' && navigator.onLine) {
+      const lines = checkoutLines();
+      // The same rule as the server: a discount, or a hand-changed price (not a barcode-embedded one).
+      const needsApproval = useCartStore.getState().items.some(item => item.discount > 0 || (item.priceOverride && !item.product.priceEmbedded && !item.product.id.startsWith('misc-')));
+      if (needsApproval && !approvalCovers(discountApproval.current, lines)) {
+        try {
+          const token = await requestManagerApproval({ method: 'POST', path: DISCOUNT_APPROVAL_PATH, body: { items: lines } });
+          discountApproval.current = { key: approvalKey(lines), token, expiresAt: Date.now() + 15 * 60_000 };
+        } catch {
+          toast.error('A manager needs to approve the discount before payment. Remove the discount to continue without one.');
+          return;
+        }
+      }
+    }
     const requiredAge = useCartStore.getState().getRequiredAge();
     if (requiredAge > 0 && (!ageVerification || ageVerification.verifiedForAge < requiredAge)) {
       setPendingPaymentMethod(method);
@@ -232,6 +270,7 @@ export const POS: React.FC = () => {
     }).catch(() => {});
   }, [locationId, setTaxRate, setCardSurchargePercent]);
 
+  const activePromotions = useCartStore(state => state.promotions);
   // Mirror the cart to the customer-facing display (second window, if open)
   useEffect(() => {
     if (isReadOnly) return;
@@ -255,7 +294,8 @@ export const POS: React.FC = () => {
       tax: getTax(),
       total: getTotal(),
     });
-  }, [items, taxRate, isReadOnly]);
+  // Promotions change line prices, so a new promotion list republishes too.
+  }, [items, taxRate, isReadOnly, activePromotions]);
 
   // Load active promotions so the cart preview prices lines like the server will.
   // Refreshed on focus; the engine re-checks day/time windows on every render.
@@ -289,27 +329,48 @@ export const POS: React.FC = () => {
   }, [loadCategories]);
 
   // Load products when search/category changes (debounce search)
+  const favoritesKey = selectedCategoryId === 'FAVORITES' ? favoriteIds.join(',') : '';
+  useEffect(() => { setProductLimit(PRODUCT_PAGE); }, [search, selectedCategoryId, locationId]);
   useEffect(() => {
     const controller = new AbortController();
-    setIsLoading(true); setProductsError('');
+    if (productLimit === PRODUCT_PAGE) setIsLoading(true);
+    setProductsError('');
     const timer = setTimeout(() => { void loadProducts(controller.signal); }, search ? 300 : 0);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [search, selectedCategoryId, locationId, productsRetry]);
+  }, [search, selectedCategoryId, locationId, productsRetry, productLimit, favoritesKey]);
 
   // Barcode scanner
   useEffect(() => {
     const handleBarcodeScan = async (barcode: string) => {
       if (isReadOnly || pendingPayment || !paymentReady || paymentReadError) return;
-      if (document.querySelector('[role="dialog"]')) return;
       // The age-verification modal handles its own license scans — don't let
       // AAMVA payload fragments trigger product searches underneath it
       if (showAgeModalRef.current) return;
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      if (dialogs.length) {
+        // Only the receipt viewer is open: the next customer's scan closes it and counts.
+        if (dialogs.length === 1 && receiptPreviewOpen.current) setShowReceiptPreview(false);
+        else return;
+      }
+      const added = (product: Product, price: number) => {
+        hardware.sound.play('ok');
+        setScanStatus({ kind: 'added', message: `Added ${product.name} · ${formatCurrency(price)}` });
+      };
+      const problem = (message: string, withNextSteps = false) => {
+        hardware.sound.play('error');
+        const role = useAuthStore.getState().user?.role;
+        const actions = withNextSteps ? [
+          { label: 'Sell as misc item', onClick: () => { setScanStatus(null); setMiscPrice(''); setMiscName(''); setShowMiscModal(true); } },
+          ...(role === 'ADMIN' || role === 'MANAGER' ? [{ label: 'Add product', onClick: () => navigate('/inventory?newBarcode=' + encodeURIComponent(barcode)) }] : []),
+        ] : undefined;
+        setScanStatus({ kind: 'error', message, actions });
+      };
 
       // Price-embedded barcodes (2-prefix scale/deli labels): the barcode itself
       // carries the price; the item code identifies the product
       const embedded = parsePriceEmbeddedBarcode(barcode);
       if (embedded) {
-        toast.loading(`Reading price label...`, { id: 'barcode-search' });
+        setScanStatus({ kind: 'busy', message: 'Reading price label…' });
         try {
           const resp = await productService.getAll({ search: embedded.itemCode, isActive: true, limit: 10 });
           const found = (resp.data.data || []).find(
@@ -318,19 +379,16 @@ export const POS: React.FC = () => {
               (p.barcode === embedded.itemCode || p.sku === embedded.itemCode || p.barcode === barcode)
           );
           if (found) {
-            if (!addItem(found, 1)) { toast.error(saleHoldMessage(found), { id: 'barcode-search' }); return; }
+            if (!addItem(found, 1)) { problem(saleHoldMessage(found)); return; }
             // The label price wins — flags the line as an override so the server
             // (which allows it for priceEmbedded products) charges the same amount
             updatePrice(found.id, embedded.price);
-            toast.success(`Added: ${found.name} — ${formatCurrency(embedded.price)}`, { id: 'barcode-search' });
+            added(found, embedded.price);
           } else {
-            toast.error(
-              `No price-embedded product for code ${embedded.itemCode}. Flag the product as "Price-embedded barcode" in Inventory.`,
-              { id: 'barcode-search' }
-            );
+            problem(`No product is set up for price label ${embedded.itemCode}. In Products, turn on "Price-embedded barcode" for it.`, true);
           }
         } catch {
-          toast.error('Failed to look up price label', { id: 'barcode-search' });
+          problem('Could not read the price label. Check the connection and scan again.');
         }
         return;
       }
@@ -338,23 +396,24 @@ export const POS: React.FC = () => {
       // Receipt QR codes encode the sale number — scanning one pulls up the
       // receipt for returns/lookups instead of searching products
       if (isSaleReference(barcode)) {
-        toast.loading('Looking up receipt...', { id: 'barcode-search' });
+        setScanStatus({ kind: 'busy', message: 'Looking up receipt…' });
         try {
           const saleRes = await saleService.getAll({ saleNumber: normalizeSaleReference(barcode), limit: 1 });
           const found = saleRes.data.data?.[0];
           if (found) {
-            toast.success(`Receipt ${barcode}`, { id: 'barcode-search' });
+            hardware.sound.play('ok');
+            setScanStatus(null);
             setRefundSaleId(found.id); setShowRefundModal(true);
           } else {
-            toast.error(`Sale not found: ${barcode}`, { id: 'barcode-search' });
+            problem(`No sale found for receipt ${barcode}.`);
           }
         } catch {
-          toast.error('Failed to look up receipt', { id: 'barcode-search' });
+          problem('Could not look up that receipt. Check the connection and scan again.');
         }
         return;
       }
 
-      toast.loading(`Searching for barcode: ${barcode}`, { id: 'barcode-search' });
+      setScanStatus({ kind: 'busy', message: `Looking up ${barcode}…` });
       try {
         const response = await productService.getAll({ search: barcode, isActive: true, limit: 10, includeSellingUnits: true });
         const found: Product[] = response.data.data;
@@ -363,21 +422,21 @@ export const POS: React.FC = () => {
         const exact = found.filter(p => p.barcode === barcode);
         const scanned = exact.length === 1 ? exact[0] : found.length === 1 ? found[0] : null;
         if (scanned) {
-          if (!addItem(scanned)) { toast.error(saleHoldMessage(scanned), { id: 'barcode-search' }); return; }
-          toast.success(`Added: ${scanned.name}`, { id: 'barcode-search' });
+          if (!addItem(scanned)) { problem(saleHoldMessage(scanned)); return; }
+          added(scanned, scanned.price);
         } else if (found.length > 1) {
           setSearch(barcode);
-          toast.success(`Found ${found.length} products`, { id: 'barcode-search' });
+          setScanStatus({ kind: 'info', message: `${found.length} products match ${barcode}. Tap the one you are selling.` });
         } else {
-          toast.error(`Product not found: ${barcode}`, { id: 'barcode-search' });
+          problem(`No product has barcode ${barcode}.`, true);
         }
       } catch {
-        toast.error('Failed to search product', { id: 'barcode-search' });
+        problem(`Could not look up ${barcode}. Check the connection and scan again.`);
       }
     };
     hardware.scanner.onScan(handleBarcodeScan);
     return () => { hardware.scanner.offScan(handleBarcodeScan); };
-  }, [addItem, isReadOnly, pendingPayment, paymentReady, paymentReadError]);
+  }, [addItem, isReadOnly, pendingPayment, paymentReady, paymentReadError, navigate]);
 
   // Keyboard shortcuts
   const handleKeyboardShortcuts = useCallback((e: KeyboardEvent) => {
@@ -441,12 +500,15 @@ export const POS: React.FC = () => {
   const loadProducts = async (signal: AbortSignal) => {
     try {
       const isFavoritesTab = selectedCategoryId === 'FAVORITES';
+      // Favorites load by id, so a starred item is found however large the catalog is.
+      if (isFavoritesTab && !favoriteIds.length) { setProducts([]); setHasMoreProducts(false); return; }
       const response = await productService.getAll({
         locationId: locationId || undefined,
         search,
         categoryId: isFavoritesTab ? undefined : (selectedCategoryId || undefined),
+        ids: isFavoritesTab ? favoriteIds.join(',') : undefined,
         isActive: true,
-        limit: 50,
+        limit: isFavoritesTab ? Math.max(favoriteIds.length, 1) : productLimit,
         includeSellingUnits: true,
       }, signal);
       if (signal.aborted) return;
@@ -457,6 +519,8 @@ export const POS: React.FC = () => {
         result = result.filter((p: Product) => favoriteIds.includes(p.id));
       }
       setProducts(result);
+      const total = response.data.pagination?.total;
+      setHasMoreProducts(!isFavoritesTab && typeof total === 'number' && total > response.data.data.length);
 
       // Cache products for offline use (fire-and-forget)
       // The sync service caches the complete catalog; filtered pages must not replace it.
@@ -500,11 +564,15 @@ export const POS: React.FC = () => {
     if (!addItem(product, 1)) toast.error(saleHoldMessage(product));
   };
 
+  // Held sales belong to one store: a register signed in to another store starts empty.
+  useEffect(() => { if (locationId && !isReadOnly) adoptHeldSalesFor(locationId); }, [locationId, isReadOnly, adoptHeldSalesFor]);
+
   const handleHoldSale = () => {
     if (items.length === 0) { toast.error('Cart is empty'); return; }
     if (heldSales.length >= 5) { toast.error('Maximum 5 sales on hold'); return; }
     holdSale();
     setLinkedCustomer(null);
+    setAgeVerification(null);
     toast.success('Sale placed on hold');
   };
 
@@ -540,6 +608,8 @@ export const POS: React.FC = () => {
 
   const handleRestoreHeld = (id: string) => {
     restoreHeldSale(id);
+    // An ID check belongs to the customer standing at the counter: a recalled sale is checked again.
+    setAgeVerification(null);
     setShowHeldSalesModal(false);
     // Restore the customer that was linked when the sale was held
     const restoredCustomer = useCartStore.getState().customer;
@@ -559,10 +629,20 @@ export const POS: React.FC = () => {
     }
   };
 
-  const handlePrintReceipt = () => {
+  const handlePrintReceipt = async () => {
     if (!lastReceipt) return;
-    hardware.printer.print(lastReceipt);
-    toast.success('Receipt sent to printer');
+    // The browser's print window opens; only say so when it actually did.
+    if (await hardware.printer.print(lastReceipt)) toast.success('Print window opened');
+    else toast.error('Receipt printing is turned off on this register (Settings > Devices).');
+  };
+  const emailCompletedReceipt = completedSale?.saleId
+    ? (email: string) => saleService.emailReceipt(completedSale.saleId!, email).then(() => undefined)
+    : undefined;
+  const completedSaleProps = {
+    completedSale,
+    onViewReceipt: () => setShowReceiptPreview(true),
+    onEmailReceipt: emailCompletedReceipt,
+    onDismissCompleted: () => { setCompletedSale(null); searchInputRef.current?.focus(); },
   };
 
   // Re-open a receipt from the recent-transactions list
@@ -672,7 +752,11 @@ export const POS: React.FC = () => {
         await db.terminalCheckouts.put(savedTerminalAttempt);
         setTerminalDurable(true);
       }
-      const response = await saleService.create(saleData);
+      // The register approval goes with the sale when it still covers these exact lines.
+      const approval = discountApproval.current;
+      const response = await saleService.create(saleData, approvalCovers(approval, saleData.items)
+        ? { headers: { 'X-Manager-Approval': approval!.token } } : undefined);
+      discountApproval.current = null;
       await db.transaction('rw', db.paymentSessions, db.terminalCheckouts, async () => {
         if (paymentSession) await finishPaymentSession(paymentSession.id, 'sale:' + response.data.data.id);
         if (savedTerminalAttempt) await db.terminalCheckouts.update(savedTerminalAttempt.key,{reconciliation:{receiptId:'sale:'+response.data.data.id,status:'FINAL',disposition:'MATCH_RECORDED',recordedAt:Date.now()}});
@@ -695,10 +779,7 @@ export const POS: React.FC = () => {
         hardware.drawer.open();
       }
 
-      const change = Math.max(0, totalPaid - chargedTotal);
-      const message = linkedCustomer
-        ? `Sale completed for ${linkedCustomer.firstName} ${linkedCustomer.lastName}!${change > 0 ? `\nChange: ${formatCurrency(change)}` : ''}`
-        : `Sale completed!${change > 0 ? ` Change: ${formatCurrency(change)}` : ''}`;
+      const change = Math.max(0, Math.round((totalPaid - chargedTotal) * 100) / 100);
 
       // Thank-you splash on the customer display
       publishDisplayState({
@@ -711,13 +792,17 @@ export const POS: React.FC = () => {
         completed: { total: chargedTotal, change: Math.max(0, Math.round((totalPaid - chargedTotal) * 100) / 100) },
       });
 
-      toast.success(message);
       localStorage.removeItem('pos-checkout-attempt');
+      setCompletedSale({
+        receipt, saleId: createdSale?.id || null, total: chargedTotal, paid: totalPaid, change,
+        paymentLabel: paymentLabel(payments.map(payment => payment.paymentMethod)),
+        customerName: linkedCustomer ? `${linkedCustomer.firstName} ${linkedCustomer.lastName}` : undefined,
+      });
+      setScanStatus(null);
       clearCart();
       setLinkedCustomer(null);
       setAgeVerification(null);
       setShowPaymentModal(false);
-      setShowReceiptPreview(true);
 
     } catch (error: any) {
       // If network error, queue offline
@@ -760,8 +845,10 @@ export const POS: React.FC = () => {
             snapshot: { subtotal: roundMoney(originalLines.reduce((sum, item) => sum + lineMoney(item.price, item.quantity), 0)), tax: getTax(), discount: roundMoney(originalLines.reduce((sum, item) => sum + item.discount, 0)) }, expectedTotal: amountDue });
           if (paymentSession) await finishPaymentSession(paymentSession.id, 'offline:' + attempt!.key);
           localStorage.removeItem('pos-checkout-attempt');
-          const change = totalPaid - total;
-          toast.success(`Sale saved offline! Will sync when connection restores.${change > 0 ? ` Change: ${formatCurrency(change)}` : ''}`);
+          const change = Math.max(0, Math.round((totalPaid - total) * 100) / 100);
+          setCompletedSale({ receipt: null, saleId: null, total, paid: totalPaid, change, paymentLabel: 'Cash', offline: true,
+            customerName: linkedCustomer ? `${linkedCustomer.firstName} ${linkedCustomer.lastName}` : undefined });
+          setScanStatus(null);
 
           if (!paymentSession && hardware.drawer.shouldOpen('CASH')) {
             hardware.drawer.open();
@@ -808,8 +895,9 @@ export const POS: React.FC = () => {
             clearCart(); setLinkedCustomer(null); setAgeVerification(null);
           }
           localStorage.removeItem('pos-checkout-attempt');
-          setLastSaleId(sale.id); setLastReceipt(receiptFromSale(sale));
-          setShowReceiptPreview(true);
+          const receipt = receiptFromSale(sale);
+          setLastSaleId(sale.id); setLastReceipt(receipt);
+          setCompletedSale({ receipt, saleId: sale.id, total: receipt.total, paid: receipt.amountPaid, change: receipt.change, paymentLabel: paymentLabel(sale.payments?.length ? sale.payments.map((payment: { paymentMethod: string }) => payment.paymentMethod) : [sale.paymentMethod]) });
           toast.success('Sale confirmed. No additional terminal payment was taken.');
         }}
       />}
@@ -833,7 +921,7 @@ export const POS: React.FC = () => {
           selectedCategoryId={selectedCategoryId}
           onSelectCategory={setSelectedCategoryId}
           search={search}
-          onSearchChange={setSearch}
+          onSearchChange={value => { setSearch(value); setScanStatus(status => status?.kind === 'busy' ? status : null); }}
           isLoading={isLoading}
           error={productsError}
           onRetry={() => setProductsRetry(value => value + 1)}
@@ -843,6 +931,14 @@ export const POS: React.FC = () => {
           toggleFavorite={toggleFavorite}
           searchInputRef={searchInputRef}
           onSearchEnter={handleSearchEnter}
+          scanStatus={scanStatus}
+          onDismissScanStatus={() => setScanStatus(null)}
+          hasMore={hasMoreProducts}
+          onLoadMore={() => setProductLimit(limit => limit + PRODUCT_PAGE)}
+          emptyHint={selectedCategoryId === 'FAVORITES' && !search && !favoriteIds.length ? 'Star a product to keep it here for quick taps.' : undefined}
+          topSlot={!isReadOnly && completedSale && items.length === 0 ? (
+            <SaleComplete compact sale={completedSale} onViewReceipt={completedSale.receipt ? () => setShowReceiptPreview(true) : undefined} onDismiss={completedSaleProps.onDismissCompleted} />
+          ) : undefined}
         />
 
         {/* Right side - Cart (desktop) */}
@@ -856,6 +952,7 @@ export const POS: React.FC = () => {
             onShowRefund={() => setShowRefundModal(true)}
             onCheckout={() => startCheckout(undefined)}
             onHoldSale={handleHoldSale}
+            {...completedSaleProps}
           />}
         </div>
       </fieldset>
@@ -875,6 +972,7 @@ export const POS: React.FC = () => {
                 onShowRefund={() => setShowRefundModal(true)}
                 onCheckout={() => { setMobileCartOpen(false); startCheckout(undefined); }}
                 onHoldSale={() => { handleHoldSale(); setMobileCartOpen(false); }}
+                {...completedSaleProps}
               />
             </Dialog>
             </OverlayLevel.Provider>
@@ -932,6 +1030,8 @@ export const POS: React.FC = () => {
         linkedCustomer={linkedCustomer}
         onCustomerChange={setLinkedCustomer}
         ebtEligibleTotal={getEbtEligibleTotal()}
+        approvalNeeded={user?.role === 'CASHIER' && items.some(item => item.discount > 0 || (item.priceOverride && !item.product.priceEmbedded && !item.product.id.startsWith('misc-')))
+          && !approvalCovers(discountApproval.current, checkoutLines())}
         cardSurchargePercent={cardSurchargePercent}
       />
 

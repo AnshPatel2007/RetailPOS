@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
 import { DataPanel, SummaryStrip } from '@/components/common/Workspace';
 import { Button } from '@/components/ui/Button';
-import { formatCurrency, formatEnumLabel } from '@/lib/utils';
+import { formatCurrency, formatDate, formatEnumLabel } from '@/lib/utils';
+import { AboutNumbers } from '@/components/common/AboutNumbers';
 import { monthLabel } from '@/lib/calendarDates';
 import type { ProfitAndLossReport } from '@/services/profitAndLossExport';
 import { InventoryPurchaseSummary } from './InventoryPurchaseSummary';
@@ -21,11 +22,12 @@ function StatementRow({ label, value, total = false, final = false }: { label: s
 
 /** Presentation uses the saved report snapshot; no totals are calculated here. */
 export function ProfitAndLossStatement({ report, month, onReviewCosts }: { report: ProfitAndLossReport; month: string; onReviewCosts: () => void }) {
-  const date = new Intl.DateTimeFormat(undefined, { timeZone: report.period.timezone, month: 'short', day: 'numeric', year: 'numeric' });
-  const period = `${date.format(new Date(report.period.start))} – ${date.format(new Date(new Date(report.period.end).getTime() - Number(report.period.endExclusive)))}`;
-  const hasIncompleteCosts = report.costCompleteness?.complete === false;
-  // Units sold beyond recorded stock carry a provisional cost, flagged rather than treated as free.
-  const estimatedCost = !hasIncompleteCosts && report.costCompleteness?.estimated ? report.costCompleteness.estimatedAmount ?? null : null;
+  const timezone = report.period.timezone;
+  const period = `${formatDate(report.period.start, timezone)} – ${formatDate(new Date(new Date(report.period.end).getTime() - Number(report.period.endExclusive)), timezone)}`;
+  // Items sold beyond recorded stock: profit waits until a manager resolves those stock exceptions.
+  const pendingStock = report.costCompleteness?.pendingStockProblems ?? 0;
+  const hasIncompleteCosts = report.costCompleteness?.complete === false && !pendingStock;
+  const estimatedCost = report.costCompleteness?.complete !== false && report.costCompleteness?.estimated ? report.costCompleteness.estimatedAmount ?? null : null;
   const hasPendingEarnings = report.earningsCompleteness?.complete === false;
   return <div className="financial-statement-view">
     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -34,17 +36,18 @@ export function ProfitAndLossStatement({ report, month, onReviewCosts }: { repor
     </div>
     <SummaryStrip emphasis items={[
       { label: 'Net sales', value: money(report.revenue.netSales), detail: 'Excluding sales tax' },
-      { label: 'COGS', value: money(report.costOfGoodsSold), detail: hasIncompleteCosts ? 'Cost information incomplete' : estimatedCost !== null ? `Includes ${money(estimatedCost)} estimated cost` : 'Recorded inventory costs' },
+      { label: 'COGS', value: money(report.costOfGoodsSold), detail: pendingStock ? 'Waiting on stock exceptions' : hasIncompleteCosts ? 'Cost information incomplete' : estimatedCost !== null ? `Includes ${money(estimatedCost)} corrected estimate` : 'Recorded inventory costs' },
       { label: 'Gross profit', value: money(report.grossProfit), detail: margin(report.margins.gross) },
       { label: 'Net income', value: money(report.netIncome), detail: margin(report.margins.net), tone: report.netIncome != null && report.netIncome < 0 ? 'danger' : 'default' },
     ]} />
-    {(report.unavailableReason || hasIncompleteCosts || hasPendingEarnings) && <div className="financial-status" role="status">
+    {(report.unavailableReason || hasIncompleteCosts || hasPendingEarnings || pendingStock > 0) && <div className="financial-status" role="status">
       <AlertCircle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="font-medium">{hasIncompleteCosts ? 'Cost information incomplete' : hasPendingEarnings ? 'Lottery earnings pending' : 'Some figures are unavailable'}</p>
+        <p className="font-medium">{pendingStock ? 'Profit waits for stock exceptions' : hasIncompleteCosts ? 'Cost information incomplete' : hasPendingEarnings ? 'Lottery earnings pending' : 'Some figures are unavailable'}</p>
         {report.unavailableReason && <p className="mt-1 text-sm text-muted-foreground">{hasIncompleteCosts ? report.unavailableReason.replace(/^Cost information incomplete\.\s*/, '') : report.unavailableReason}</p>}
       </div>
       <div className="flex flex-wrap gap-2">
+        {pendingStock > 0 && <Link className="page-action" to="/inventory/stock-control/exceptions">Resolve stock exceptions</Link>}
         {hasIncompleteCosts && <Button variant="outline" onClick={onReviewCosts}>Review costs</Button>}
         {hasPendingEarnings && <Link className="page-action" to="/lottery?tab=reports">Review lottery earnings</Link>}
       </div>
@@ -60,7 +63,7 @@ export function ProfitAndLossStatement({ report, month, onReviewCosts }: { repor
           <dl>
             <StatementRow label="Sales before returns, excluding tax" value={money(report.revenue.grossSales)} />
             <StatementRow label="Less: Refunds, excluding tax" value={deduction(report.revenue.refunds)} />
-            <StatementRow label="Voids deducted, excluding tax" value={deduction(report.revenue.voids)} />
+            <StatementRow label="Less: Voids, excluding tax" value={deduction(report.revenue.voids)} />
             <StatementRow label="Net Sales" value={money(report.revenue.netSales)} total />
           </dl>
         </section>
@@ -92,8 +95,19 @@ export function ProfitAndLossStatement({ report, month, onReviewCosts }: { repor
         </dl>
       </div>
       <div className="financial-statement-reference">
+        <dl className="mb-3 text-sm">
+          <div className="flex flex-wrap justify-between gap-2">
+            <dt className="text-muted-foreground">Sales tax collected (after refunds and voids), owed to the state, not income</dt>
+            <dd className="font-medium tabular-nums">{report.revenue.taxCollected == null ? 'Unavailable' : formatCurrency(report.revenue.taxCollected)}</dd>
+          </div>
+        </dl>
         <InventoryPurchaseSummary received={report.receivedInventoryPurchases} purchaseEntries={report.inventoryPurchases} />
         {report.historyWarning && <p className="mt-3 text-xs text-muted-foreground">{report.historyWarning}</p>}
+        <AboutNumbers className="mt-3" timezone={timezone}>
+          <p>Sales are shown before sales tax. Refunds and voids count on the day they happen, not on the day of the original sale.</p>
+          <p>Cost of goods sold uses the cost recorded on each sale line. When something was sold beyond recorded stock, profit stays unavailable until a manager resolves that stock exception.</p>
+          <p>Expenses count once approved or paid. Lottery ticket sales are not merchandise sales; only confirmed lottery earnings appear as other income.</p>
+        </AboutNumbers>
       </div>
     </DataPanel>
   </div>;

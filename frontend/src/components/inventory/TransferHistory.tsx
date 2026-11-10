@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/lib/utils';
 import { useEffect, useState } from 'react';
 import { inventoryTransferService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
@@ -19,7 +20,7 @@ export function TransferHistory({ transfer }: { transfer: Transfer }) {
     {loading ? <p role="status">Loading history…</p> : error ? <p role="alert">Could not load history. <Button variant="outline" onClick={() => setRetry(n => n + 1)}>Retry history</Button></p> : <>
       {!receipts.length && <p className="text-sm text-muted-foreground">No delivery or return events recorded yet.</p>}
       {receipts.map(receipt => <div key={receipt.id} className="rounded border p-3 text-sm space-y-1">
-        <p className="font-medium">{receipt.kind === 'RECEIVE' ? 'Destination delivery' : receipt.kind === 'SOURCE_RETURN' ? 'Return at source' : 'Return requested'} · {new Date(receipt.createdAt).toLocaleString()}</p>
+        <p className="font-medium">{receipt.kind === 'RECEIVE' ? 'Destination delivery' : receipt.kind === 'SOURCE_RETURN' ? 'Return at source' : 'Return requested'} · {formatDateTime(receipt.createdAt)}</p>
         {receipt.actor && <p className="text-xs text-muted-foreground">Recorded by {receipt.actor}</p>}
         {receipt.items.map(line => { const item = transfer.items.find(item => item.id === line.transferItemId); return <p key={line.transferItemId}>{item ? transferProductName(item) : 'Item'}: {line.acceptedQty} accepted, {line.damagedQty} damaged, {line.missingQty} missing{line.sentBackQty ? `, ${line.sentBackQty} sent back` : ''}</p>; })}
         {receipt.notes && <p className="text-muted-foreground">{receipt.notes}</p>}

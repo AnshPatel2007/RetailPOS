@@ -1,3 +1,5 @@
+import { formatEnumLabel } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ManagementPage } from '@/components/common/Workspace';
 import { Select } from '@/components/ui/Select';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
@@ -119,8 +121,9 @@ export const UserManagement: React.FC = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.password || formData.password.length < 6) {
-      toast.error('Password must be at least 6 characters');
+    // The same rule as the store's Team page and the server: 8 or more characters.
+    if (!formData.password || formData.password.length < 8) {
+      toast.error('Password must be at least 8 characters');
       return;
     }
 
@@ -349,7 +352,7 @@ export const UserManagement: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <Badge variant={getRoleBadgeVariant(user.role)}>
-                      {user.role.replace(/_/g, ' ')}
+                      {formatEnumLabel(user.role)}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -372,6 +375,7 @@ export const UserManagement: React.FC = () => {
                         size="sm"
                         onClick={() => openPasswordModal(user)}
                         title="Reset Password"
+                        aria-label={`Reset password for ${user.firstName} ${user.lastName}`}
                       >
                         <Key className="h-4 w-4" />
                       </Button>
@@ -470,15 +474,7 @@ export const UserManagement: React.FC = () => {
             </div>
           </div>
 
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={formData.isActive}
-              onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-              className="rounded border-input"
-            />
-            <span className="text-sm">Active</span>
-          </label>
+          <Checkbox label="Active" checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} />
 
           <div className="flex gap-3 pt-4">
             <Button
@@ -521,7 +517,7 @@ export const UserManagement: React.FC = () => {
             onChange={(e) => setNewPassword(e.target.value)}
             placeholder="Enter new password"
             required
-            minLength={6}
+            minLength={8}
           />
 
           <div className="flex gap-3 pt-4">
@@ -579,9 +575,9 @@ export const UserManagement: React.FC = () => {
             type="password"
             value={formData.password}
             onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-            placeholder="Minimum 6 characters"
+            placeholder="Min. 8 characters, upper/lower/number/symbol"
             required
-            minLength={6}
+            minLength={8}
           />
 
           <div className="grid grid-cols-2 gap-4">

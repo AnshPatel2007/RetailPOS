@@ -314,6 +314,25 @@ describe('Verified inventory valuation and P&L', () => {
     expect((await getFinancialMetrics({ locationId: data.location.id })).inventoryCostAdjustments).toBe(16);
   });
 
+  it('stock health counts units sold less units refunded and stays inside the previewed store', async () => {
+    await opening();
+    const sale = (await sell(3)).body.data;
+    await prisma.refund.create({ data: { saleId: sale.id, amount: 15, taxAmount: 0, reason: 'Returned one', refundedBy: data.adminUser.id,
+      items: { create: { saleItemId: sale.items[0].id, quantity: 1, amount: 15 } } } });
+    const health = (await get('/api/reports/stock-health').expect(200)).body.data;
+    expect(health.sellThrough).toMatchObject({ unitsSold: 2, stockOnHand: 7 });
+    // A second store's unsold stock never appears in this store's preview.
+    const other = await prisma.location.create({ data: { name: 'Other Store', address: '1 Side St', city: 'Elsewhere', state: 'TS', zipCode: '22222', phone: '555-0002', email: 'other@store.com', taxRate: 0 } });
+    await prisma.product.create({ data: { name: 'Other store stock', sku: randomUUID(), price: 5, cost: 2, stockQuantity: 9, locationId: other.id } });
+    const platform = await prisma.user.create({ data: { email: 'platform-health@test.com', password: data.adminUser.password, firstName: 'Platform', lastName: 'Admin', role: 'SUPER_ADMIN' } });
+    const superToken = await createTestToken(platform.id, 'SUPER_ADMIN');
+    const preview = (await request(app).get('/api/reports/stock-health?locationId=' + data.location.id).set('Authorization', 'Bearer ' + superToken).expect(200)).body.data;
+    expect(preview.deadStock.products.map((row: { name: string }) => row.name)).not.toContain('Other store stock');
+    const otherPreview = (await request(app).get('/api/reports/stock-health?locationId=' + other.id).set('Authorization', 'Bearer ' + superToken).expect(200)).body.data;
+    expect(otherPreview.deadStock.products.map((row: { name: string }) => row.name)).toEqual(['Other store stock']);
+    expect(otherPreview.deadStock.totals).toMatchObject({ products: 1, listed: 1, units: 9 });
+  });
+
   it('requires explicit confirmation when a delivery has a zero purchase cost', async () => {
     await opening(0, 0);
     const order = await prisma.purchaseOrder.create({ data: { orderNumber: randomUUID(), supplierId: data.supplier.id, locationId: data.location.id, status: 'ORDERED',

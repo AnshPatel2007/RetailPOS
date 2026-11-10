@@ -1,5 +1,5 @@
 :root { --canvas: 216 28% 97%; --surface-subtle: 216 24% 98%; --elevation: 0 1px 2px rgb(16 24 40 / .04), 0 1px 3px rgb(16 24 40 / .06); }
-.dark { --canvas: 222 20% 8%; --surface-subtle: 222 16% 12%; --elevation: none; }
+.dark { --canvas: 0 0% 0%; --surface-subtle: 0 0% 9%; --elevation: none; }
 .management-content { background: hsl(var(--canvas)); }
 .management-page { min-width: 0; padding: 24px; }
 .management-page > :last-child { margin-bottom: 0; }
@@ -93,3 +93,4 @@
 
 /* Cards, panels and number strips sit slightly above the canvas. */
 .app-card, .data-panel, .summary-strip { box-shadow: var(--elevation); }
+

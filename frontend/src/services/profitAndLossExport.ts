@@ -10,7 +10,7 @@ export interface ProfitAndLossReport {
   operatingExpenses: { total: number; byCategory: { category: string; amount: number }[] };
   inventoryPurchases: number; otherIncome: number;
   recordedSaleCosts?: number | null; inventoryCostAdjustments?: number | null; receivedInventoryPurchases?: number;
-  costCompleteness?: { complete: boolean; missingRecords: number; label: string; reviewPath: string; estimated?: boolean; estimatedAmount?: number };
+  costCompleteness?: { complete: boolean; missingRecords: number; label: string; reviewPath: string; estimated?: boolean; estimatedAmount?: number; pendingStockProblems?: number };
   lotteryEarnings?: number;
   earningsCompleteness?: { complete: boolean; pendingDays: number; label: string; reviewPath: string };
   unavailableReason?: string | null; historyWarning?: string | null;

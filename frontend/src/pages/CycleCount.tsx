@@ -1,6 +1,6 @@
 import { ManagementPage } from '@/components/common/Workspace';
 import { Select } from '@/components/ui/Select';
-import { formatEnumLabel } from '@/lib/utils';
+import { formatEnumLabel, formatDate } from '@/lib/utils';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ClipboardCheck, Plus, CheckCircle, XCircle, Eye, Send } from 'lucide-react';
@@ -22,13 +22,15 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { cycleCountService, locationService, categoryService } from '@/services/api';
+import { cycleCountService, locationService, categoryService, apiErrorMessage } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import toast from 'react-hot-toast';
 import { useUrlFilter, useUrlPage, useResetUrlFilters } from '@/hooks/useUrlFilter';
 import { ProductPicker, PickableProduct } from '@/components/common/ProductPicker';
-import { Spinner } from '@/components/ui/LoadingState';
+import { LoadingState, Spinner } from '@/components/ui/LoadingState';
+import { Textarea } from '@/components/ui/Textarea';
+import { Alert } from '@/components/ui/Alert';
 
 interface CycleCountRecord {
   id: string;
@@ -43,6 +45,10 @@ interface CycleCountRecord {
   completedAt: string | null;
   createdAt: string;
   items: CycleCountItem[];
+  /** List rows carry counts and the store name instead of every item. */
+  itemCount?: number;
+  countedCount?: number;
+  locationName?: string | null;
 }
 
 interface CycleCountItem {
@@ -71,11 +77,11 @@ interface Category {
   name: string;
 }
 
-const statusColors: Record<string, string> = {
-  IN_PROGRESS: 'bg-info/10 text-info',
-  REVIEW: 'bg-warning/10 text-warning',
-  APPROVED: 'bg-success/10 text-success',
-  CANCELLED: 'bg-destructive/10 text-destructive',
+const statusVariant: Record<string, 'default' | 'warning' | 'success' | 'secondary'> = {
+  IN_PROGRESS: 'default',
+  REVIEW: 'warning',
+  APPROVED: 'success',
+  CANCELLED: 'secondary',
 };
 
 export const CycleCount: React.FC = () => {
@@ -111,6 +117,7 @@ export const CycleCount: React.FC = () => {
   }, [locationId, resetUrlFilters]);
   const [selectedCount, setSelectedCount] = useState<CycleCountRecord | null>(null);
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
+  const [busy, setBusy] = useState(false);
 
   const fetchCounts = useCallback(async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
     const version = ++requestVersion.current;
@@ -164,7 +171,7 @@ export const CycleCount: React.FC = () => {
       setCreateNotes('');
       fetchCounts();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to start cycle count');
+      toast.error(apiErrorMessage(err, 'Failed to start cycle count'));
     }
   };
 
@@ -181,23 +188,31 @@ export const CycleCount: React.FC = () => {
     }).catch(() => { if (active) setDetailError('Unable to load this record. It may no longer be available to this store.'); });
     return () => { active = false; };
   }, [recordId, locationId, detailRefresh]);
+  // Entered counts that differ from what the server has saved.
+  const unsavedItems = selectedCount ? Object.entries(itemCounts)
+    .filter(([id, countedQty]) => selectedCount.items.find(item => item.id === id)?.countedQty !== countedQty)
+    .map(([id, countedQty]) => ({ id, countedQty })) : [];
+  const uncountedItems = selectedCount ? selectedCount.items.filter(item => itemCounts[item.id] === undefined).length : 0;
+  const saveEnteredCounts = async (count: CycleCountRecord) => {
+    for (let offset = 0; offset < unsavedItems.length; offset += 1000) {
+      await cycleCountService.updateItems(count.id, unsavedItems.slice(offset, offset + 1000));
+    }
+  };
   const handleSaveItems = async () => {
-    if (!selectedCount) return;
-    const items = Object.entries(itemCounts).map(([id, countedQty]) => ({ id, countedQty }));
-    if (items.length === 0) {
+    if (!selectedCount || busy) return;
+    if (!Object.keys(itemCounts).length) {
       toast.error('Enter at least one count');
       return;
     }
+    setBusy(true);
     try {
-      for (let offset = 0; offset < items.length; offset += 1000) {
-        await cycleCountService.updateItems(selectedCount.id, items.slice(offset, offset + 1000));
-      }
+      await saveEnteredCounts(selectedCount);
       toast.success('Counts saved');
       const { data } = await cycleCountService.getById(selectedCount.id);
       setSelectedCount(data.data);
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to save counts');
-    }
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Failed to save counts'));
+    } finally { setBusy(false); }
   };
 
   // One shared confirm dialog for submit/approve/cancel
@@ -210,15 +225,19 @@ export const CycleCount: React.FC = () => {
   } | null>(null);
 
   const handleSubmit = async () => {
-    if (!selectedCount) return;
+    if (!selectedCount || busy) return;
+    setBusy(true);
     try {
+      // Counts typed since the last save are saved first, so nothing entered is lost.
+      await saveEnteredCounts(selectedCount);
       await cycleCountService.submit(selectedCount.id);
       toast.success('Submitted for review');
       setRecordId('');
       fetchCounts();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to submit');
-    }
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Failed to submit'));
+      setDetailRefresh(value => value + 1);
+    } finally { setBusy(false); }
   };
 
   const handleApprove = async () => {
@@ -229,7 +248,7 @@ export const CycleCount: React.FC = () => {
       setRecordId('');
       fetchCounts();
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to approve');
+      toast.error(apiErrorMessage(err, 'Failed to approve'));
       await viewDetail(selectedCount);
     }
   };
@@ -242,7 +261,7 @@ export const CycleCount: React.FC = () => {
       setRecordId('');
       fetchCounts();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to cancel');
+      toast.error(apiErrorMessage(err, 'Failed to cancel'));
     }
   };
 
@@ -261,7 +280,7 @@ export const CycleCount: React.FC = () => {
       await viewDetail(selectedCount);
       toast.success('Changed items cleared. Recount them before submitting.');
       void fetchCounts();
-    } catch (err: any) { toast.error(err.response?.data?.error || 'Could not refresh count'); }
+    } catch (err) { toast.error(apiErrorMessage(err, 'Could not refresh count')); }
   };
 
   const autoRefresh = useLegacyPageRefresh((current, signal) => fetchCounts(true, current, signal), { key: JSON.stringify([locationId, page, statusFilter]), paused: loading });
@@ -306,7 +325,7 @@ export const CycleCount: React.FC = () => {
                   <TableHead>Count #</TableHead>
                   <TableHead>Location</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Items</TableHead>
+                  <TableHead className="text-right">Items</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Created</TableHead>
                 </TableRow>
@@ -314,14 +333,18 @@ export const CycleCount: React.FC = () => {
               <TableBody>
                 {counts.map((c) => (
                   <TableRow key={c.id} className="cursor-pointer" onClick={() => viewDetail(c)}>
-                    <TableCell className="font-medium">{c.countNumber}</TableCell>
-                    <TableCell>{locations.find(l => l.id === c.locationId)?.name || c.locationId}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatEnumLabel(c.type)}</TableCell>
-                    <TableCell className="text-muted-foreground">{c.items?.length || 0}</TableCell>
-                    <TableCell>
-                      <Badge className={statusColors[c.status] || ''}>{formatEnumLabel(c.status)}</Badge>
+                    <TableCell className="font-medium">
+                      <button type="button" className="text-left hover:underline focus-visible:underline" onClick={(event) => { event.stopPropagation(); viewDetail(c); }}>{c.countNumber}</button>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{new Date(c.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell>{c.locationName || locations.find(l => l.id === c.locationId)?.name || '\u2014'}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatEnumLabel(c.type)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {c.status === 'IN_PROGRESS' && c.itemCount ? `${c.countedCount ?? 0} of ${c.itemCount} counted` : c.itemCount ?? '\u2014'}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={statusVariant[c.status] || 'secondary'}>{formatEnumLabel(c.status)}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(c.createdAt)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -383,12 +406,7 @@ export const CycleCount: React.FC = () => {
           </div>}
           <div>
             <label className="block text-sm font-medium mb-1">Notes</label>
-            <textarea
-              value={createNotes}
-              onChange={(e) => setCreateNotes(e.target.value)}
-              className="w-full px-3 py-2 bg-background border border-input rounded-md text-foreground text-sm"
-              rows={2}
-            />
+            <Textarea aria-label="Count notes" value={createNotes} onChange={(e) => setCreateNotes(e.target.value)} rows={2} />
           </div>
           {createType === 'PARTIAL' && !selectedProducts.length && <p id="count-products-hint" className="text-xs text-muted-foreground">Select at least one product for a partial count.</p>}
           <div className="flex justify-end gap-2 pt-2">
@@ -404,13 +422,13 @@ export const CycleCount: React.FC = () => {
         onClose={() => { setRecordId(''); setSelectedCount(null); }}
         title={`Cycle Count ${selectedCount?.countNumber || ''}`}
       >
-        {!selectedCount && (detailError ? <div role="alert"><p>{detailError}</p><Button variant="outline" onClick={() => setDetailRefresh(value => value + 1)}>Retry</Button></div> : <p role="status">Loading details...</p>)}
+        {!selectedCount && (detailError ? <Alert tone="error" title={detailError} action={<Button variant="outline" onClick={() => setDetailRefresh(value => value + 1)}>Retry</Button>} /> : <LoadingState label="Loading details…" />)}
         {selectedCount && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
               <div>
                 <p className="text-muted-foreground">Status</p>
-                <Badge className={statusColors[selectedCount.status] || ''}>{formatEnumLabel(selectedCount.status)}</Badge>
+                <Badge variant={statusVariant[selectedCount.status] || 'secondary'}>{formatEnumLabel(selectedCount.status)}</Badge>
               </div>
               <div>
                 <p className="text-muted-foreground">Type</p>
@@ -418,7 +436,7 @@ export const CycleCount: React.FC = () => {
               </div>
               <div>
                 <p className="text-muted-foreground">Location</p>
-                <p>{locations.find(l => l.id === selectedCount.locationId)?.name || selectedCount.locationId}</p>
+                <p>{locations.find(l => l.id === selectedCount.locationId)?.name || '\u2014'}</p>
               </div>
             </div>
 
@@ -431,7 +449,9 @@ export const CycleCount: React.FC = () => {
               <h4 className="text-sm font-medium mb-2">
                 Items ({selectedCount.items.length})
                 {selectedCount.status === 'IN_PROGRESS' && (
-                  <span className="text-muted-foreground font-normal ml-2">— Enter counted quantities</span>
+                  <span className="text-muted-foreground font-normal ml-2">
+                    {uncountedItems ? `${uncountedItems} still to count` : 'All items counted'}{unsavedItems.length ? ` · ${unsavedItems.length} not saved yet` : ''}
+                  </span>
                 )}
               </h4>
               <div className="max-h-[300px] overflow-y-auto space-y-1">
@@ -445,13 +465,20 @@ export const CycleCount: React.FC = () => {
                         min="0"
                         aria-label={'Count for ' + (item.product?.name || item.productId)}
                         value={itemCounts[item.id] ?? ''}
-                        onChange={(e) => setItemCounts({ ...itemCounts, [item.id]: parseInt(e.target.value) || 0 })}
+                        onChange={(e) => {
+                          // A cleared field means "not counted yet", never zero.
+                          const next = { ...itemCounts };
+                          const parsed = Number.parseInt(e.target.value, 10);
+                          if (e.target.value === '' || !Number.isFinite(parsed) || parsed < 0) delete next[item.id];
+                          else next[item.id] = parsed;
+                          setItemCounts(next);
+                        }}
                         placeholder="Count"
                         className="w-20 text-right"
                       />
                     ) : (
                       <>
-                        <span className="w-20 text-right">Counted: {item.countedQty ?? '-'}</span>
+                        <span className="w-20 text-right">Counted: {item.countedQty ?? '\u2014'}</span>
                         {item.discrepancy !== null && item.discrepancy !== 0 && (
                           <span className={`w-16 text-right font-medium ${item.discrepancy > 0 ? 'text-success' : 'text-destructive'}`}>
                             {item.discrepancy > 0 ? '+' : ''}{item.discrepancy}
@@ -490,15 +517,17 @@ export const CycleCount: React.FC = () => {
                   >
                     <XCircle className="w-4 h-4 mr-1" /> Cancel
                   </Button>
-                  <Button variant="outline" size="sm" onClick={handleSaveItems}>
+                  <Button variant="outline" size="sm" onClick={handleSaveItems} disabled={busy || !unsavedItems.length}>
                     <Eye className="w-4 h-4 mr-1" /> Save Progress
                   </Button>
                   <Button
                     variant="primary"
                     size="sm"
+                    disabled={busy || uncountedItems > 0}
+                    title={uncountedItems > 0 ? `${uncountedItems} item${uncountedItems === 1 ? '' : 's'} still need a count` : undefined}
                     onClick={() => setConfirmState({
                       title: 'Submit for review?',
-                      message: 'Make sure all items have been counted before submitting.',
+                      message: unsavedItems.length ? 'Your entered counts will be saved, then the count goes to review.' : 'The count goes to review; counts can no longer be changed.',
                       confirmLabel: 'Submit',
                       action: handleSubmit,
                     })}

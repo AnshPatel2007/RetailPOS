@@ -31,7 +31,7 @@ test('owner reviews opening inventory, previews audited corrections and recovers
   await page.getByLabel('Search inventory costs').fill(name);
   await expect(product.getByText('$80.00', { exact: true })).toBeVisible();
   await expect(product.getByText('Confirmed', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Value ledger', exact: true }).click();
+  await page.getByRole('button', { name: 'Value Ledger', exact: true }).click();
   await page.getByRole('button', { name: 'Toggle theme', exact: true }).click();
   const openingEntry = page.getByRole('row').filter({ hasText: name }).filter({ hasText: 'Opening' });
   await openingEntry.getByRole('button', { name: 'Review cost', exact: true }).click();
@@ -43,13 +43,13 @@ test('owner reviews opening inventory, previews audited corrections and recovers
   await page.screenshot({ path: 'test-results/inventory-correction-dark.png', fullPage: true, animations: 'disabled' });
   await correction.getByRole('button', { name: 'Confirm correction', exact: true }).click();
   await expect(correction).toHaveCount(0);
-  await page.getByRole('button', { name: 'Valuation as of', exact: true }).click();
+  await page.getByRole('button', { name: 'Value by Date', exact: true }).click();
   await expect(product.getByText('$90.00', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByText('Inventory costs updated', { exact: true })).toHaveCount(0, { timeout: 10000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/inventory-valuation-mobile.png', fullPage: true, animations: 'disabled' });
-  await page.getByRole('button', { name: 'Reconciliation', exact: true }).click();
+  await page.getByRole('button', { name: 'Monthly Summary', exact: true }).click();
   await expect(page.getByText('Closing inventory', { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -57,10 +57,10 @@ test('owner reviews opening inventory, previews audited corrections and recovers
 test('manager can inspect costs but cannot confirm owner opening values', async ({ page }) => {
   await login(page, 'manager@example.test');
   await page.goto('/financial?tab=inventory');
-  await expect(page.getByRole('button', { name: 'Balances & opening', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Balances & Opening', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review opening', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Review opening inventory', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Missing costs', exact: true }).click();
+  await page.getByRole('button', { name: 'Missing Costs', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Review cost', exact: true })).toHaveCount(0);
 });
 

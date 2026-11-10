@@ -2,7 +2,7 @@ import { getSalesReportData } from '../services/salesReport.service';
 import { nextDocumentNumber } from '../services/documentNumber.service';
 import { Response } from 'express';
 import { getProfitAndLossWorkbook } from '../services/profitAndLossWorkbook.service';
-import { getReportRange } from '../services/reportDates.service';
+import { getReportRange, reportCalendar } from '../services/reportDates.service';
 import { getFinancialMetrics } from '../services/financialMetrics.service';
 import { expenseDebitAccount, isInventoryPurchase } from '../services/expenseAccounting.service';
 import { expenseCalendarDate } from '../services/expenseDates.service';
@@ -298,9 +298,9 @@ export const createRecurringExpense = asyncHandler(async (req: AuthRequest, res:
   let nextDueDate = new Date(start);
 
   if (frequency === 'MONTHLY' && dayOfMonth) {
-    nextDueDate.setDate(dayOfMonth);
+    nextDueDate.setUTCDate(dayOfMonth);
     if (nextDueDate < start) {
-      nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+      nextDueDate.setUTCMonth(nextDueDate.getUTCMonth() + 1);
     }
   }
 
@@ -388,8 +388,11 @@ export const deleteRecurringExpense = asyncHandler(async (req: AuthRequest, res:
 export const generateRecurringExpenses = asyncHandler(async (req: AuthRequest, res: Response) => {
   const now = new Date();
   const scope = getLocationFilter(req, req.query.locationId as string);
+  // Recurring dates are calendar days kept at UTC midnight. One is due once the store's own
+  // date reaches it, so a US store is not charged the evening before. (+14 h covers every zone;
+  // each store's exact day is checked below.)
   const due = await prisma.recurringExpense.findMany({
-    where: { ...scope, isActive: true, nextDueDate: { lte: now },
+    where: { ...scope, isActive: true, nextDueDate: { lte: new Date(now.getTime() + 14 * 3600_000) },
       ...(req.user?.role !== 'ADMIN' ? { category: { not: 'PAYROLL' as const } } : {}) },
     select: { id: true }, orderBy: { id: 'asc' }, take: 1000,
   });
@@ -400,15 +403,20 @@ export const generateRecurringExpenses = asyncHandler(async (req: AuthRequest, r
       const recurring = await tx.recurringExpense.findUniqueOrThrow({ where: { id: row.id } });
       assertOwnsRecord(req, recurring.locationId);
       if (!recurring.isActive) return [];
+      const store = await tx.location.findUnique({ where: { id: recurring.locationId! }, select: { timezone: true } });
+      const calendar = reportCalendar(store?.timezone || 'UTC', now);
+      const storeToday = new Date(Date.UTC(calendar.year, calendar.month - 1, calendar.dayOfMonth));
+      // An expense is dated at the store's midnight of its calendar day, like any typed expense.
+      const storeDay = (day: Date) => calendar.midnight(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate());
       const created = [];
       let nextDate = new Date(recurring.nextDueDate);
-      for (let i = 0; i < 366 && nextDate <= now && (!recurring.endDate || nextDate <= recurring.endDate); i++) {
+      for (let i = 0; i < 366 && nextDate <= storeToday && (!recurring.endDate || nextDate <= recurring.endDate); i++) {
         const number = 'REC-' + recurring.id + '-' + nextDate.getTime();
         const exists = await tx.expense.findFirst({ where: { OR: [{ referenceKey: number }, { expenseNumber: number }] } });
         if (!exists) created.push(await tx.expense.create({ data: {
           expenseNumber: await nextDocumentNumber('EXP', tx), referenceKey: number, category: recurring.category,
           description: recurring.description + ' (Auto-generated)', amount: recurring.amount,
-          vendor: recurring.vendor, expenseDate: nextDate, locationId: recurring.locationId,
+          vendor: recurring.vendor, expenseDate: storeDay(nextDate), locationId: recurring.locationId,
           userId: recurring.userId, status: 'PENDING',
         } }));
         const next = new Date(nextDate);
@@ -459,7 +467,8 @@ export const exportSales = asyncHandler(async (req: AuthRequest, res: Response) 
       type: 'SALES',
       format: format as string,
       startDate: start!,
-      endDate: end,
+      // Store the last instant covered, so the history shows the chosen last day, not the next one.
+      endDate: endExclusive ? new Date(end.getTime() - 1) : end,
       recordCount: journalEntries.length,
       userId: req.user!.id,
       locationId: locationFilter.locationId,
@@ -538,7 +547,8 @@ export const exportExpenses = asyncHandler(async (req: AuthRequest, res: Respons
       type: 'EXPENSES',
       format: format as string,
       startDate: start!,
-      endDate: end,
+      // Store the last instant covered, so the history shows the chosen last day, not the next one.
+      endDate: endExclusive ? new Date(end.getTime() - 1) : end,
       recordCount: journalEntries.length,
       userId: req.user!.id,
       locationId: locationFilter.locationId,

@@ -137,17 +137,15 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       <div className="space-y-4">
           <form id={formId} onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
+              <div role="alert" className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
                 {error}
               </div>
             )}
 
             {/* Category */}
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Category <span className="text-destructive">*</span>
-              </label>
               <Select
+                label="Category"
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -164,10 +162,8 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
 
             {/* Period */}
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Budget Period <span className="text-destructive">*</span>
-              </label>
               <Select
+                label="Budget Period"
                 value={formData.period}
                 onChange={(e) => setFormData({ ...formData, period: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -183,11 +179,10 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
 
             {/* Amount */}
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Budget Amount <span className="text-destructive">*</span>
-              </label>
               <Input
+                label="Budget Amount"
                 type="number"
+                min="0.01"
                 step="0.01"
                 value={formData.amount}
                 onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
@@ -199,16 +194,16 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
             {/* Date Range */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Start Date</label>
                 <Input
+                  label="Start Date"
                   type="date"
                   value={formData.startDate}
                   onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">End Date</label>
                 <Input
+                  label="End Date"
                   type="date"
                   value={formData.endDate}
                   onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}

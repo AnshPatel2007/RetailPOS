@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import app from '../../server';
 import { prisma, seedTestData, TestData } from './setup';
 import { createTestToken } from './helpers';
-import { getFinancialMetrics } from '../../services/financialMetrics.service';
+import { getFinancialMetrics, getProductFinancialMetrics } from '../../services/financialMetrics.service';
 import { decimal, valueMovement } from '../../services/inventoryCost.service';
 import { rankRelatedProducts } from '../../services/inventoryException.service';
 
@@ -63,11 +63,23 @@ describe('Retail inventory acceptance', () => {
     expect(Number(line.costAmount)).toBe(4.5); // 2 covered at average + 1 estimated at $1.50
     const value = await balance();
     expect(value.quantity).toBe(-1); expect(Number(value.value)).toBe(-1.5);
+    // Profit waits while the stock exception is open; it is never shown on an estimate.
+    const pending = await getFinancialMetrics({ locationId: data.location.id });
+    expect(pending.costOfGoodsSold).toBeNull(); expect(pending.grossProfit).toBeNull(); expect(pending.netProfit).toBeNull();
+    expect(pending.costBasis).toBe('UNAVAILABLE');
+    expect(pending.costCompleteness).toMatchObject({ complete: false, estimated: true, pendingStockProblems: 1,
+      label: 'Waiting on stock exceptions', reviewPath: '/inventory/stock-control/exceptions' });
+    expect(pending.unavailableReason).toMatch(/Resolve 1 stock exception/);
+    const [product] = await getProductFinancialMetrics({ locationId: data.location.id });
+    expect(product).toMatchObject({ profit: null, costBasis: 'UNAVAILABLE', costPendingStockReview: true });
+    // Once a manager resolves it, profit returns using the recorded cost.
+    const exception = (await openException())!;
+    await post(`/api/inventory-exceptions/${exception.id}/resolve`, { resolution: 'NO_CHANGE_NEEDED' }).expect(200);
     const metrics = await getFinancialMetrics({ locationId: data.location.id });
     expect(metrics.costOfGoodsSold).toBe(4.5);
     expect(metrics.grossProfit).toBe(Math.round((7.47 - 4.5) * 100) / 100);
     expect(metrics.costBasis).toBe('ESTIMATED');
-    expect(metrics.costCompleteness).toMatchObject({ complete: true, estimated: true, label: 'Includes estimated costs' });
+    expect(metrics.costCompleteness).toMatchObject({ complete: true, estimated: true, pendingStockProblems: 0, label: 'Includes estimated costs' });
   });
 
   it('3. completes a sale with no cost source but flags profit as unresolved, not fully profitable', async () => {
@@ -226,6 +238,10 @@ describe('Retail inventory acceptance', () => {
     expect(value.quantity).toBe(21); expect(Number(value.value)).toBe(33.6); // 21 x $1.60, never rebuilt from a negative base
     const receipt = await prisma.inventoryValueEntry.findFirstOrThrow({ where: { productId: data.product.id, kind: 'PURCHASE' } });
     expect(Number(receipt.cogsAmount)).toBe(0.3); // 3 shortfall units x ($1.60 - $1.50)
+    // The receipt does not explain the shortfall, so profit waits for the manager's review.
+    const pending = await getFinancialMetrics({ locationId: data.location.id });
+    expect(pending.inventoryCostAdjustments).toBe(0.3); expect(pending.costOfGoodsSold).toBeNull();
+    await post(`/api/inventory-exceptions/${(await openException())!.id}/resolve`, { resolution: 'MISSING_RECEIPT' }).expect(200);
     const metrics = await getFinancialMetrics({ locationId: data.location.id });
     expect(metrics.inventoryCostAdjustments).toBe(0.3);
     expect(metrics.costOfGoodsSold).toBe(4.8);
@@ -383,6 +399,8 @@ describe('Retail inventory acceptance', () => {
       await opening(0, 0);
       await sell(2).expect(201);
       await post(`/api/products/${data.product.id}/adjust-inventory`, { quantity: 2, type: 'CORRECTION' }).expect(200);
+      expect((await metrics()).costOfGoodsSold).toBeNull(); // waiting on the open exception
+      await post(`/api/inventory-exceptions/${(await openException())!.id}/resolve`, { resolution: 'MISCOUNT' }).expect(200);
       const after = await metrics();
       expect(after.costOfGoodsSold).toBe(3); expect(after.costCompleteness.complete).toBe(true);
     });

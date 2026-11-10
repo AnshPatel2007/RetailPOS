@@ -1,15 +1,15 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
 
-test('report views preserve links, load independently and open AI only on request', async ({ page }, testInfo) => {
+test('old report links land on a current view, load independently and open AI only on request', async ({ page }, testInfo) => {
   await login(page, 'owner@example.test');
   const requests: string[] = [];
   page.on('request', request => requests.push(new URL(request.url()).pathname));
   await page.goto('/analytics?tab=forecast');
-  await expect(page).toHaveURL(/\/insights\/reports\/overview\?view=forecast$/);
-  const forecastTab = page.getByRole('navigation', { name: 'Overview analysis views' }).getByRole('button', { name: 'Forecast', exact: true });
+  // Forecast was removed; its old link opens the Overall Report.
+  await expect(page).toHaveURL(/\/insights\/reports\/overview\?view=summary$/);
+  const forecastTab = page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Overview', exact: true });
   await expect(forecastTab).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByText('Forecast unavailable', { exact: true })).toBeVisible();
   expect(requests.filter(path => /\/analytics\/(abc-analysis|product-matrix|comparison|realtime|chat)$/.test(path))).toHaveLength(0);
   await page.reload(); await expect(forecastTab).toHaveAttribute('aria-current', 'page');
   await page.getByRole('button', { name: 'Open POS assistant', exact: true }).click();

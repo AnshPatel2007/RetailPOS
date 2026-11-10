@@ -7,14 +7,19 @@ import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { ShoppingCart, ShieldCheck, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useRegisterStore } from '@/store/registerStore';
+import { StaffSignIn } from '@/components/register/StaffSignIn';
 
-type LoginStep = 'credentials' | 'twoFactor' | 'forgot';
+type LoginStep = 'staff' | 'credentials' | 'twoFactor' | 'forgot';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
   const { login, error, isLoading, clearError } = useAuthStore();
 
-  const [step, setStep] = useState<LoginStep>('credentials');
+  // A computer set up as a register opens on "tap your name, enter your PIN".
+  const device = useRegisterStore(state => state.device);
+  const [step, setStep] = useState<LoginStep>(device ? 'staff' : 'credentials');
+  const [notice, setNotice] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [twoFactorCode, setTwoFactorCode] = useState('');
@@ -103,6 +108,7 @@ export const Login: React.FC = () => {
           </div>
           <CardTitle className="text-2xl font-semibold">POS System</CardTitle>
           <p className="text-muted-foreground mt-2">
+            {step === 'staff' && device && `${device.storeName} · ${device.name}`}
             {step === 'credentials' && 'Sign in to your account'}
             {step === 'twoFactor' && 'Two-factor authentication'}
             {step === 'forgot' && 'Reset your password'}
@@ -110,9 +116,21 @@ export const Login: React.FC = () => {
         </CardHeader>
 
         <CardContent className="px-6 pb-6">
-          {error && (
-            <div className="p-3 mb-4 bg-destructive/10 border border-destructive rounded-md">
+          {error && step !== 'staff' && (
+            <div role="alert" className="p-3 mb-4 bg-destructive/10 border border-destructive rounded-md">
               <p className="text-sm text-destructive">{error}</p>
+            </div>
+          )}
+          {notice && step === 'credentials' && <p role="status" className="p-3 mb-4 rounded-md bg-muted text-sm">{notice}</p>}
+
+          {step === 'staff' && device && (
+            <div className="space-y-4">
+              <StaffSignIn onSignedIn={() => navigate('/pos')} onUnavailable={reason => { setNotice(reason); setStep('credentials'); }} />
+              <div className="text-center">
+                <button type="button" className="text-sm text-primary hover:underline" onClick={() => { clearError(); setStep('credentials'); }}>
+                  Sign in with email instead
+                </button>
+              </div>
             </div>
           )}
 
@@ -158,6 +176,11 @@ export const Login: React.FC = () => {
                 >
                   Forgot password?
                 </button>
+                {device && (
+                  <button type="button" className="block mx-auto mt-2 text-sm text-primary hover:underline" onClick={() => { clearError(); setNotice(''); setStep('staff'); }}>
+                    Sign in with your PIN
+                  </button>
+                )}
               </div>
             </form>
           )}

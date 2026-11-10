@@ -1,3 +1,4 @@
+import { formatCurrency, formatEnumLabel } from '@/lib/utils';
 import { formatUnitPrice } from '@/lib/money';
 import React, { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
@@ -102,7 +103,7 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
                 <div className="font-medium text-[11px]">{item.name}</div>
                 <div className="flex justify-between pl-2 text-gray-700">
                   <span>{item.quantity} x ${formatUnitPrice(item.price)}</span>
-                  <span>${item.total.toFixed(2)}</span>
+                  <span>{formatCurrency(item.total)}</span>
                 </div>
               </div>
             ))}
@@ -113,43 +114,43 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
           <div className="space-y-0.5">
             <div className="flex justify-between">
               <span>Subtotal</span>
-              <span>${receipt.subtotal.toFixed(2)}</span>
+              <span>{formatCurrency(receipt.subtotal)}</span>
             </div>
             <div className="flex justify-between">
               <span>Tax</span>
-              <span>${receipt.tax.toFixed(2)}</span>
+              <span>{formatCurrency(receipt.tax)}</span>
             </div>
             {receipt.discount > 0 && (
               <div className="flex justify-between">
                 <span>Discount</span>
-                <span>-${receipt.discount.toFixed(2)}</span>
+                <span>-{formatCurrency(receipt.discount)}</span>
               </div>
             )}
             {(receipt.surcharge ?? 0) > 0 && (
               <div className="flex justify-between">
                 <span>Card Surcharge</span>
-                <span>${(receipt.surcharge as number).toFixed(2)}</span>
+                <span>{formatCurrency(receipt.surcharge as number)}</span>
               </div>
             )}
             <div className="border-t border-gray-800 my-1" />
             <div className="flex justify-between font-bold text-sm">
               <span>TOTAL</span>
-              <span>${receipt.total.toFixed(2)}</span>
+              <span>{formatCurrency(receipt.total)}</span>
             </div>
             {(receipt.savings ?? 0) > 0 && (
               <div className="text-center font-bold text-[11px] py-0.5">
-                *** You saved ${(receipt.savings as number).toFixed(2)} today! ***
+                *** You saved {formatCurrency(receipt.savings as number)} today! ***
               </div>
             )}
             <div className="border-t border-gray-800 my-1" />
             <div className="flex justify-between">
-              <span>Paid ({receipt.paymentMethod.replace(/_/g, ' ')})</span>
-              <span>${receipt.amountPaid.toFixed(2)}</span>
+              <span>Paid ({formatEnumLabel(receipt.paymentMethod)})</span>
+              <span>{formatCurrency(receipt.amountPaid)}</span>
             </div>
             {receipt.change > 0 && (
               <div className="flex justify-between font-bold">
                 <span>Change</span>
-                <span>${receipt.change.toFixed(2)}</span>
+                <span>{formatCurrency(receipt.change)}</span>
               </div>
             )}
           </div>

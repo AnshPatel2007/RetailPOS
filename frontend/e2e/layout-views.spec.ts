@@ -2,14 +2,12 @@ import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
 
 const views: [string, string][] = [
-  ...['summary', 'comparison', 'forecast', 'whatif', 'health', 'anomalies'].map(view => ['/insights/reports/overview?view=' + view, 'Reports'] as [string, string]),
-  ...['stock-health', 'catalog', 'abc', 'products', 'predictions', 'bundles'].map(view => ['/insights/reports/inventory?view=' + view, 'Reports'] as [string, string]),
-  ...['sales', 'performance'].map(view => ['/insights/reports/staff?view=' + view, 'Reports'] as [string, string]),
+  ['/insights/reports/overview?view=summary', 'Reports'], ['/insights/reports/inventory?view=stock-health', 'Reports'], ['/insights/reports/staff?view=sales', 'Reports'],
   ['/insights/reports/sales', 'Reports'], ['/insights/reports/exports', 'Reports'],
   ...['expenses', 'budgets', 'recurring', 'pnl'].map(tab => ['/financial?tab=' + tab, 'Finances'] as [string, string]),
   ...['profile', 'store', 'payments', 'receipts', 'notifications', 'devices'].map(section => ['/settings?section=' + section, 'Settings'] as [string, string]),
   ...['daily', 'reports', 'ticketTypes'].map(tab => ['/lottery?tab=' + tab, 'Lottery'] as [string, string]),
-  ...['corrections', 'legacy', 'history'].map(view => ['/financial/reconciliation?view=' + view, 'Reconciliation'] as [string, string]),
+  ...['corrections', 'legacy', 'history'].map(view => ['/financial/reconciliation?view=' + view, 'Balance Corrections'] as [string, string]),
   ['/customers/insights?analysis=overview', 'Customer Insights'], ['/customers/insights?analysis=segments', 'Customer Insights'],
 ];
 

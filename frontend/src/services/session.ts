@@ -1,9 +1,9 @@
 import { useCartStore } from '../store/cartStore';
 import { useStoreSettingsStore } from '../store/storeSettingsStore';
-import { useFavoritesStore } from '../store/favoritesStore';
 import { useAdminViewStore } from '../store/adminViewStore';
 import { offlineDb } from './offlineDb';
 import { cancelApproval } from '../store/approvalStore';
+import { useRegisterStore } from '../store/registerStore';
 
 /**
  * Clears every piece of per-account/per-store client state. Called from
@@ -17,8 +17,10 @@ export const clearSessionState = async (): Promise<void> => {
   localStorage.removeItem('pos-checkout-attempt');
   useCartStore.getState().resetForLogout();
   useStoreSettingsStore.getState().reset();
-  useFavoritesStore.getState().reset();
+  // Favorites are this register's quick keys (product ids, nothing personal): they stay.
   useAdminViewStore.getState().exitAdminView();
+  // The register setup belongs to this computer and stays; a lock never outlives its session.
+  useRegisterStore.getState().unlock();
   try {
     await offlineDb.clearCachesForLogout();
   } catch {

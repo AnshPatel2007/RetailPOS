@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { saleService } from '@/services/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateTime, formatEnumLabel } from '@/lib/utils';
 import { Search, AlertTriangle, RotateCcw, Minus, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
@@ -277,7 +277,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
     }
 
     if (sale.refundTenderError || tenderSelection.invalid) { toast.error(sale.refundTenderError || 'Review original-tender amounts and terminal references'); return; }
-    const methodLabel = tenderSelection.tenders.map(part => part.method.replace(/_/g, ' ')).join(' and ') || 'no monetary payout';
+    const methodLabel = tenderSelection.tenders.map(part => formatEnumLabel(part.method)).join(' and ') || 'no monetary payout';
     if (!(await confirm({ title: `Refund ${formatCurrency(effectiveAmount)}?`, message: `Paid back to ${methodLabel.toLowerCase()} for sale #${sale.saleNumber}.`, confirmLabel: 'Refund', cancelLabel: 'Go back' }))) {
       return;
     }
@@ -366,7 +366,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {new Date(sale.createdAt).toLocaleString()} · {sale.paymentMethod.replace(/_/g, ' ')}
+                  {formatDateTime(sale.createdAt)} · {formatEnumLabel(sale.paymentMethod)}
                   {sale.customer && ` · ${sale.customer.firstName} ${sale.customer.lastName}`}
                 </p>
                 <div className="border-t pt-2 flex justify-between font-bold">
@@ -382,7 +382,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
                 <p className="text-xs font-medium text-warning">Previous Refunds:</p>
                 {sale.refunds.map((r) => (
                   <div key={r.id} className="flex justify-between text-xs text-warning">
-                    <span>{r.reason}{Array.isArray(r.tenders) ? ` · ${r.tenders.map(part => part.method.replace(/_/g, ' ') + ' ' + formatCurrency(part.amount)).join(', ')}` : ''}</span>
+                    <span>{r.reason}{Array.isArray(r.tenders) ? ` · ${r.tenders.map(part => formatEnumLabel(part.method) + ' ' + formatCurrency(part.amount)).join(', ')}` : ''}</span>
                     <span>{formatCurrency(r.amount)}</span>
                   </div>
                 ))}
@@ -397,7 +397,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
             {sale.status === 'REFUNDED' || sale.status === 'VOIDED' || (!sale.pricingVersion && getRefundableAmount() <= 0) ? (
               <div className="flex items-center gap-2 text-destructive text-sm">
                 <AlertTriangle className="h-4 w-4" />
-                This sale has been fully refunded.
+                {sale.status === 'VOIDED' ? 'This sale was voided; nothing is left to refund.' : 'This sale has been fully refunded.'}
               </div>
             ) : (
               <div className="space-y-3">

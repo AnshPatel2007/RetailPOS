@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { openReceipt } from './utils/sale-complete';
 import { confirmInApp } from './utils/confirm-helper';
 
 test('photo catalog and text-only cart keep six item rows visible on a laptop', async ({ page }, info) => {
@@ -68,7 +69,9 @@ test('short receipts print a barcode and Quick Refund supports recent, typed and
   await payment.getByRole('button', { name: 'Charge $11.00', exact: true }).click();
   const response = await saved; expect(response.status()).toBe(201); const sale = (await response.json()).data;
   expect(sale.saleNumber).toMatch(/^S-\d{6}-\d{6,}$/);
-  const receipt = page.getByRole('dialog', { name: 'Receipt', exact: true });
+  // No pop-up after the sale: the cart shows it as complete, and its receipt opens on request.
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const receipt = await openReceipt(page);
   const barcode = receipt.getByRole('img', { name: 'Receipt barcode ' + sale.saleNumber, exact: true });
   await expect(barcode).toBeVisible(); await expect(barcode).toHaveAttribute('viewBox', /^0 0 \d+ \d+$/);
   await barcode.scrollIntoViewIfNeeded(); await page.screenshot({ path: info.outputPath('receipt-barcode.png'), animations: 'disabled' });

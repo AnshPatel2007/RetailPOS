@@ -5,7 +5,7 @@ import { saleService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { cashOperationKey, cashOperationRejected, readCashOperation, PendingCashOperation } from '@/services/pendingCashOperation';
 import { sessionGeneration } from '@/services/sessionGeneration';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateTime } from '@/lib/utils';
 import type { Sale } from '@/types';
 
 export function SaleVoidDialog({ sale, onClose, onSuccess }: { sale: Sale; onClose: () => void; onSuccess: () => void }) {
@@ -94,7 +94,7 @@ export function SaleVoidDialog({ sale, onClose, onSuccess }: { sale: Sale; onClo
       <p>{pending?.label || sale.saleNumber}: <strong>{formatCurrency(pending?.amount ?? sale.total)}</strong></p>
       <p className="text-sm text-muted-foreground">This reverses the full sale and restores its inventory. The original sale stays in its original period; the reversal is recorded today.</p>
       <p className="text-sm text-muted-foreground">For external card payments, complete the reversal on the card terminal first. This action records the reversal in the POS.</p>
-      {sale.status === 'VOIDED' && !pending && <p role="status">This sale is already voided. {sale.voidEvent ? `${sale.voidEvent.reason} (${new Date(sale.voidEvent.createdAt).toLocaleString()})` : 'The legacy reversal date is unavailable.'}</p>}
+      {sale.status === 'VOIDED' && !pending && <p role="status">This sale is already voided. {sale.voidEvent ? `${sale.voidEvent.reason} (${formatDateTime(sale.voidEvent.createdAt)})` : 'The legacy reversal date is unavailable.'}</p>}
       {pending ? <p role="status">A saved void needs confirmation. Retry it before starting another void. Reason: {String(pending.payload.reason)}</p> : sale.status !== 'VOIDED' && <label className="block space-y-2"><span>Reason</span><textarea className="w-full rounded-md border bg-background p-3" value={reason} onChange={e => setReason(e.target.value)} maxLength={500} /></label>}
       {error && <p role="alert" className="text-destructive">{error}</p>}
       {storageError && <Button variant="outline" disabled={busy} onClick={readRecovery}>Retry recovery storage</Button>}

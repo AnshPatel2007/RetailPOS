@@ -9,6 +9,7 @@ import { Layout } from './components/Layout';
 import { LegacyInsightsRedirect } from './pages/InsightsWorkspace';
 import { ManagerApprovalDialog } from './components/ManagerApprovalDialog';
 import { GlobalAssistant } from './components/assistant/GlobalAssistant';
+import { RegisterLockLayer } from './components/register/RegisterLock';
 import { WorkflowNavigation, PreserveRedirect, StockControlNavigation, purchasingViews, accountViews, TeamNavigation, ShiftRedirect } from './components/common/WorkflowNavigation';
 import { changeSessionGeneration } from './services/sessionGeneration';
 
@@ -29,7 +30,7 @@ const Shifts = lazy(() => import('./pages/Shifts').then(m => ({ default: m.Shift
 const InsightsWorkspace = lazy(() => import('./pages/InsightsWorkspace').then(m => ({ default: m.InsightsWorkspace })));
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
 const Suppliers = lazy(() => import('./pages/Suppliers').then(m => ({ default: m.Suppliers })));
-const Analytics = lazy(() => import('./pages/Analytics').then(m => ({ default: m.Analytics })));
+const Reports = lazy(() => import('./pages/Reports').then(m => ({ default: m.Reports })));
 const Financial = lazy(() => import('./pages/Financial').then(m => ({ default: m.Financial })));
 const Reconciliation = lazy(() => import('./pages/Reconciliation').then(m => ({ default: m.Reconciliation })));
 const BackgroundJobs = lazy(() => import('./pages/BackgroundJobs').then(m => ({ default: m.BackgroundJobs })));
@@ -113,7 +114,8 @@ const PageRoute: React.FC<{
 
 function AnalyticsEntry() {
   const role = useAuthStore(state => state.user?.role);
-  return role === 'SUPER_ADMIN' ? <Analytics /> : <LegacyInsightsRedirect source="analytics" />;
+  // The platform administrator gets the same reports as store owners, with a store picker.
+  return role === 'SUPER_ADMIN' ? <Reports /> : <LegacyInsightsRedirect source="analytics" />;
 }
 
 function App() {
@@ -151,6 +153,7 @@ function App() {
     <BrowserRouter>
       <ManagerApprovalDialog />
       <GlobalAssistant />
+      <RegisterLockLayer />
       {import.meta.env.PROD && <VercelAnalytics />}
       <Toaster
         position="top-right"

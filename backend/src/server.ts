@@ -60,6 +60,19 @@ const loginLimiter = rateLimit({
 });
 
 /**
+ * Rate limiting - Register PIN attempts (each person's PIN also locks after 5 wrong tries)
+ */
+const pinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, error: 'Too many PIN attempts from this register. Wait a few minutes or sign in with email.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  skip: () => config.nodeEnv === 'test',
+});
+
+/**
  * Rate limiting - Password reset (stricter)
  */
 const passwordResetLimiter = rateLimit({
@@ -100,6 +113,7 @@ app.use('/api/v1', publicApiLimiter);
 
 app.use('/api/', generalLimiter);
 app.use('/api/auth/login', loginLimiter);
+app.use(['/api/auth/pin-login', '/api/auth/pin/verify'], pinLimiter);
 app.use('/api/auth/forgot-password', passwordResetLimiter);
 app.use('/api/sales/bulk-void', financialLimiter);
 app.use('/api/sales/bulk-refund', financialLimiter);

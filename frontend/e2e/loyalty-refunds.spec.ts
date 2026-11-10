@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { openReceipt } from './utils/sale-complete';
 import { confirmInApp } from './utils/confirm-helper';
 
 async function checkout(page: Page, quantity: number, points: string, total: string) {
@@ -20,7 +21,7 @@ async function checkout(page: Page, quantity: number, points: string, total: str
   await payment.getByRole('button', { name: 'Charge $' + total, exact: true }).click();
   const response = await saved; expect(response.status()).toBe(201);
   const sale = (await response.json()).data;
-  const receipt = page.getByRole('dialog', { name: 'Receipt', exact: true });
+  const receipt = await openReceipt(page);
   await expect(receipt.getByText('Points redeemed: ' + points, { exact: true })).toBeVisible();
   await expect(receipt.getByText('Points earned: ' + Math.floor(Number(total)), { exact: true })).toBeVisible();
   await receipt.getByRole('button', { name: 'Done', exact: true }).click();

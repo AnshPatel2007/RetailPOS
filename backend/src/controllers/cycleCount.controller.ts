@@ -21,10 +21,15 @@ export const getCycleCounts = asyncHandler(async (req: AuthRequest, res: Respons
   const query = z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(100).default(20), status: z.enum(['IN_PROGRESS', 'REVIEW', 'APPROVED', 'CANCELLED']).optional() }).parse(req.query);
   const where = { ...getLocationFilter(req, req.query.locationId as string), status: query.status };
   const [counts, total] = await Promise.all([
-    prisma.cycleCount.findMany({ where, include: { items: { include: itemInclude } }, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit }),
+    prisma.cycleCount.findMany({ where, include: { _count: { select: { items: true } } }, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit }),
     prisma.cycleCount.count({ where }),
   ]);
-  res.json({ success: true, data: counts, total });
+  // The list needs how many items each count holds and its store name, not every item.
+  const counted = counts.length ? await prisma.cycleCountItem.groupBy({ by: ['cycleCountId'], where: { cycleCountId: { in: counts.map(c => c.id) }, countedQty: { not: null } }, _count: true }) : [];
+  const stores = await prisma.location.findMany({ where: { id: { in: [...new Set(counts.map(c => c.locationId))] } }, select: { id: true, name: true } });
+  res.json({ success: true, total, data: counts.map(({ _count, ...count }) => ({ ...count, itemCount: _count.items,
+    countedCount: counted.find(row => row.cycleCountId === count.id)?._count ?? 0,
+    locationName: stores.find(store => store.id === count.locationId)?.name ?? null })) });
 });
 
 export const getCycleCount = asyncHandler(async (req: AuthRequest, res: Response) => {

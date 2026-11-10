@@ -24,7 +24,7 @@ for (const file of walk(path.join(root, 'frontend/src')).filter(f => f.endsWith(
         controls.push({ ...at, element: tag, label: attributes['aria-label'] || attributes.title || compact(children.replace(/<[^>]*>/g, ' ')).slice(0, 180) || '(dynamic/icon)',
           handler: compact(attributes.onClick || attributes.onSubmit || attributes.to || attributes.href || '(inherited/form submit)').slice(0, 400),
           disabledWhen: attributes.disabled || null,
-          reviewStatus: 'Requires workflow evidence; see workflow-verification.md' });
+          reviewStatus: 'Requires workflow evidence (a browser or integration test that exercises it)' });
       }
     }
     ts.forEachChild(node, visit);

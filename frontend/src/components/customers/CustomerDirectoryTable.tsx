@@ -5,9 +5,11 @@ import { Button } from '@/components/ui/Button';
 import { ActionMenu } from '@/components/ui/ActionMenu';
 import { Table, TableHeader, TableHead, TableRow, TableBody, TableCell } from '@/components/ui/Table';
 
-export function CustomerDirectoryTable({ customers, canDelete, onView, onEdit, onDelete }: {
+export function CustomerDirectoryTable({ customers, canDelete, canEdit = true, onView, onEdit, onDelete }: {
   customers: Customer[];
   canDelete: boolean;
+  /** Read-only views (platform preview, no edit permission) hide editing. */
+  canEdit?: boolean;
   onView: (customer: Customer) => void;
   onEdit: (customer: Customer) => void;
   onDelete: (customer: Customer) => void;
@@ -24,7 +26,7 @@ export function CustomerDirectoryTable({ customers, canDelete, onView, onEdit, o
         <TableCell className="customer-visits-cell text-right tabular-nums"><span className="customer-mobile-label" aria-hidden="true">Visits</span>{customer.visitCount}</TableCell>
         <TableCell className="customer-last-visit-cell text-muted-foreground"><span className="customer-mobile-label" aria-hidden="true">Last visit</span>{customer.lastVisitAt ? formatDate(customer.lastVisitAt) : 'Never'}</TableCell>
         <TableCell className="customer-actions-cell"><div className="customer-row-actions"><Button variant="ghost" size="sm" onClick={() => onView(customer)} title="View Details" aria-label={`View ${name}`}>View</Button><ActionMenu iconOnly label={`More actions for ${name}`} items={[
-          { id: 'edit', label: 'Edit customer', icon: <Edit size={16} />, onAction: () => onEdit(customer) },
+          ...(canEdit ? [{ id: 'edit', label: 'Edit customer', icon: <Edit size={16} />, onAction: () => onEdit(customer) }] : []),
           ...(canDelete ? [{ id: 'delete', label: 'Delete customer', icon: <Trash2 size={16} />, destructive: true, onAction: () => onDelete(customer) }] : []),
         ]} /></div></TableCell>
       </TableRow>;

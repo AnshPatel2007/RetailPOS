@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/lib/utils';
 import { useState } from 'react';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { LotteryEvent, lotteryMoney, lotteryRead } from '@/services/lotteryWorkbench';
@@ -12,7 +13,7 @@ export function LotteryDayHistory({ locationId, date, version }: { locationId: s
     <div className="pt-4 space-y-3"><LotteryError error={query.error} retry={() => void query.refresh()} />
       {query.loading && !query.data && <p role="status" className="text-sm">Loading day history…</p>}
       {query.data?.events.map(event => <div key={event.id} className="border-b pb-3 last:border-0 text-sm">
-        <div className="flex flex-wrap justify-between gap-2"><span className="font-medium">{actionNames[event.action] || event.action.toLowerCase().replace(/_/g, ' ')}</span><time className="text-xs text-muted-foreground">{new Date(event.createdAt).toLocaleString()}</time></div>
+        <div className="flex flex-wrap justify-between gap-2"><span className="font-medium">{actionNames[event.action] || event.action.toLowerCase().replace(/_/g, ' ')}</span><time className="text-xs text-muted-foreground">{formatDateTime(event.createdAt)}</time></div>
         {event.action === 'CORRECTION' ? <><p>{String(event.details.reason)}</p><p className="text-xs text-muted-foreground">Reference {String(event.details.reference)} · Collections {lotteryMoney(String(event.details.netCollections))} · Earnings {lotteryMoney(String(event.details.earnings))}</p></>
           : typeof event.details.reason === 'string' && <p className="text-muted-foreground">{event.details.reason}</p>}
       </div>)}

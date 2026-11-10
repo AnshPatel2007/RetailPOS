@@ -3,7 +3,8 @@ import { ManagementPage } from '@/components/common/Workspace';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { FilterDropdown } from '@/components/common/FilterDropdown';
 import { FilterChips } from '@/components/common/FilterChips';
-import { formatEnumLabel } from '@/lib/utils';
+import { formatEnumLabel, formatDate as formatStoreDate } from '@/lib/utils';
+import { Badge } from '@/components/ui/Badge';
 import { Select } from '@/components/ui/Select';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -136,27 +137,22 @@ export const AuditLog: React.FC = () => {
     setDebouncedSearch(search);
   };
 
-  const getActionColor = (action: string) => {
-    if (action.includes('DELETE') || action.includes('VOID') || action.includes('REFUND'))
-      return 'bg-destructive/10 text-destructive';
-    if (action.includes('CREATE') || action.includes('ENABLED'))
-      return 'bg-success/10 text-success';
-    if (action.includes('UPDATE') || action.includes('EDIT') || action.includes('PRICE'))
-      return 'bg-warning/10 text-warning';
-    if (action.includes('LOGIN') || action.includes('AUTH'))
-      return 'bg-info/10 text-info';
-    return 'bg-muted text-muted-foreground';
+  const actionVariant = (action: string): 'destructive' | 'success' | 'warning' | 'default' | 'secondary' => {
+    if (action.includes('DELETE') || action.includes('VOID') || action.includes('REFUND')) return 'destructive';
+    if (action.includes('CREATE') || action.includes('ENABLED')) return 'success';
+    if (action.includes('UPDATE') || action.includes('EDIT') || action.includes('PRICE')) return 'warning';
+    if (action.includes('LOGIN') || action.includes('AUTH')) return 'default';
+    return 'secondary';
   };
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString(undefined, { timeZone: timezone, month: 'short', day: 'numeric', year: 'numeric' });
-  };
-
-  const formatTime = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return d.toLocaleTimeString(undefined, { timeZone: timezone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  };
+  // The shared date format on the store's calendar; the time keeps seconds for audit precision.
+  const formatDate = (dateStr: string) => formatStoreDate(dateStr, timezone);
+  const formatTime = (dateStr: string) => new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', minute: '2-digit', second: '2-digit' }).format(new Date(dateStr));
+  // Details as labelled lines; anything nested stays readable as compact text.
+  const detailLines = (details: unknown): [string, string][] => details && typeof details === 'object' && !Array.isArray(details)
+    ? Object.entries(details as Record<string, unknown>).map(([key, value]) => [formatEnumLabel(key.replace(/([a-z])([A-Z])/g, '$1_$2')),
+      value === null || value === undefined ? '\u2014' : typeof value === 'object' ? JSON.stringify(value) : String(value)])
+    : [['Details', JSON.stringify(details)]];
 
   const autoRefresh = useLegacyPageRefresh((current, signal) => fetchLogs(true, current, signal), { key: JSON.stringify([scopeKey, page, debouncedSearch, actionFilter, entityFilter, startDate, endDate]), paused: loading });
 
@@ -251,24 +247,24 @@ export const AuditLog: React.FC = () => {
                         )}
                       </TableCell>
                       <TableCell className="px-4 py-2">
-                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${getActionColor(log.action)}`}>
+                        <Badge variant={actionVariant(log.action)}>
                           {formatEnumLabel(log.action)}
-                        </span>
+                        </Badge>
                       </TableCell>
-                      <TableCell className="px-4 py-2 text-xs">{log.entity ? formatEnumLabel(log.entity) : '-'}</TableCell>
+                      <TableCell className="px-4 py-2 text-xs">{log.entity ? formatEnumLabel(log.entity) : '—'}</TableCell>
                       <TableCell className="px-4 py-2 text-xs font-mono text-muted-foreground" title={log.entityId || undefined}>
-                        {log.entityId ? log.entityId.slice(0, 8) + '...' : '-'}
+                        {log.entityId ? log.entityId.slice(0, 8) + '...' : '—'}
                       </TableCell>
                       <TableCell className="px-4 py-2 text-xs text-muted-foreground">
-                        {log.details ? <button type="button" className="min-h-11 underline" aria-expanded={expandedRow === log.id} aria-controls={'audit-details-' + log.id} onClick={event => { event.stopPropagation(); setExpandedRow(expandedRow === log.id ? null : log.id); }}>{expandedRow === log.id ? 'Hide details' : 'View details'}</button> : '-'}
+                        {log.details ? <button type="button" className="min-h-11 underline" aria-expanded={expandedRow === log.id} aria-controls={'audit-details-' + log.id} onClick={event => { event.stopPropagation(); setExpandedRow(expandedRow === log.id ? null : log.id); }}>{expandedRow === log.id ? 'Hide details' : 'View details'}</button> : '—'}
                       </TableCell>
                     </TableRow>
                     {expandedRow === log.id && log.details && (
                       <TableRow>
                         <TableCell colSpan={6} className="px-4 py-3 bg-muted/20">
-                          <pre id={'audit-details-' + log.id} className="text-xs overflow-x-auto whitespace-pre-wrap max-w-full">
-                            {JSON.stringify(log.details, null, 2)}
-                          </pre>
+                          <dl id={'audit-details-' + log.id} className="grid max-w-full gap-x-4 gap-y-1 text-xs sm:grid-cols-[minmax(8rem,auto)_1fr]">
+                            {detailLines(log.details).map(([key, value]) => <React.Fragment key={key}><dt className="font-medium text-muted-foreground">{key}</dt><dd className="break-words">{value}</dd></React.Fragment>)}
+                          </dl>
                           {log.ipAddress && (
                             <p className="text-xs text-muted-foreground mt-2">IP: {log.ipAddress}</p>
                           )}

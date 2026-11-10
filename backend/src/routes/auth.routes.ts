@@ -7,6 +7,7 @@ import {z} from 'zod';
 import { config } from '../config';
 import * as authController from '../controllers/auth.controller';
 import * as twoFactorController from '../controllers/twoFactor.controller';
+import * as registerPinController from '../controllers/registerPin.controller';
 import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import {
@@ -37,6 +38,9 @@ router.post('/login', validate(loginSchema), authController.login);
 router.post('/refresh', authController.refreshAccessToken);
 router.post('/forgot-password', validate(forgotPasswordSchema), authController.forgotPassword);
 router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
+// Register PIN sign-in: only on a computer a manager set up as a register (see registerPin.controller).
+router.post('/register-staff', registerPinController.registerStaff);
+router.post('/pin-login', registerPinController.pinLogin);
 
 /**
  * Protected routes
@@ -51,6 +55,14 @@ router.get('/security-notifications',authenticate,asyncHandler(async(req:AuthReq
 router.post('/logout', authController.logout);
 router.post('/logout-all', authenticate, authController.logoutAll);
 router.post('/change-password', authenticate, validate(changePasswordSchema), authController.changePassword);
+
+// Register PIN and registers
+router.put('/pin', authenticate, registerPinController.setPin);
+router.delete('/pin', authenticate, registerPinController.removePin);
+router.post('/pin/verify', authenticate, registerPinController.verifyPin);
+router.get('/registers', authenticate, authorize('ADMIN', 'MANAGER'), registerPinController.listRegisters);
+router.post('/registers', authenticate, authorize('ADMIN', 'MANAGER'), registerPinController.createRegister);
+router.delete('/registers/:id', authenticate, authorize('ADMIN', 'MANAGER'), registerPinController.revokeRegister);
 
 // Session management
 router.get('/sessions', authenticate, authController.getSessions);

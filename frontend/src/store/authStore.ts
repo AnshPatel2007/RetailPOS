@@ -3,6 +3,7 @@ import { User } from '../types';
 import { authService } from '../services/api';
 import { clearSessionState } from '../services/session';
 import { changeSessionGeneration, sessionGeneration } from '../services/sessionGeneration';
+import { useRegisterStore } from './registerStore';
 import toast from 'react-hot-toast';
 
 let logoutPending: Promise<void> | null = null;
@@ -16,6 +17,8 @@ interface AuthState {
   error: string | null;
 
   login: (email: string, password: string, twoFactorCode?: string) => Promise<{ requiresTwoFactor: boolean }>;
+  /** Name + PIN on this register; replaces whoever is signed in only once the PIN is right. */
+  pinLogin: (userId: string, pin: string) => Promise<void>;
   logout: () => Promise<void>;
   loadUser: () => Promise<void>;
   clearError: () => void;
@@ -80,6 +83,26 @@ export const useAuthStore = create<AuthState>((set) => ({
       });
       throw error;
     }
+  },
+
+  pinLogin: async (userId: string, pin: string) => {
+    const device = useRegisterStore.getState().device;
+    if (!device) throw new Error('This computer is not set up as a register.');
+    if (logoutPending) await logoutPending;
+    // The PIN is checked before anything changes here: a wrong PIN leaves the current
+    // person signed in, cart and all. The server ends this browser's previous session.
+    let response;
+    try { response = await authService.pinLogin(device.token, userId, pin); }
+    catch (error: any) {
+      if (error.response?.status === 401 && /no longer set up/.test(error.response?.data?.error || '')) useRegisterStore.getState().setDevice(null);
+      throw error;
+    }
+    const { token, user } = response.data.data;
+    changeSessionGeneration();
+    await clearSessionState();
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(user));
+    set({ user, token, isAuthenticated: true, isLoading: false, error: null });
   },
 
   logout: async () => {

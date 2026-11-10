@@ -1,3 +1,4 @@
+import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { formatUnitPrice } from '@/lib/money';
 /**
  * Hardware Integration Service
@@ -54,6 +55,7 @@ export const defaultHardwareSettings: HardwareSettings = {
     inputTimeout: 100,
     minLength: 6,
     preventDuplicates: true,
+    soundEnabled: true,
   },
   receiptPrinter: {
     enabled: true,
@@ -80,6 +82,10 @@ export const defaultHardwareSettings: HardwareSettings = {
  * Barcode Scanner Service
  * Listens for keyboard input from USB barcode scanners
  */
+
+/** Receipts carry a ready-to-print date; a raw timestamp (the test receipt) is formatted here. */
+const receiptDate = (value: string) => /^\d{4}-\d{2}-\d{2}T/.test(value) ? formatDateTime(value) : value;
+
 class BarcodeScanner {
   private buffer: string = '';
   private timeout: NodeJS.Timeout | null = null;
@@ -220,7 +226,9 @@ class BarcodeScanner {
   private isDuplicate(barcode: string): boolean {
     if (!this.settings.preventDuplicates) return false;
     const now = Date.now();
-    const timeout = this.settings.duplicateTimeout || 1500; // default 1.5s
+    // Only a scanner's own double-read (well under half a second) is ignored; a cashier
+    // scanning a second identical can is always counted.
+    const timeout = this.settings.duplicateTimeout || 300;
     if (barcode === this.lastScannedBarcode && (now - this.lastScanTime) < timeout) {
       return true;
     }
@@ -429,30 +437,30 @@ class ReceiptPrinter {
     <div class="line"></div>
     <div class="center">
       <div>Receipt #${esc(receipt.saleNumber)}</div>
-      <div>${new Date(receipt.date).toLocaleString()}</div>
+      <div>${esc(receiptDate(receipt.date))}</div>
       ${receipt.employeeName ? `<div>Cashier: ${esc(receipt.employeeName)}</div>` : ''}
     </div>
     <div class="line"></div>
     <table>
       ${receipt.items.map((item) => `
       <tr><td class="item-name" colspan="2">${esc(item.name)}</td></tr>
-      <tr><td class="item-detail">${item.quantity} x $${formatUnitPrice(item.price)}</td><td class="right">$${item.total.toFixed(2)}</td></tr>
+      <tr><td class="item-detail">${item.quantity} x $${formatUnitPrice(item.price)}</td><td class="right">${formatCurrency(item.total)}</td></tr>
       `).join('')}
     </table>
     <div class="line"></div>
     <table>
-      <tr><td>Subtotal:</td><td class="right">$${receipt.subtotal.toFixed(2)}</td></tr>
-      ${this.settings.showTaxBreakdown !== false ? `<tr><td>Tax:</td><td class="right">$${receipt.tax.toFixed(2)}</td></tr>` : ''}
-      ${receipt.discount > 0 ? `<tr><td>Discount:</td><td class="right">-$${receipt.discount.toFixed(2)}</td></tr>` : ''}
-      ${receipt.surcharge && receipt.surcharge > 0 ? `<tr><td>Card Surcharge:</td><td class="right">$${receipt.surcharge.toFixed(2)}</td></tr>` : ''}
+      <tr><td>Subtotal:</td><td class="right">${formatCurrency(receipt.subtotal)}</td></tr>
+      ${this.settings.showTaxBreakdown !== false ? `<tr><td>Tax:</td><td class="right">${formatCurrency(receipt.tax)}</td></tr>` : ''}
+      ${receipt.discount > 0 ? `<tr><td>Discount:</td><td class="right">-${formatCurrency(receipt.discount)}</td></tr>` : ''}
+      ${receipt.surcharge && receipt.surcharge > 0 ? `<tr><td>Card Surcharge:</td><td class="right">${formatCurrency(receipt.surcharge)}</td></tr>` : ''}
     </table>
     <table>
-      <tr class="grand-total"><td>TOTAL:</td><td class="right">$${receipt.total.toFixed(2)}</td></tr>
+      <tr class="grand-total"><td>TOTAL:</td><td class="right">${formatCurrency(receipt.total)}</td></tr>
     </table>
-    ${receipt.savings && receipt.savings > 0 ? `<div class="center" style="margin:4px 0;font-weight:bold;">*** You saved $${receipt.savings.toFixed(2)} today! ***</div>` : ''}
+    ${receipt.savings && receipt.savings > 0 ? `<div class="center" style="margin:4px 0;font-weight:bold;">*** You saved ${formatCurrency(receipt.savings)} today! ***</div>` : ''}
     <table>
-      <tr><td>Paid (${esc(receipt.paymentMethod)}):</td><td class="right">$${receipt.amountPaid.toFixed(2)}</td></tr>
-      ${receipt.change > 0 ? `<tr><td>Change:</td><td class="right">$${receipt.change.toFixed(2)}</td></tr>` : ''}
+      <tr><td>Paid (${esc(receipt.paymentMethod)}):</td><td class="right">${formatCurrency(receipt.amountPaid)}</td></tr>
+      ${receipt.change > 0 ? `<tr><td>Change:</td><td class="right">${formatCurrency(receipt.change)}</td></tr>` : ''}
     </table>
     ${receipt.customerName ? `
     <div class="line"></div>
@@ -546,10 +554,18 @@ class CashDrawer {
   }
 
   /**
+   * Whether this register has a working channel to the drawer. A browser cannot
+   * send the drawer kick on its own, so nothing claims the drawer opened.
+   */
+  isConnected(): boolean {
+    return false;
+  }
+
+  /**
    * Check if drawer should open for payment method
    */
   shouldOpen(paymentMethod: string): boolean {
-    if (!this.settings.enabled || !this.settings.openOnSale) return false;
+    if (!this.isConnected() || !this.settings.enabled || !this.settings.openOnSale) return false;
 
     if (this.settings.openOnCashPayment) {
       return paymentMethod.toLowerCase() === 'cash';
@@ -633,6 +649,38 @@ class CardReader {
 }
 
 /**
+ * Scan sounds: a short high beep when an item is added, a low double buzz when a
+ * scan finds nothing, so the cashier knows without looking at the screen.
+ */
+class ScanSound {
+  private context: AudioContext | null = null;
+  constructor(private enabled: () => boolean) {}
+
+  play(kind: 'ok' | 'error'): void {
+    if (!this.enabled()) return;
+    try {
+      const Context = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Context) return;
+      this.context = this.context || new Context();
+      const context = this.context;
+      if (context.state === 'suspended') void context.resume();
+      const tones = kind === 'ok' ? [{ at: 0, frequency: 1320, length: 0.07 }] : [{ at: 0, frequency: 220, length: 0.14 }, { at: 0.18, frequency: 196, length: 0.18 }];
+      for (const tone of tones) {
+        const oscillator = context.createOscillator(), gain = context.createGain();
+        oscillator.type = kind === 'ok' ? 'sine' : 'square';
+        oscillator.frequency.value = tone.frequency;
+        const start = context.currentTime + tone.at;
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(kind === 'ok' ? 0.18 : 0.08, start + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + tone.length);
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.start(start); oscillator.stop(start + tone.length + 0.02);
+      }
+    } catch { /* audio is a convenience; never block a sale on it */ }
+  }
+}
+
+/**
  * Hardware Manager
  * Singleton for managing all hardware devices
  */
@@ -644,6 +692,7 @@ class HardwareManager {
   public printer: ReceiptPrinter;
   public drawer: CashDrawer;
   public cardReader: CardReader;
+  public sound: ScanSound;
 
   private constructor() {
     this.settings = this.loadSettings();
@@ -651,6 +700,7 @@ class HardwareManager {
     this.scanner = new BarcodeScanner(this.settings.barcodeScanner);
     this.drawer = new CashDrawer(this.printer, this.settings.cashDrawer);
     this.cardReader = new CardReader(this.settings.cardReader);
+    this.sound = new ScanSound(() => this.settings.barcodeScanner.soundEnabled !== false);
   }
 
   static getInstance(): HardwareManager {

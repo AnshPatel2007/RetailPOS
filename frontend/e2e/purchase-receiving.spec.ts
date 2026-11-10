@@ -49,18 +49,9 @@ test('partial delivery survives a lost response and reload, then closes with doc
   await page.goto('/inventory');
   await page.getByPlaceholder('Search by name, SKU, or barcode...').fill('Fixture Delivery');
   await expect(page.getByRole('row').filter({ hasText: 'Fixture Delivery' }).getByText('107', { exact: true })).toBeVisible();
-  await page.goto('/analytics?tab=health');
+  // Business Health was removed from Reports; the month's P&L shows the received purchases.
   const received = before.receivedInventoryPurchases + 35;
   const currency = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
-  await expect(page.getByText('Inventory received at cost', { exact: true }).locator('..')).toContainText(currency(received));
-  await expect(page.getByText('- Operating Expenses', { exact: true }).locator('..')).toContainText(currency(before.expenses));
-  await expect(page.getByText('+ Other income', { exact: true }).locator('..')).toContainText(currency(before.otherIncome));
-  await page.getByText('Monthly P&L', { exact: true }).scrollIntoViewIfNeeded();
-  await page.screenshot({ path: 'test-results/received-purchases-analytics.png', fullPage: true });
-  await page.getByRole('button', { name: 'Toggle theme', exact: true }).filter({ visible: true }).click();
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.getByText('Monthly P&L', { exact: true }).locator('..').screenshot({ path: 'test-results/received-purchases-mobile-dark.png' });
   const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit' }).format(new Date());
   await page.goto('/financial?tab=pnl&pnlMonth=' + month);
   await expect(page.getByText('Inventory received at cost', { exact: true }).locator('..')).toContainText(currency(received));

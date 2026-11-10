@@ -95,7 +95,7 @@ api.interceptors.response.use(
       originalRequest.headers['X-Manager-Approval'] = token;
       return api(originalRequest);
     }
-    const isCredentialAction = /^\/(auth\/(login|refresh|logout|forgot-password|reset-password|change-password|2fa)|users\/change-password|approvals)(\/|$)/.test(originalRequest.url || '');
+    const isCredentialAction = /^\/(auth\/(login|refresh|logout|forgot-password|reset-password|change-password|2fa|pin-login|register-staff)|users\/change-password|approvals)(\/|$)/.test(originalRequest.url || '');
 
     if (error.response?.status === 401 && !isCredentialAction && !originalRequest._retry && localStorage.getItem('token')) {
       const generation = originalRequest._sessionGeneration as number;
@@ -171,6 +171,17 @@ export const authService = {
 
   resetPassword: (token: string, password: string) =>
     api.post('/auth/reset-password', { token, password }, { timeout: 20000 }),
+
+  // Register PIN sign-in (works only on a computer set up as a register)
+  setPin: (currentPassword: string, pin: string) => api.put('/auth/pin', { currentPassword, pin }),
+  removePin: () => api.delete('/auth/pin'),
+  verifyPin: (pin: string) => api.post('/auth/pin/verify', { pin }),
+  registerStaff: (deviceToken: string) => api.post('/auth/register-staff', { deviceToken }),
+  pinLogin: (deviceToken: string, userId: string, pin: string) =>
+    api.post('/auth/pin-login', { deviceToken, userId, pin }, { withCredentials: true }),
+  listRegisters: () => api.get('/auth/registers'),
+  createRegister: (name: string) => api.post('/auth/registers', { name }),
+  removeRegister: (id: string) => api.delete('/auth/registers/' + id),
 };
 
 /**
@@ -301,7 +312,8 @@ export const saleService = {
 
   getById: (id: string, signal?: AbortSignal) => api.get(`/sales/${encodeURIComponent(id)}`, { signal }),
 
-  create: (data: any) => api.post('/sales', data),
+  /** `config` carries a manager's register approval header when the sale has an approved discount. */
+  create: (data: any, config?: { headers?: Record<string, string> }) => api.post('/sales', data, config),
 
   refund: (id: string, data: any) => api.post(`/sales/${id}/refund`, data),
 
@@ -581,10 +593,22 @@ export const financialService = {
 };
 
 /**
+ * The reason the server gave for a failed request. The API answers
+ * `{ error }`; older endpoints may send `{ message }`.
+ */
+export function apiErrorMessage(error: unknown, fallback: string): string {
+  const data = (error as { response?: { data?: { error?: unknown; message?: unknown } } })?.response?.data;
+  const reason = typeof data?.error === 'string' ? data.error : typeof data?.message === 'string' ? data.message : '';
+  return reason.trim() || fallback;
+}
+
+/**
  * Location service (Super Admin)
  */
 export const locationService = {
   getAll: (signal?: AbortSignal) => api.get('/locations', { signal }),
+  /** Stores with today's and all-time sales after refunds (the same figures as each store's dashboard). */
+  getAllWithStats: (signal?: AbortSignal) => api.get('/locations', { params: { include: 'stats' }, signal }),
   getById: (id: string) => api.get(`/locations/${id}`),
   getStats: (id: string, period?: number) => api.get(`/locations/${id}/stats`, { params: { period } }),
   getCrossLocationStats: (period?: number | string) => api.get('/locations/stats/overview', { params: { period } }),

@@ -1,3 +1,4 @@
+import { friendlyDate } from '@/lib/calendarDates';
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ChevronRight, Plus, LockKeyhole } from 'lucide-react';
 import { api } from '@/services/api';
@@ -18,7 +19,7 @@ import { LotteryDisclosure, LotteryReviewStage, LotteryTerminalStage, lotteryFie
 import { LotteryDayHistory } from './LotteryDayHistory';
 
 const correctionFields = [['scratchSales', 'Scratch sales correction'], ['onlineSales', 'Online sales correction'], ['payouts', 'Payout correction'], ['netCollections', 'Collections correction'], ['netCash', 'Cash correction'], ['earnings', 'Earnings correction']] as const;
-const stages = [{ id: 'scratch', label: 'Scratch sales' }, { id: 'online', label: 'Terminal report' }, { id: 'reconcile', label: 'Review & close' }] as const;
+const stages = [{ id: 'scratch', label: 'Scratch Sales' }, { id: 'online', label: 'Terminal Report' }, { id: 'reconcile', label: 'Review & Close' }] as const;
 function reviewValue(value: unknown): string {
   if (value == null || value === '') return 'Not reported';
   if (Array.isArray(value)) return value.length ? value.map(reviewValue).join(' · ') : 'None';
@@ -151,7 +152,7 @@ export function LotteryDailyWorkbench({ locationId, date, onDateChange, readOnly
     {confirm && <Modal isOpen title={confirm === 'close' ? 'Close lottery day' : confirm === 'reopen' ? 'Reopen lottery counts' : 'Correct a closed lottery day'} size={confirm === 'correction' ? 'lg' : 'md'} onClose={() => { if (!operation.busy) setConfirm(null); }}
       footer={<div className="flex justify-end gap-2"><Button variant="outline" disabled={operation.busy} onClick={() => setConfirm(null)}>Cancel</Button><Button disabled={operation.blocked || (confirm === 'reopen' && reason.trim().length < 3)} onClick={() => void mutate(confirm, confirm === 'reopen' ? { reason } : confirm === 'correction' ? { correction } : {})}>Confirm {confirm === 'close' ? 'close' : confirm === 'reopen' ? 'reopening' : 'correction'}</Button></div>}>
       <div className="space-y-4"><LotteryRecovery operation={operation} />
-        {confirm === 'close' && <><p className="text-sm">Close {date} with the saved book counts and report totals.</p><dl className="space-y-2 text-sm">{[['Scratch sales', totals?.scratchSales], ['Online sales', totals?.onlineSales], ['Prizes paid', totals?.payouts], ['Net collections', totals?.netCollections], ['Lottery earnings', totals?.earnings]].map(([label, value]) => <div className="flex justify-between gap-3" key={label}><dt>{label}</dt><dd className="font-medium tabular-nums">{lotteryMoney(value)}</dd></div>)}</dl>{!totals?.earningsComplete && <p className="text-sm text-muted-foreground">Earnings remain pending. Net income stays incomplete until the missing information is confirmed.</p>}</>}
+        {confirm === 'close' && <><p className="text-sm">Close {friendlyDate(date)} with the saved book counts and report totals.</p><dl className="space-y-2 text-sm">{[['Scratch sales', totals?.scratchSales], ['Online sales', totals?.onlineSales], ['Prizes paid', totals?.payouts], ['Net collections', totals?.netCollections], ['Lottery earnings', totals?.earnings]].map(([label, value]) => <div className="flex justify-between gap-3" key={label}><dt>{label}</dt><dd className="font-medium tabular-nums">{lotteryMoney(value)}</dd></div>)}</dl>{!totals?.earningsComplete && <p className="text-sm text-muted-foreground">Earnings remain pending. Net income stays incomplete until the missing information is confirmed.</p>}</>}
         {confirm === 'reopen' && <><p className="text-sm">Reverses this day’s earnings and restores opening numbers for review. The original close remains in history.</p><Input label="Reopening reason" value={reason} maxLength={2000} onChange={e => setReason(e.target.value)} /></>}
         {confirm === 'correction' && <><p className="text-sm text-muted-foreground">Enter differences, not replacement totals. This correction is linked to {date} and recorded today. Later book counts stay unchanged. Use the settlement to correct settled earnings.</p>
           <LotteryMoneyFields fields={correctionFields} values={correction} onChange={(key, value) => setCorrection({ ...correction, [key]: value ?? '' })} />

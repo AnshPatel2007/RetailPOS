@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
 import { confirmInApp } from './utils/confirm-helper';
+import { saleComplete } from './utils/sale-complete';
 
 test('a scan into the focused search box adds the item and F1, Enter completes a cash sale', async ({ page }) => {
   await login(page, 'owner@example.test');
@@ -42,5 +43,8 @@ test('a scan into the focused search box adds the item and F1, Enter completes a
   const saved = page.waitForResponse(response => response.url().endsWith('/api/sales') && response.request().method() === 'POST');
   await page.keyboard.press('Enter');
   expect((await saved).status()).toBe(201);
-  await expect(page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+  // Nothing pops up: the cart shows the finished sale until the next item.
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(saleComplete(page)).toContainText('Paid in full');
+  await expect(saleComplete(page)).toContainText('$4.00');
 });

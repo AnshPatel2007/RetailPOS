@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/Checkbox';
 import { useRef, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -106,11 +107,11 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
               ? { ...line, sealedUnitId: e.target.checked ? item.sellingUnits!.find(unit => unit.unitsPerPackage === Number(line.packSize))!.id : '' } : line))} />
             Cases arrived unopened — count them as sealed {item.sellingUnits!.find(unit => unit.unitsPerPackage === Number(lines[index].packSize))!.name} packs
           </label>}
-          {Number(lines[index].unitCost) === 0 && <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={lines[index].zeroCostConfirmed} onChange={e => setLines(previous => previous.map((line, i) => i === index ? { ...line, zeroCostConfirmed: e.target.checked } : line))} />These goods are confirmed free</label>}
+          {Number(lines[index].unitCost) === 0 && <Checkbox label="These goods are confirmed free" checked={lines[index].zeroCostConfirmed} onChange={e => setLines(previous => previous.map((line, i) => i === index ? { ...line, zeroCostConfirmed: e.target.checked } : line))} />}
         </div>)}
         <div className="grid gap-3 sm:grid-cols-3">{(['freight','acquisitionTax','invoiceDiscount'] as const).map((field, index) => <Input key={field} label={['Freight','Nonrecoverable acquisition tax','Invoice discount'][index]} type="number" min={0} step="0.01" value={charges[field]} onChange={e => setCharges(old => ({ ...old, [field]: e.target.value }))} />)}</div>
         <p className="text-xs text-muted-foreground">Invoice charges apply to accepted merchandise and are allocated by its value. Invoice and payment dates do not change the stock receipt date.</p>
-        <label className="flex items-center gap-3 min-h-[44px] text-sm"><input type="checkbox" checked={finalDelivery} onChange={e => setFinalDelivery(e.target.checked)} />Close the order after this delivery, including any missing units</label>
+        <Checkbox label="Close the order after this delivery, including any missing units" checked={finalDelivery} onChange={e => setFinalDelivery(e.target.checked)} />
         {finalDelivery && missing > 0 && <p className="text-sm text-warning">{missing} missing units will remain documented. They will not be added to stock.</p>}
         <label className="block text-sm font-medium">Delivery notes / discrepancy reason<textarea className="mt-1 block min-h-[80px] w-full rounded-md border border-input bg-background p-3 text-sm" value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} /></label>
       </fieldset>

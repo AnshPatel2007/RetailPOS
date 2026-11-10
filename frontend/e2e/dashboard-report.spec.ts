@@ -6,10 +6,10 @@ test('dashboard reconciles net collections, average purchases and signed payment
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/reports/dashboard')) dashboardRequests.push(new URL(request.url()).pathname); });
   await login(page, 'reporting@example.test');
-  const today = page.getByText("Today's Collections", { exact: true }).locator('..');
+  const today = page.getByText('Sales today', { exact: true }).locator('..');
   await expect(today).toContainText('$11.00');
-  await expect(page.getByText('Avg Order Value', { exact: true }).locator('..')).toContainText('$22.00');
-  await expect(page.getByText(/Calendar: America\/Chicago/)).toBeVisible();
+  await expect(page.getByText('Average sale', { exact: true }).locator('..')).toContainText('$22.00');
+  await expect(page.getByText(/Store time: America\/Chicago/)).toBeVisible();
   const payment = page.getByRole('heading', { name: 'Payment Methods Today', exact: true }).locator('..').locator('..');
   await expect(payment).toContainText('$22.00'); await expect(payment).toContainText('-$11.00');
   await expect(payment.getByText(/Share unavailable/)).toHaveCount(2);
@@ -24,7 +24,7 @@ test('dashboard reconciles net collections, average purchases and signed payment
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('heading', { name: /^Good (morning|afternoon|evening), / }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/dashboard-mobile.png', fullPage: true, animations: 'disabled' });
-  const chart = page.getByRole('heading', { name: 'Collections Last 12 Hours', exact: true }).locator('..').locator('..');
+  const chart = page.getByRole('heading', { name: 'Sales in the Last 12 Hours', exact: true }).locator('..').locator('..');
   await chart.scrollIntoViewIfNeeded(); await chart.screenshot({ path: 'test-results/dashboard-chart-mobile.png', animations: 'disabled' });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await expect(page.getByText(/\bNaN\b|Infinity/)).toHaveCount(0); expect(errors).toEqual([]);
@@ -32,7 +32,7 @@ test('dashboard reconciles net collections, average purchases and signed payment
 
 test('a delayed dashboard response is invalidated and a coalesced read restores current figures', async ({ page }) => {
   await login(page, 'reporting@example.test');
-  const total = page.getByText("Today's Collections", { exact: true }).locator('..');
+  const total = page.getByText('Sales today', { exact: true }).locator('..');
   await expect(total).toContainText('$11.00');
   let release!: () => void, observed!: () => void, completed!: () => void;
   const delayed = new Promise<void>(resolve => { release = resolve; });
@@ -60,10 +60,10 @@ test('dashboard distinguishes an initial outage from zero and retains explicitly
   await page.route('**/api/reports/dashboard', route => unavailable ? route.fulfill({ status: 503, json: { error: 'Unavailable' } }) : route.continue());
   await login(page, 'reporting@example.test');
   await expect(page.getByRole('alert')).toContainText('Dashboard data is unavailable');
-  await expect(page.getByText("Today's Collections", { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Sales today', { exact: true })).toHaveCount(0);
   unavailable = false; await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await page.clock.fastForward(5000);
-  const today = page.getByText("Today's Collections", { exact: true }).locator('..');
+  const today = page.getByText('Sales today', { exact: true }).locator('..');
   await expect(today).toContainText('$11.00');
   unavailable = true; await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByRole('status').filter({ hasText: 'Showing previously loaded data' })).toContainText('Unavailable');
@@ -75,7 +75,7 @@ test('dashboard distinguishes an initial outage from zero and retains explicitly
 
 test('cashier dashboard keeps permitted shortcuts and hides restricted report and inventory actions', async ({ page }) => {
   await login(page, 'cashier@example.test'); await page.goto('/dashboard');
-  await expect(page.getByText(/Showing activity for your sales/)).toBeVisible();
+  await expect(page.getByText(/Showing your own sales/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Inventory Manage products', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reports See analytics', exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: /Active Shifts/ })).toHaveCount(0);
@@ -86,7 +86,7 @@ test('cashier dashboard keeps permitted shortcuts and hides restricted report an
 
 test('dashboard pauses background refresh while hidden and refreshes when visible', async ({ page }) => {
   await login(page, 'reporting@example.test'); await page.clock.install(); await page.goto('/dashboard');
-  await expect(page.getByText("Today's Collections", { exact: true }).locator('..')).toContainText('$11.00');
+  await expect(page.getByText('Sales today', { exact: true }).locator('..')).toContainText('$11.00');
   let refreshes = 0; page.on('request', request => { if (new URL(request.url()).pathname === '/api/reports/dashboard') refreshes++; });
   await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); document.dispatchEvent(new Event('visibilitychange')); });
   await page.clock.fastForward(31_000); expect(refreshes).toBe(0);
@@ -97,7 +97,7 @@ test('dashboard pauses background refresh while hidden and refreshes when visibl
 
 test('background dashboard reads wait while an edit dialog or dirty form is active', async ({ page }) => {
   await login(page, 'reporting@example.test'); await page.clock.install(); await page.goto('/dashboard');
-  await expect(page.getByText("Today's Collections", { exact: true }).locator('..')).toContainText('$11.00');
+  await expect(page.getByText('Sales today', { exact: true }).locator('..')).toContainText('$11.00');
   let reads = 0; page.on('request', request => { if (new URL(request.url()).pathname === '/api/reports/dashboard') reads++; });
   await page.evaluate(() => {
     const dialog = document.createElement('div'); dialog.id = 'refresh-test-review'; dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');

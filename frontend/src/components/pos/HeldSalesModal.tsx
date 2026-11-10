@@ -1,3 +1,4 @@
+import { lineMoney, roundMoney } from '@/lib/money';
 import React from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -44,10 +45,11 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
           </div>
         ) : (
           heldSales.map((held) => {
-            const total = held.items.reduce(
-              (sum, i) => sum + i.product.price * i.quantity - i.discount,
+            // Item prices less manual discounts; deals and tax are worked out again when the sale is recalled.
+            const total = roundMoney(held.items.reduce(
+              (sum, i) => sum + lineMoney(i.product.price, i.quantity) - (i.discount || 0),
               0
-            );
+            ));
             const itemCount = held.items.reduce((c, i) => c + i.quantity, 0);
             const elapsedMins = Math.max(0, Math.round((Date.now() - new Date(held.heldAt).getTime()) / 60000));
             const elapsed = elapsedMins >= 60
@@ -69,7 +71,7 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {itemCount} item{itemCount !== 1 ? 's' : ''} · {formatCurrency(total)}
+                      {itemCount} item{itemCount !== 1 ? 's' : ''} · {formatCurrency(total)} before tax and deals
                     </p>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
                       {held.items.map((i) => i.product.name).join(', ')}

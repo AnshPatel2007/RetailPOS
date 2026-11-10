@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { openReceipt } from './utils/sale-complete';
 
 test('fractional unit prices use the same rounded line and tax in cart, quote, payment and receipt', async ({ page }) => {
   await login(page, 'owner@example.test');
@@ -20,7 +21,7 @@ test('fractional unit prices use the same rounded line and tax in cart, quote, p
   await payment.getByRole('button', { name: 'Charge $3.32', exact: true }).click();
   const response = await saved; expect(response.status()).toBe(201);
   expect((await response.json()).data).toMatchObject({ subtotal: 3.02, tax: 0.3, total: 3.32, changeDue: 0 });
-  const receipt = page.getByRole('dialog', { name: 'Receipt', exact: true });
+  const receipt = await openReceipt(page);
   await expect(receipt).toContainText('$3.32');
   const item = receipt.getByText('Precision Unit', { exact: true }).locator('..');
   await expect(item).toContainText('3 x $1.005');

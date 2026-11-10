@@ -19,7 +19,8 @@ export async function getEmployeeReportData(scope: { locationId?: string }, star
     const users = await tx.user.findMany({ where: { id: { in: staff.map(row => row.key) } }, select: { id: true, firstName: true, lastName: true, email: true, role: true } });
     const byId = new Map(users.map(user => [user.id, user]));
     const rows = staff.map(row => {
-      const average = row.count ? Math.round(row.gross / row.count * 100) / 100 : 0;
+      // No sales in the period (only refunds or voids) means no average, not $0.
+      const average = row.count ? Math.round(row.gross / row.count * 100) / 100 : null;
       return { user: byId.get(row.key) || { id: row.key, firstName: 'Unknown', lastName: '', email: '', role: 'UNAVAILABLE' },
         totalRevenue: row.total, totalSales: row.total, grossCollected: row.gross,
         transactionCount: row.count, avgTransaction: average, averageOrderValue: average };

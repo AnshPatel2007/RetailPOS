@@ -14,7 +14,10 @@
     color-scheme: light;
     --destructive-text: 0 72% 42%;
     --warning-text: 30 90% 30%;
-    --success-text: 142 72% 28%;
+    --success-text: 142 72% 25%;
+    /* Blue and info text on light tints (active menu item, tabs, badges) at AA contrast. */
+    --primary-text: 221 83% 45%;
+    --info-text: 200 98% 30%;
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
 
@@ -61,13 +64,16 @@
     --destructive-text: 0 90% 74%;
     --warning-text: 40 95% 64%;
     --success-text: 142 65% 64%;
-    --background: 0 0% 3.9%;
+    --primary-text: 213 94% 68%;
+    --info-text: 199 89% 64%;
+    /* Pure black page; near-black neutral surfaces (no blue tint) so cards still separate. */
+    --background: 0 0% 0%;
     --foreground: 0 0% 98%;
 
-    --card: 0 0% 7.5%;
+    --card: 0 0% 6.7%;
     --card-foreground: 0 0% 98%;
 
-    --popover: 0 0% 7.5%;
+    --popover: 0 0% 6.7%;
     --popover-foreground: 0 0% 98%;
 
     --primary: 217.2 91.2% 59.8%;
@@ -94,8 +100,8 @@
     --info: 199 89% 48%;
     --info-foreground: 0 0% 100%;
 
-    --border: 0 0% 19%;
-    --input: 0 0% 23%;
+    --border: 0 0% 16.5%;
+    --input: 0 0% 20%;
     --ring: 217.2 91.2% 59.8%;
   }
 }
@@ -115,6 +121,13 @@
 .text-destructive { color: hsl(var(--destructive-text)); }
 .text-warning { color: hsl(var(--warning-text)); }
 .text-success { color: hsl(var(--success-text)); }
+.text-primary { color: hsl(var(--primary-text)); }
+.text-info { color: hsl(var(--info-text)); }
+/* Store preview banner: white on a deep blue (7:1) in both themes. */
+.admin-preview-banner { background: hsl(221 83% 38%); color: #fff; }
+.admin-preview-exit { background: hsl(0 0% 100% / .16); color: #fff; }
+.admin-preview-exit:hover { background: hsl(0 0% 100% / .26); }
+.admin-preview-exit:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* Keep the full viewport usable; end padding lets the last records clear the assistant. */
 .management-content { min-height: 0; padding-bottom: 80px; scroll-padding-bottom: 80px; scrollbar-gutter: stable; }
 .page-tabs { flex-wrap: wrap; }
@@ -144,7 +157,9 @@
   .metric-grid .metric-icon { display: none; }
   .metric-grid .metric-value { font-size: 20px; line-height: 28px; }
 }
-.page-tab { min-height: 36px; }
+.page-tab { min-height: 36px; position: relative; }
+/* A count on a tab's corner (Stock Control > Exceptions): it never changes the tab's size. */
+.page-tab-badge { position: absolute; top: -7px; right: -7px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px hsl(var(--background)); pointer-events: none; }
 .page-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; border: 1px solid hsl(var(--input)); border-radius: 6px; padding: 0 12px; font-size: 14px; line-height: 20px; font-weight: 500; text-decoration: none; }
 .page-action:hover { background-color: hsl(var(--accent)); }
 .page-action:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
@@ -172,6 +187,8 @@
 @media (max-width: 639px) {
   .page-header { margin-bottom: 16px; }
   .page-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+  /* A scrolling tab bar clips overflow: leave room for a corner badge. */
+  .page-tabs:has(.page-tab-badge) { padding-top: 8px; padding-right: 8px; }
   .page-tabs-secondary { padding-top: 6px; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .metric-grid > .metric-card { padding: 12px; }

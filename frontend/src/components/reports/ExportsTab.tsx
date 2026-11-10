@@ -1,4 +1,4 @@
-import { previousFullWeek } from '@/lib/calendarDates';
+import { presetRange, previousFullWeek } from '@/lib/calendarDates';
 import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import React, { useState, useEffect, useCallback } from 'react';
@@ -18,7 +18,10 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { buildCsv, downloadCsv } from '@/lib/utils';
+import { buildCsv, downloadCsv, formatDate, formatDateTime, formatEnumLabel } from '@/lib/utils';
+import { apiErrorMessage } from '@/services/api';
+import { Alert } from '@/components/ui/Alert';
+import { LoadingState } from '@/components/ui/LoadingState';
 import { Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -33,11 +36,17 @@ export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => vo
   const exportHistory = history.data || [];
   const loadHistory = history.refresh;
   const [busy, setBusy] = useState(false);
+  // The accounting journals export exactly the store days chosen here.
+  const timezone = useCalendarTimezone();
+  const [journalStart, setJournalStart] = useState(() => presetRange('thisMonth', timezone)!.startDate);
+  const [journalEnd, setJournalEnd] = useState(() => presetRange('thisMonth', timezone)!.endDate);
+  const journalPeriod = { startDate: journalStart, endDate: journalEnd };
+  const journalFile = (name: string) => `${name}-${journalStart}-to-${journalEnd}.csv`;
 
   const handleExportSales = useCallback(async () => {
     setBusy(true);
     try {
-      const response = await financialService.exportSales();
+      const response = await financialService.exportSales({ startDate: journalStart, endDate: journalEnd });
       const data = response.data.data;
       const entries = data.entries || [];
       const csv = buildCsv(
@@ -46,18 +55,18 @@ export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => vo
           e.date, e.reference, e.description, e.debitAccount, e.creditAccount, e.amount, e.taxAmount, e.paymentMethod,
         ])
       );
-      downloadCsv(csv, `sales-journal-${new Date().toISOString().split('T')[0]}.csv`);
+      downloadCsv(csv, journalFile('sales-journal'));
       toast.success(`Exported ${data.recordCount} sales records`);
       loadHistory();
-    } catch {
-      toast.error('Failed to export sales');
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Failed to export sales'));
     } finally { setBusy(false); }
-  }, [loadHistory]);
+  }, [loadHistory, journalStart, journalEnd]);
 
   const handleExportExpenses = useCallback(async () => {
     setBusy(true);
     try {
-      const response = await financialService.exportExpenses();
+      const response = await financialService.exportExpenses({ startDate: journalStart, endDate: journalEnd });
       const data = response.data.data;
       const entries = data.entries || [];
       const csv = buildCsv(
@@ -66,16 +75,15 @@ export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => vo
           e.date, e.reference, e.description, e.debitAccount, e.creditAccount, e.amount, e.vendor, e.category,
         ])
       );
-      downloadCsv(csv, `expenses-journal-${new Date().toISOString().split('T')[0]}.csv`);
+      downloadCsv(csv, journalFile('expenses-journal'));
       toast.success(`Exported ${data.recordCount} expense records`);
       loadHistory();
-    } catch {
-      toast.error('Failed to export expenses');
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Failed to export expenses'));
     } finally { setBusy(false); }
-  }, [loadHistory]);
+  }, [loadHistory, journalStart, journalEnd]);
 
   // ─── Tobacco / manufacturer scan-data export ───
-  const timezone = useCalendarTimezone();
   const [scanDataStart, setScanDataStart] = useState(() => previousFullWeek(timezone).startDate);
   const [scanDataEnd, setScanDataEnd] = useState(() => previousFullWeek(timezone).endDate);
   const [scanDataCategories, setScanDataCategories] = useState<string[]>([]);
@@ -106,7 +114,7 @@ export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => vo
       window.URL.revokeObjectURL(url);
       toast.success('Scan data exported — upload it to your manufacturer portal');
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to export scan data');
+      toast.error(apiErrorMessage(error, 'Failed to export scan data'));
     } finally {
       setScanDataExporting(false);
     }
@@ -126,7 +134,13 @@ export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => vo
     <div className="space-y-6">
       <AutoRefreshStatus state={history} />
       <AutoRefreshStatus state={categories} />
-      {categories.error && !categories.data && <div role="alert" className="flex items-center gap-3"><p>Categories are unavailable.</p><Button variant="outline" onClick={categories.refresh}>Retry categories</Button></div>}
+      {categories.error && !categories.data && <Alert tone="error" title="Categories are unavailable." action={<Button variant="outline" onClick={categories.refresh}>Retry categories</Button>} />}
+        <Card className="p-4">
+          <h3 className="font-medium mb-1">Accounting Journals</h3>
+          <p className="text-sm text-muted-foreground mb-4">Export Sales and Export Expenses cover these store days.</p>
+          <DateRangePicker label="Journal dates" startDate={journalPeriod.startDate} endDate={journalPeriod.endDate} allowOpenRange={false}
+            onChange={range => { setJournalStart(range.startDate); setJournalEnd(range.endDate); }} />
+        </Card>
         <Card className="p-4">
           <h3 className="font-medium mb-1">Tobacco / Manufacturer Scan Data</h3>
           <p className="text-sm text-muted-foreground mb-4">Choose store dates and program categories.</p>
@@ -139,6 +153,8 @@ export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => vo
               {allCategories.map((c) => (
                 <button
                   key={c.id}
+                  type="button"
+                  aria-pressed={scanDataCategories.includes(c.id)}
                   onClick={() =>
                     setScanDataCategories((prev) =>
                       prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]
@@ -161,8 +177,8 @@ export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => vo
         </Card>
 
       {/* Export History */}
-      {history.loading && <p role="status">Loading export history...</p>}
-      {history.error && !history.data && <div role="alert" className="flex items-center gap-3"><p>Export history is unavailable.</p><Button variant="outline" onClick={history.refresh}>Retry history</Button></div>}
+      {history.loading && <LoadingState label="Loading export history…" />}
+      {history.error && !history.data && <Alert tone="error" title="Export history is unavailable." action={<Button variant="outline" onClick={history.refresh}>Retry history</Button>} />}
       <Card>
         <div className="p-4 border-b">
           <h3 className="font-medium">Export History</h3>
@@ -174,7 +190,7 @@ export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => vo
               <TableHead>Type</TableHead>
               <TableHead>Format</TableHead>
               <TableHead>Period</TableHead>
-              <TableHead>Records</TableHead>
+              <TableHead className="text-right">Records</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -187,15 +203,15 @@ export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => vo
             ) : (
               exportHistory.map((exp) => (
                 <TableRow key={exp.id}>
-                  <TableCell>{new Date(exp.createdAt).toLocaleString()}</TableCell>
+                  <TableCell>{formatDateTime(exp.createdAt, timezone)}</TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{exp.type}</Badge>
+                    <Badge variant="secondary">{formatEnumLabel(exp.type)}</Badge>
                   </TableCell>
                   <TableCell>{exp.format}</TableCell>
                   <TableCell>
-                    {new Date(exp.startDate).toLocaleDateString()} - {new Date(exp.endDate).toLocaleDateString()}
+                    {formatDate(exp.startDate, timezone)} – {formatDate(exp.endDate, timezone)}
                   </TableCell>
-                  <TableCell>{exp.recordCount}</TableCell>
+                  <TableCell className="text-right tabular-nums">{exp.recordCount}</TableCell>
                 </TableRow>
               ))
             )}

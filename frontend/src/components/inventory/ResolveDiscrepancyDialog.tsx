@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ProductPicker } from '@/components/common/ProductPicker';
 import { inventoryExceptionService } from '@/services/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateTime } from '@/lib/utils';
 
 /** What the manager says happened; each maps to one accounting treatment. */
 type Cause = 'sold_as_other' | 'missing_receipt' | 'received_as_other' | 'transfer' | 'count' | 'loss' | 'no_change';
@@ -135,7 +135,7 @@ export const ResolveDiscrepancyDialog: React.FC<{ detail: DiscrepancyDetail | nu
             <Select label="Which sale? (optional — records it against the cashier's sale)" value={saleItemId} onChange={e => setSaleItemId(e.target.value)}>
               <option value="">Not sure</option>
               {detail.recentSales.map(line => <option key={line.id} value={line.id}>
-                {line.sale.saleNumber}{line.sale.user ? ` · ${line.sale.user.firstName} ${line.sale.user.lastName}` : ''} · {line.quantity} unit(s) · {new Date(line.createdAt).toLocaleString()}
+                {line.sale.saleNumber}{line.sale.user ? ` · ${line.sale.user.firstName} ${line.sale.user.lastName}` : ''} · {line.quantity} unit(s) · {formatDateTime(line.createdAt)}
               </option>)}
             </Select>)}
         </section>}

@@ -4,6 +4,7 @@ import { formatEnumLabel } from '@/lib/utils';
 import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useId } from 'react';
 import { financialService } from '@/services/api';
+import { useAuthStore } from '@/store/authStore';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -60,6 +61,8 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
   recurringExpense,
 }) => {
   const timezone = useCalendarTimezone();
+  // Payroll is the store owner's to set up, as on the single-expense form.
+  const role = useAuthStore(state => state.user?.role);
   const formId = useId();
   const [formData, setFormData] = useState({
     description: '',
@@ -180,7 +183,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
                 required
               >
                 <option value="">Select category</option>
-                {EXPENSE_CATEGORIES.map((cat) => (
+                {EXPENSE_CATEGORIES.filter(cat => cat !== 'PAYROLL' || role === 'ADMIN' || formData.category === 'PAYROLL').map((cat) => (
                   <option key={cat} value={cat}>
                     {formatEnumLabel(cat)}
                   </option>

@@ -1,6 +1,6 @@
 import { ManagementPage } from '@/components/common/Workspace';
 import { Select } from '@/components/ui/Select';
-import { formatEnumLabel } from '@/lib/utils';
+import { formatEnumLabel, formatDateTime } from '@/lib/utils';
 import { useEffect, useState } from 'react';
 import { History } from 'lucide-react';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
@@ -29,6 +29,11 @@ function shortReference(id?: string | null) {
   return UUID.test(id) ? <span className="font-mono" title={id}>Ref {id.slice(0, 8).toUpperCase()}</span> : id;
 }
 
+/** Every kind of stock movement the system records, so each can be filtered. */
+const MOVEMENT_TYPES = ['SALE', 'RETURN', 'PURCHASE', 'RECEIVED', 'CYCLE_COUNT', 'EXCEPTION_COUNT', 'MANUAL_COUNT', 'MISCOUNT', 'CORRECTION',
+  'MISSING_RECEIPT', 'WRONG_SKU_SOLD', 'SOLD_WITHOUT_SCANNING', 'TRANSFER_NOT_RECORDED', 'DAMAGED', 'LOST', 'THEFT', 'EXPIRED', 'WASTE', 'OTHER',
+  'ADJUSTMENT', 'IMPORT', 'TRANSFER_OUT', 'TRANSFER_IN', 'TRANSFER_RETURN', 'TRANSFER_LOSS', 'BUNDLE_OPEN', 'STOCK_RECLASS', 'SKU_CORRECTION'];
+
 export function InventoryMovements() {
   const { locationId } = useEffectiveLocation();
   const [search, setSearch] = useUrlFilter('search');
@@ -53,9 +58,9 @@ export function InventoryMovements() {
     {query.stale && <p role="status" className="mb-4 text-sm text-warning">Updates are unavailable. Showing previously loaded movements.</p>}
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-4">
       <Input label="Search movements" value={search} onChange={event => setSearch(event.target.value)} placeholder="Product, SKU or reference" />
-      <label className="text-sm font-medium">Movement type<Select aria-label="Movement type" className="mt-2 block w-full h-10 rounded-md border bg-background px-3" value={type} onChange={event => setType(event.target.value)}>
-        <option value="">All types</option>{['SALE', 'RETURN', 'PURCHASE', 'CYCLE_COUNT', 'ADJUSTMENT', 'IMPORT', 'RECEIVED', 'TRANSFER_OUT', 'TRANSFER_IN', 'TRANSFER_RETURN'].map(value => <option key={value} value={value}>{formatEnumLabel(value)}</option>)}
-      </Select></label>
+      <Select label="Movement type" value={type} onChange={event => setType(event.target.value)}>
+        <option value="">All types</option>{MOVEMENT_TYPES.map(value => <option key={value} value={value}>{formatEnumLabel(value)}</option>)}
+      </Select>
       <DateRangePicker label="Movement dates" startDate={startDate} endDate={endDate} timezone={result?.timezone} onChange={range => patchFilters({ startDate: range.startDate, endDate: range.endDate })} />
     </div>
     <Card><CardContent className="pt-6">
@@ -66,7 +71,7 @@ export function InventoryMovements() {
           {result.data.length === 0 ? <p className="py-8 text-center text-muted-foreground">No recorded movements match these filters.</p> : <div className="overflow-x-auto"><Table scrollLabel="Inventory Movements records">
             <TableHeader><TableRow>{['When / Who', 'Product', 'Movement', 'Change', 'Before → After', 'Reference / Notes'].map(label => <TableHead key={label}>{label}</TableHead>)}</TableRow></TableHeader>
             <TableBody>{result.data.map(row => <TableRow key={row.id}>
-              <TableCell className="whitespace-nowrap">{new Date(row.createdAt).toLocaleString(undefined, { timeZone: result.timezone })}<span className="block text-xs text-muted-foreground">{row.actor}</span></TableCell>
+              <TableCell className="whitespace-nowrap">{formatDateTime(row.createdAt, result.timezone)}<span className="block text-xs text-muted-foreground">{row.actor}</span></TableCell>
               <TableCell>{row.product.name}<span className="block text-xs text-muted-foreground">{row.product.sku}</span></TableCell>
               <TableCell className="whitespace-nowrap">{formatEnumLabel(row.type)}</TableCell>
               <TableCell className="text-right tabular-nums">{row.quantity > 0 ? '+' : ''}{row.quantity}</TableCell>

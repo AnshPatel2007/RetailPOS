@@ -6,7 +6,7 @@ import { syncService } from '@/services/syncService';
 import { useAuthStore } from '@/store/authStore';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { OfflineReconciliation } from './OfflineReconciliation';
 
 export function OfflineReview({ onClose }: { onClose: () => void }) {
@@ -45,7 +45,7 @@ export function OfflineReview({ onClose }: { onClose: () => void }) {
   return <Modal isOpen onClose={() => { if (!busy) onClose(); }} title="Register recovery" size="lg">
     <div className="space-y-4 p-4">
       <p className="text-sm">Offline checkout supports cash only in an already loaded, signed-in shift. Starting or reloading the POS while offline is not supported. Gift cards, account payments and loyalty require a connection.</p>
-      <p className="text-sm text-muted-foreground">Product cache: {records?.cachedAt ? new Date(records.cachedAt).toLocaleString() : 'Not available for this cashier and store'}.</p>
+      <p className="text-sm text-muted-foreground">Product cache: {records?.cachedAt ? formatDateTime(records.cachedAt) : 'Not available for this cashier and store'}.</p>
       <p className="text-sm text-muted-foreground">These records are stored on this browser. Keep them until the sale is confirmed. Managers and owners can review their store’s records here; only the original cashier can retry saving them.</p>
       {(error || records?.error) && <p role="alert" className="text-destructive">{error || records?.error}</p>}
       {!records ? <p role="status">Loading saved transactions…</p> : <>
@@ -53,7 +53,7 @@ export function OfflineReview({ onClose }: { onClose: () => void }) {
         {!records.cash.length && <p className="text-sm text-muted-foreground">No pending cash sales in your scope on this register.</p>}
         <ul className="space-y-3">
           {records.cash.map(record => <li key={record.localId} className="space-y-1 rounded border p-3 text-sm break-words">
-            <p className="font-medium">{formatCurrency(record.total)} · {new Date(record.createdAt).toLocaleString()}</p>
+            <p className="font-medium">{formatCurrency(record.total)} · {formatDateTime(record.createdAt)}</p>
             <p>{record.userId === user?.id ? 'Your checkout' : 'Another cashier’s checkout'} · {record.syncAttempts} failed attempts</p>
             <p className="text-muted-foreground">Reference: {record.localId}</p>
             {record.syncError && <p role="alert" className="text-destructive">{record.syncError}</p>}
@@ -65,7 +65,7 @@ export function OfflineReview({ onClose }: { onClose: () => void }) {
         {!records.terminal.length && <p className="text-sm text-muted-foreground">No unconfirmed terminal payments in your scope on this register.</p>}
         <ul className="space-y-3">
           {records.terminal.map(record => <li key={record.key} className="space-y-1 rounded border p-3 text-sm break-words">
-            <p className="font-medium">{formatCurrency(record.total)} · {new Date(record.createdAt).toLocaleString()}</p>
+            <p className="font-medium">{formatCurrency(record.total)} · {formatDateTime(record.createdAt)}</p>
             <p>Terminal reference: {record.references.join(', ')}</p>
             <p className="text-muted-foreground">Checkout reference: {record.key}</p>
             <p>Do not charge again. {record.userId === user?.id ? 'Open POS to retry saving this payment.' : 'Return with the original cashier to retry saving.'}</p>

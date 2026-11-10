@@ -1,3 +1,5 @@
+import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -20,7 +22,7 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import { giftCardService } from '@/services/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDate, formatDateTime, formatEnumLabel } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
 import { useUrlFilter, useUrlPage } from '@/hooks/useUrlFilter';
@@ -52,7 +54,10 @@ export const GiftCards: React.FC = () => {
   const [selectedCard, setSelectedCard] = useState<GiftCard | null>(null);
   const [page, setPage] = useUrlPage();
   const [total, setTotal] = useState(0);
-  const [stats, setStats] = useState<{ totalCards: number; activeCards: number; outstandingBalance: number } | null>(null);
+  const [stats, setStats] = useState<{ totalCards: number; activeCards: number; outstandingBalance: number; inactiveBalance?: number } | null>(null);
+  // A platform preview of another store reloads the list for that store.
+  const { locationId: previewedStore } = useEffectiveLocation();
+  const timezone = useCalendarTimezone();
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -103,7 +108,7 @@ export const GiftCards: React.FC = () => {
     } finally {
       if (version === requestVersion.current) setLoading(false);
     }
-  }, [page, debouncedSearch]);
+  }, [page, debouncedSearch, previewedStore]);
 
   useEffect(() => {
     fetchGiftCards();
@@ -175,6 +180,7 @@ export const GiftCards: React.FC = () => {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
           placeholder="Search by code..."
+          aria-label="Search gift cards by code"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-10"
@@ -185,7 +191,8 @@ export const GiftCards: React.FC = () => {
       <SummaryStrip className="mb-6" items={[
         { label: 'Total cards', value: stats?.totalCards ?? '—' },
         { label: 'Active', value: stats?.activeCards ?? '—' },
-        { label: 'Outstanding balance', value: stats ? formatCurrency(stats.outstandingBalance) : '—', detail: 'Owed to card holders' },
+        { label: 'Outstanding balance', value: stats ? formatCurrency(stats.outstandingBalance) : '—', detail: 'On cards that can still be used' },
+        ...(stats?.inactiveBalance ? [{ label: 'On expired or deactivated cards', value: formatCurrency(stats.inactiveBalance), detail: 'Not spendable unless reactivated' }] : []),
       ]} />
 
       {/* Table */}
@@ -224,15 +231,15 @@ export const GiftCards: React.FC = () => {
                     <TableCell className="text-right whitespace-nowrap">{formatCurrency(card.initialBalance)}</TableCell>
                     <TableCell className="text-right whitespace-nowrap font-medium">{formatCurrency(card.currentBalance)}</TableCell>
                     <TableCell>
-                      <Badge className={card.isActive ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}>
-                        {card.isActive ? 'Active' : 'Inactive'}
-                      </Badge>
+                      {!card.isActive ? <Badge variant="destructive">Deactivated</Badge>
+                        : card.expiresAt && new Date(card.expiresAt) <= new Date() ? <Badge variant="secondary">Expired</Badge>
+                        : <Badge variant="success">Active</Badge>}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {card.expiresAt ? new Date(card.expiresAt).toLocaleDateString() : 'Never'}
+                      {card.expiresAt ? formatDate(card.expiresAt, timezone) : 'Never'}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {new Date(card.createdAt).toLocaleDateString()}
+                      {formatDate(card.createdAt, timezone)}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
@@ -244,6 +251,7 @@ export const GiftCards: React.FC = () => {
                               size="sm"
                               disabled={operation.blocked || (!!card.expiresAt && new Date(card.expiresAt) <= new Date())} onClick={() => { setFundingMethod('CASH'); setReference(''); setReason(''); setSelectedCard(card); setShowReloadModal(true); }}
                               title="Reload"
+                              aria-label={`Reload gift card ${card.code}`}
                             >
                               <RefreshCw className="w-4 h-4" />
                             </Button>
@@ -253,6 +261,7 @@ export const GiftCards: React.FC = () => {
                               onClick={() => setDeactivateTarget(card)}
                               className="text-destructive hover:text-destructive"
                               title="Deactivate"
+                              aria-label={`Deactivate gift card ${card.code}`}
                             >
                               <Ban className="w-4 h-4" />
                             </Button>
@@ -338,7 +347,7 @@ export const GiftCards: React.FC = () => {
         <p className="font-mono mb-4">{history?.card.code}</p>
         <p className="text-sm text-muted-foreground mb-4">Latest 100 transactions</p>
         {history?.transactions.map(tx => <div key={tx.id} className="border-b py-3 flex justify-between items-center gap-3">
-          <div><p>{tx.type} {formatCurrency(tx.amount)}</p><p className="text-sm text-muted-foreground">{new Date(tx.createdAt).toLocaleString()}</p>
+          <div><p>{formatEnumLabel(tx.type)} {formatCurrency(tx.amount)}</p><p className="text-sm text-muted-foreground">{formatDateTime(tx.createdAt, timezone)}</p>
             {!tx.operation && ['ISSUE', 'RELOAD'].includes(tx.type) && <p className="text-sm text-muted-foreground">Original funding details unavailable</p>}
           </div>
           {tx.operation && <Button variant="outline" size="sm" onClick={() => operation.showReceipt(tx.operation!, history.card.code)}>Receipt</Button>}

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
-import { lotteryService } from '@/services/api';
+import { lotteryService, apiErrorMessage } from '@/services/api';
 import toast from 'react-hot-toast';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import { useConfirm } from '@/components/ui/useConfirm';
@@ -129,7 +129,7 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
       await fetchTicketTypes();
     } catch (error: any) {
       logger.error('Failed to save ticket type:', error);
-      toast.error(error.response?.data?.message || 'Failed to save ticket type');
+      toast.error(apiErrorMessage(error, 'Failed to save ticket type'));
     }
   };
 
@@ -144,7 +144,7 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
       await fetchTicketTypes();
     } catch (error: any) {
       logger.error('Failed to delete ticket type:', error);
-      toast.error(error.response?.data?.message || 'Failed to delete ticket type');
+      toast.error(apiErrorMessage(error, 'Failed to delete ticket type'));
     }
   };
 
@@ -157,7 +157,7 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
       await fetchTicketTypes();
     } catch (error: any) {
       logger.error('Failed to toggle ticket type:', error);
-      toast.error(error.response?.data?.message || 'Failed to update ticket type');
+      toast.error(apiErrorMessage(error, 'Failed to update ticket type'));
     }
   };
 

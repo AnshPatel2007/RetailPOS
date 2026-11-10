@@ -4,6 +4,9 @@ import { persist } from 'zustand/middleware';
 interface LayoutState {
   isSidebarCollapsed: boolean;
   isMobileMenuOpen: boolean;
+  /** The one menu section shown open (accordion); null = all titled sections closed. */
+  openSection: string | null;
+  setOpenSection: (title: string | null) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setMobileMenuOpen: (open: boolean) => void;
@@ -14,6 +17,8 @@ export const useLayoutStore = create<LayoutState>()(
     (set) => ({
       isSidebarCollapsed: false,
       isMobileMenuOpen: false,
+      openSection: null,
+      setOpenSection: (title: string | null) => set({ openSection: title }),
 
       toggleSidebar: () =>
         set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
@@ -26,7 +31,7 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'pos-layout',
-      partialize: (state) => ({ isSidebarCollapsed: state.isSidebarCollapsed }),
+      partialize: (state) => ({ isSidebarCollapsed: state.isSidebarCollapsed, openSection: state.openSection }),
     }
   )
 );

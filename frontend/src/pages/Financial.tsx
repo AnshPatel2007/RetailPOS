@@ -1,3 +1,4 @@
+import { presetRange } from '@/lib/calendarDates';
 import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { FilterChips } from '@/components/common/FilterChips';
@@ -10,7 +11,8 @@ import { PageTabs } from '@/components/common/PageTabs';
 import { useUrlFilter } from '@/hooks/useUrlFilter';
 import { useAuthStore } from '@/store/authStore';
 import { can } from '@/lib/capabilities';
-import { formatEnumLabel } from '@/lib/utils';
+import { formatEnumLabel, formatDate, formatCurrency as currency, CHART_COLORS } from '@/lib/utils';
+import { Pagination } from '@/components/common/Pagination';
 import type { ProfitAndLossReport } from '@/services/profitAndLossExport';
 import React, { useState, useEffect, useRef } from 'react';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
@@ -43,7 +45,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { financialService, expenseService, reportService } from '@/services/api';
+import { financialService, expenseService, reportService, apiErrorMessage } from '@/services/api';
 import { displayStoreDate, storeDateInput } from '@/lib/storeDates';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -187,6 +189,8 @@ export const Financial: React.FC = () => {
         ...expenseFilters,
         category: expenseFilters.category.join(','),
         status: expenseFilters.status.join(','),
+        // The file holds exactly the rows the list shows, search included.
+        search: searchQuery.trim() || undefined,
         locationId: activeLocationId || undefined,
       };
 
@@ -261,21 +265,27 @@ export const Financial: React.FC = () => {
     return filtered;
   }, [expenseData?.expenses, searchQuery, expenseFilters]);
 
-  const formatCurrency = (value: number | null | undefined) => {
-    if (value == null || !Number.isFinite(value)) return 'Unavailable';
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(value || 0);
-  };
+  // Missing amounts read "Unavailable", never $0.00.
+  const formatCurrency = (value: number | null | undefined) => value == null || !Number.isFinite(Number(value)) ? 'Unavailable' : currency(Number(value));
+  const EXPENSES_PER_PAGE = 50;
+  const [expensePage, setExpensePage] = useState(1);
+  useEffect(() => { setExpensePage(1); }, [searchQuery, expenseFilters, expenseData]);
+  const expensePages = Math.max(1, Math.ceil(filteredExpenses.length / EXPENSES_PER_PAGE));
+  const visibleExpenses = filteredExpenses.slice((expensePage - 1) * EXPENSES_PER_PAGE, expensePage * EXPENSES_PER_PAGE);
 
   const handleGenerateRecurring = async () => {
+    // Recurring dates are calendar days; one is due once the store's date reaches it.
+    const storeToday = presetRange('today', assignedTimezone)!.startDate;
+    const due = recurringExpenses.filter(item => item.isActive && String(item.nextDueDate).slice(0, 10) <= storeToday).length;
+    if (!await confirm({ title: 'Create the expenses that are due?',
+      message: due ? `${due} recurring ${due === 1 ? 'expense is' : 'expenses are'} due. Each becomes a pending expense for approval.` : 'Nothing looks due yet; any that are will become pending expenses for approval.',
+      confirmLabel: 'Create expenses' })) return;
     try {
       const response = await financialService.generateRecurringExpenses();
-      toast.success(`Generated ${response.data.data.generated} expenses`);
+      toast.success(`Created ${response.data.data.generated} expenses`);
       fetchData();
     } catch (error) {
-      toast.error('Failed to generate recurring expenses');
+      toast.error(apiErrorMessage(error, 'Failed to create recurring expenses'));
     }
   };
 
@@ -353,8 +363,8 @@ export const Financial: React.FC = () => {
           {mayManage && ['expenses','budgets','recurring'].includes(activeTab) && <Button onClick={() => { if(activeTab === 'expenses') setShowExpenseModal(true); else if(activeTab === 'budgets') { setEditingBudget(null); setShowBudgetModal(true); } else { setEditingRecurring(null); setShowRecurringModal(true); } }}><Plus className="h-4 w-4 mr-2" />{activeTab === 'expenses' ? 'Add Expense' : activeTab === 'budgets' ? 'Add Budget' : 'Add Recurring Expense'}</Button>}
         </>}
         tabs={<PageTabs label="Financial views" value={activeTab} onChange={setActiveTab} items={[
-          {id:'expenses',label:'Expenses'},{id:'recurring',label:'Recurring'},{id:'budgets',label:'Budgets'},{id:'pnl',label:'Profit & Loss'},{id:'inventory',label:'Inventory costs'},
-          ...(role === 'ADMIN' ? [{id:'reconciliation',label:'Reconciliation',href:'/financial/reconciliation'}] : [])
+          {id:'expenses',label:'Expenses'},{id:'recurring',label:'Recurring'},{id:'budgets',label:'Budgets'},{id:'pnl',label:'Profit & Loss'},{id:'inventory',label:'Inventory Costs'},
+          ...(role === 'ADMIN' ? [{id:'reconciliation',label:'Balance Corrections',href:'/financial/reconciliation'}] : [])
         ]} />}
         toolbar={<>
           {role === 'SUPER_ADMIN' && !isAdminViewing && <StoreFilterSelect value={locationId} onChange={setLocationId} />}
@@ -445,10 +455,10 @@ export const Financial: React.FC = () => {
               />}
 
               <SummaryStrip className="mb-4" items={[
-                { label: 'Total Expenses', value: formatCurrency(expenseData.summary?.totalExpenses || 0) },
-                { label: 'Pending', value: formatCurrency(expenseData.summary?.pendingExpenses || 0), tone: expenseData.summary?.pendingExpenses ? 'warning' : 'default' },
+                { label: 'Total Expenses', value: formatCurrency(expenseData.summary?.totalExpenses ?? 0), detail: 'Approved and paid, as in Profit & Loss' },
+                { label: 'Pending', value: formatCurrency(expenseData.summary?.pendingExpenses ?? 0), detail: 'Not counted until approved', tone: expenseData.summary?.pendingExpenses ? 'warning' : 'default' },
                 { label: 'Top Category', value: expenseData.summary?.topCategory ? formatEnumLabel(expenseData.summary.topCategory) : 'Unavailable' },
-                { label: 'Avg Daily', value: formatCurrency(expenseData.summary?.avgDailyExpense || 0) },
+                { label: 'Avg Daily', value: formatCurrency(expenseData.summary?.avgDailyExpense ?? 0) },
               ]} />
 
               {/* Category Breakdown Chart */}
@@ -469,17 +479,17 @@ export const Financial: React.FC = () => {
                               cx="50%"
                               cy="50%"
                               outerRadius={100}
-                              label={(entry) => `${entry.category}: ${entry.percentage.toFixed(1)}%`}
+                              label={(entry) => `${formatEnumLabel(entry.category)}: ${entry.percentage.toFixed(1)}%`}
                             >
                               {expenseData.summary.byCategory.map((_entry, index) => (
                                 <Cell
                                   key={`cell-${index}`}
-                                  fill={`hsl(${(index * 360) / expenseData.summary.byCategory.length}, 70%, 50%)`}
+                                  fill={CHART_COLORS[index % CHART_COLORS.length]}
                                 />
                               ))}
                             </Pie>
                             <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                            <Legend />
+                            <Legend formatter={(value) => formatEnumLabel(String(value))} />
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
@@ -488,7 +498,7 @@ export const Financial: React.FC = () => {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Category</TableHead>
-                              <TableHead>Count</TableHead>
+                              <TableHead className="text-right">Count</TableHead>
                               <TableHead className="text-right">Total</TableHead>
                               <TableHead className="text-right">%</TableHead>
                             </TableRow>
@@ -497,7 +507,7 @@ export const Financial: React.FC = () => {
                             {expenseData.summary.byCategory.map((cat) => (
                               <TableRow key={cat.category}>
                                 <TableCell className="font-medium">{formatEnumLabel(cat.category)}</TableCell>
-                                <TableCell>{cat.count}</TableCell>
+                                <TableCell className="text-right tabular-nums">{cat.count}</TableCell>
                                 <TableCell className="text-right">
                                   {formatCurrency(cat.total)}
                                 </TableCell>
@@ -529,6 +539,7 @@ export const Financial: React.FC = () => {
                       <TableHead className="w-12">
                         <input
                           type="checkbox"
+                          aria-label="Select all expenses"
                               disabled={!mayManage}
                           checked={
                             filteredExpenses.length > 0 &&
@@ -559,7 +570,7 @@ export const Financial: React.FC = () => {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredExpenses.slice(0, 50).map((expense) => (
+                      visibleExpenses.map((expense) => (
                         <TableRow
                           key={expense.id}
                           className="cursor-pointer hover:bg-accent"
@@ -577,6 +588,7 @@ export const Financial: React.FC = () => {
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
+                              aria-label={`Select expense ${expense.description}`}
                               disabled={!mayManage}
                               checked={selectedExpenseIds.includes(expense.id)}
                               onChange={() => toggleExpenseSelection(expense.id)}
@@ -593,7 +605,7 @@ export const Financial: React.FC = () => {
                               {formatEnumLabel(expense.category)}
                             </Badge>
                           </TableCell>
-                          <TableCell>{expense.vendor || '-'}</TableCell>
+                          <TableCell>{expense.vendor || '\u2014'}</TableCell>
                           <TableCell>{getStatusBadge(expense.status)}</TableCell>
                           <TableCell className="text-right whitespace-nowrap font-medium">
                             {formatCurrency(expense.amount)}
@@ -607,6 +619,7 @@ export const Financial: React.FC = () => {
                                 }}
                                 className="p-1 hover:bg-accent rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 title="View details"
+                                aria-label={`View expense ${expense.expenseNumber}`}
                               >
                                 <Eye className="h-4 w-4" />
                               </button>
@@ -618,6 +631,7 @@ export const Financial: React.FC = () => {
                                   }}
                                   className="p-1 hover:bg-accent rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                   title="Edit"
+                                  aria-label={`Edit expense ${expense.expenseNumber}`}
                                 >
                                   <Edit className="h-4 w-4" />
                                 </button>
@@ -629,6 +643,7 @@ export const Financial: React.FC = () => {
                     )}
                   </TableBody>
                 </Table>
+                <Pagination page={expensePage} totalPages={expensePages} onPageChange={setExpensePage} totalItems={filteredExpenses.length} itemName="expenses" />
               </Card>
 
               {/* Modals */}
@@ -716,18 +731,18 @@ export const Financial: React.FC = () => {
                     <TableRow>
                       <TableHead>Category</TableHead>
                       <TableHead>Period</TableHead>
-                      <TableHead>Budgeted</TableHead>
-                      <TableHead>Spent</TableHead>
-                      <TableHead>Remaining</TableHead>
-                      <TableHead>% Used</TableHead>
+                      <TableHead className="text-right">Budgeted</TableHead>
+                      <TableHead className="text-right">Spent</TableHead>
+                      <TableHead className="text-right">Remaining</TableHead>
+                      <TableHead className="text-right">% Used</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {budgets.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground">
-                          {mayManage ? 'No budgets set. Click "Add Budget" to create one.' : 'No budgets set for this store.'}
+                        <TableCell colSpan={7}>
+                          <EmptyState icon={DollarSign} title="No budgets set" hint={mayManage ? 'Add a budget to compare spending with a monthly plan.' : 'No budgets set for this store.'} />
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -735,13 +750,13 @@ export const Financial: React.FC = () => {
                         <TableRow key={budget.id}>
                           <TableCell>{formatEnumLabel(budget.category)}</TableCell>
                           <TableCell>{formatEnumLabel(budget.period)}</TableCell>
-                          <TableCell>{formatCurrency(budget.amount)}</TableCell>
-                          <TableCell>{formatCurrency(budget.spent)}</TableCell>
-                          <TableCell className={budget.remaining >= 0 ? 'text-success' : 'text-destructive'}>
+                          <TableCell className="text-right tabular-nums">{formatCurrency(budget.amount)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatCurrency(budget.spent)}</TableCell>
+                          <TableCell className={`text-right tabular-nums ${budget.remaining >= 0 ? 'text-success' : 'text-destructive'}`}>
                             {formatCurrency(budget.remaining)}
                           </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
+                          <TableCell className="text-right tabular-nums">
+                            <div className="flex items-center justify-end gap-2">
                               <span>{budget.percentUsed}%</span>
                               {budget.isOverBudget && <AlertTriangle className="w-4 h-4 text-destructive" />}
                             </div>
@@ -814,7 +829,8 @@ export const Financial: React.FC = () => {
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Calendar className="w-4 h-4 text-muted-foreground" />
-                              {new Date(recurring.nextDueDate).toLocaleDateString()}
+                              {/* Recurring dates are calendar days stored at UTC midnight. */}
+                              {formatDate(recurring.nextDueDate, 'UTC')}
                             </div>
                           </TableCell>
                           <TableCell>

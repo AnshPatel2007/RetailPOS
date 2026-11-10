@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Node.js** v18+ (tested on v24) - [Download](https://nodejs.org/)
-- **PostgreSQL** v14+ - [Download](https://www.postgresql.org/download/)
+- **PostgreSQL** v14+ (tested on 18) - [Download](https://www.postgresql.org/download/)
 - **npm** (comes with Node.js)
 
 ## 1. Database Setup
@@ -33,6 +33,8 @@ This installs root, backend, and frontend dependencies via npm workspaces.
 
 ### Backend (`backend/.env`)
 
+Copy `backend/.env.example`; it lists every setting with comments. The minimum:
+
 ```env
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/pos_system"
 JWT_SECRET="your-super-secret-jwt-key-min-32-characters-long-change-in-production"
@@ -45,8 +47,11 @@ FRONTEND_URL="http://localhost:5173"
 ### Frontend (`frontend/.env`)
 
 ```env
-VITE_API_URL=http://localhost:5000/api
+VITE_API_URL=/api
 ```
+
+In development Vite forwards `/api` to `http://localhost:5000`. For a deployed frontend,
+set the full API URL (for example `https://your-api.onrender.com/api`).
 
 ## 4. Database Schema & Seeding
 
@@ -105,10 +110,14 @@ cd frontend && npm run dev
 
 ## First Time Usage
 
-1. Login with admin credentials
-2. Clock in via the Shifts page
-3. Navigate to POS and start making sales
-4. Add products via the Inventory page as needed
+1. Sign in as the owner (`admin@pos.com` on a seeded development database).
+2. Add products in **Products** (scan a barcode to look it up), or import a CSV.
+3. Clock in (**Team & Time > Shifts**, or **My Shift** for cashiers); sales need an open shift.
+4. Open **POS** and sell.
+5. Optional, for a shared counter: on the register computer, a manager opens
+   **Settings > Devices > Set up this computer**, and each person sets a PIN in
+   **Settings > Profile & Security**. Staff then sign in by name and PIN and can lock
+   the register between customers.
 
 ## Database Management
 
@@ -168,7 +177,7 @@ PAYROLL_SCHEDULER_DISABLED=true also prevents automatic expense generation on a
 local preview. Enable the scheduler only in the intended store deployment after
 reviewing its payroll schedule; owner processing remains available explicitly.
 
-Owners can inspect store jobs at Settings > Background jobs; each user can inspect
+Owners can inspect store jobs at Settings > Email & export jobs (`/settings/jobs`); each user can inspect
 own password/security notification states in Settings > Profile. Digest delivery
 has its separate delivery history. A provider acceptance is distinct from inbox
 arrival. Unknown email outcomes require review and provider evidence before a
@@ -178,10 +187,16 @@ Set JOB_ENCRYPTION_KEY to a separate stable secret of at least 32 characters and
 keep it in the deployment's protected secret backup. Existing installations may
 initially fall back to JWT_SECRET; changing the effective encryption key makes
 queued content unreadable. Restore the key with the database and matching uploads.
-See [the recovery procedure](./docs/recovery-acceptance.md) and
-[hardware/provider acceptance](./docs/hardware-provider-acceptance.md).
+`node scripts/verify-recovery.cjs` rehearses a backup and restore without touching
+the store database (see [docs/testing.md](./docs/testing.md)).
 
-**Port already in use:** Change `PORT` in `backend/.env` or port in `frontend/vite.config.ts`.
+**Port already in use:** an old API or Vite process is still running. Stop it, or change
+`PORT` in `backend/.env` / the port in `frontend/vite.config.ts`.
+
+**"Route not found" for a feature that exists in the code:** the API process is older
+than the code (for example started with plain `node` instead of `npm run dev`, which
+restarts on changes). Stop it and run `npm run dev` in `backend/`. If the change added
+database columns, apply its migration first (see [DATABASE_MIGRATIONS.md](./DATABASE_MIGRATIONS.md)).
 
 The POS assistant is available from the chat icon on all screens. Configure
 `ANTHROPIC_API_KEY` in the backend environment for replies. General help is
@@ -189,7 +204,7 @@ available before sign-in; store analysis requires an owner or manager account.
 The public help endpoint has no store-data tools. Opening the panel does not
 call the provider. Missing configuration or provider failure keeps the question
 available for retry. Automated assistant tests mock the provider and make no
-paid requests. See [interface behavior and verification](./docs/interface-consistency.md).
+paid requests.
 
 **Database connection error:** Verify PostgreSQL is running and `DATABASE_URL` in `backend/.env` is correct.
 

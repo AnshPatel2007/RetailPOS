@@ -1,6 +1,6 @@
 import { ManagementPage } from '@/components/common/Workspace';
 import { Select } from '@/components/ui/Select';
-import { formatEnumLabel } from '@/lib/utils';
+import { formatEnumLabel, formatDate, formatDateTime } from '@/lib/utils';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ArrowLeftRight, Plus, Truck, XCircle } from 'lucide-react';
@@ -22,7 +22,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { inventoryTransferService } from '@/services/api';
+import { inventoryTransferService, apiErrorMessage } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import toast from 'react-hot-toast';
@@ -191,7 +191,7 @@ export const InventoryTransfers: React.FC = () => {
       fetchTransfers();
       setRecordId('');
     } catch (err: any) {
-      toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to ship');
+      toast.error(apiErrorMessage(err, 'Failed to ship'));
     }
   };
 
@@ -202,7 +202,7 @@ export const InventoryTransfers: React.FC = () => {
       fetchTransfers();
       setRecordId('');
     } catch (err: any) {
-      toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to cancel');
+      toast.error(apiErrorMessage(err, 'Failed to cancel'));
     }
   };
 
@@ -275,14 +275,14 @@ export const InventoryTransfers: React.FC = () => {
               <TableBody>
                 {transfers.map((t) => (
                   <TableRow key={t.id} className="cursor-pointer" onClick={() => viewDetail(t)}>
-                    <TableCell className="font-medium">{t.transferNumber}</TableCell>
+                    <TableCell className="font-medium"><button type="button" className="text-left hover:underline focus-visible:underline" onClick={(event) => { event.stopPropagation(); viewDetail(t); }}>{t.transferNumber}</button></TableCell>
                     <TableCell>{t.fromLocation?.name || t.fromLocationId}</TableCell>
                     <TableCell>{t.toLocation?.name || t.toLocationId}</TableCell>
-                    <TableCell className="text-muted-foreground">{t.items?.length || 0}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{t.items?.length ?? '\u2014'}</TableCell>
                     <TableCell>
                       <Badge className={statusColors[t.status] || ''}>{formatEnumLabel(t.status)}</Badge>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{new Date(t.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(t.createdAt)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -381,7 +381,7 @@ export const InventoryTransfers: React.FC = () => {
               </div>
               <div>
                 <p className="text-muted-foreground">Created</p>
-                <p>{new Date(selectedTransfer.createdAt).toLocaleString()}</p>
+                <p>{formatDateTime(selectedTransfer.createdAt)}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">From</p>

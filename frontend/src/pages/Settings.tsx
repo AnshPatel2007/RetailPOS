@@ -1,6 +1,8 @@
+import { Checkbox } from '@/components/ui/Checkbox';
 import { Select } from '@/components/ui/Select';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import { PageTabs } from '@/components/common/PageTabs';
+import { Alert } from '@/components/ui/Alert';
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -22,6 +24,8 @@ import {
 import { hardware, HardwareSettings } from '@/services/hardware';
 import { userService } from '@/services/api';
 import { TwoFactorCard } from '@/components/settings/TwoFactorCard';
+import { RegisterPinCard } from '@/components/settings/RegisterPinCard';
+import { RegisterDeviceCard } from '@/components/settings/RegisterDeviceCard';
 import { PricingRulesCard } from '@/components/settings/PricingRulesCard';
 import {SecurityNotifications} from '@/components/settings/SecurityNotifications';
 import { ManagementPage } from '@/components/common/Workspace';
@@ -104,7 +108,15 @@ export const Settings: React.FC = () => {
   const saveStoreSettings = () => saveSection('store', () => settingsStore.saveStoreInfo({ storeName: storeSettings.storeName, address: storeSettings.address, city: storeSettings.city, state: storeSettings.state, phone: storeSettings.phone }));
   const saveReceiptSettings = () => saveSection('receipts', () => settingsStore.saveReceiptSettings(receiptSettings));
   const savePaymentMethods = () => saveSection('payments', () => settingsStore.savePaymentMethods(paymentMethods));
-  const saveTaxSettings = () => saveSection('payments', () => settingsStore.saveTaxRate(storeSettings.taxRate || 0));
+  // A blank tax box is a mistake to fix, never a silent 0%.
+  const [taxInput, setTaxInput] = useState<string | null>(null);
+  const saveTaxSettings = () => {
+    const raw = (taxInput ?? String(storeSettings.taxRate ?? '')).trim();
+    const rate = Number(raw);
+    if (raw === '' || !Number.isFinite(rate) || rate < 0 || rate > 100) { toast.error('Enter the sales tax rate as a number from 0 to 100 (enter 0 for no tax).'); return; }
+    setTaxInput(null);
+    return saveSection('payments', () => settingsStore.saveTaxRate(rate));
+  };
   const saveNotificationSettings = () => saveSection('notifications', () => settingsStore.saveNotificationSettings(notificationSettings));
 
   const saveUserProfile = async () => {
@@ -189,7 +201,7 @@ export const Settings: React.FC = () => {
   const testScanner = () => {
     const result = hardware.testScanner();
     setScannerTestResult(result);
-    toast(result, { icon: '🔍' });
+    toast(result);
   };
 
   // Test printer
@@ -206,15 +218,6 @@ export const Settings: React.FC = () => {
   };
 
   // Test cash drawer
-  const testDrawer = async () => {
-    const success = await hardware.testDrawer();
-    if (success) {
-      toast.success('Cash drawer command sent');
-    } else {
-      toast.error('Failed to open cash drawer');
-    }
-  };
-
   const autoRefresh = useLegacyPageRefresh(async () => {
     await settingsStore.fetchSettings(locationId || undefined);
     if (useStoreSettingsStore.getState().error) throw new Error('Settings update failed');
@@ -297,31 +300,15 @@ export const Settings: React.FC = () => {
               value={receiptSettings.footer}
               onChange={(e) => setReceiptSettings({ ...receiptSettings, footer: e.target.value })}
             />
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={receiptSettings.showAddress}
-                onChange={(e) => setReceiptSettings({ ...receiptSettings, showAddress: e.target.checked })}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Show store address on receipt</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={receiptSettings.showTaxBreakdown}
-                onChange={(e) => setReceiptSettings({ ...receiptSettings, showTaxBreakdown: e.target.checked })}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Show tax breakdown</span>
-            </label>
+            <Checkbox label="Show store address on receipt" checked={receiptSettings.showAddress} onChange={(e) => setReceiptSettings({ ...receiptSettings, showAddress: e.target.checked })} />
+            <Checkbox label="Show tax breakdown" checked={receiptSettings.showTaxBreakdown} onChange={(e) => setReceiptSettings({ ...receiptSettings, showTaxBreakdown: e.target.checked })} />
             <Button variant="primary" onClick={saveReceiptSettings} disabled={!editable}>Save Changes</Button>
           </CardContent>
         </Card>
 
         </fieldset>)}
 
-        {selected === 'payments' && <Card><CardHeader><CardTitle>Store Tax</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm text-muted-foreground">The store owner maintains this location's rate. Checkout applies it automatically to taxable products and preserves the rate on completed sales.</p><Input label="Store sales tax (%)" type="number" min="0" max="100" step="0.0001" value={storeSettings.taxRate ?? 0} disabled={!editable || !canFinance} onChange={e => setStoreSettings({ ...storeSettings, taxRate: Number(e.target.value) })} /><Button onClick={saveTaxSettings} disabled={!editable || !canFinance}>Save tax rate</Button></CardContent></Card>}
+        {selected === 'payments' && <Card><CardHeader><CardTitle>Store Tax</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm text-muted-foreground">The store owner maintains this location's rate. Checkout applies it automatically to taxable products and preserves the rate on completed sales.</p><Input label="Store sales tax (%)" type="number" min="0" max="100" step="0.0001" value={taxInput ?? String(storeSettings.taxRate ?? '')} disabled={!editable || !canFinance} onChange={e => { setTaxInput(e.target.value); if (e.target.value.trim() !== '' && Number.isFinite(Number(e.target.value))) setStoreSettings({ ...storeSettings, taxRate: Number(e.target.value) }); }} /><Button onClick={saveTaxSettings} disabled={!editable || !canFinance}>Save tax rate</Button></CardContent></Card>}
         {selected === 'payments' && (<fieldset disabled={!editable} className="contents">
         {/* Payment Settings */}
         <Card>
@@ -333,42 +320,10 @@ export const Settings: React.FC = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <label className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={paymentMethods.cash}
-                  onChange={(e) => setPaymentMethods({ ...paymentMethods, cash: e.target.checked })}
-                  className="rounded border-input"
-                />
-                <span className="text-sm">Cash</span>
-              </label>
-              <label className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={paymentMethods.card}
-                  onChange={(e) => setPaymentMethods({ ...paymentMethods, card: e.target.checked })}
-                  className="rounded border-input"
-                />
-                <span className="text-sm">Credit/Debit Card</span>
-              </label>
-              <label className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={paymentMethods.giftCard}
-                  onChange={(e) => setPaymentMethods({ ...paymentMethods, giftCard: e.target.checked })}
-                  className="rounded border-input"
-                />
-                <span className="text-sm">Gift Card</span>
-              </label>
-              <label className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={paymentMethods.storeCredit}
-                  onChange={(e) => setPaymentMethods({ ...paymentMethods, storeCredit: e.target.checked })}
-                  className="rounded border-input"
-                />
-                <span className="text-sm">Store Credit</span>
-              </label>
+              <Checkbox label="Cash" checked={paymentMethods.cash} onChange={(e) => setPaymentMethods({ ...paymentMethods, cash: e.target.checked })} />
+              <Checkbox label="Credit/Debit Card" description="Charged on your separate card terminal; the register records the approved amount." checked={paymentMethods.card} onChange={(e) => setPaymentMethods({ ...paymentMethods, card: e.target.checked })} />
+              <Checkbox label="Gift Card" checked={paymentMethods.giftCard} onChange={(e) => setPaymentMethods({ ...paymentMethods, giftCard: e.target.checked })} />
+              <Checkbox label="Store Credit" checked={paymentMethods.storeCredit} onChange={(e) => setPaymentMethods({ ...paymentMethods, storeCredit: e.target.checked })} />
             </div>
             <Button variant="primary" onClick={savePaymentMethods} disabled={!editable}>Save Changes</Button>
           </CardContent>
@@ -388,33 +343,9 @@ export const Settings: React.FC = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={notificationSettings.lowStockAlerts}
-                onChange={(e) => setNotificationSettings({ ...notificationSettings, lowStockAlerts: e.target.checked })}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Low stock alerts</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={notificationSettings.endOfDayReports}
-                onChange={(e) => setNotificationSettings({ ...notificationSettings, endOfDayReports: e.target.checked })}
-                className="rounded border-input"
-              />
-              <span className="text-sm">End of day reports</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={notificationSettings.emailNotifications}
-                onChange={(e) => setNotificationSettings({ ...notificationSettings, emailNotifications: e.target.checked })}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Email notifications</span>
-            </label>
+            <Checkbox label="Low stock alerts" checked={notificationSettings.lowStockAlerts} onChange={(e) => setNotificationSettings({ ...notificationSettings, lowStockAlerts: e.target.checked })} />
+            <Checkbox label="End of day reports" checked={notificationSettings.endOfDayReports} onChange={(e) => setNotificationSettings({ ...notificationSettings, endOfDayReports: e.target.checked })} />
+            <Checkbox label="Email notifications" checked={notificationSettings.emailNotifications} onChange={(e) => setNotificationSettings({ ...notificationSettings, emailNotifications: e.target.checked })} />
             <Input
               label="Notification Email"
               type="email"
@@ -428,6 +359,7 @@ export const Settings: React.FC = () => {
 
         </fieldset>)}
 
+        {selected === 'devices' && !isSuperAdmin && <RegisterDeviceCard readOnly={isReadOnly} />}
         {selected === 'devices' && canOperate && (<>
         {/* Barcode Scanner Settings */}
         <Card>
@@ -438,15 +370,8 @@ export const Settings: React.FC = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={hardwareSettings.barcodeScanner.enabled}
-                onChange={(e) => updateHardwareSettings('barcodeScanner', 'enabled', e.target.checked)}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Enable barcode scanner</span>
-            </label>
+            <Checkbox label="Enable barcode scanner" checked={hardwareSettings.barcodeScanner.enabled} onChange={(e) => updateHardwareSettings('barcodeScanner', 'enabled', e.target.checked)} />
+            <Checkbox label="Beep on each scan (low buzz when nothing is found)" checked={hardwareSettings.barcodeScanner.soundEnabled !== false} onChange={(e) => updateHardwareSettings('barcodeScanner', 'soundEnabled', e.target.checked)} disabled={!hardwareSettings.barcodeScanner.enabled} />
             <Input
               label="Input Timeout (ms)"
               type="number"
@@ -491,15 +416,7 @@ export const Settings: React.FC = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={hardwareSettings.receiptPrinter.enabled}
-                onChange={(e) => updateHardwareSettings('receiptPrinter', 'enabled', e.target.checked)}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Enable receipt printer</span>
-            </label>
+            <Checkbox label="Enable receipt printer" checked={hardwareSettings.receiptPrinter.enabled} onChange={(e) => updateHardwareSettings('receiptPrinter', 'enabled', e.target.checked)} />
             <div>
               <label className="block text-sm font-medium mb-1">Paper Width</label>
               <Select
@@ -512,28 +429,10 @@ export const Settings: React.FC = () => {
                 <option value={80}>80mm (standard)</option>
               </Select>
             </div>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={hardwareSettings.receiptPrinter.autoPrint}
-                onChange={(e) => updateHardwareSettings('receiptPrinter', 'autoPrint', e.target.checked)}
-                className="rounded border-input"
-                disabled={!hardwareSettings.receiptPrinter.enabled}
-              />
-              <span className="text-sm">Auto-print receipts</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={hardwareSettings.receiptPrinter.showLogo}
-                onChange={(e) => updateHardwareSettings('receiptPrinter', 'showLogo', e.target.checked)}
-                className="rounded border-input"
-                disabled={!hardwareSettings.receiptPrinter.enabled}
-              />
-              <span className="text-sm">Show store name</span>
-            </label>
+            <Checkbox label="Auto-print receipts" checked={hardwareSettings.receiptPrinter.autoPrint} onChange={(e) => updateHardwareSettings('receiptPrinter', 'autoPrint', e.target.checked)} disabled={!hardwareSettings.receiptPrinter.enabled} />
+            <Checkbox label="Show store name" checked={hardwareSettings.receiptPrinter.showLogo} onChange={(e) => updateHardwareSettings('receiptPrinter', 'showLogo', e.target.checked)} disabled={!hardwareSettings.receiptPrinter.enabled} />
             <p className="text-xs text-muted-foreground">
-              Store name, address, phone, and footer are configured in Store Information and Receipt Settings above.
+              The store name, address and phone come from the Store section; the footer is set under Receipts.
             </p>
             <Button
               variant="outline"
@@ -555,78 +454,10 @@ export const Settings: React.FC = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={hardwareSettings.cashDrawer.enabled}
-                onChange={(e) => updateHardwareSettings('cashDrawer', 'enabled', e.target.checked)}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Enable cash drawer</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={hardwareSettings.cashDrawer.openOnSale}
-                onChange={(e) => updateHardwareSettings('cashDrawer', 'openOnSale', e.target.checked)}
-                className="rounded border-input"
-                disabled={!hardwareSettings.cashDrawer.enabled}
-              />
-              <span className="text-sm">Open drawer on sale completion</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={hardwareSettings.cashDrawer.openOnCashPayment}
-                onChange={(e) => updateHardwareSettings('cashDrawer', 'openOnCashPayment', e.target.checked)}
-                className="rounded border-input"
-                disabled={!hardwareSettings.cashDrawer.enabled}
-              />
-              <span className="text-sm">Only open for cash payments</span>
-            </label>
-            <p className="text-xs text-muted-foreground">
-              Automatic drawer control is not connected. Open the drawer manually or configure your printer driver.
-            </p>
-            <Button
-              variant="outline"
-              onClick={testDrawer}
-              disabled={!hardwareSettings.cashDrawer.enabled}
-            >
-              <TestTube2 className="h-4 w-4 mr-2" />
-              Test Cash Drawer
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Card Reader Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <CreditCard className="h-5 w-5 mr-2" />
-              Card Reader (Future)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={false}
-                disabled
-                onChange={(e) => updateHardwareSettings('cardReader', 'enabled', e.target.checked)}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Card reader integration is not connected</span>
-            </label>
-            <Input
-              label="Terminal ID"
-              value={hardwareSettings.cardReader.terminalId}
-              onChange={(e) => updateHardwareSettings('cardReader', 'terminalId', e.target.value)}
-              placeholder="Enter your terminal ID"
-              disabled={!hardwareSettings.cardReader.enabled}
-            />
-            <p className="text-xs text-muted-foreground">
-              Card payments are recorded after approval on a separate terminal. This POS does not charge cards.
-            </p>
+            <Alert tone="info" title="Not connected">
+              This register cannot open the cash drawer by itself yet. Open it with its key, or turn on
+              "open drawer when printing" in your receipt printer's driver so it opens with each receipt.
+            </Alert>
           </CardContent>
         </Card>
 
@@ -710,6 +541,7 @@ export const Settings: React.FC = () => {
         </Card>
 
         {/* Two-Factor Authentication — visible to all roles */}
+        <RegisterPinCard />
         <TwoFactorCard />
         <SecurityNotifications />
         </>}

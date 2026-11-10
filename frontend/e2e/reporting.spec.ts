@@ -12,12 +12,12 @@ test('overall cards and signed breakdowns agree without invented comparison perc
   const report = (await response.json()).data;
   const currency = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
   await expect(page.getByText('Inventory received at cost', { exact: true }).locator('..')).toContainText(currency(report.profitability.receivedInventoryPurchases));
-  await expect(page.getByRole('link', { name: 'View Full P&L', exact: true })).toHaveAttribute('href', '/financial?tab=pnl');
+  await expect(page.getByRole('link', { name: "This Month's P&L", exact: true })).toHaveAttribute('href', /^\/financial\?tab=pnl&pnlMonth=\d{4}-\d{2}$/);
   await expect(page.getByText('Last 30 Days', { exact: true }).first().locator('..')).toContainText('$11.00');
   await expect(page.getByText('Comparison unavailable', { exact: true })).toHaveCount(2);
-  await expect(page.getByText('Calendar: America/Chicago.', { exact: false })).toBeVisible();
+  await expect(page.getByText('Store time: America/Chicago', { exact: false })).toBeVisible();
   expect(report.trends.dailySales.reduce((sum: number, row: { sales: number }) => sum + row.sales, 0)).toBe(11);
-  const payment = page.getByText('Payment Labels (Last 30 Days)', { exact: true }).locator('..').locator('..');
+  const payment = page.getByText('Payments (Last 30 Days)', { exact: true }).locator('..').locator('..');
   await expect(payment).toContainText('$22.00'); await expect(payment).toContainText('-$11.00');
   await expect(payment.getByText(/share unavailable/)).toHaveCount(2);
   const category = page.getByText('Sales by Category', { exact: true }).locator('..').locator('..');
@@ -28,38 +28,25 @@ test('overall cards and signed breakdowns agree without invented comparison perc
   await expect(page.getByText(/\bNaN\b|Infinity/)).toHaveCount(0); expect(errors).toEqual([]);
 });
 
-test('analytics loads the selected view and shows unavailable historic profit honestly', async ({ page }) => {
+test('old analysis links open the Overall Report and load no analysis views', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await login(page, 'reporting@example.test');
   const requested = new Set<string>();
-  page.on('request', request => {
-    const path = new URL(request.url()).pathname;
-    if (path.startsWith('/api/analytics/')) requested.add(path);
-  });
-  await page.goto('/analytics');
-  await expect(page.getByText('Profit: Unavailable', { exact: true })).toBeVisible();
-  expect([...requested].sort()).toEqual(['/api/analytics/comparison', '/api/analytics/realtime']);
-  const healthResponse = page.waitForResponse(r => r.url().includes('/analytics/business-health'));
-  await page.getByRole('button', { name: 'Business Health', exact: true }).click();
-  const health = await healthResponse;
-  expect(health.status()).toBe(200);
-  const profitability = (await health.json()).data.profitability;
-  const currency = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
-  await expect(page.getByText('+ Other income', { exact: true }).locator('..')).toContainText(currency(profitability.otherIncome));
-  await expect(page.getByText('Inventory received at cost', { exact: true }).locator('..')).toContainText(currency(profitability.receivedInventoryPurchases));
-  await expect(page.getByText('Cost information incomplete. Review missing inventory and sale costs.', { exact: false })).toBeVisible();
-  await expect(page.getByText('Cost of goods sold (recorded)', { exact: false })).toBeVisible();
-  await expect(page.getByText('Break-even requires a configured fixed/variable expense model.', { exact: true })).toBeVisible();
-  await expect(page.getByText(/\bNaN\b/)).toHaveCount(0);
-  await page.screenshot({ path: 'test-results/reporting-unavailable.png', fullPage: true });
-  await page.getByRole('navigation', { name: 'Reports views' }).getByRole('link', { name: 'Inventory', exact: true }).click();
-  await page.getByRole('button', { name: 'Product Matrix', exact: true }).click();
-  await expect(page.getByText(/1 products have unavailable historical margin/)).toBeVisible();
+  page.on('request', request => { const path = new URL(request.url()).pathname; if (path.startsWith('/api/analytics/')) requested.add(path); });
+  for (const old of ['/analytics', '/analytics?tab=health', '/insights/reports/inventory?view=abc', '/insights/reports/overview?view=forecast']) {
+    await page.goto(old);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Reports');
+  }
+  await expect(page).toHaveURL(/\/insights\/reports\/(overview|inventory)/);
+  for (const removed of ['Business Health', 'Comparison', 'Product Matrix', 'ABC Analysis', 'Inventory Planning', 'Forecast', 'What-If', 'Anomalies', 'Bundles', 'Employee Performance', 'Inventory Report']) {
+    await expect(page.getByRole('button', { name: removed, exact: true })).toHaveCount(0);
+  }
+  expect([...requested]).toEqual([]);
   expect(errors).toEqual([]);
 });
 
-test('P&L and what-if keep missing costs unavailable instead of estimating profit', async ({ page }) => {
+test('P&L keeps missing costs unavailable instead of estimating profit', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await login(page, 'reporting@example.test');
@@ -70,17 +57,12 @@ test('P&L and what-if keep missing costs unavailable instead of estimating profi
   await expect(costStatus).toContainText('Review missing inventory and sale costs.');
   await expect(costStatus.getByRole('button', { name: 'Review costs', exact: true })).toBeVisible();
   await expect(page.getByText('Gross profit', { exact: true }).locator('..')).toContainText('—');
-  await page.goto('/analytics');
-  await page.getByRole('button', { name: 'What-If', exact: true }).click();
-  await page.getByRole('button', { name: 'Calculate Impact', exact: true }).click();
-  await expect(page.getByText(/Volume changes only by your input/)).toBeVisible();
-  await expect(page.getByText('Unavailable', { exact: true }).first()).toBeVisible();
   expect(errors).toEqual([]);
 });
 
 test('sales filters, return-period totals and both downloads agree', async ({ page }) => {
   await login(page, 'reporting@example.test'); await page.goto('/reports');
-  const summary = page.getByText('Net collected (including tax)', { exact: true }).locator('..');
+  const summary = page.getByText('Sales after refunds (incl. tax)', { exact: true }).locator('..');
   await expect(summary.getByText('$11.00', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Returns issued in this period', exact: true })).toBeVisible();
   const search = page.getByPlaceholder('Search by sale #, customer name, email, or phone...');

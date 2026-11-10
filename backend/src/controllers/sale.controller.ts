@@ -10,7 +10,7 @@ import { checkoutTotals } from '../services/checkoutTotals.service';
 import { assertCheckoutTendersAvailable, assertConfiguredTenders } from '../services/tenderAvailability.service';
 import { publicStoreSettings } from '../validators/storeSettings.validator';
 import { z } from 'zod';
-import { requireTransactionApproval } from '../services/managerApproval.service';
+import { requireTransactionApproval, discountApprovalHash } from '../services/managerApproval.service';
 import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
@@ -23,7 +23,7 @@ import { bulkRefund, previewBulkRefund } from '../services/bulkRefund.service';
 import { generateSaleNumber } from '../utils/saleNumber';
 import { nextDocumentSequence } from '../services/documentNumber.service';
 import { getReportCalendar } from '../services/reportDates.service';
-import { assertOwnsRecord, assertCanReadRecord } from '../utils/locationFilter.util';
+import { assertOwnsRecord, assertCanReadRecord, getLocationFilter } from '../utils/locationFilter.util';
 import { createDateFilter } from '../utils/dateFilter.util';
 import { isPromotionActiveNow } from '../utils/promotionEngine';
 import { queueWebhook } from '../services/webhook.service';
@@ -270,7 +270,8 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
 
     // Evaluate permission against the same product facts used for pricing.
     const needsApproval = items.some((item: any) => item.discount > 0 || (item.priceOverride && !freshProductMap.get(item.productId)?.priceEmbedded && !item.productId.startsWith('misc-')));
-    if (needsApproval) await requireTransactionApproval(req, tx, 'checkout.override');
+    // Approved either for this exact sale, or earlier at the register for these same discounted lines.
+    if (needsApproval) await requireTransactionApproval(req, tx, 'checkout.override', [discountApprovalHash(items)]);
 
     const currentLocation = await tx.location.findUniqueOrThrow({ where: { id: req.user!.locationId! }, select: { taxRate: true, cardSurchargePercent: true, settings: true, isActive: true } });
     if (!currentLocation.isActive) throw new AppError('This store is inactive', 409);
@@ -647,16 +648,13 @@ export const getSales = asyncHandler(async (req: AuthRequest, res: Response) => 
     saleNumber,
   } = req.query;
 
-  const pageNum = parseInt(page as string);
-  const limitNum = parseInt(limit as string);
+  const pageNum = Math.max(1, parseInt(page as string) || 1);
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 20));
   const skip = (pageNum - 1) * limitNum;
 
-  const where: any = {};
-
-  // Filter by user's location
-  if (req.user?.locationId) {
-    where.locationId = req.user.locationId;
-  }
+  // Store staff see their own store; the platform owner sees the store being previewed.
+  const scope = getLocationFilter(req, req.query.locationId as string);
+  const where: any = { locationId: scope.locationId || { not: null } };
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
   if (dateFilter) {

@@ -50,7 +50,11 @@
 .product-photo-option[aria-pressed="true"] { border-color: hsl(var(--primary)); background: hsl(var(--primary) / .06); }
 .product-photo-option:focus-visible, .product-photo-choices summary:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 .product-photo-option .product-image { background: white; }
-@container product-catalog (max-width: 760px) {
+/* A small laptop (about 1024px with the menu) keeps the table, a little tighter; only narrow screens switch to cards. */
+@container product-catalog (min-width: 601px) and (max-width: 860px) {
+  .products-table th, .products-table td { padding-left: 8px; padding-right: 8px; }
+}
+@container product-catalog (max-width: 600px) {
   .products-table table, .products-table tbody { display: block; width: 100%; }
   .products-table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
   .products-table tbody tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: 'identity identity identity' 'price cost stock' 'status actions actions'; gap: 12px 8px; padding: 16px; }

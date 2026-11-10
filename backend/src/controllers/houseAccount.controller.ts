@@ -22,10 +22,11 @@ import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter } from '../
  */
 export const getHouseAccounts = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { page = 1, limit = 25, search } = req.query;
-  const pageNum = parseInt(page as string);
-  const limitNum = parseInt(limit as string);
+  const pageNum = Math.max(1, parseInt(page as string) || 1);
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 25));
 
-  const where: any = { ...getSharedOrOwnFilter(req, req.query.locationId as string) };
+  const scope = getSharedOrOwnFilter(req, req.query.locationId as string);
+  const where: any = { ...scope };
   if (search) {
     where.customer = {
       OR: [
@@ -51,10 +52,13 @@ export const getHouseAccounts = asyncHandler(async (req: AuthRequest, res: Respo
     }),
     prisma.houseAccount.count({ where }),
   ]);
+  // What every customer owes the store, across all pages (not just the ones shown).
+  const owed = await prisma.houseAccount.aggregate({ where: { ...scope, balance: { gt: 0 } }, _sum: { balance: true } });
 
   res.json({
     success: true,
     data: accounts,
+    summary: { outstanding: Math.round(Number(owed._sum.balance || 0) * 100) / 100 },
     pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
   });
 });

@@ -24,7 +24,7 @@ import {
   Clock,
   AlertTriangle,
 } from 'lucide-react';
-import { supplierService, purchaseOrderService, productService } from '../services/api';
+import { supplierService, purchaseOrderService, productService, apiErrorMessage } from '../services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
@@ -36,7 +36,7 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Badge } from '@/components/ui/Badge';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils';
 import {
   Table,
   TableHeader,
@@ -273,6 +273,10 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
   const handleCreateOrder = async () => {
     try {
       const validItems = orderForm.items.filter(item => item.productId);
+      if (validItems.some(item => !(item.packSize > 1 ? item.packQuantity : item.quantity))) {
+        toast.error('Enter a quantity of at least 1 for every item');
+        return;
+      }
       if (validItems.length === 0) {
         toast.error('Please add at least one product to the order');
         return;
@@ -524,7 +528,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
       setSelectedOrder(response.data.data);
       setShowOrderDetailModal(true);
     } catch (error) {
-      console.error('Failed to load order details:', error);
+      toast.error(apiErrorMessage(error, 'This order could not be opened. Try again.'));
     }
   };
 
@@ -554,7 +558,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
       setProductSearches(orderData.items.map((item: any) => item.productName));
       setShowOrderModal(true);
     } catch (error) {
-      console.error('Failed to load order for editing:', error);
+      toast.error(apiErrorMessage(error, 'This order could not be opened for editing. Try again.'));
     }
   };
 
@@ -616,7 +620,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
         title={activeTab === 'suppliers' ? 'Suppliers' : 'Purchase Orders'}
         secondaryTabs={activeTab === 'orders' ? <PageTabs secondary label="Order status" value={orderStatusFilter} onChange={setOrderStatusFilter} items={[
           { id: '', label: 'All' }, { id: 'PENDING', label: 'Pending' }, { id: 'ORDERED', label: 'Ordered' },
-          { id: 'PARTIALLY_RECEIVED', label: 'Partially received' }, { id: 'RECEIVED', label: 'Closed' }, { id: 'CANCELLED', label: 'Cancelled' },
+          { id: 'PARTIALLY_RECEIVED', label: 'Partially Received' }, { id: 'RECEIVED', label: 'Closed' }, { id: 'CANCELLED', label: 'Cancelled' },
         ]} /> : undefined}
         actions={<>{canManage && <>
           {activeTab === 'orders' && (
@@ -650,6 +654,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
           <Input
             type="text"
             placeholder={activeTab === 'suppliers' ? 'Search suppliers...' : 'Search orders...'}
+            aria-label={activeTab === 'suppliers' ? 'Search suppliers' : 'Search purchase orders'}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10"
@@ -669,7 +674,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
               hint={search ? 'Try adjusting your search' : 'Get started by adding your first supplier'}
             />
           ) : (
-            <Table scrollLabel="Suppliers records">
+            <Table scrollLabel="Suppliers">
               <TableHeader>
                 <TableRow>
                   <TableHead>Supplier</TableHead>
@@ -766,7 +771,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
               hint={search ? 'Try adjusting your search' : 'Create a new purchase order to get started'}
             />
           ) : (
-            <Table scrollLabel="Suppliers records">
+            <Table scrollLabel="Purchase orders">
               <TableHeader>
                 <TableRow>
                   <TableHead>Order #</TableHead>
@@ -789,7 +794,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                     <TableCell className="text-right font-medium whitespace-nowrap">{formatCurrency(order.totalAmount)}</TableCell>
                     <TableCell>{getStatusBadge(order.status)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {new Date(order.createdAt).toLocaleDateString()}
+                      {formatDate(order.createdAt)}
                     </TableCell>
                     <TableCell className="text-right">
                       {/* Labeled next step per status; rarer actions live in the menu. */}
@@ -941,33 +946,37 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                         value={productSearches[index] || ''}
                         onChange={(e) => handleProductSearch(index, e.target.value)}
                         onFocus={() => setShowSuggestions(index)}
-                        onBlur={() => setTimeout(() => setShowSuggestions(null), 200)}
+                        // Keep the list open while focus moves into it (keyboard users), close otherwise.
+                        onBlur={(e) => { if (!(e.relatedTarget as HTMLElement | null)?.closest('[data-product-suggestions]')) setTimeout(() => setShowSuggestions(null), 200); }}
                         placeholder="Scan or type a product"
                         className="w-full text-base py-2"
                       />
                       {showSuggestions === index && productSearches[index] && (
-                        <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        <div data-product-suggestions className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto"
+                          onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setShowSuggestions(null); }}>
                           {getFilteredProducts(productSearches[index]).map((product) => (
-                            <div key={product.id} className="px-3 py-2 hover:bg-muted cursor-pointer" onMouseDown={() => selectProduct(index, product)}>
-                              <p className="font-medium text-sm">{product.name}</p>
-                              <p className="text-xs text-muted-foreground">{product.sellingUnitId
+                            <button type="button" key={product.id} className="block w-full text-left px-3 py-2 hover:bg-muted focus-visible:bg-muted focus-visible:outline-none cursor-pointer"
+                              onMouseDown={(e) => e.preventDefault()} onClick={() => selectProduct(index, product)}>
+                              <span className="block font-medium text-sm">{product.name}</span>
+                              <span className="block text-xs text-muted-foreground">{product.sellingUnitId
                                 ? `Pack of ${product.unitsPerPackage} | Pack cost: ${formatCurrency(product.cost)}`
-                                : `${product.sku} | Stock: ${product.stockQuantity} | Cost: ${formatCurrency(product.cost)}`}</p>
-                            </div>
+                                : `${product.sku} | Stock: ${product.stockQuantity} | Cost: ${formatCurrency(product.cost)}`}</span>
+                            </button>
                           ))}
                           {getFilteredProducts(productSearches[index]).length === 0 && (
-                            <div className="px-3 py-2 hover:bg-muted cursor-pointer text-primary" onMouseDown={() => { setNewProductIndex(index); setNewProductForm({ ...newProductForm, name: productSearches[index], sku: productSearches[index] }); setShowNewProductModal(true); }}>
-                              <p className="font-medium text-sm">+ Create new product</p>
-                              <p className="text-xs text-muted-foreground">"{productSearches[index]}" not found</p>
-                            </div>
+                            <button type="button" className="block w-full text-left px-3 py-2 hover:bg-muted focus-visible:bg-muted focus-visible:outline-none cursor-pointer text-primary"
+                              onMouseDown={(e) => e.preventDefault()} onClick={() => { setNewProductIndex(index); setNewProductForm({ ...newProductForm, name: productSearches[index], sku: productSearches[index] }); setShowNewProductModal(true); }}>
+                              <span className="block font-medium text-sm">+ Create new product</span>
+                              <span className="block text-xs text-muted-foreground">"{productSearches[index]}" not found</span>
+                            </button>
                           )}
                         </div>
                       )}
                     </div>
                     <div className="col-span-2">
                       {item.packSize > 1
-                        ? <Input type="number" aria-label={`Cases for item ${index + 1}`} value={item.packQuantity} onChange={(e) => updateOrderItem(index, 'packQuantity', Math.max(1, parseInt(e.target.value) || 1))} min="1" className="w-full" />
-                        : <Input type="number" aria-label={`Quantity for item ${index + 1}`} value={item.quantity} onChange={(e) => updateOrderItem(index, 'quantity', parseInt(e.target.value) || 1)} min="1" placeholder="0" className="w-full" />}
+                        ? <Input type="number" aria-label={`Cases for item ${index + 1}`} value={item.packQuantity} onChange={(e) => updateOrderItem(index, 'packQuantity', Math.max(0, parseInt(e.target.value) || 0))} min="1" className="w-full" />
+                        : <Input type="number" aria-label={`Quantity for item ${index + 1}`} value={item.quantity} onChange={(e) => updateOrderItem(index, 'quantity', Math.max(0, parseInt(e.target.value) || 0))} min="1" placeholder="0" className="w-full" />}
                     </div>
                     <div className="col-span-2">
                       {item.packSize > 1
@@ -1072,22 +1081,22 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Created</p>
-                <p className="font-medium">{new Date(selectedOrder.createdAt).toLocaleDateString()}</p>
+                <p className="font-medium">{formatDate(selectedOrder.createdAt)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Expected Delivery</p>
-                <p className="font-medium">{selectedOrder.expectedAt ? new Date(selectedOrder.expectedAt).toLocaleDateString() : 'Not set'}</p>
+                <p className="font-medium">{selectedOrder.expectedAt ? formatDate(selectedOrder.expectedAt) : 'Not set'}</p>
               </div>
               {selectedOrder.orderedAt && (
                 <div>
                   <p className="text-sm text-muted-foreground">Ordered</p>
-                  <p className="font-medium">{new Date(selectedOrder.orderedAt).toLocaleDateString()}</p>
+                  <p className="font-medium">{formatDate(selectedOrder.orderedAt)}</p>
                 </div>
               )}
               {selectedOrder.receivedAt && (
                 <div>
                   <p className="text-sm text-muted-foreground">Received</p>
-                  <p className="font-medium">{new Date(selectedOrder.receivedAt).toLocaleDateString()}</p>
+                  <p className="font-medium">{formatDate(selectedOrder.receivedAt)}</p>
                 </div>
               )}
             </div>
@@ -1099,7 +1108,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
             )}
             <div className="border-t pt-4">
               <h4 className="font-medium mb-2">Items</h4>
-              <Table scrollLabel="Suppliers records">
+              <Table scrollLabel="Order items">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Product</TableHead>
@@ -1130,7 +1139,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
               {selectedOrder.receivingHistoryKnown === false && <p className="text-sm text-muted-foreground">This order predates item-level delivery records. Historical accepted and missing quantities are unavailable.</p>}
               {selectedOrder.receivingHistoryKnown && !selectedOrder.receipts?.length && <p className="text-sm text-muted-foreground">No deliveries recorded yet.</p>}
               {selectedOrder.receipts?.map(receipt => <div key={receipt.id} className="rounded-md border p-3 text-sm space-y-1">
-                <p className="font-medium">{new Date(receipt.createdAt).toLocaleString()} {receipt.finalDelivery ? '· Final delivery' : '· Partial delivery'}</p>
+                <p className="font-medium">{formatDateTime(receipt.createdAt)} {receipt.finalDelivery ? '· Final delivery' : '· Partial delivery'}</p>
                 {receipt.items.map(line => <p key={line.purchaseOrderItemId}>{selectedOrder.items?.find(item => item.id === line.purchaseOrderItemId)?.productName}: {line.acceptedQty} accepted, {line.damagedQty} damaged, {line.rejectedQty} rejected</p>)}
                 {receipt.notes && <p className="text-muted-foreground">{receipt.notes}</p>}
               </div>)}

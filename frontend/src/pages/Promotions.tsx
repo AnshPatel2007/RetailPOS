@@ -1,5 +1,9 @@
 import { FormSection, ManagementPage } from '@/components/common/Workspace';
 import { friendlyDate } from '@/lib/calendarDates';
+import { parseDate } from '@internationalized/date';
+import { storeDateInput } from '@/lib/storeDates';
+import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
+import { Badge } from '@/components/ui/Badge';
 import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api, promotionService, productService, categoryService } from '@/services/api';
@@ -22,7 +26,7 @@ import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDate } from '@/lib/utils';
 import { Promotion, PromotionType } from '@/types';
 import {
   Search,
@@ -65,7 +69,7 @@ const dealSummary = (p: Promotion): string => {
 const scheduleSummary = (p: Promotion): string => {
   const parts: string[] = [];
   if (p.startsAt || p.endsAt) {
-    const fmt = (d: string) => new Date(d).toLocaleDateString();
+    const fmt = (d: string) => formatDate(d);
     parts.push(`${p.startsAt ? fmt(p.startsAt) : '...'} – ${p.endsAt ? fmt(p.endsAt) : '...'}`);
   }
   if (p.daysOfWeek.length > 0 && p.daysOfWeek.length < 7) {
@@ -116,6 +120,10 @@ const emptyForm: FormState = {
 };
 
 export const Promotions: React.FC = () => {
+  // Start and end dates are store days: they open at the store's midnight and close at its end of day.
+  const timezone = useCalendarTimezone();
+  const storeDayStart = (day: string) => parseDate(day).toDate(timezone).toISOString();
+  const storeDayEnd = (day: string) => new Date(parseDate(day).add({ days: 1 }).toDate(timezone).getTime() - 1000).toISOString();
   const role = useAuthStore(state => state.user?.role);
   const manage = can(role, 'inventory.manage');
   const request = useRef<AbortController | null>(null);
@@ -251,8 +259,8 @@ export const Promotions: React.FC = () => {
       amountOff: p.amountOff?.toString() || '',
       products,
       categoryIds: p.categoryIds,
-      startsAt: p.startsAt ? p.startsAt.slice(0, 10) : '',
-      endsAt: p.endsAt ? p.endsAt.slice(0, 10) : '',
+      startsAt: p.startsAt ? storeDateInput(p.startsAt, timezone) : '',
+      endsAt: p.endsAt ? storeDateInput(p.endsAt, timezone) : '',
       daysOfWeek: p.daysOfWeek,
       startTime: p.startTime || '',
       endTime: p.endTime || '',
@@ -278,8 +286,8 @@ export const Promotions: React.FC = () => {
       amountOff: form.type === 'AMOUNT_OFF' ? num(form.amountOff) : undefined,
       productIds: form.products.map((p) => p.id),
       categoryIds: form.categoryIds,
-      startsAt: form.startsAt ? new Date(form.startsAt + 'T00:00:00').toISOString() : undefined,
-      endsAt: form.endsAt ? new Date(form.endsAt + 'T23:59:59').toISOString() : undefined,
+      startsAt: form.startsAt ? storeDayStart(form.startsAt) : undefined,
+      endsAt: form.endsAt ? storeDayEnd(form.endsAt) : undefined,
       daysOfWeek: form.daysOfWeek,
       startTime: form.startTime || undefined,
       endTime: form.endTime || undefined,
@@ -376,6 +384,7 @@ export const Promotions: React.FC = () => {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Search promotions..."
+          aria-label="Search promotions"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -408,7 +417,7 @@ export const Promotions: React.FC = () => {
             </TableHeader>
             <TableBody>
               {promotions.map((p) => (
-                <TableRow key={p.id} className={!p.isActive ? 'opacity-60' : undefined}>
+                <TableRow key={p.id} className={!p.isActive ? 'bg-muted/40' : undefined}>
                   <TableCell className="font-medium">{p.name}</TableCell>
                   <TableCell>{dealSummary(p)}</TableCell>
                   <TableCell className="text-muted-foreground text-xs">
@@ -420,11 +429,14 @@ export const Promotions: React.FC = () => {
                   <TableCell className="text-muted-foreground text-xs">{scheduleSummary(p)}</TableCell>
                   <TableCell className="text-right tabular-nums">{p.timesUsed}</TableCell>
                   <TableCell>
-                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                      p.isActive ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
-                    }`}>
-                      {p.isActive ? 'Active' : 'Inactive'}
-                    </span>
+                    {(() => {
+                      // "Active" only while it is switched on and inside its dates.
+                      const now = Date.now();
+                      if (!p.isActive) return <Badge variant="secondary">Paused</Badge>;
+                      if (p.endsAt && new Date(p.endsAt).getTime() < now) return <Badge variant="secondary">Ended</Badge>;
+                      if (p.startsAt && new Date(p.startsAt).getTime() > now) return <Badge variant="warning">Scheduled</Badge>;
+                      return <Badge variant="success">Active</Badge>;
+                    })()}
                   </TableCell>
                   <TableCell className="text-right">
                     {manage && <div className="flex gap-1 justify-end">
@@ -558,8 +570,10 @@ export const Promotions: React.FC = () => {
                     {p.name}
                     <button
                       onClick={() => setForm((f) => ({ ...f, products: f.products.filter((x) => x.id !== p.id) }))}
+                      type="button"
                       className="hover:text-destructive"
                       title="Remove"
+                      aria-label={`Remove ${p.name}`}
                     >
                       <X className="h-3 w-3" />
                     </button>

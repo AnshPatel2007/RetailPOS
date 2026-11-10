@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { login, logout } from './utils/auth-helper';
+import { saleComplete } from './utils/sale-complete';
 
 async function terminalPayment(page: Page, reference: string) {
   await login(page, 'loyalty@example.test');
@@ -38,7 +39,8 @@ test('a lost terminal sale response survives reload and retries the same transac
   expect(response.request().postDataJSON()).toEqual(originalPayload);
   expect((await response.json()).data.id).toBe(committedId);
   await expect(recovery).toHaveCount(0);
-  await expect(page.getByRole('dialog', { name: /Receipt/ })).toBeVisible();
+  // The recovered sale shows in the cart as complete (no receipt pop-up).
+  await expect(saleComplete(page)).toBeVisible();
   await page.reload();
   await expect(page.getByRole('button', { name: /^Fixture Loyalty/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review payment' })).toHaveCount(0);
@@ -69,5 +71,6 @@ test('an unsaved terminal payment stays with its cashier through logout and can 
   await recovery.getByRole('button', { name: 'Retry saving sale' }).click();
   expect((await saved).status()).toBe(201);
   await expect(recovery).toHaveCount(0);
-  await expect(page.getByRole('dialog', { name: /Receipt/ })).toBeVisible();
+  // The recovered sale shows in the cart as complete (no receipt pop-up).
+  await expect(saleComplete(page)).toBeVisible();
 });

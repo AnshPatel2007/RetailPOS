@@ -1,8 +1,10 @@
+import { Alert } from '@/components/ui/Alert';
+import { publishDisplayPayment } from '@/lib/customerDisplay';
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatEnumLabel } from '@/lib/utils';
 import { customerService } from '@/services/api';
 import { LinkedCustomer } from '@/components/pos/CustomerLinkSection';
 import {
@@ -47,6 +49,8 @@ interface EnhancedPaymentModalProps {
   ebtEligibleTotal?: number;
   /** Card surcharge %, from the location's cash-discount program (0 = off) */
   cardSurchargePercent?: number;
+  /** A cashier's discount or price change: a manager approves it when the sale completes. */
+  approvalNeeded?: boolean;
 }
 
 /**
@@ -76,6 +80,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   onCustomerChange,
   ebtEligibleTotal = 0,
   cardSurchargePercent = 0,
+  approvalNeeded = false,
 }) => {
   const [step, setStep] = useState<'customer' | 'payment'>('payment');
   const [confirm, confirmDialog] = useConfirm();
@@ -219,6 +224,14 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   const getRemainingBalance = () => Math.max(0, toCents(dueTotal) - toCents(getTotalPaid())) / 100;
   const getChange = () => Math.max(0, toCents(getTotalPaid()) + (paymentMethod === 'CASH' && Number.isFinite(enteredAmount) ? toCents(enteredAmount) : 0) - toCents(dueTotal)) / 100;
   const exactAmount = amountToComplete(effectiveTotal, rate, payments, paymentMethod);
+  // The customer display shows the amount actually being charged while paying.
+  const shownSurcharge = session?.status === 'SUBMITTED' ? 0 : getSurcharge();
+  const shownPoints = getPointsDiscount();
+  const paidSoFar = getTotalPaid();
+  useEffect(() => {
+    if (!isOpen) { publishDisplayPayment(null); return; }
+    publishDisplayPayment({ surcharge: shownSurcharge, pointsDiscount: shownPoints, due: dueTotal, paid: paidSoFar });
+  }, [isOpen, shownSurcharge, shownPoints, dueTotal, paidSoFar]);
   const locked = payments.length > 0;
 
   useEffect(() => {
@@ -313,13 +326,21 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     Number.isFinite(enteredAmount) && enteredAmount > 0 && payments.length < 20 &&
     !getTenderError(paymentMethod, referenceInput) && !getEbtError(enteredAmount) &&
     (paymentMethod === 'CASH' || toCents(enteredAmount) <= toCents(getRemainingBalance())));
+  // Enter pressed while the total is still being checked charges as soon as the check finishes.
+  const [chargeQueued, setChargeQueued] = useState(false);
+  useEffect(() => { if (!isOpen) setChargeQueued(false); }, [isOpen]);
+  useEffect(() => {
+    if (!chargeQueued || !quoteReady) return;
+    setChargeQueued(false);
+    if (canSubmit && !isProcessing && !saving && !changedElsewhere) void handleSubmit();
+  }, [chargeQueued, quoteReady]);
   const requestClose = () => { if (unsavedPayment) { toast.error('Save the entered payment before closing this screen.'); return; } if (!isProcessing && !paymentFlight.current) onClose(); };
 
   return (<>
     <Modal isOpen={isOpen} onClose={requestClose} title={step === 'customer' ? 'Link Customer' : 'Payment'} size="lg" className="pos-payment-dialog" footer={step === 'payment' ? (
       <div className="space-y-3" data-payment-busy={saving || isProcessing ? 'true' : undefined}>
         <div role="status" aria-label="Payment balance" aria-live="polite" className={getRemainingBalance() > 0 ? (payments.length ? 'text-warning font-semibold' : 'text-muted-foreground font-medium') : 'text-success font-semibold'}>
-          {session?.status === 'SUBMITTED' ? 'Payment received — sale confirmation pending' : getRemainingBalance() > 0
+          {session?.status === 'SUBMITTED' ? 'Payment received — sale confirmation pending' : chargeQueued ? 'Checking total… charging as soon as it is confirmed' : getRemainingBalance() > 0
             // Nothing taken yet is the normal start, not a warning.
             ? (payments.length ? 'Payment incomplete · ' : '') + formatCurrency(getRemainingBalance()) + ' still due' + (!payments.length && paymentMethod === 'CASH' ? ' · press Enter to charge' : '')
             : 'Balance covered — confirming sale'}
@@ -491,6 +512,11 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
         ) : (
           /* ─── Payment Step ─── */
           <>
+            {approvalNeeded && session?.status !== 'SUBMITTED' && (
+              <Alert tone="warning" title="Manager approval needed">
+                This sale has a discount or price change that is not approved yet. A manager approves it when you complete the sale, so have one ready before taking payment, or remove the discount.
+              </Alert>
+            )}
             {/* Customer: optional, one click away */}
             {!linkedCustomer && (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed p-2">
@@ -597,7 +623,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
             </div>
             {payments.length > 0 && <div className="space-y-2" aria-label="Recorded payments">
               {payments.map((payment, index) => <div key={index} className="flex items-center justify-between gap-2 rounded border p-2">
-                <div className="min-w-0"><p className="text-sm font-medium">{payment.paymentMethod.replace(/_/g, ' ')} · {formatCurrency(payment.amount)}</p>
+                <div className="min-w-0"><p className="text-sm font-medium">{formatEnumLabel(payment.paymentMethod)} · {formatCurrency(payment.amount)}</p>
                   {payment.reference && <p className="break-all text-xs text-muted-foreground">{payment.reference}</p>}
                   {!['CASH', 'CARD'].includes(payment.paymentMethod) && <p className="text-xs text-muted-foreground">Applied when the sale completes</p>}
                 </div>
@@ -645,7 +671,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                       className="flex-1"
                       autoFocus
                       // Enter charges what is typed — the exact amount unless the cashier changed it.
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (canSubmit && !isProcessing && !saving && !changedElsewhere) void handleSubmit(); } }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (!quoteReady && !session) { setChargeQueued(true); return; } if (canSubmit && !isProcessing && !saving && !changedElsewhere) void handleSubmit(); } }}
                     />
                   </div>
                 </div>

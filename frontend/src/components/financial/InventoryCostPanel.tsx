@@ -1,3 +1,7 @@
+import { Alert } from '@/components/ui/Alert';
+import { LoadingState } from '@/components/ui/LoadingState';
+import { Pagination } from '@/components/common/Pagination';
+import { formatDate, formatCurrency, formatEnumLabel } from '@/lib/utils';
 import { today } from '@internationalized/date';
 import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
 import { useEffect, useState } from 'react';
@@ -21,8 +25,8 @@ type Page<T> = T & { pagination: { page: number; total: number; totalPages: numb
 type Reconciliation = { opening: { value: number | null }; closing: { value: number | null; missingProducts: number };
   movements: { kind: string; value: number | null; quantity: number; entries: number }[]; inTransit: { value: number | null; quantity: number }; complete: boolean };
 type Preview = { token: string; explanation: string; changes: { entryId: string; kind: string; previousCogs: string | null; cogsAmount: string | null; previousValue: string | null; valueAfter: string | null }[] };
-const money = (value: number | string | null | undefined) => value == null ? 'Unavailable' : Number(value).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-const label = (value: string) => value.replace(/_/g, ' ').toLowerCase().replace(/^./, s => s.toUpperCase());
+const money = (value: number | string | null | undefined) => value == null ? 'Unavailable' : formatCurrency(Number(value));
+const label = (value: string) => formatEnumLabel(value);
 const endpoint = '/financial/inventory-costs';
 const errorText = (error: unknown) => (error as { response?: { data?: { error?: string } } }).response?.data?.error || 'Unable to save. Try again.';
 
@@ -82,7 +86,7 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
   return <div className="space-y-4">
     {(operation.pending || operation.error) && <div role="alert" className="rounded-lg border p-3 text-sm space-y-2"><p>{operation.error || 'Confirm the saved inventory operation before recording another.'}</p>{operation.pending && <p>{operation.pending.label}</p>}<Button variant="outline" disabled={operation.busy} onClick={() => void operation.retry()}>Retry saved operation</Button></div>}
     <PageTabs secondary label="Inventory cost views" value={view} onChange={setTab} items={[
-      { id: 'balances', label: 'Balances & opening' }, { id: 'valuation', label: 'Valuation as of' }, { id: 'missing', label: 'Missing costs' }, { id: 'ledger', label: 'Value ledger' }, { id: 'reconciliation', label: 'Reconciliation' },
+      { id: 'balances', label: 'Balances & Opening' }, { id: 'valuation', label: 'Value by Date' }, { id: 'missing', label: 'Missing Costs' }, { id: 'ledger', label: 'Value Ledger' }, { id: 'reconciliation', label: 'Monthly Summary' },
     ]} />
     {view === 'balances' && <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="w-full sm:max-w-sm"><Input aria-label="Search inventory costs" placeholder="Search products or SKU" value={search} maxLength={200} onChange={e => setSearch(e.target.value)} /></div>
@@ -90,24 +94,24 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
       </div>
       <p className="text-sm text-muted-foreground">Opening inventory is a one-time setup for existing stock. Balances carry forward automatically each month.</p>
     </div>}
-    {view === 'reconciliation' && <label className="flex items-center gap-2 text-sm">Month<Input type="month" aria-label="Inventory reconciliation month" value={month} onChange={e => setMonth(e.target.value)} className="w-44" /></label>}
+    {view === 'reconciliation' && <><p className="text-sm text-muted-foreground">Opening value, what changed, and closing value for a month.</p><label className="flex items-center gap-2 text-sm">Month<Input type="month" aria-label="Monthly summary month" value={month} onChange={e => setMonth(e.target.value)} className="w-44" /></label></>}
     {view === 'valuation' && <label className="flex items-center gap-2 text-sm"><span className="whitespace-nowrap">As of</span><Input type="date" aria-label="Inventory valuation date" value={asOf} onChange={e => setAsOf(e.target.value)} className="w-44" /></label>}
     {view === 'ledger' && kind && <div className="flex flex-wrap items-center gap-3 text-sm"><span>{label(kind)} · {ledgerMonth}</span><Button variant="outline" onClick={() => linkMovements()}>All records</Button></div>}
     {view === 'ledger' && <p className="text-sm text-muted-foreground">Cost history for receipts, sales, returns and adjustments. Use it to trace inventory value and investigate profit differences.</p>}
-    {query.error && <div role="alert" className="rounded-lg border p-4 text-sm">{query.error} <Button variant="outline" onClick={() => void query.refresh()}>Retry</Button></div>}
-    {query.loading ? <p role="status" className="text-sm text-muted-foreground">Loading inventory costs…</p> : <>
+    {query.error && <Alert tone="error" title={query.error} action={<Button variant="outline" onClick={() => void query.refresh()}>Retry</Button>} />}
+    {query.loading ? <LoadingState label="Loading inventory costs…" /> : <>
       {['balances','valuation'].includes(view) && balances.data && <div className="overflow-x-auto rounded-lg border"><Table><TableHeader><TableRow>
-        <TableHead>Product</TableHead><TableHead>On hand</TableHead><TableHead>Latest supplier price</TableHead><TableHead>Average cost</TableHead><TableHead>Inventory value</TableHead><TableHead>Opening review</TableHead>
+        <TableHead>Product</TableHead><TableHead className="text-right">On hand</TableHead><TableHead className="text-right">Latest supplier price</TableHead><TableHead className="text-right">Average cost</TableHead><TableHead className="text-right">Inventory value</TableHead><TableHead>Opening review</TableHead>
       </TableRow></TableHeader><TableBody>{balances.data.products.map(product => <TableRow key={product.id}>
         <TableCell><span className="font-medium">{product.name}</span><div className="text-xs text-muted-foreground">{product.sku}</div></TableCell>
-        <TableCell>{product.quantity ?? 'Unavailable'}</TableCell><TableCell>{money(product.supplierPrice)}</TableCell><TableCell>{money(product.averageCost)}</TableCell><TableCell>{money(product.value)}</TableCell>
+        <TableCell className="text-right tabular-nums">{product.quantity ?? 'Unavailable'}</TableCell><TableCell className="text-right tabular-nums">{money(product.supplierPrice)}</TableCell><TableCell className="text-right tabular-nums">{money(product.averageCost)}</TableCell><TableCell className="text-right tabular-nums">{money(product.value)}</TableCell>
         <TableCell>{view === 'valuation' ? 'Historical valuation' : product.openingConfirmed ? 'Confirmed' : product.quantity === 0 ? 'No stock to value' : product.value !== null ? 'Cost recorded' : owner && !readOnly ? <Button variant="outline" disabled={operation.blocked} onClick={() => { resetForm(); setOpening(product); setQuantity(String(product.quantity)); setValue(product.supplierPrice > 0 ? String(Number((product.quantity * product.supplierPrice).toFixed(2))) : ''); }}>Review opening</Button> : 'Owner confirmation required'}</TableCell>
       </TableRow>)}{!balances.data.products.length && <TableRow><TableCell colSpan={6}>No tracked products found.</TableCell></TableRow>}</TableBody></Table></div>}
       {['missing', 'ledger'].includes(view) && entries.data && <>
         {view === 'missing' && <p className="text-sm text-muted-foreground">Confirm documented costs. Imported daily summaries have no item costs and remain unavailable.</p>}
-        <div className="overflow-x-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Product</TableHead><TableHead>Movement</TableHead><TableHead>Units</TableHead><TableHead>Value change</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>
-          {entries.data.records.map(entry => <TableRow key={entry.id}><TableCell>{new Date(entry.createdAt).toLocaleDateString()}</TableCell><TableCell>{entry.productName}<div className="text-xs text-muted-foreground">{entry.sku}</div></TableCell>
-            <TableCell>{label(entry.kind)}</TableCell><TableCell>{entry.quantity}</TableCell><TableCell>{money(entry.valueChange)}</TableCell><TableCell><div className="flex flex-wrap gap-2">
+        <div className="overflow-x-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Product</TableHead><TableHead>Movement</TableHead><TableHead className="text-right">Units</TableHead><TableHead className="text-right">Value change</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>
+          {entries.data.records.map(entry => <TableRow key={entry.id}><TableCell>{formatDate(entry.createdAt, timezone)}</TableCell><TableCell>{entry.productName}<div className="text-xs text-muted-foreground">{entry.sku}</div></TableCell>
+            <TableCell>{label(entry.kind)}</TableCell><TableCell className="text-right tabular-nums">{entry.quantity}</TableCell><TableCell className="text-right tabular-nums">{money(entry.valueChange)}</TableCell><TableCell><div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => { resetForm(); setSelected(entry); setAction('details'); }}>Details</Button>
               {owner && (['OPENING','BASELINE','PURCHASE','SALE','OFFLINE_SALE'].includes(entry.kind) || (entry.quantity > 0 && ['ADJUSTMENT','IMPORT'].includes(entry.kind))) && (!['SALE','OFFLINE_SALE'].includes(entry.kind) || entry.cogsAmount === null) && <Button variant="outline" onClick={() => { resetForm(); setSelected(entry); setAction('correction'); setValue(''); }}>Review cost</Button>}
               {!readOnly && entry.kind === 'PURCHASE' && <Button variant="outline" onClick={() => { resetForm(); setSelected(entry); setAction('return'); setQuantity(''); setValue(''); }}>Supplier return</Button>}
@@ -116,13 +120,13 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
         </TableBody></Table></div>
       </>}
       {view === 'reconciliation' && reconciliation.data && <div className="rounded-lg border p-4 space-y-3">
-        <p className="text-sm text-muted-foreground">{reconciliation.data.complete ? 'Inventory value reconciled' : 'Cost information incomplete'}</p>
+        <p className="text-sm text-muted-foreground">{reconciliation.data.complete ? 'Every change is accounted for' : 'Cost information incomplete'}</p>
         <div className="flex justify-between font-medium"><span>Opening inventory</span><span>{money(reconciliation.data.opening.value)}</span></div>
         {reconciliation.data.movements.map(row => <div className="flex justify-between gap-4 text-sm" key={row.kind}><button className="text-left text-primary underline underline-offset-4" onClick={() => linkMovements(row.kind)}>{label(row.kind)} · {row.entries} records</button><span>{money(row.value)}</span></div>)}
         <div className="flex justify-between border-t pt-3 font-medium"><span>Closing inventory</span><span>{money(reconciliation.data.closing.value)}</span></div>
         <div className="flex justify-between text-sm"><span>In transit · {reconciliation.data.inTransit.quantity} units</span><span>{money(reconciliation.data.inTransit.value)}</span></div>
       </div>}
-      {view !== 'reconciliation' && pagination && pagination.totalPages > 1 && <div className="flex items-center justify-end gap-3 text-sm"><Button variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button><span>Page {page} of {pagination.totalPages}</span><Button variant="outline" disabled={page >= pagination.totalPages} onClick={() => setPage(page + 1)}>Next</Button></div>}
+      {view !== 'reconciliation' && pagination && pagination.totalPages > 1 && <Pagination page={page} totalPages={pagination.totalPages} onPageChange={setPage} totalItems={pagination.total} itemName="records" />}
     </>}
     {bulkOpening && <OpeningInventoryReview key={locationId} locationId={locationId} search={search} busy={operation.busy} blocked={operation.blocked}
       error={operation.error} pending={!!operation.pending} onClose={() => setBulkOpening(false)} onRetry={operation.retry}

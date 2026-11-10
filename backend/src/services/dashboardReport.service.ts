@@ -55,7 +55,8 @@ export async function getDashboardReportData(scope: Scope, now = new Date()) {
     const [daily, yesterday, weekly, previousWeek, monthly, previousMonth, lowStockCount, lowStockItems,
       totalProducts, totalCustomers, activeEmployees, recentSales, payments] = await Promise.all([
       getFinancialMetrics(scope, { gte: today, lte: now }, tx),
-      getFinancialMetrics(scope, { gte: calendar.day(-1), lt: today }, tx),
+      // Today so far is compared with yesterday up to the same time, not all of yesterday.
+      getFinancialMetrics(scope, { gte: calendar.day(-1), lte: new Date(Math.min(now.getTime() - 86400000, today.getTime() - 1)) }, tx),
       getFinancialMetrics(scope, { gte: week, lte: now }, tx),
       getFinancialMetrics(scope, { gte: calendar.day(-13), lt: week }, tx),
       getFinancialMetrics(scope, { gte: month, lte: now }, tx),

@@ -172,7 +172,7 @@ test('a rejected account allocation can be replaced without forgetting received 
     await expect(payment.getByRole('button', { name: 'Remove payment 2', exact: true })).toBeEnabled();
     await payment.getByRole('button', { name: 'Remove payment 2', exact: true }).click();
     await expect(payment.getByRole('status', { name: 'Payment balance', exact: true })).toContainText('$80.00 still due');
-    await expect(payment.getByText('CASH · $20.00', { exact: true })).toBeVisible();
+    await expect(payment.getByText('Cash · $20.00', { exact: true })).toBeVisible();
     await payment.getByRole('button', { name: 'Cash', exact: true }).click();
     const saved = page.waitForResponse(response => response.url().endsWith('/api/sales') && response.request().method() === 'POST' && response.status() === 201);
     await payment.getByRole('button', { name: 'Charge $80.00', exact: true }).click();
