@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import { login, logout } from './utils/auth-helper';
 
 test('product search ignores older replies and shows a retry for failed reads', async ({ page }) => {
@@ -31,6 +31,21 @@ test('product search ignores older replies and shows a retry for failed reads', 
   await expect(page.getByRole('button', { name: /^Fixture Refund/ })).toBeVisible();
 });
 
+/** The register's saved catalog (IndexedDB): which store it belongs to and the product names in it. */
+const savedCatalog = (page: Page) => page.evaluate(() => new Promise<{ locationId: string | null; names: string[] }>(resolve => {
+  const open = indexedDB.open('POSOfflineDB');
+  open.onerror = () => resolve({ locationId: null, names: [] });
+  open.onsuccess = () => {
+    try {
+      const transaction = open.result.transaction(['settings', 'products']);
+      const scope = transaction.objectStore('settings').get('products_cache_scope');
+      const products = transaction.objectStore('products').getAll();
+      transaction.oncomplete = () => { resolve({ locationId: scope.result?.value?.locationId ?? null, names: (products.result || []).map((product: { name: string }) => product.name) }); open.result.close(); };
+      transaction.onerror = () => { resolve({ locationId: null, names: [] }); open.result.close(); };
+    } catch { resolve({ locationId: null, names: [] }); open.result.close(); }
+  };
+}));
+
 test('a delayed cache refresh cannot populate another store after logout', async ({ page, context }) => {
   await login(page, 'owner@example.test'); await page.goto('/pos');
   let release!: () => void, captured!: () => void, finished!: () => void;
@@ -47,10 +62,20 @@ test('a delayed cache refresh cannot populate another store after logout', async
   await arrived;
   await logout(page); await login(page, 'voids@example.test'); await page.goto('/pos');
   await expect(page.getByRole('button', { name: /^Fixture Void/ })).toBeVisible();
+  const store = await page.evaluate(() => JSON.parse(localStorage.getItem('user')!).locationId as string);
   release(); await done; await page.unroute('**/api/products?*');
+  // The register saves the new store's own product list right after sign-in; the
+  // former login's late reply (another store's products) is discarded.
+  await expect.poll(async () => (await savedCatalog(page)).locationId, { timeout: 15000 }).toBe(store);
+  const catalog = await savedCatalog(page);
+  expect(catalog.names).toContain('Fixture Void');
+  expect(catalog.names).not.toContain('Fixture Coffee');
   await context.setOffline(true);
-  await page.getByPlaceholder('Search products... (/ or F3)').fill('Coffee');
-  await expect(page.getByRole('alert')).toContainText('No offline catalog is available for this cashier and store');
+  const search = page.getByPlaceholder('Search products... (/ or F3)');
+  await search.fill('Coffee');
   await expect(page.getByRole('button', { name: /^Fixture Coffee/ })).toHaveCount(0);
+  // Offline, this store's own products are still found.
+  await search.fill('Void');
+  await expect(page.getByRole('button', { name: /^Fixture Void/ })).toBeVisible();
   await context.setOffline(false);
 });
