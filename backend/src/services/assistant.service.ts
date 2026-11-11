@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { AI_MODEL } from '../config/ai';
 import { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { AuthRequest } from '../types';
@@ -71,7 +72,7 @@ export async function withAssistantProvider<T>(req: Request, res: Response, run:
 
 export async function generalAssistantAnswer(input: AssistantInput, client: Anthropic, signal: AbortSignal): Promise<string> {
   const response = await client.messages.create({
-    model: 'claude-opus-4-8', max_tokens: 1024,
+    model: AI_MODEL, max_tokens: 1024,
     system: generalHelpPrompt + (input.pageContext ? ` Current section: ${input.pageContext}.` : ''),
     messages: [...input.history, { role: 'user', content: input.question }],
     // No tools are exposed to the public help endpoint.

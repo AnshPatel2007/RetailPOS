@@ -1,4 +1,5 @@
 import { ADJUSTMENT_REASONS } from './inventoryAdjustment.controller';
+import { AI_MODEL } from '../config/ai';
 import { costKindForReason } from '../services/stockReasons';
 import { assertSellingIdentifiersAvailable, packagingSummary, projectSellingUnit } from '../services/productSellingUnit.service';
 import { Response } from 'express';
@@ -748,7 +749,7 @@ export const scanReceipt = asyncHandler(async (req: AuthRequest, res: Response) 
   const response = await anthropic.messages.create({
     // claude-sonnet-4-20250514 was retired June 2026 — this endpoint 404'd until
     // the migration to Opus 4.8. Structured outputs also guarantee parseable JSON.
-    model: 'claude-opus-4-8',
+    model: AI_MODEL,
     max_tokens: 4096,
     thinking: { type: 'adaptive' },
     output_config: {

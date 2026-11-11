@@ -9,6 +9,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { AI_MODEL } from '../config/ai';
 import prisma from '../config/database';
 import { Prisma } from '@prisma/client';
 import { AppError } from '../utils/errorHandler';
@@ -108,7 +109,7 @@ const composeNarrative = async (d: DigestData): Promise<{ text: string; ai: bool
   try {
     const anthropic = new Anthropic();
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-8',
+      model: AI_MODEL,
       max_tokens: 1024,
       thinking: { type: 'adaptive' },
       system:

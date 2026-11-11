@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { AI_MODEL } from '../config/ai';
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../utils/errorHandler';
@@ -47,7 +48,7 @@ async function identifyFromPhoto(photo: NonNullable<ReturnType<typeof parseIdent
   try {
     const anthropic = new Anthropic({ maxRetries: 0, timeout: 25000 });
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-8', max_tokens: 1024,
+      model: AI_MODEL, max_tokens: 1024,
       thinking: { type: 'adaptive' },
       output_config: { format: { type: 'json_schema', schema: {
         type: 'object', properties: {

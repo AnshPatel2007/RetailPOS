@@ -569,34 +569,9 @@ export const purchaseOrderService = {
  * Analytics service
  */
 export const analyticsService = {
-  getComparison: (params?: any, signal?: AbortSignal) => api.get('/analytics/comparison', { params, signal }),
-
-  getABCAnalysis: (params?: any, signal?: AbortSignal) => api.get('/analytics/abc-analysis', { params, signal }),
-
-  getProductMatrix: (params?: any, signal?: AbortSignal) => api.get('/analytics/product-matrix', { params, signal }),
-
-  getForecast: (params?: any, signal?: AbortSignal) => api.get('/analytics/forecast', { params, signal }),
-
+  // The other analysis screens (comparison, ABC, forecast, what-if, anomalies, bundles) were removed
+  // at the owner's request, so their client calls are gone too; only Customer Insights reads this API.
   getCustomerInsights: (params?: any, signal?: AbortSignal) => api.get('/analytics/customer-insights', { params, signal }),
-
-  getRealtime: (params?: any, signal?: AbortSignal) => api.get('/analytics/realtime', { params, signal }),
-
-  // New AI Analytics endpoints
-  getInventoryPredictions: (params?: any, signal?: AbortSignal) => api.get('/analytics/inventory-predictions', { params, signal }),
-
-  getAnomalies: (params?: any, signal?: AbortSignal) => api.get('/analytics/anomalies', { params, signal }),
-
-  getBundleRecommendations: (params?: any, signal?: AbortSignal) => api.get('/analytics/bundle-recommendations', { params, signal }),
-
-  getEmployeePerformance: (params?: any, signal?: AbortSignal) => api.get('/analytics/employee-performance', { params, signal }),
-
-  getBusinessHealth: (params?: any, signal?: AbortSignal) => api.get('/analytics/business-health', { params, signal }),
-
-  getWhatIfAnalysis: (data: { priceChange?: number; costChange?: number; volumeChange?: number; locationId?: string }) =>
-    api.post('/analytics/what-if', data),
-
-  chat: (data: { question: string; history?: { role: string; content: string }[] }) =>
-    api.post('/analytics/chat', data, { timeout: 120000 }),
 };
 
 /**

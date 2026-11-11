@@ -8,6 +8,7 @@
  */
 
 import { Response } from 'express';
+import { AI_MODEL } from '../config/ai';
 import Anthropic from '@anthropic-ai/sdk';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
@@ -118,7 +119,7 @@ export const analyticsChat = asyncHandler(async (req: AuthRequest, res: Response
 
   const answer = await withAssistantProvider(req, res, async (anthropic, signal) => {
     let response = await anthropic.messages.create({
-      model: 'claude-opus-4-8',
+      model: AI_MODEL,
       max_tokens: 2048,
       thinking: { type: 'adaptive' },
       system,
@@ -157,7 +158,7 @@ export const analyticsChat = asyncHandler(async (req: AuthRequest, res: Response
       messages.push({ role: 'user', content: results });
 
       response = await anthropic.messages.create({
-        model: 'claude-opus-4-8',
+        model: AI_MODEL,
         max_tokens: 2048,
         thinking: { type: 'adaptive' },
         system,
