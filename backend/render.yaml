@@ -9,6 +9,12 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Render forwards requests through one proxy. With this set, sign-in and
+      # request limits apply per caller instead of to everyone at once. If the
+      # log shows an express-rate-limit warning about X-Forwarded-For or
+      # "trust proxy", adjust the number of proxy hops here.
+      - key: TRUST_PROXY
+        value: "1"
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET

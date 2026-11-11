@@ -143,6 +143,7 @@ Outputs: `backend/dist/` and `frontend/dist/`
 - Strong JWT secret (32+ characters)
 - Production database URL
 - `NODE_ENV=production`
+- `TRUST_PROXY` matches the hosting proxy (default `1` in production). It makes sign-in and request limits apply per caller; without it every store shares one limit behind the host's proxy
 - HTTPS enabled
 - CORS configured for production domain
 - Database backups configured

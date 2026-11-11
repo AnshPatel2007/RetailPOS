@@ -9,12 +9,16 @@ import { config } from './config';
 import { errorHandler } from './utils/errorHandler';
 import { logger } from './utils/logger';
 import routes from './routes';
+import { requestBudgetKey, trustProxySetting } from './middleware/rateLimitKeys';
 
 /**
  * Create Express application
  */
 const app: Application = express();
 app.set('json replacer', moneyJson);
+// Read the caller's real address when a hosting proxy forwards the request
+// (see middleware/rateLimitKeys.ts). Must be set before the rate limiters.
+app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY, config.nodeEnv));
 
 /**
  * Security middleware
@@ -39,8 +43,9 @@ app.use(cookieParser());
  */
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Limit each IP to 1000 requests per windowMs (POS needs high throughput)
-  message: { success: false, error: 'Too many requests from this IP, please try again later.' },
+  max: 1000, // per signed-in person (per address when signed out): each register has its own budget
+  keyGenerator: requestBudgetKey,
+  message: { success: false, error: 'Too many requests, please try again in a few minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => config.nodeEnv === 'test', // no rate limiting in tests
