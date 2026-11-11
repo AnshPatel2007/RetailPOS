@@ -37,7 +37,7 @@ export const adjustInventory = asyncHandler(async (req: AuthRequest, res: Respon
     }
     return moveInventory(tx, {
       productId: req.params.id, locationId, userId: req.user!.id,
-      type: body.type, costKind: costKindForReason(body.type, body.quantity, 'ADJUSTMENT'),
+      type: body.type, reason: body.type, costKind: costKindForReason(body.type, body.quantity, 'ADJUSTMENT'),
       quantity: body.quantity, notes: body.notes, expectedVersion: body.expectedVersion,
       ...(body.idempotencyKey ? { sourceId: body.idempotencyKey, sourceKey: sourceKey(body.idempotencyKey, req.params.id) } : {}),
     });
@@ -69,7 +69,7 @@ export const bulkUpdateStock = asyncHandler(async (req: AuthRequest, res: Respon
       if (item.type === 'set' && item.expectedVersion === undefined) throw new AppError('Refresh product stock before setting an absolute quantity', 409);
       const current = await tx.product.findUnique({ where: { id: item.productId }, select: { stockQuantity: true } });
       const change = item.type === 'set' ? item.quantity - (current?.stockQuantity ?? 0) : item.quantity;
-      result.push(await moveInventory(tx, { productId: item.productId, locationId, userId: req.user!.id, type: bulkReason, costKind: costKindForReason(bulkReason, change, 'ADJUSTMENT'),
+      result.push(await moveInventory(tx, { productId: item.productId, locationId, userId: req.user!.id, type: bulkReason, reason: bulkReason, costKind: costKindForReason(bulkReason, change, 'ADJUSTMENT'),
         quantity: item.type === 'set' ? undefined : item.quantity, setQuantity: item.type === 'set' ? item.quantity : undefined,
         expectedVersion: item.type === 'set' ? item.expectedVersion : undefined, notes: item.notes || notes || 'Bulk stock adjustment' }));
     }

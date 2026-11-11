@@ -154,7 +154,7 @@ export async function applyInventoryImport(req: AuthRequest) {
       product = product ? await tx.product.update({ where: { id: product.id }, data: updates })
         : await tx.product.create({ data: { ...updates, name: updates.name!, price: updates.price!, cost: updates.cost || 0, locationId, stockQuantity: 0 } });
       if (record.kind === 'CSV' && row.nextStock !== product.stockQuantity) product = await moveInventory(tx, { productId: product.id, locationId, userId: req.user!.id,
-        type: 'IMPORT', sourceId: id, setQuantity: row.nextStock, expectedVersion: previousVersion, notes: 'Reviewed CSV import' });
+        type: 'IMPORT', reason: 'STOCK_FILE_IMPORT', sourceId: id, setQuantity: row.nextStock, expectedVersion: previousVersion, notes: 'Reviewed CSV import' });
       if (supplierId) await tx.productSupplier.upsert({ where: { productId_supplierId: { productId: product.id, supplierId } }, create: { productId: product.id, supplierId, cost: product.cost }, update: { cost: product.cost } });
       items.push({ id: product.id, sku: product.sku, action: row.productId ? 'updated' : 'created', previousStock: row.previousStock, stockQuantity: product.stockQuantity });
     }

@@ -8,6 +8,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { getLocationFilter, resolveWriteLocation } from '../utils/locationFilter.util';
 import { confirmOpening, previewCostCorrection, confirmCostCorrection, supplierReturn } from '../services/inventoryCostReview.service';
 import { inventoryReconciliation } from '../services/inventoryCostReport.service';
+import { getStockLossReport } from '../services/stockLossReport.service';
 import { getReportRange } from '../services/reportDates.service';
 import { dateCondition } from '../services/financialMetrics.service';
 
@@ -105,6 +106,14 @@ router.get('/reconciliation', asyncHandler(async (req: AuthRequest, res: Respons
   const locationId = location(req);
   const { range } = await getReportRange({ locationId }, req.query.startDate, req.query.endDate, 'month');
   res.json({ success: true, data: await prisma.$transaction(tx => inventoryReconciliation(locationId, range, tx), options) });
+}));
+
+// Stock losses at cost by cause, and the paper corrections that were not losses.
+router.get('/losses', asyncHandler(async (req: AuthRequest, res: Response) => {
+  const locationId = location(req);
+  const { range, start, end, endExclusive, timezone } = await getReportRange({ locationId }, req.query.startDate, req.query.endDate, 'month');
+  const report = await prisma.$transaction(tx => getStockLossReport(locationId, range, tx), options);
+  res.json({ success: true, data: { period: { start, end, endExclusive, timezone }, ...report } });
 }));
 
 router.post('/opening', authorize('ADMIN'), asyncHandler(async (req: AuthRequest, res: Response) => {

@@ -113,7 +113,7 @@ export async function recordTransferReceipt(tx: Prisma.TransactionClient, req: A
       valueMode: line.item.inventoryEntryId ? 'REFERENCE' : 'FIXED', referenceEntryId: line.item.inventoryEntryId,
       referenceQuantity: line.acceptedQty, referenceOffset: offset, notes: transfer.transferNumber });
     if (line.damagedQty + line.missingQty) await moveInventory(tx, { productId: line.item.productId, locationId: transfer.fromLocationId, userId: req.user!.id,
-      type: 'TRANSFER_LOSS', quantity: 0, sourceId: receipt.id, sourceKey: 'transfer-loss:' + receipt.id + ':' + line.item.id,
+      type: 'TRANSFER_LOSS', reason: 'TRANSFER_DAMAGED_OR_MISSING', quantity: 0, sourceId: receipt.id, sourceKey: 'transfer-loss:' + receipt.id + ':' + line.item.id,
       valueMode: line.item.inventoryEntryId ? 'REFERENCE' : 'FIXED', referenceEntryId: line.item.inventoryEntryId,
       referenceQuantity: line.damagedQty + line.missingQty, referenceOffset: offset + line.acceptedQty, notes: body.notes });
     await tx.transferItem.update({ where: { id: line.item.id }, data: kind === 'SOURCE_RETURN' ? {

@@ -407,7 +407,7 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     if (expectedStockVersion === undefined) throw new AppError('Refresh the product before changing its stock quantity', 409);
     if (!(ADJUSTMENT_REASONS as readonly string[]).includes(stockAdjustmentReason)) throw new AppError('Select a reason for this stock change', 400);
     if (stockAdjustmentReason === 'OTHER' && !stockAdjustmentNotes?.trim()) throw new AppError('Describe the reason when choosing Other', 400);
-    const moved = await moveInventory(tx, { productId: id, locationId: req.user!.locationId!, userId: req.user!.id, type: stockAdjustmentReason, costKind: costKindForReason(stockAdjustmentReason, data.stockQuantity - current.stockQuantity, 'ADJUSTMENT'), setQuantity: data.stockQuantity, expectedVersion: expectedStockVersion, notes: stockAdjustmentNotes?.trim() || 'Product edit' });
+    const moved = await moveInventory(tx, { productId: id, locationId: req.user!.locationId!, userId: req.user!.id, type: stockAdjustmentReason, reason: stockAdjustmentReason, costKind: costKindForReason(stockAdjustmentReason, data.stockQuantity - current.stockQuantity, 'ADJUSTMENT'), setQuantity: data.stockQuantity, expectedVersion: expectedStockVersion, notes: stockAdjustmentNotes?.trim() || 'Product edit' });
     return { ...updated, stockQuantity: moved.stockQuantity, stockVersion: moved.stockVersion };
   });
 

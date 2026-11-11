@@ -61,11 +61,11 @@ export async function reclassStock(tx: Prisma.TransactionClient, input: {
     : input.reason === 'RECEIVED_AS_OTHER' ? `${to.name} was received under ${from.name}` : `${to.name} was returned under ${from.name}`;
   const notes = `${label}.${input.notes ? ' ' + input.notes : ''}`;
   const out = await moveInventory(tx, { productId: from.id, locationId: input.locationId, userId: input.userId, type: 'STOCK_RECLASS',
-    sourceId: id, sourceKey: `stock-reclass:${id}:from`, quantity: -input.quantity, notes, allowNegative: true });
+    sourceId: id, sourceKey: `stock-reclass:${id}:from`, quantity: -input.quantity, notes, allowNegative: true, reason: exceptionResolution[input.reason] });
   const movedValue = out.inventoryEntry.valueChange === null ? null : out.inventoryEntry.valueChange.negated();
   // Unknown source value: the target keeps its own shortfall cost (no COGS effect).
   const into = await moveInventory(tx, { productId: to.id, locationId: input.locationId, userId: input.userId, type: 'STOCK_RECLASS',
-    sourceId: id, sourceKey: `stock-reclass:${id}:to`, quantity: input.quantity, notes,
+    sourceId: id, sourceKey: `stock-reclass:${id}:to`, quantity: input.quantity, notes, reason: exceptionResolution[input.reason],
     ...(movedValue === null ? { valueMode: 'AVERAGE' as const } : { valueMode: 'FIXED' as const, valueInput: movedValue }) });
   const reclass = await tx.stockReclass.create({ data: {
     id, locationId: input.locationId, fromProductId: from.id, toProductId: to.id, quantity: input.quantity, reason: input.reason,
@@ -109,12 +109,12 @@ export async function correctSaleLine(tx: Prisma.TransactionClient, input: {
   const id = randomUUID();
   const notes = `Sale ${sale.saleNumber}: ${actual.name} was sold but rung up as ${rung.name}. ${input.reason}`;
   const back = await moveInventory(tx, { productId: rung.id, locationId: input.locationId, userId: input.userId, type: 'SKU_CORRECTION',
-    sourceId: id, sourceKey: `sku-correction:${id}:from`, quantity: input.quantity,
+    sourceId: id, sourceKey: `sku-correction:${id}:from`, quantity: input.quantity, reason: 'WRONG_SKU_SOLD',
     valueMode: line.inventoryEntryId ? 'REFERENCE' : 'FIXED', referenceEntryId: line.inventoryEntryId,
     referenceQuantity: input.quantity, referenceOffset: corrected,
     valueInput: line.inventoryEntryId ? undefined : line.unitCost === null ? null : line.unitCost.mul(input.quantity), notes });
   const taken = await moveInventory(tx, { productId: actual.id, locationId: input.locationId, userId: input.userId, type: 'SKU_CORRECTION',
-    sourceId: id, sourceKey: `sku-correction:${id}:to`, quantity: -input.quantity, notes, allowNegative: true });
+    sourceId: id, sourceKey: `sku-correction:${id}:to`, quantity: -input.quantity, notes, allowNegative: true, reason: 'WRONG_SKU_SOLD' });
   const correction = await tx.saleItemCorrection.create({ data: { id, saleId: sale.id, saleItemId: line.id, locationId: input.locationId,
     fromProductId: rung.id, toProductId: actual.id, quantity: input.quantity, reason: input.reason, userId: input.userId,
     reverseEntryId: back.inventoryEntry.id, applyEntryId: taken.inventoryEntry.id, idempotencyKey: input.idempotencyKey } });

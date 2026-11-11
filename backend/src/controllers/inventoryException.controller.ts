@@ -88,7 +88,7 @@ export const recordCount = asyncHandler(async (req: AuthRequest, res: Response) 
     if (product.stockQuantity !== body.countedQuantity) {
       // Why it was short decides the cost treatment (acquisition, unrecorded sale, loss or count).
       const costKind = costKindForReason(body.resolution, body.countedQuantity - product.stockQuantity, 'COUNT');
-      const moved = await moveInventory(tx, { productId: product.id, locationId, userId: req.user!.id, type: 'EXCEPTION_COUNT', costKind,
+      const moved = await moveInventory(tx, { productId: product.id, locationId, userId: req.user!.id, type: 'EXCEPTION_COUNT', costKind, reason: body.resolution,
         sourceId: exception.id, sourceKey: key, setQuantity: body.countedQuantity, expectedVersion: body.expectedVersion,
         notes: `Exception count (${body.resolution})${body.notes ? ': ' + body.notes : ''}` });
       adjustmentEntryId = moved.inventoryEntry.id;

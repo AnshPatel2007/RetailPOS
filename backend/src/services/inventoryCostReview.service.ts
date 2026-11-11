@@ -172,7 +172,7 @@ export async function supplierReturn(tx: Prisma.TransactionClient, locationId: s
   await lockInventory(tx, [receipt.productId]);
   const returned = await tx.supplierReturn.aggregate({ where: { receiptEntryId: receipt.id }, _sum: { quantity: true } });
   if (input.quantity + (returned._sum.quantity || 0) > receipt.quantity) throw new AppError('Return exceeds the original received quantity', 400);
-  const moved = await moveInventory(tx, { productId: receipt.productId, locationId, userId, type: 'SUPPLIER_RETURN',
+  const moved = await moveInventory(tx, { productId: receipt.productId, locationId, userId, type: 'SUPPLIER_RETURN', reason: 'SUPPLIER_RETURN',
     sourceId: input.idempotencyKey, sourceKey: 'supplier-return:' + input.idempotencyKey, quantity: -input.quantity, notes: input.reason });
   const carryingValue = moved.inventoryEntry.valueChange?.negated() ?? null;
   const costAdjustment = carryingValue?.minus(input.creditAmount) ?? null;

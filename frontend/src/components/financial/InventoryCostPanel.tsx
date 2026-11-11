@@ -11,6 +11,8 @@ import { useScopedQuery, invalidateScopedQueries } from '@/hooks/useScopedQuery'
 import { useUrlFilter } from '@/hooks/useUrlFilter';
 import { useSavedOperation } from '@/hooks/useSavedOperation';
 import { PageTabs } from '@/components/common/PageTabs';
+import { SummaryStrip } from '@/components/common/Workspace';
+import { AboutNumbers } from '@/components/common/AboutNumbers';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -24,9 +26,13 @@ type Entry = { id: string; productName: string; sku: string; kind: string; quant
 type Page<T> = T & { pagination: { page: number; total: number; totalPages: number } };
 type Reconciliation = { opening: { value: number | null }; closing: { value: number | null; missingProducts: number };
   movements: { kind: string; value: number | null; quantity: number; entries: number }[]; inTransit: { value: number | null; quantity: number }; complete: boolean };
+type LossLine = { label: string; events: number; units: number; amount: number | null; knownAmount: number; missingValues: number };
+type LossReport = { period: { timezone: string }; losses: (LossLine & { cause: string })[]; corrections: (LossLine & { kind: string })[];
+  total: Omit<LossLine, 'label'>; found: Omit<LossLine, 'label'>; netLoss: number | null };
 type Preview = { token: string; explanation: string; changes: { entryId: string; kind: string; previousCogs: string | null; cogsAmount: string | null; previousValue: string | null; valueAfter: string | null }[] };
 const money = (value: number | string | null | undefined) => value == null ? 'Unavailable' : formatCurrency(Number(value));
 const label = (value: string) => formatEnumLabel(value);
+const count = (value: number, word: string) => `${value} ${value === 1 ? word : word + 's'}`;
 const endpoint = '/financial/inventory-costs';
 const errorText = (error: unknown) => (error as { response?: { data?: { error?: string } } }).response?.data?.error || 'Unable to save. Try again.';
 
@@ -38,7 +44,7 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
   const linkMovements = (movement?: string) => setUrl(current => { const next = new URLSearchParams(current);
     next.set('costTab', 'ledger'); if (movement) { next.set('costKind', movement); next.set('costMonth', month); }
     else { next.delete('costKind'); next.delete('costMonth'); } return next; });
-  const view = ['balances', 'valuation', 'missing', 'ledger', 'reconciliation'].includes(tab) ? tab : 'balances';
+  const view = ['balances', 'valuation', 'missing', 'ledger', 'reconciliation', 'losses'].includes(tab) ? tab : 'balances';
   const [search, setSearch] = useState(''), [page, setPage] = useState(1);
   const [month, setMonth] = useState(today(timezone).toString().slice(0, 7));
   const [asOf, setAsOf] = useState(today(timezone).toString());
@@ -64,7 +70,12 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
     (await api.get(endpoint + '/reconciliation', { signal, params: { locationId, startDate: month + '-01',
       endDate: month + '-' + new Date(Date.UTC(year, monthNumber, 0)).getUTCDate() } })).data.data,
   !!locationId && view === 'reconciliation' && /^\d{4}-\d{2}$/.test(month), 30000, { paused: editing });
-  const query = ['balances','valuation'].includes(view) ? balances : view === 'reconciliation' ? reconciliation : entries;
+  // Stock lost in the month, at cost, by cause; and the record fixes that were not losses.
+  const losses = useScopedQuery<LossReport>(['inventory-costs', 'losses', locationId, month], async signal =>
+    (await api.get(endpoint + '/losses', { signal, params: { locationId, startDate: month + '-01',
+      endDate: month + '-' + new Date(Date.UTC(year, monthNumber, 0)).getUTCDate() } })).data.data,
+  !!locationId && view === 'losses' && /^\d{4}-\d{2}$/.test(month), 30000, { paused: editing });
+  const query = ['balances','valuation'].includes(view) ? balances : view === 'reconciliation' ? reconciliation : view === 'losses' ? losses : entries;
   const pagination = ['balances','valuation'].includes(view) ? balances.data?.pagination : entries.data?.pagination;
   const resetForm = () => { setError(''); setReason(''); setPreview(null); };
   const close = () => { if (!busy) { setOpening(null); setSelected(null); setPreview(null); } };
@@ -86,7 +97,7 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
   return <div className="space-y-4">
     {(operation.pending || operation.error) && <div role="alert" className="rounded-lg border p-3 text-sm space-y-2"><p>{operation.error || 'Confirm the saved inventory operation before recording another.'}</p>{operation.pending && <p>{operation.pending.label}</p>}<Button variant="outline" disabled={operation.busy} onClick={() => void operation.retry()}>Retry saved operation</Button></div>}
     <PageTabs secondary label="Inventory cost views" value={view} onChange={setTab} items={[
-      { id: 'balances', label: 'Balances & Opening' }, { id: 'valuation', label: 'Value by Date' }, { id: 'missing', label: 'Missing Costs' }, { id: 'ledger', label: 'Value Ledger' }, { id: 'reconciliation', label: 'Monthly Summary' },
+      { id: 'balances', label: 'Balances & Opening' }, { id: 'valuation', label: 'Value by Date' }, { id: 'missing', label: 'Missing Costs' }, { id: 'ledger', label: 'Value Ledger' }, { id: 'reconciliation', label: 'Monthly Summary' }, { id: 'losses', label: 'Losses' },
     ]} />
     {view === 'balances' && <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="w-full sm:max-w-sm"><Input aria-label="Search inventory costs" placeholder="Search products or SKU" value={search} maxLength={200} onChange={e => setSearch(e.target.value)} /></div>
@@ -95,6 +106,7 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
       <p className="text-sm text-muted-foreground">Opening inventory is a one-time setup for existing stock. Balances carry forward automatically each month.</p>
     </div>}
     {view === 'reconciliation' && <><p className="text-sm text-muted-foreground">Opening value, what changed, and closing value for a month.</p><label className="flex items-center gap-2 text-sm">Month<Input type="month" aria-label="Monthly summary month" value={month} onChange={e => setMonth(e.target.value)} className="w-44" /></label></>}
+    {view === 'losses' && <><p className="text-sm text-muted-foreground">Stock that left without being sold, at what it cost, by cause.</p><label className="flex items-center gap-2 text-sm">Month<Input type="month" aria-label="Losses month" value={month} onChange={e => setMonth(e.target.value)} className="w-44" /></label></>}
     {view === 'valuation' && <label className="flex items-center gap-2 text-sm"><span className="whitespace-nowrap">As of</span><Input type="date" aria-label="Inventory valuation date" value={asOf} onChange={e => setAsOf(e.target.value)} className="w-44" /></label>}
     {view === 'ledger' && kind && <div className="flex flex-wrap items-center gap-3 text-sm"><span>{label(kind)} · {ledgerMonth}</span><Button variant="outline" onClick={() => linkMovements()}>All records</Button></div>}
     {view === 'ledger' && <p className="text-sm text-muted-foreground">Cost history for receipts, sales, returns and adjustments. Use it to trace inventory value and investigate profit differences.</p>}
@@ -126,7 +138,33 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
         <div className="flex justify-between border-t pt-3 font-medium"><span>Closing inventory</span><span>{money(reconciliation.data.closing.value)}</span></div>
         <div className="flex justify-between text-sm"><span>In transit · {reconciliation.data.inTransit.quantity} units</span><span>{money(reconciliation.data.inTransit.value)}</span></div>
       </div>}
-      {view !== 'reconciliation' && pagination && pagination.totalPages > 1 && <Pagination page={page} totalPages={pagination.totalPages} onPageChange={setPage} totalItems={pagination.total} itemName="records" />}
+      {view === 'losses' && losses.data && <div className="space-y-4">
+        <SummaryStrip items={[
+          { label: 'Stock lost', value: money(losses.data.total.amount), detail: losses.data.total.events ? `${count(losses.data.total.units, 'unit')} in ${count(losses.data.total.events, 'record')}` : 'Nothing written off',
+            tone: losses.data.total.events ? 'danger' : 'default' },
+          { label: 'Found in counts', value: money(losses.data.found.amount), detail: losses.data.found.events ? `${count(losses.data.found.units, 'unit')} above the records` : 'No stock found above the records' },
+          { label: 'Loss after found stock', value: money(losses.data.netLoss), detail: 'Stock lost less stock found' },
+          { label: 'Paper corrections', value: losses.data.corrections.reduce((sum, row) => sum + row.events, 0), detail: 'Records fixed, nothing lost' },
+        ]} />
+        <div className="overflow-x-auto rounded-lg border"><Table aria-label="Stock losses by cause"><TableHeader><TableRow><TableHead>Cause</TableHead><TableHead className="text-right">Records</TableHead><TableHead className="text-right">Units</TableHead><TableHead className="text-right">Cost value</TableHead></TableRow></TableHeader><TableBody>
+          {losses.data.losses.map(row => <TableRow key={row.cause}><TableCell className="font-medium">{row.label}</TableCell><TableCell className="text-right tabular-nums">{row.events}</TableCell><TableCell className="text-right tabular-nums">{row.units}</TableCell>
+            <TableCell className="text-right tabular-nums">{money(row.amount)}{row.missingValues > 0 && <div className="text-xs text-muted-foreground">{count(row.missingValues, 'record')} with no cost · {formatCurrency(row.knownAmount)} known</div>}</TableCell></TableRow>)}
+          {!losses.data.losses.length && <TableRow><TableCell colSpan={4}>No stock losses recorded this month.</TableCell></TableRow>}
+        </TableBody></Table></div>
+        {losses.data.corrections.length > 0 && <div className="space-y-2">
+          <h3 className="text-sm font-semibold">Paper corrections (not losses)</h3>
+          <div className="overflow-x-auto rounded-lg border"><Table aria-label="Paper corrections"><TableHeader><TableRow><TableHead>What was fixed</TableHead><TableHead className="text-right">Records</TableHead><TableHead className="text-right">Units</TableHead><TableHead className="text-right">Cost value moved</TableHead></TableRow></TableHeader><TableBody>
+            {losses.data.corrections.map(row => <TableRow key={row.kind}><TableCell className="font-medium">{row.label}</TableCell><TableCell className="text-right tabular-nums">{row.events}</TableCell><TableCell className="text-right tabular-nums">{row.units}</TableCell><TableCell className="text-right tabular-nums">{money(row.amount)}</TableCell></TableRow>)}
+          </TableBody></Table></div>
+        </div>}
+        <AboutNumbers timezone={losses.data.period.timezone}>
+          <p>Losses are valued at cost: what the store paid for the stock, not its selling price.</p>
+          <p>The cause is the reason chosen when the stock change was recorded. Older changes show as “Reason not recorded” unless the stock log or the resolved stock exception names one.</p>
+          <p>Paper corrections fix the records: a wrong product rung up, a delivery entered late, or items sold without scanning. They are listed here and are not counted as loss.</p>
+          <p>Stock a count finds above the records offsets count shortfalls. It is not income.</p>
+        </AboutNumbers>
+      </div>}
+      {!['reconciliation', 'losses'].includes(view) && pagination && pagination.totalPages > 1 && <Pagination page={page} totalPages={pagination.totalPages} onPageChange={setPage} totalItems={pagination.total} itemName="records" />}
     </>}
     {bulkOpening && <OpeningInventoryReview key={locationId} locationId={locationId} search={search} busy={operation.busy} blocked={operation.blocked}
       error={operation.error} pending={!!operation.pending} onClose={() => setBulkOpening(false)} onRetry={operation.retry}

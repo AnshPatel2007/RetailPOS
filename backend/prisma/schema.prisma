@@ -43,6 +43,9 @@ model InventoryValueEntry {
   referenceEntryId String?
   referenceQuantity Int?
   referenceOffset Int @default(0)
+  // Why the stock changed (DAMAGED, EXPIRED, THEFT, COUNT_DIFFERENCE, ...). Null on rows
+  // written before this column existed and on movements that need no cause (sales, receipts).
+  reason String?
   notes String?
   effectiveAt DateTime @default(now())
   createdAt DateTime @default(now())

@@ -119,6 +119,16 @@ replace them. Integration tests exercise them.
 
 ## Recent changes
 
+- **`20261111010000_inventory_value_reason` (2026-11-11).** Adds the nullable column
+  `inventory_value_entries.reason`: why a stock change happened (damaged, expired,
+  theft, a count difference, a transfer loss...), used by Finances > Inventory Costs >
+  Losses. No data changes: the table is append-only, so older rows stay `NULL` and the
+  report reads their cause from the resolved stock exception or the stock log where one
+  exists. **Unlike the customer change below, the app needs this column**: code from
+  this version reads and writes it, so apply the migration to a database before
+  running this version against it (backup first, as above). Applied to the disposable
+  test databases and the local preview copy only; the store database still needs it.
+
 - **`20261111000000_customers_unique_per_store` (2026-11-11).** Customer email and
   phone were unique across every store; they are now unique within a store
   (`customers_email_locationId_key`, `customers_phone_locationId_key` replace

@@ -93,7 +93,7 @@ export const approveCycleCount = asyncHandler(async (req: AuthRequest, res: Resp
       throw new AppError('Stock changed after this count began. Refresh changed items and recount them before approval.', 409);
     }
     for (const item of [...count.items].sort((a, b) => a.productId.localeCompare(b.productId))) {
-      if (item.countedQty !== item.expectedQty) await moveInventory(tx, { productId: item.productId, locationId: count.locationId, userId: req.user!.id, type: 'CYCLE_COUNT', sourceId: count.id, setQuantity: item.countedQty!, expectedVersion: item.stockVersion, notes: 'Approved count ' + count.countNumber });
+      if (item.countedQty !== item.expectedQty) await moveInventory(tx, { productId: item.productId, locationId: count.locationId, userId: req.user!.id, type: 'CYCLE_COUNT', reason: 'COUNT_DIFFERENCE', sourceId: count.id, setQuantity: item.countedQty!, expectedVersion: item.stockVersion, notes: 'Approved count ' + count.countNumber });
     }
     await tx.cycleCount.update({ where: { id: count.id }, data: { status: 'APPROVED', approvedBy: req.user!.id, completedAt: new Date() } });
     await tx.activityLog.create({ data: { userId: req.user!.id, locationId: count.locationId, action: 'CYCLE_COUNT_APPROVED', entity: 'CycleCount', entityId: count.id } });

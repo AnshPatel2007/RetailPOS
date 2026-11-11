@@ -162,6 +162,8 @@ export type ValuePosting = {
   referenceEntryId?: string | null; referenceQuantity?: number; referenceOffset?: number;
   notes?: string; forceUnknown?: boolean;
   costKind?: string;
+  /** Why the stock changed, for the loss report (see stockLossReport.service.ts). */
+  reason?: string | null;
 };
 
 /** Decide how a movement is valued, without writing anything. Shared by posting
@@ -225,7 +227,7 @@ export async function postInventoryValue(tx: Prisma.TransactionClient, posting: 
     valueChange: result.change, valueAfter: result.value, cogsAmount: result.cogs, costStatus,
     unmatchedValue: result.unmatched && result.unmatched.greaterThan(0) ? result.unmatched : null,
     referenceEntryId: posting.referenceEntryId, referenceQuantity: posting.referenceQuantity, referenceOffset: posting.referenceOffset ?? 0,
-    notes: posting.notes,
+    reason: posting.reason ?? null, notes: posting.notes,
   } });
   // Remember the last trustworthy unit cost for future shortfalls.
   const lastUnitCost = newQty > 0 && result.value !== null ? precision(result.value.div(newQty))

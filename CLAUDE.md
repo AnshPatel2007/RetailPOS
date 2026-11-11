@@ -80,6 +80,12 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
 - **Stock never blocks a sale.** Selling below zero creates an inventory exception that
   managers resolve in Stock Control. Packs/cartons share base-unit stock with their
   single. Corrections never create artificial profit.
+- **Stock changes say why.** A movement that is not a sale or a receipt passes `reason`
+  to `moveInventory` (the adjustment reason, `COUNT_DIFFERENCE`, the exception
+  resolution, `TRANSFER_DAMAGED_OR_MISSING`...); it is stored on the value entry.
+  Finances > Inventory Costs > Losses (`services/stockLossReport.service.ts`) groups
+  real losses by cause at cost and lists paper corrections (wrong product rung up,
+  delivery entered late, sold without scanning) apart: those are never counted as loss.
 - **Multi-store**: everything is scoped by `locationId`. `SUPER_ADMIN` is the platform
   owner: no store of their own, read-only store preview (`store/adminViewStore.ts`),
   and store writes are denied by the backend.
