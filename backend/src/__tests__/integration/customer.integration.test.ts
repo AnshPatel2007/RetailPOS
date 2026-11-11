@@ -96,7 +96,7 @@ describe('Customer API Integration Tests', () => {
         expect(data.email).toBe('new.person@test.com');
       });
 
-      const inDb = await prisma.customer.findUnique({
+      const inDb = await prisma.customer.findFirst({
         where: { email: 'new.person@test.com' },
       });
       expect(inDb).not.toBeNull();

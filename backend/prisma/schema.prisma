@@ -775,8 +775,10 @@ model RefundItem {
 
 model Customer {
   id                  String              @id @default(uuid())
-  email               String?             @unique
-  phone               String?             @unique
+  // Customers belong to one store: an email or phone is unique within its store,
+  // so the same person can be a customer of two stores.
+  email               String?
+  phone               String?
   firstName           String
   lastName            String
   address             String?
@@ -804,6 +806,8 @@ model Customer {
   storeCreditAccount  StoreCreditAccount?
   houseAccount        HouseAccount?
 
+  @@unique([email, locationId])
+  @@unique([phone, locationId])
   @@index([email])
   @@index([phone])
   @@index([locationId])

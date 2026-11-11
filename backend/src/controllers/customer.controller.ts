@@ -5,7 +5,21 @@ import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { businessConfig } from '../config/business.config';
-import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
+import { assertOwnsRecord, assertCanReadRecord, getLocationFilter, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
+import { Prisma } from '@prisma/client';
+
+/**
+ * An email or phone identifies one customer within a store. Another store may
+ * have the same person as its own customer, and is never told about this one.
+ */
+async function assertContactAvailable(locationId: string | null, contact: { email?: string | null; phone?: string | null }, exceptCustomerId?: string) {
+  for (const [field, label] of [['email', 'email'], ['phone', 'phone number']] as const) {
+    const value = contact[field];
+    if (!value) continue;
+    const existing = await prisma.customer.findFirst({ where: { [field]: value, locationId, ...(exceptCustomerId ? { id: { not: exceptCustomerId } } : {}) }, select: { id: true } });
+    if (existing) throw new AppError(`Customer with this ${label} already exists`, 400);
+  }
+}
 
 /**
  * Calculate loyalty tier based on points
@@ -146,19 +160,12 @@ export const createCustomer = asyncHandler(async (req: AuthRequest, res: Respons
   if (data.birthDate === '') data.birthDate = null;
   if (typeof data.birthDate === 'string') data.birthDate = new Date(`${data.birthDate}T00:00:00`);
 
-  // Check if email already exists
-  if (data.email) {
-    const existing = await prisma.customer.findUnique({
-      where: { email: data.email },
-    });
-
-    if (existing) {
-      throw new AppError('Customer with this email already exists', 400);
-    }
-  }
-
   // Non-SUPER_ADMIN is always forced to their own store, regardless of body
   data.locationId = isSuperAdmin(req) ? (data.locationId ?? null) : (req.user?.locationId ?? null);
+
+  // An email or phone identifies one customer within a store; another store may
+  // have the same person as its own customer.
+  await assertContactAvailable(data.locationId, { email: data.email, phone: data.phone });
 
   const customer = await prisma.customer.create({
     data,
@@ -216,16 +223,11 @@ export const updateCustomer = asyncHandler(async (req: AuthRequest, res: Respons
     data.locationId = customer.locationId;
   }
 
-  // Check email uniqueness if changing
-  if (data.email && data.email !== customer.email) {
-    const existing = await prisma.customer.findUnique({
-      where: { email: data.email },
-    });
-
-    if (existing) {
-      throw new AppError('Customer with this email already exists', 400);
-    }
-  }
+  // Email and phone stay unique within the customer's store
+  await assertContactAvailable(data.locationId ?? customer.locationId, {
+    email: data.email && data.email !== customer.email ? data.email : null,
+    phone: data.phone && data.phone !== customer.phone ? data.phone : null,
+  }, id);
 
   const updatedCustomer = await prisma.customer.update({
     where: { id },
@@ -368,10 +370,16 @@ export const searchByPhone = asyncHandler(async (req: AuthRequest, res: Response
     locationId: true,
   } as const;
 
-  // Exact match first — fast path using the unique index
-  let customer = await prisma.customer.findUnique({
-    where: { phone },
+  // Only this store's customers are searched: another store's customer with the
+  // same number (or the same last four digits) is neither linked nor counted.
+  const { locationId } = getLocationFilter(req, req.query.locationId as string);
+  const store = locationId ? Prisma.sql`"locationId" = ${locationId}` : Prisma.sql`TRUE`;
+
+  // Exact match first — fast path using the store's unique index
+  let customer = await prisma.customer.findFirst({
+    where: { phone, ...(locationId ? { locationId } : {}) },
     select: customerSelect,
+    orderBy: { id: 'asc' },
   });
 
   // Fallback: formatting-insensitive partial match (digits only, e.g. last 4),
@@ -380,7 +388,7 @@ export const searchByPhone = asyncHandler(async (req: AuthRequest, res: Response
   if (!customer && digits.length >= 4) {
     const matches = await prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM customers
-      WHERE regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${'%' + digits + '%'}
+      WHERE ${store} AND regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${'%' + digits + '%'}
       LIMIT 2
     `;
     if (matches.length === 1) {

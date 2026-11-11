@@ -119,6 +119,16 @@ replace them. Integration tests exercise them.
 
 ## Recent changes
 
+- **`20261111000000_customers_unique_per_store` (2026-11-11).** Customer email and
+  phone were unique across every store; they are now unique within a store
+  (`customers_email_locationId_key`, `customers_phone_locationId_key` replace
+  `customers_email_key`, `customers_phone_key`). Existing rows already satisfy the
+  looser rule, so no data changes. Applied to the disposable test databases only; the
+  store database still needs it (backup first, as above). Until then the store keeps
+  the stricter, global rule and the new code works unchanged. If customers with no
+  store remain (`backfillLocationScoping.ts`), run that backfill before stores start
+  adding customers who already exist elsewhere, or the backfill can meet a duplicate.
+
 - **`20261105020000_register_pin_sign_in` (2026-11-04).** Adds `users.pinHash`,
   `pinSetAt`, `pinFailedAttempts`, `pinLockoutUntil` and the `register_devices` table
   for register PIN sign-in. Purely additive; it does not fire `users_revoke_sessions`.
