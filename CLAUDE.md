@@ -52,9 +52,12 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   `roundMoney`). Show amounts with `formatCurrency`.
 - **Sales are booked facts**: lines snapshot name, price, unit cost, tax rate/treatment
   (`pricingVersion = 1`). Reports and reprints use the snapshot, never today's product.
-  Missing costs stay "—"/"Unavailable"; never estimate profit. Units sold beyond recorded
-  stock carry a provisional (ESTIMATED) cost, so profit shows "Unavailable" until a manager
-  resolves those stock exceptions (`pendingStockProblems` in `financialMetrics.service.ts`).
+  Missing costs stay "—"/"Unavailable"; never fill a missing cost with a guess. Units sold
+  beyond recorded stock carry an estimated (ESTIMATED) cost: profit is still shown, marked
+  "not final" with the estimated amount, until a manager resolves those stock exceptions
+  (`costBasis: 'PROVISIONAL'`, `provisionalReason` and
+  `costCompleteness.pendingEstimatedCost` in `financialMetrics.service.ts`). Every screen
+  and export that shows such a profit carries the "not final" mark and the reason.
 - **One source for sales figures**: every sales/profit number (Dashboard, Reports, Finances,
   Admin dashboard, store list) comes from `getFinancialMetrics`/`getFinancialBreakdowns` with
   store-timezone ranges; don't sum `sale.total` by hand.

@@ -92,6 +92,10 @@ const prisma = new PrismaClient({ datasources: { db: { url: target.toString() } 
   await prisma.inventoryTransfer.create({ data: { transferNumber: 'TRF-FIXTURE', fromLocationId: stores[0].id, toLocationId: stores[1].id, createdBy: platform.id,
     items: { create: { productId: transferProduct.id, quantity: 10 } },
   } });
+  // Not-final profit fixture: its own store, so no other spec's sales or costs change its statement.
+  const profitStore = await prisma.location.create({ data: { name: 'Profit Check Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'profit-store@example.test', timezone: 'America/Chicago' } });
+  const profitUser = await prisma.user.create({ data: { email: 'profit@example.test', password, firstName: 'Profit', lastName: 'Fixture', role: 'ADMIN', locationId: profitStore.id } });
+  await prisma.shift.create({ data: { userId: profitUser.id, locationId: profitStore.id, clockInAt: new Date(), startingCash: 100 } });
   const forecastStore = await prisma.location.create({ data: { name: 'Forecast Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'forecast-store@example.test', timezone: 'America/Chicago' } });
   const forecastUser = await prisma.user.create({ data: { email: 'forecast@example.test', password, firstName: 'Forecast', lastName: 'Fixture', role: 'ADMIN', locationId: forecastStore.id } });
   const { reportCalendar } = require('../src/services/reportDates.service');

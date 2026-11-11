@@ -37,7 +37,7 @@ export const getComparisonAnalytics = asyncHandler(async (req: AuthRequest, res:
   const getSalesForPeriod = async (start: Date, end: Date) => {
     const metrics = await getFinancialMetrics(locationFilter, { gte: start, lt: end });
     return { revenue: metrics.netCollected, netSales: metrics.netSales, profit: metrics.grossProfit,
-      transactions: metrics.transactions, costBasis: metrics.costBasis, unavailableReason: metrics.unavailableReason };
+      transactions: metrics.transactions, costBasis: metrics.costBasis, unavailableReason: metrics.unavailableReason, provisionalReason: metrics.provisionalReason };
   };
 
   // Get all period data in parallel
@@ -574,7 +574,7 @@ export const getBusinessHealth = asyncHandler(async (req: AuthRequest, res: Resp
     profitability: { grossRevenue: month.netSales, estimatedCOGS: month.costOfGoodsSold, costOfGoodsSold: month.costOfGoodsSold,
       grossProfit: month.grossProfit, grossMargin: month.grossMargin, expenses: month.expenses, otherIncome: month.otherIncome,
       inventoryPurchases: month.inventoryPurchases, receivedInventoryPurchases: month.receivedInventoryPurchases,
-      netProfit: month.netProfit, netMargin: month.netProfit === null || !month.netSales ? null : rc(month.netProfit / month.netSales * 100), costBasis: month.costBasis, unavailableReason: month.unavailableReason,
+      netProfit: month.netProfit, netMargin: month.netProfit === null || !month.netSales ? null : rc(month.netProfit / month.netSales * 100), costBasis: month.costBasis, unavailableReason: month.unavailableReason, provisionalReason: month.provisionalReason,
       recordedSaleCosts: month.recordedSaleCosts, inventoryCostAdjustments: month.inventoryCostAdjustments, costCompleteness: month.costCompleteness },
     inventory: { totalUnits: products.reduce((sum, p) => sum + Math.max(0, p.stockQuantity), 0), valueAtCost: inventoryAtCost,
       valueAtRetail: inventoryAtRetail, potentialProfit: inventoryAtCost === null ? null : rc(inventoryAtRetail - inventoryAtCost),
@@ -611,7 +611,7 @@ export const getWhatIfAnalysis = asyncHandler(async (req: AuthRequest, res: Resp
   const difference = { revenue: revenue === null || metrics.netSales === null ? null : rc(revenue - metrics.netSales),
     transactions: transactions === null || metrics.transactions === null ? null : transactions - metrics.transactions, profit: profit === null || metrics.grossProfit === null ? null : rc(profit - metrics.grossProfit),
     margin: margin === null || metrics.grossMargin === null ? null : rc(margin - metrics.grossMargin) };
-  res.json({ success: true, data: { inputs: input, costBasis: metrics.costBasis, unavailableReason: metrics.unavailableReason,
+  res.json({ success: true, data: { inputs: input, costBasis: metrics.costBasis, unavailableReason: metrics.unavailableReason, provisionalReason: metrics.provisionalReason,
     scenarios: {
       current: { revenue: metrics.netSales, transactions: metrics.transactions, avgTransaction: metrics.netSales === null || metrics.transactions === null ? null : metrics.transactions ? rc(metrics.netSales / metrics.transactions) : 0,
         cogs: metrics.costOfGoodsSold, profit: metrics.grossProfit, margin: metrics.grossMargin },
@@ -619,7 +619,7 @@ export const getWhatIfAnalysis = asyncHandler(async (req: AuthRequest, res: Resp
       difference,
     },
     insights: [ "Scenario estimate based on this month's recorded pre-tax sales and costs. Volume changes only by your input; no demand elasticity is assumed.",
-      ...(metrics.unavailableReason ? [metrics.unavailableReason] : []),
+      ...(metrics.unavailableReason ? [metrics.unavailableReason] : []), ...(metrics.provisionalReason ? [metrics.provisionalReason] : []),
       ...(difference.profit !== null ? ['Projected gross profit change: $' + difference.profit.toFixed(2)] : []),
     ],
   } });

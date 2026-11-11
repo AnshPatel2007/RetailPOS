@@ -609,7 +609,7 @@ export const getProfitAndLoss = asyncHandler(async (req: AuthRequest, res: Respo
     inventoryPurchases: metrics.inventoryPurchases, recordedExpenses: metrics.recordedExpenses,
     otherIncome: metrics.otherIncome, lotteryEarnings: metrics.lotteryEarnings, earningsCompleteness: metrics.earningsCompleteness,
     netIncome: metrics.netProfit, margins: { gross: metrics.grossMargin, net: metrics.netProfit !== null && metrics.netSales ? rc(metrics.netProfit / metrics.netSales * 100) : null },
-    costBasis: metrics.costBasis, unavailableReason: metrics.unavailableReason, historyWarning: metrics.historyWarning,
+    costBasis: metrics.costBasis, unavailableReason: metrics.unavailableReason, provisionalReason: metrics.provisionalReason, historyWarning: metrics.historyWarning,
     estimate: null, defaultCostView: 'recorded',
   } });
 });

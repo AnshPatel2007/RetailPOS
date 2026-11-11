@@ -316,6 +316,14 @@ test('P&L CSV ignores legacy estimates and keeps store dates and unknown facts',
   assert.ok(recorded.csv.includes('"Inventory purchase expense entries (may overlap receipts)","90"'));
   assert.equal(JSON.stringify(report), original);
   assert.equal(profitAndLossCsv({ ...report, estimate: null }, true).csv, recorded.csv);
+  // Open stock exceptions: the figures are exported, each marked as not final, with the reason.
+  const reason = 'Includes $4.50 of estimated cost for 1 stock exception. Resolve it in Stock Control to confirm profit.';
+  const notFinal = profitAndLossCsv({ ...report, costOfGoodsSold: 70, grossProfit: 30, netIncome: -15, margins: { gross: 30, net: -15 },
+    unavailableReason: null, costBasis: 'PROVISIONAL', provisionalReason: reason });
+  assert.equal(notFinal.filename, 'pnl-store-1-2026-03-01-to-2026-03-31-not-final.csv');
+  assert.ok(notFinal.csv.includes('"Profit","Net income","-15","USD","Not final"'));
+  assert.ok(notFinal.csv.includes('"Revenue","Net sales","100","USD","Recorded"'));
+  assert.ok(notFinal.csv.includes('"Notes","Not final","Includes estimated costs awaiting review. ' + reason + '","","Recorded"'));
 });
 
 test('CSV formula-looking text is escaped while numeric values and multiline labels retain their data', () => {
@@ -375,6 +383,15 @@ test('Excel P&L preserves numeric daily facts, formulas, missing costs and sourc
   const recorded = buildProfitAndLossWorkbook(missing, false).workbook.worksheets[0];
   assert.equal(recorded.getCell('A3').value, 'RECORDED COSTS • Cost information incomplete');
   recorded.eachRow(row => { if (row.getCell(10).text === 'Net income') assert.equal(row.getCell(13).value, 'Unavailable'); });
+  // Open stock exceptions: the month keeps its figures and is marked as not final.
+  const pendingReason = 'Includes $4.50 of estimated cost for 1 stock exception. Resolve it in Stock Control to confirm profit.';
+  const pending = buildProfitAndLossWorkbook({ ...report, costBasis: 'PROVISIONAL', provisionalReason: pendingReason,
+    workbook: { months: [{ ...report.workbook.months[0], metrics: { ...report.workbook.months[0].metrics, provisionalReason: pendingReason } }] } });
+  assert.equal(pending.filename, 'pnl-store-1-2026-03-01-to-2026-03-31-not-final.xlsx');
+  const pendingSheet = pending.workbook.worksheets[0], pendingNotes = [];
+  assert.equal(pendingSheet.getCell('A3').value, 'NOT FINAL • Includes estimated costs awaiting review');
+  pendingSheet.eachRow(row => { pendingNotes.push(row.getCell(1).text); if (row.getCell(10).text === 'Net income') assert.equal(row.getCell(13).result, -15); });
+  assert.ok(pendingNotes.includes('Not final: includes estimated costs awaiting review. ' + pendingReason));
   assert.equal(JSON.stringify(report), before);
   const empty = { ...report, workbook: { months: [{ ...report.workbook.months[0], month: '2026-04', days: [], expenses: [], income: [], metrics: { ...report.workbook.months[0].metrics, grossCollected: 0, netSales: 0, netTax: 0, expenses: 0, otherIncome: 0, costOfGoodsSold: 0, grossProfit: 0, netProfit: 0, grossMargin: null },
     estimate: { ...estimate, costOfGoodsSold: 0, grossProfit: 0, netIncome: 0, margins: { gross: null, net: null } } }] } };

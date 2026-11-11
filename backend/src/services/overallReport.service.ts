@@ -77,7 +77,7 @@ export async function getOverallReportData(scope: Scope, now = new Date()) {
       historyWarning: yearly.historyWarning,
       revenue: { today: summary(daily), week: { ...summary(weekly), growth: growth(weekly, previousWeek) }, month: { ...summary(monthly), growth: growth(monthly, previousMonth) }, year: summary(yearly) },
       profitability: { grossProfit: monthly.grossProfit, grossMargin: monthly.grossMargin, otherIncome: monthly.otherIncome, netProfit: monthly.netProfit, netMargin: monthly.netProfit !== null && monthly.netSales ? Math.round(monthly.netProfit / monthly.netSales * 10000) / 100 : null,
-        costOfGoodsSold: monthly.costOfGoodsSold, netSales: monthly.netSales, costBasis: monthly.costBasis, unavailableReason: monthly.unavailableReason,
+        costOfGoodsSold: monthly.costOfGoodsSold, netSales: monthly.netSales, costBasis: monthly.costBasis, unavailableReason: monthly.unavailableReason, provisionalReason: monthly.provisionalReason,
         totalExpenses: monthly.expenses, inventoryPurchases: monthly.inventoryPurchases, receivedInventoryPurchases: monthly.receivedInventoryPurchases,
         recordedSaleCosts: monthly.recordedSaleCosts, inventoryCostAdjustments: monthly.inventoryCostAdjustments, costCompleteness: monthly.costCompleteness },
       averageOrderValue: { today: average(daily), week: average(weekly), month: average(monthly) },

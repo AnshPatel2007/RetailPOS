@@ -9,6 +9,9 @@ type Scope = { locationId?: string; userId?: string; criteria?: SaleCriteria };
 type QueryClient = Pick<Prisma.TransactionClient, '$queryRaw'>;
 const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const value = (input: unknown) => Number(input || 0);
+const usd = (amount: number) => amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+/** HISTORICAL: recorded costs. ESTIMATED: includes reviewed estimates. PROVISIONAL: includes estimates still awaiting review. */
+export type CostBasis = 'HISTORICAL' | 'ESTIMATED' | 'PROVISIONAL' | 'UNAVAILABLE';
 export const recordedSaleWhere: Prisma.SaleWhereInput = { OR: [
   { status: { in: ['COMPLETED', 'REFUNDED'] } }, { status: 'VOIDED', voidEvent: { isNot: null } },
 ] };
@@ -45,6 +48,9 @@ export const saleScope = (scope: Scope) => Prisma.sql`
 
 /** One definition for booked sales, return-period tax/cost and approved expenses.
  * Missing facts propagate as null, never as a guessed margin or zero cost.
+ * Units sold beyond recorded stock carry an estimated cost: profit is still
+ * shown, marked PROVISIONAL with the estimated amount, until a manager resolves
+ * the stock exceptions those sales belong to.
  * Queries aggregate in PostgreSQL and read one statement snapshot.
  */
 export async function getFinancialMetrics(scope: Scope, range?: MetricRange, db: QueryClient = prisma) {
@@ -125,13 +131,20 @@ export async function getFinancialMetrics(scope: Scope, range?: MetricRange, db:
       (SELECT COALESCE(SUM(cost), 0) FROM sold_lines) AS cost,
       (SELECT COALESCE(SUM("bookedCost"), 0) FROM sold_lines) AS "bookedSaleCosts",
       (SELECT COALESCE(SUM("estimatedCost"), 0) FROM sold_lines) AS "estimatedSaleCosts",
-      -- Units sold beyond recorded stock carry a provisional cost; profit waits until
-      -- a manager resolves the stock exception those sales belong to.
+      -- Units sold beyond recorded stock carry a provisional cost; profit is shown as
+      -- not final until a manager resolves the stock exception those sales belong to.
       (SELECT COUNT(DISTINCT x.id) FROM sale_items i JOIN sold s ON s.id = i."saleId"
         LEFT JOIN reported_inventory_values v ON v.id = i."inventoryEntryId"
         JOIN inventory_exceptions x ON x."productId" = COALESCE(v."productId", i."productId") AND x."locationId" = s."locationId"
           AND x.status <> 'RESOLVED' AND (x."triggerSaleId" = s.id OR x."firstNegativeAt" <= s."createdAt")
         WHERE i."costStatus" = 'ESTIMATED') AS "pendingStockProblems",
+      -- The cost booked on those lines: the part of cost of goods sold still awaiting review.
+      (SELECT COALESCE(SUM(COALESCE(CASE WHEN i."inventoryEntryId" IS NOT NULL THEN v."cogsAmount" END, i."costAmount", 0)), 0)
+        FROM sale_items i JOIN sold s ON s.id = i."saleId"
+        LEFT JOIN reported_inventory_values v ON v.id = i."inventoryEntryId"
+        WHERE i."costStatus" = 'ESTIMATED' AND EXISTS (SELECT 1 FROM inventory_exceptions x
+          WHERE x."productId" = COALESCE(v."productId", i."productId") AND x."locationId" = s."locationId"
+            AND x.status <> 'RESOLVED' AND (x."triggerSaleId" = s.id OR x."firstNegativeAt" <= s."createdAt"))) AS "pendingEstimatedCost",
       (SELECT COALESCE(SUM(amount), 0) FROM inventory_adjustments) AS "inventoryCostAdjustments",
       (SELECT COUNT(*) FROM inventory_adjustments WHERE amount IS NULL) AS "missingInventoryCosts",
       (SELECT COALESCE(SUM(COALESCE(e."inputValue", e."valueChange")),0) FROM reported_inventory_values e WHERE e.kind = 'PURCHASE'
@@ -179,9 +192,11 @@ export function summarizeFinancialMetrics(row: Record<string, unknown>) {
   const costIncomplete = missingCosts + value(row.missingInventoryCosts);
   const estimatedSaleCosts = money(value(row.estimatedSaleCosts));
   const costEstimated = !costIncomplete && estimatedSaleCosts !== 0;
-  // Profit is never shown on an estimate: it waits for the open stock exceptions.
+  // Open stock exceptions do not hide profit: it is shown, marked as not final, with
+  // the estimated cost it includes. Missing costs still make it unavailable.
   const pendingStockProblems = costIncomplete ? 0 : value(row.pendingStockProblems);
-  const costOfGoodsSold = costIncomplete || pendingStockProblems ? null : money(recordedSaleCosts + inventoryCostAdjustments);
+  const pendingEstimatedCost = pendingStockProblems ? money(value(row.pendingEstimatedCost)) : 0;
+  const costOfGoodsSold = costIncomplete ? null : money(recordedSaleCosts + inventoryCostAdjustments);
   const grossProfit = legacyVoids || netSales === null || costOfGoodsSold === null ? null : money(netSales - costOfGoodsSold);
   const expenses = money(value(row.expenses));
   const inventoryPurchases = money(value(row.inventoryPurchases));
@@ -189,6 +204,8 @@ export function summarizeFinancialMetrics(row: Record<string, unknown>) {
   const lotteryEarnings = money(value(row.lotteryEarnings)), missingLotteryDays = value(row.missingLotteryDays);
   const otherIncome = money(value(row.otherIncome) + lotteryEarnings);
   const margin = (profit: number | null) => profit !== null && netSales !== null && netSales > 0 ? money(profit / netSales * 100) : null;
+  const provisional = pendingStockProblems > 0 && grossProfit !== null;
+  const costBasis: CostBasis = costIncomplete || legacyVoids ? 'UNAVAILABLE' : pendingStockProblems ? 'PROVISIONAL' : costEstimated ? 'ESTIMATED' : 'HISTORICAL';
   return {
     grossCollected, netCollected: money(grossCollected - refunds - voids), grossSales, refunds, refundsBeforeTax,
     voids, voidTax, voidsBeforeTax, voidCount: value(row.voidCount), legacyVoids,
@@ -201,19 +218,21 @@ export function summarizeFinancialMetrics(row: Record<string, unknown>) {
     saleCostCorrections: money(value(row.cost) - value(row.bookedSaleCosts)), receivedInventoryPurchases: money(value(row.receivedInventoryPurchases)),
     estimatedSaleCosts,
     costCompleteness: { complete: !costIncomplete && !pendingStockProblems, missingRecords: costIncomplete, estimated: costEstimated, estimatedAmount: estimatedSaleCosts,
-      pendingStockProblems,
-      label: costIncomplete ? 'Cost information incomplete' : pendingStockProblems ? 'Waiting on stock exceptions' : costEstimated ? 'Includes estimated costs' : 'Recorded costs',
+      pendingStockProblems, pendingEstimatedCost,
+      label: costIncomplete ? 'Cost information incomplete' : pendingStockProblems ? 'Includes estimated costs awaiting review' : costEstimated ? 'Includes estimated costs' : 'Recorded costs',
       reviewPath: pendingStockProblems ? '/inventory/stock-control/exceptions' : '/financial?tab=inventory&costTab=missing' },
     grossProfit, expenses, operatingExpenses: expenses, inventoryPurchases, recordedExpenses: money(expenses + inventoryPurchases),
     operatingProfit, otherIncome, lotteryEarnings,
     earningsCompleteness: { complete: !missingLotteryDays, pendingDays: missingLotteryDays, reviewPath: '/lottery?tab=reports', label: missingLotteryDays ? 'Lottery earnings pending' : 'Confirmed earnings' },
     netProfit: operatingProfit === null || missingLotteryDays ? null : money(operatingProfit + otherIncome),
     grossMargin: margin(grossProfit), operatingMargin: margin(operatingProfit),
-    costBasis: costIncomplete || legacyVoids || pendingStockProblems ? 'UNAVAILABLE' : costEstimated ? 'ESTIMATED' : 'HISTORICAL',
+    // PROVISIONAL: every cost is known, but part of it is an estimate still awaiting a manager's review.
+    costBasis,
     unavailableReason: legacyVoids ? 'Older voids have no recorded reversal date; historical profit requires review.' : taxUnavailable ? 'Original refund tax allocations are unavailable.'
       : costIncomplete ? 'Cost information incomplete. Review missing inventory and sale costs.'
-      : pendingStockProblems ? `Some items sold more than recorded stock. Resolve ${pendingStockProblems} stock ${pendingStockProblems === 1 ? 'exception' : 'exceptions'} in Stock Control to see profit.`
       : missingLotteryDays ? 'Lottery earnings pending. Reconcile commissions in Lottery reports.' : null,
+    // Why the profit shown is not final yet, in words for the owner. Null when profit is confirmed or unavailable.
+    provisionalReason: provisional ? `Includes ${usd(pendingEstimatedCost)} of estimated cost for ${pendingStockProblems} stock ${pendingStockProblems === 1 ? 'exception' : 'exceptions'}. Resolve ${pendingStockProblems === 1 ? 'it' : 'them'} in Stock Control to confirm profit.` : null,
   };
 }
 
@@ -327,12 +346,14 @@ export async function getProductFinancialMetrics(scope: Scope, range?: MetricRan
   return rows.map(row => {
     const revenue = money(value(row.collected));
     const netSales = money(revenue - value(row.tax));
-    const profit = row.missing || row.pending ? null : money(netSales - value(row.cost));
+    // An open stock exception does not hide the product's profit; it marks it as not final.
+    const profit = row.missing ? null : money(netSales - value(row.cost));
+    const costBasis: CostBasis = row.missing ? 'UNAVAILABLE' : row.pending ? 'PROVISIONAL' : 'HISTORICAL';
     return {
       productId: String(row.productId), productName: String(row.productName), sku: String(row.sku),
       quantitySold: value(row.quantity), revenue, netSales: row.incompleteReturns ? null : netSales,
       profit, margin: profit !== null && netSales > 0 ? money(profit / netSales * 100) : null,
-      costBasis: row.missing || row.pending ? 'UNAVAILABLE' : 'HISTORICAL', costPendingStockReview: Boolean(row.pending), incompleteReturns: Boolean(row.incompleteReturns), incompleteVoids: Boolean(row.incompleteVoids),
+      costBasis, costPendingStockReview: Boolean(row.pending), incompleteReturns: Boolean(row.incompleteReturns), incompleteVoids: Boolean(row.incompleteVoids),
     };
   });
 }

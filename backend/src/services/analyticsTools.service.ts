@@ -37,11 +37,12 @@ export async function runAnalyticsTool(name: string, input: unknown, locationId:
     const context = { locationId, currency: 'USD', period: { startDate: start, endDate: end, timezone: period.timezone }, historyWarning: metrics.historyWarning };
     if (name === 'get_sales_summary') return { ...context, ...metrics,
       averageOrderValue: metrics.transactions ? Math.round(metrics.grossCollected / metrics.transactions * 100) / 100 : null,
-      definition: 'Net sales exclude tax. Net collected includes tax and subtracts refunds and voids on their reversal dates. Expenses include payroll totals, never wage details.' };
+      definition: 'Net sales exclude tax. Net collected includes tax and subtracts refunds and voids on their reversal dates. Expenses include payroll totals, never wage details. '
+        + 'When costBasis is PROVISIONAL the profit figures are not final: say so and give provisionalReason. A null profit figure is unavailable: give unavailableReason, never an estimate.' };
     if (name === 'get_top_products') {
       const products = await getProductFinancialMetrics(scope, period.range, tx);
       return { ...context, products: products.sort((a, b) => b.revenue - a.revenue || a.productId.localeCompare(b.productId)).slice(0, Number(limit)),
-        definition: 'Signed product activity: original sales less returns and voids in this period. Revenue includes tax. Incomplete historical allocations are flagged.' };
+        definition: 'Signed product activity: original sales less returns and voids in this period. Revenue includes tax. Incomplete historical allocations are flagged. A product with costBasis PROVISIONAL has a profit that is not final (an open stock exception).' };
     }
     const kind = name === 'get_tender_breakdown' ? 'payment' : name === 'get_hourly_sales' ? 'epochHour' : 'employee';
     const rows = await getFinancialBreakdowns(scope, period.range, period.timezone, period.start!, tx, [kind]);

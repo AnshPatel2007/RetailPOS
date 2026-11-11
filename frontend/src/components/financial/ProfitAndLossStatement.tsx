@@ -24,11 +24,16 @@ function StatementRow({ label, value, total = false, final = false }: { label: s
 export function ProfitAndLossStatement({ report, month, onReviewCosts }: { report: ProfitAndLossReport; month: string; onReviewCosts: () => void }) {
   const timezone = report.period.timezone;
   const period = `${formatDate(report.period.start, timezone)} – ${formatDate(new Date(new Date(report.period.end).getTime() - Number(report.period.endExclusive)), timezone)}`;
-  // Items sold beyond recorded stock: profit waits until a manager resolves those stock exceptions.
+  // Items sold beyond recorded stock carry an estimated cost: profit is shown, marked
+  // as not final, until a manager resolves those stock exceptions.
   const pendingStock = report.costCompleteness?.pendingStockProblems ?? 0;
+  const notFinal = report.costBasis === 'PROVISIONAL';
+  const pendingCost = pendingStock ? report.costCompleteness?.pendingEstimatedCost ?? null : null;
   const hasIncompleteCosts = report.costCompleteness?.complete === false && !pendingStock;
   const estimatedCost = report.costCompleteness?.complete !== false && report.costCompleteness?.estimated ? report.costCompleteness.estimatedAmount ?? null : null;
   const hasPendingEarnings = report.earningsCompleteness?.complete === false;
+  const marginNote = (value: number | null) => notFinal && value != null ? `${value}% margin · not final` : margin(value);
+  const mark = (label: string) => notFinal ? `${label} (not final)` : label;
   return <div className="financial-statement-view">
     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
       <h2 className="text-lg font-semibold">{month ? monthLabel(month) : 'Year to date'}</h2>
@@ -36,14 +41,15 @@ export function ProfitAndLossStatement({ report, month, onReviewCosts }: { repor
     </div>
     <SummaryStrip emphasis items={[
       { label: 'Net sales', value: money(report.revenue.netSales), detail: 'Excluding sales tax' },
-      { label: 'COGS', value: money(report.costOfGoodsSold), detail: pendingStock ? 'Waiting on stock exceptions' : hasIncompleteCosts ? 'Cost information incomplete' : estimatedCost !== null ? `Includes ${money(estimatedCost)} corrected estimate` : 'Recorded inventory costs' },
-      { label: 'Gross profit', value: money(report.grossProfit), detail: margin(report.margins.gross) },
-      { label: 'Net income', value: money(report.netIncome), detail: margin(report.margins.net), tone: report.netIncome != null && report.netIncome < 0 ? 'danger' : 'default' },
+      { label: 'COGS', value: money(report.costOfGoodsSold), detail: hasIncompleteCosts ? 'Cost information incomplete' : pendingStock ? (pendingCost !== null ? `Includes ${money(pendingCost)} estimated, awaiting review` : 'Includes estimated costs awaiting review') : estimatedCost !== null ? `Includes ${money(estimatedCost)} corrected estimate` : 'Recorded inventory costs' },
+      { label: 'Gross profit', value: money(report.grossProfit), detail: marginNote(report.margins.gross) },
+      { label: 'Net income', value: money(report.netIncome), detail: marginNote(report.margins.net), tone: report.netIncome != null && report.netIncome < 0 ? 'danger' : 'default' },
     ]} />
-    {(report.unavailableReason || hasIncompleteCosts || hasPendingEarnings || pendingStock > 0) && <div className="financial-status" role="status">
+    {(report.unavailableReason || report.provisionalReason || hasIncompleteCosts || hasPendingEarnings || pendingStock > 0) && <div className="financial-status" role="status">
       <AlertCircle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="font-medium">{pendingStock ? 'Profit waits for stock exceptions' : hasIncompleteCosts ? 'Cost information incomplete' : hasPendingEarnings ? 'Lottery earnings pending' : 'Some figures are unavailable'}</p>
+        <p className="font-medium">{hasIncompleteCosts ? 'Cost information incomplete' : notFinal ? 'Profit is not final' : hasPendingEarnings ? 'Lottery earnings pending' : 'Some figures are unavailable'}</p>
+        {report.provisionalReason && <p className="mt-1 text-sm text-muted-foreground">{report.provisionalReason}</p>}
         {report.unavailableReason && <p className="mt-1 text-sm text-muted-foreground">{hasIncompleteCosts ? report.unavailableReason.replace(/^Cost information incomplete\.\s*/, '') : report.unavailableReason}</p>}
       </div>
       <div className="flex flex-wrap gap-2">
@@ -74,8 +80,8 @@ export function ProfitAndLossStatement({ report, month, onReviewCosts }: { repor
               <StatementRow label="Recorded merchandise sold, net of returns" value={money(report.recordedSaleCosts)} />
               <StatementRow label="Inventory losses & purchase-cost adjustments" value={money(report.inventoryCostAdjustments)} />
             </>}
-            <StatementRow label="Cost of goods sold" value={deduction(report.costOfGoodsSold)} />
-            <StatementRow label="Gross Profit" value={money(report.grossProfit)} total />
+            <StatementRow label={notFinal ? 'Cost of goods sold (includes estimates)' : 'Cost of goods sold'} value={deduction(report.costOfGoodsSold)} />
+            <StatementRow label={mark('Gross Profit')} value={money(report.grossProfit)} total />
           </dl>
         </section>
         <section aria-label="Operating expenses" className="statement-section">
@@ -87,7 +93,7 @@ export function ProfitAndLossStatement({ report, month, onReviewCosts }: { repor
         </section>
         <dl className="statement-results">
           <StatementRow label="Other income (gaming/ATM and confirmed lottery earnings)" value={money(report.otherIncome)} />
-          <StatementRow label="Net Income" value={money(report.netIncome)} final />
+          <StatementRow label={mark('Net Income')} value={money(report.netIncome)} final />
         </dl>
         <dl className="statement-margins">
           <div><dt>Gross Margin</dt><dd>{report.margins.gross == null ? '—' : `${report.margins.gross}%`}</dd></div>
@@ -105,7 +111,7 @@ export function ProfitAndLossStatement({ report, month, onReviewCosts }: { repor
         {report.historyWarning && <p className="mt-3 text-xs text-muted-foreground">{report.historyWarning}</p>}
         <AboutNumbers className="mt-3" timezone={timezone}>
           <p>Sales are shown before sales tax. Refunds and voids count on the day they happen, not on the day of the original sale.</p>
-          <p>Cost of goods sold uses the cost recorded on each sale line. When something was sold beyond recorded stock, profit stays unavailable until a manager resolves that stock exception.</p>
+          <p>Cost of goods sold uses the cost recorded on each sale line. When something was sold beyond recorded stock, its cost is an estimate: profit is shown as not final until a manager resolves that stock exception. Profit stays unavailable only when a cost is missing.</p>
           <p>Expenses count once approved or paid. Lottery ticket sales are not merchandise sales; only confirmed lottery earnings appear as other income.</p>
         </AboutNumbers>
       </div>

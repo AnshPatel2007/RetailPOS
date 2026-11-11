@@ -225,6 +225,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
           </div>
 
           {overallData.profitability?.unavailableReason && <div className="report-notice"><p role="status">{overallData.profitability.unavailableReason}</p><Link className="page-action" to="/financial?tab=inventory&costTab=missing">Review costs</Link></div>}
+          {overallData.profitability?.provisionalReason && <div className="report-notice"><p role="status">Profit is not final. {overallData.profitability.provisionalReason}</p><Link className="page-action" to="/inventory/stock-control/exceptions">Resolve stock exceptions</Link></div>}
           {/* Profitability */}
           <div>
             <div className="flex justify-between items-center mb-4">
@@ -241,9 +242,9 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
               </Link>
             </div>
             <SummaryStrip items={[
-              { label: 'Gross Profit', value: overallData.profitability?.grossProfit == null ? 'Unavailable' : formatCurrency(overallData.profitability.grossProfit), detail: overallData.profitability?.grossMargin == null ? 'Margin unavailable' : overallData.profitability.grossMargin.toFixed(1) + '% margin' },
-              { label: 'Net Profit', value: overallData.profitability?.netProfit == null ? 'Unavailable' : formatCurrency(overallData.profitability.netProfit), detail: overallData.profitability?.netMargin == null ? 'Margin unavailable' : overallData.profitability.netMargin.toFixed(1) + '% margin' },
-              { label: 'Cost of Goods Sold', value: overallData.profitability?.costOfGoodsSold == null ? 'Unavailable' : formatCurrency(overallData.profitability.costOfGoodsSold) },
+              { label: 'Gross Profit', value: overallData.profitability?.grossProfit == null ? 'Unavailable' : formatCurrency(overallData.profitability.grossProfit), detail: overallData.profitability?.grossMargin == null ? 'Margin unavailable' : overallData.profitability.grossMargin.toFixed(1) + '% margin' + (overallData.profitability.provisionalReason ? ' · not final' : '') },
+              { label: 'Net Profit', value: overallData.profitability?.netProfit == null ? 'Unavailable' : formatCurrency(overallData.profitability.netProfit), detail: overallData.profitability?.netMargin == null ? 'Margin unavailable' : overallData.profitability.netMargin.toFixed(1) + '% margin' + (overallData.profitability.provisionalReason ? ' · not final' : '') },
+              { label: 'Cost of Goods Sold', value: overallData.profitability?.costOfGoodsSold == null ? 'Unavailable' : formatCurrency(overallData.profitability.costOfGoodsSold), detail: overallData.profitability?.provisionalReason ? 'Includes estimated costs awaiting review' : undefined },
               { label: 'Operating Expenses', value: money(overallData.profitability?.totalExpenses) },
             ]} />
             <div className="mt-4 space-y-2">

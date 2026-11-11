@@ -35,6 +35,8 @@ interface LocationStats {
   taxCharged: number;
   inventoryValue: number | null;
   unavailableReason: string | null;
+  /** Set when the profit shown includes estimated costs still awaiting review. */
+  provisionalReason?: string | null;
 }
 
 interface StoreDetails {
@@ -132,6 +134,7 @@ export const AdminDashboard: React.FC = () => {
     ? data.totals.totalGrossCollected / data.totals.totalTransactions
     : null;
   const profitReason = data.locations.find(location => location.profit === null)?.unavailableReason || 'Cost information incomplete';
+  const notFinalStores = data.locations.filter(location => location.provisionalReason).length;
 
   const profitMargin = data.totals.margin;
 
@@ -151,6 +154,7 @@ export const AdminDashboard: React.FC = () => {
       ...store,
       periodRevenue: stats?.revenue || 0,
       periodProfit: stats?.profit ?? null,
+      periodProfitNote: stats?.provisionalReason ?? null,
       periodMargin: stats?.margin ?? null,
       _count: { ...store._count, products: stats?.productCount ?? store._count.products, users: stats?.activeUsers ?? store._count.users },
       periodTransactions: stats?.transactions || 0,
@@ -166,7 +170,7 @@ export const AdminDashboard: React.FC = () => {
       <SummaryStrip emphasis items={[
         { label: 'Sales after refunds', value: formatCurrency(data.totals.totalRevenue), detail: `${periodDescription} · ${data.totals.totalTransactions} orders` },
         { label: 'Operating expenses', value: formatCurrency(data.totals.totalOperatingExpenses), detail: 'Merchandise costs are deducted through COGS' },
-        { label: 'Net income', value: displayProfit(data.totals.totalProfit), detail: data.totals.totalProfit === null ? profitReason : 'Net margin: ' + displayMargin(profitMargin),
+        { label: 'Net income', value: displayProfit(data.totals.totalProfit), detail: data.totals.totalProfit === null ? profitReason : 'Net margin: ' + displayMargin(profitMargin) + (notFinalStores ? ` · not final for ${notFinalStores} ${notFinalStores === 1 ? 'store' : 'stores'}` : ''),
           tone: data.totals.totalProfit !== null && data.totals.totalProfit < 0 ? 'danger' : 'default' },
         { label: 'Stores', value: stores.length, detail: stores.filter(s => s.isActive).length + ' active' },
       ]} />
@@ -237,8 +241,8 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground" title="Includes recorded merchandise costs, operating expenses and other income">Net income:</span>
-                      <span className={`font-medium ${resultTone(store.periodProfit)}`}>
-                        {displayProfit(store.periodProfit)}
+                      <span className={`font-medium ${resultTone(store.periodProfit)}`} title={store.periodProfitNote || undefined}>
+                        {displayProfit(store.periodProfit)}{store.periodProfitNote ? ' (not final)' : ''}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -326,8 +330,9 @@ export const AdminDashboard: React.FC = () => {
                       <TableCell className="text-right py-3 px-4">
                         {formatCurrency(loc.operatingExpenses)}
                       </TableCell>
-                      <TableCell className={`text-right py-3 px-4 font-medium ${resultTone(loc.profit)}`} title={loc.profit === null ? loc.unavailableReason || undefined : undefined}>
+                      <TableCell className={`text-right py-3 px-4 font-medium ${resultTone(loc.profit)}`} title={loc.profit === null ? loc.unavailableReason || undefined : loc.provisionalReason || undefined}>
                         {displayProfit(loc.profit)}
+                        {loc.provisionalReason && <div className="text-xs font-normal text-muted-foreground">Not final</div>}
                       </TableCell>
                       <TableCell className="text-right py-3 px-4">
                         <span className={resultTone(margin)}>

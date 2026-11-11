@@ -44,6 +44,7 @@ export async function getAdminDashboard(period: unknown = '30', now = new Date()
         voidAmount: metrics.voids, voidCount: metrics.voidCount, historyWarning: metrics.historyWarning,
         expenses: metrics.recordedExpenses, operatingExpenses: metrics.operatingExpenses, inventoryPurchases: metrics.inventoryPurchases,
         profit, margin, costOfGoodsSold: metrics.costOfGoodsSold, costBasis: metrics.costBasis, unavailableReason: metrics.unavailableReason,
+        provisionalReason: profit === null ? null : metrics.provisionalReason,
         netSalesBeforeTax: metrics.netSales, refundTax: metrics.refundTax,
         activeUsers: users.find(row => row.locationId === store.id)?._count || 0,
         activeShifts: shifts.find(row => row.locationId === store.id)?._count || 0,

@@ -64,9 +64,10 @@ describe('Variety packs', () => {
       await opening(orange.id, 0, 0);
       // Two oranges were sold from the open pack before anyone recorded opening it.
       await post('/api/sales', { items: [{ productId: orange.id, quantity: 2, price: 2.49 }], paymentMethod: 'CASH', amountPaid: 6, idempotencyKey: randomUUID() }).expect(201);
-      // Sold beyond recorded stock: cost is provisional, so profit waits for the stock exception.
+      // Sold beyond recorded stock: cost is an estimate, so profit shows as not final until the stock exception is resolved.
       const waiting = await getFinancialMetrics({ locationId: data.location.id });
-      expect(waiting.costOfGoodsSold).toBeNull(); expect(waiting.estimatedSaleCosts).toBe(2); // estimated at $1.00
+      expect(waiting.costOfGoodsSold).toBe(2); expect(waiting.estimatedSaleCosts).toBe(2); // estimated at $1.00
+      expect(waiting.costBasis).toBe('PROVISIONAL'); expect(waiting.costCompleteness.pendingEstimatedCost).toBe(2);
       await put(`/api/products/${pack.id}/bundle`, { components: [{ productId: orange.id, quantity: 6 }, { productId: lemon.id, quantity: 6 }] }).expect(200);
       await post(`/api/products/${pack.id}/open-bundle`, { quantity: 1, idempotencyKey: randomUUID() }).expect(200);
       // $9 / 12 items = $0.75 each, whatever oranges and lemons cost alone.

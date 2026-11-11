@@ -312,8 +312,10 @@ export const getLocationStats = asyncHandler(async (req: AuthRequest, res: Respo
       periodTransactions: period.transactions,
       periodExpenses: period.operatingExpenses,
       // Profit is shown only when every cost is known; otherwise the reason is given.
+      // With open stock exceptions it is shown as not final, with the estimated part named.
       periodProfit: period.netProfit,
       profitUnavailableReason: period.netProfit === null ? period.unavailableReason : null,
+      profitProvisionalReason: period.netProfit === null ? null : period.provisionalReason,
       averageOrderValue: period.transactions ? Math.round(period.grossCollected / period.transactions * 100) / 100 : null,
       topProducts: products.sort((a, b) => b.revenue - a.revenue || a.productId.localeCompare(b.productId)).slice(0, 5)
         .map(product => ({ productId: product.productId, name: product.productName, revenue: product.revenue, quantity: product.quantitySold })),

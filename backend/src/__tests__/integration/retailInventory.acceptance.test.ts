@@ -11,6 +11,7 @@ import app from '../../server';
 import { prisma, seedTestData, TestData } from './setup';
 import { createTestToken } from './helpers';
 import { getFinancialMetrics, getProductFinancialMetrics } from '../../services/financialMetrics.service';
+import { getAdminDashboard } from '../../services/adminDashboard.service';
 import { decimal, valueMovement } from '../../services/inventoryCost.service';
 import { rankRelatedProducts } from '../../services/inventoryException.service';
 
@@ -63,23 +64,34 @@ describe('Retail inventory acceptance', () => {
     expect(Number(line.costAmount)).toBe(4.5); // 2 covered at average + 1 estimated at $1.50
     const value = await balance();
     expect(value.quantity).toBe(-1); expect(Number(value.value)).toBe(-1.5);
-    // Profit waits while the stock exception is open; it is never shown on an estimate.
+    // While the stock exception is open profit is shown, marked as not final, with the estimated part named.
+    const profit = Math.round((7.47 - 4.5) * 100) / 100;
     const pending = await getFinancialMetrics({ locationId: data.location.id });
-    expect(pending.costOfGoodsSold).toBeNull(); expect(pending.grossProfit).toBeNull(); expect(pending.netProfit).toBeNull();
-    expect(pending.costBasis).toBe('UNAVAILABLE');
-    expect(pending.costCompleteness).toMatchObject({ complete: false, estimated: true, pendingStockProblems: 1,
-      label: 'Waiting on stock exceptions', reviewPath: '/inventory/stock-control/exceptions' });
-    expect(pending.unavailableReason).toMatch(/Resolve 1 stock exception/);
+    expect(pending.costOfGoodsSold).toBe(4.5); expect(pending.grossProfit).toBe(profit); expect(pending.netProfit).toBe(profit);
+    expect(pending.grossMargin).not.toBe(100);
+    expect(pending.costBasis).toBe('PROVISIONAL');
+    expect(pending.costCompleteness).toMatchObject({ complete: false, estimated: true, pendingStockProblems: 1, pendingEstimatedCost: 4.5,
+      label: 'Includes estimated costs awaiting review', reviewPath: '/inventory/stock-control/exceptions' });
+    expect(pending.unavailableReason).toBeNull();
+    expect(pending.provisionalReason).toBe('Includes $4.50 of estimated cost for 1 stock exception. Resolve it in Stock Control to confirm profit.');
     const [product] = await getProductFinancialMetrics({ locationId: data.location.id });
-    expect(product).toMatchObject({ profit: null, costBasis: 'UNAVAILABLE', costPendingStockReview: true });
-    // Once a manager resolves it, profit returns using the recorded cost.
+    expect(product).toMatchObject({ profit, costBasis: 'PROVISIONAL', costPendingStockReview: true });
+    // Every place that reports profit shows the same not-final figure and reason, not "Unavailable".
+    const notFinal = { costBasis: 'PROVISIONAL', unavailableReason: null, provisionalReason: pending.provisionalReason };
+    expect((await get('/api/financial/reports/pnl').expect(200)).body.data).toMatchObject({ ...notFinal, costOfGoodsSold: 4.5, grossProfit: profit, netIncome: profit,
+      costCompleteness: { pendingStockProblems: 1, pendingEstimatedCost: 4.5 } });
+    expect((await get('/api/reports/overall').expect(200)).body.data.profitability).toMatchObject({ ...notFinal, grossProfit: profit, netProfit: profit });
+    expect((await getAdminDashboard('max')).locations.find(store => store.locationId === data.location.id)).toMatchObject({ ...notFinal, profit });
+    // Once a manager resolves it, the profit is confirmed on the recorded cost.
     const exception = (await openException())!;
     await post(`/api/inventory-exceptions/${exception.id}/resolve`, { resolution: 'NO_CHANGE_NEEDED' }).expect(200);
     const metrics = await getFinancialMetrics({ locationId: data.location.id });
     expect(metrics.costOfGoodsSold).toBe(4.5);
     expect(metrics.grossProfit).toBe(Math.round((7.47 - 4.5) * 100) / 100);
-    expect(metrics.costBasis).toBe('ESTIMATED');
-    expect(metrics.costCompleteness).toMatchObject({ complete: true, estimated: true, pendingStockProblems: 0, label: 'Includes estimated costs' });
+    expect(metrics.costBasis).toBe('ESTIMATED'); expect(metrics.provisionalReason).toBeNull();
+    expect((await get('/api/financial/reports/pnl').expect(200)).body.data).toMatchObject({ grossProfit: profit, costBasis: 'ESTIMATED', provisionalReason: null });
+    expect(metrics.costCompleteness).toMatchObject({ complete: true, estimated: true, pendingStockProblems: 0, pendingEstimatedCost: 0, label: 'Includes estimated costs' });
+    expect((await getProductFinancialMetrics({ locationId: data.location.id }))[0]).toMatchObject({ profit, costBasis: 'HISTORICAL', costPendingStockReview: false });
   });
 
   it('3. completes a sale with no cost source but flags profit as unresolved, not fully profitable', async () => {
@@ -238,9 +250,10 @@ describe('Retail inventory acceptance', () => {
     expect(value.quantity).toBe(21); expect(Number(value.value)).toBe(33.6); // 21 x $1.60, never rebuilt from a negative base
     const receipt = await prisma.inventoryValueEntry.findFirstOrThrow({ where: { productId: data.product.id, kind: 'PURCHASE' } });
     expect(Number(receipt.cogsAmount)).toBe(0.3); // 3 shortfall units x ($1.60 - $1.50)
-    // The receipt does not explain the shortfall, so profit waits for the manager's review.
+    // The receipt does not explain the shortfall, so profit stays marked as not final until the manager's review.
     const pending = await getFinancialMetrics({ locationId: data.location.id });
-    expect(pending.inventoryCostAdjustments).toBe(0.3); expect(pending.costOfGoodsSold).toBeNull();
+    expect(pending.inventoryCostAdjustments).toBe(0.3); expect(pending.costOfGoodsSold).toBe(4.8);
+    expect(pending.costBasis).toBe('PROVISIONAL'); expect(pending.costCompleteness.pendingEstimatedCost).toBe(4.5);
     await post(`/api/inventory-exceptions/${(await openException())!.id}/resolve`, { resolution: 'MISSING_RECEIPT' }).expect(200);
     const metrics = await getFinancialMetrics({ locationId: data.location.id });
     expect(metrics.inventoryCostAdjustments).toBe(0.3);
@@ -399,7 +412,8 @@ describe('Retail inventory acceptance', () => {
       await opening(0, 0);
       await sell(2).expect(201);
       await post(`/api/products/${data.product.id}/adjust-inventory`, { quantity: 2, type: 'CORRECTION' }).expect(200);
-      expect((await metrics()).costOfGoodsSold).toBeNull(); // waiting on the open exception
+      // Shown, but not final, while the exception is open.
+      expect(await metrics()).toMatchObject({ costOfGoodsSold: 3, costBasis: 'PROVISIONAL', costCompleteness: { complete: false, pendingStockProblems: 1 } });
       await post(`/api/inventory-exceptions/${(await openException())!.id}/resolve`, { resolution: 'MISCOUNT' }).expect(200);
       const after = await metrics();
       expect(after.costOfGoodsSold).toBe(3); expect(after.costCompleteness.complete).toBe(true);

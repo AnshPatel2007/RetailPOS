@@ -12,7 +12,7 @@ export interface PnlWorkbookMonth {
   metrics: { grossCollected: number; netSales: Amount; netTax: Amount; refunds: number; voids: number;
     recordedSaleCosts?: Amount; inventoryCostAdjustments?: Amount; receivedInventoryPurchases?: number;
     expenses: number; otherIncome: number; inventoryPurchases: number; costOfGoodsSold: Amount; grossProfit: Amount;
-    netProfit: Amount; grossMargin: Amount; unavailableReason: string | null; historyWarning: string | null };
+    netProfit: Amount; grossMargin: Amount; unavailableReason: string | null; provisionalReason?: string | null; historyWarning: string | null };
   estimate: ProfitAndLossReport['estimate'];
   reconciliation?: { opening: { value: Amount }; closing: { value: Amount }; movements: { kind: string; value: Amount }[]; inTransit: { value: Amount; quantity: number } };
 }
@@ -76,6 +76,8 @@ export function buildProfitAndLossWorkbook(report: PnlWorkbookReport, _legacyEst
       `${period.start} to ${period.end} • ${month.period.timezone} • Snapshot ${report.snapshotAt}`);
     if (m.costOfGoodsSold === null) sheet.getCell('A3').value = 'RECORDED COSTS • Cost information incomplete';
     else if (m.netProfit === null) sheet.getCell('A3').value = 'RECORDED COSTS • Profit information incomplete';
+    // Open stock exceptions: the month is exported, but its cost and profit can still change.
+    else if (m.provisionalReason) sheet.getCell('A3').value = 'NOT FINAL • Includes estimated costs awaiting review';
     ['Date', 'Total sale', 'Reg 1', 'Reg 1 tax', 'Reg 2', 'Reg 2 tax', 'Credit card', 'Lottery net'].forEach((label, i) => band(sheet, 6, i + 1, i + 1, label));
     const keys = ['sales', 'register1', 'tax1', 'register2', 'tax2', 'card', 'lotteryNet'] as const;
     month.days.forEach((day, i) => {
@@ -150,6 +152,7 @@ export function buildProfitAndLossWorkbook(report: PnlWorkbookReport, _legacyEst
       'Inventory received is a reference amount. Its cost reduces profit as goods sell.',
       ...(m.inventoryPurchases ? ['Inventory purchase expense entries may cover the same deliveries. They are excluded from operating expenses.'] : []),
       ...(m.historyWarning?.includes('Older voids') ? [m.historyWarning] : []), ...(m.unavailableReason ? [m.unavailableReason] : []),
+      ...(m.provisionalReason ? [`Not final: includes estimated costs awaiting review. ${m.provisionalReason}`] : []),
     ];
     for (const note of notes) { text(sheet, noteRow, 1, 13, note).font = { name: 'Calibri', size: 10, color: { argb: muted } }; sheet.getRow(noteRow++).height = note.length > 180 ? 28 : 18; }
     const adjustments = month.days.filter(d => d.refunds || d.voids);
@@ -178,10 +181,12 @@ export function buildProfitAndLossWorkbook(report: PnlWorkbookReport, _legacyEst
     rows.forEach(([label, value], i) => { text(summary, i + 4, 1, 1, label); const cell = amount(summary, i + 4, 2, value); if (value === null) cell.value = 'Unavailable'; });
     const noteRow = rows.length + 5;
     text(summary, noteRow, 1, 2, 'Figures use recorded inventory and sale costs. Purchase expense entries may overlap receipts; neither reference total is deducted again.'); summary.getRow(noteRow).height = 60;
+    if (report.provisionalReason) { text(summary, noteRow + 1, 1, 2, `Not final: includes estimated costs awaiting review. ${report.provisionalReason}`); summary.getRow(noteRow + 1).height = 45; }
     text(summary, noteRow + 2, 1, 2, `Snapshot ${report.snapshotAt}`);
   }
   const range = dates(report.period);
-  return { workbook: book, filename: `pnl-${report.scope.locationId || 'all-stores'}-${range.start}-to-${range.end}-recorded.xlsx` };
+  const notFinal = report.costBasis === 'PROVISIONAL' || report.workbook.months.some(month => month.metrics.provisionalReason);
+  return { workbook: book, filename: `pnl-${report.scope.locationId || 'all-stores'}-${range.start}-to-${range.end}-${notFinal ? 'not-final' : 'recorded'}.xlsx` };
 }
 
 export async function prepareProfitAndLossExcel(report: PnlWorkbookReport, _legacyEstimated = false) {

@@ -597,6 +597,7 @@ export const StoreManagement: React.FC = () => {
                             {typeof storeDetails.stats?.periodProfit === 'number' ? formatCurrency(storeDetails.stats.periodProfit) : 'Unavailable'}
                           </p>
                           {storeDetails.stats?.profitUnavailableReason && <p className="text-xs text-muted-foreground">{storeDetails.stats.profitUnavailableReason}</p>}
+                          {storeDetails.stats?.profitProvisionalReason && <p className="text-xs text-muted-foreground">Not final. {storeDetails.stats.profitProvisionalReason}</p>}
                         </div>
                       </div>
                     </CardContent>

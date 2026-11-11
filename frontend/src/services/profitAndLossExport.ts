@@ -10,10 +10,12 @@ export interface ProfitAndLossReport {
   operatingExpenses: { total: number; byCategory: { category: string; amount: number }[] };
   inventoryPurchases: number; otherIncome: number;
   recordedSaleCosts?: number | null; inventoryCostAdjustments?: number | null; receivedInventoryPurchases?: number;
-  costCompleteness?: { complete: boolean; missingRecords: number; label: string; reviewPath: string; estimated?: boolean; estimatedAmount?: number; pendingStockProblems?: number };
+  costCompleteness?: { complete: boolean; missingRecords: number; label: string; reviewPath: string; estimated?: boolean; estimatedAmount?: number; pendingStockProblems?: number; pendingEstimatedCost?: number };
   lotteryEarnings?: number;
   earningsCompleteness?: { complete: boolean; pendingDays: number; label: string; reviewPath: string };
   unavailableReason?: string | null; historyWarning?: string | null;
+  /** PROVISIONAL: profit is shown but includes estimated costs still awaiting review (see provisionalReason). */
+  costBasis?: 'HISTORICAL' | 'ESTIMATED' | 'PROVISIONAL' | 'UNAVAILABLE'; provisionalReason?: string | null;
   defaultCostView: string;
   estimate: null | { assumption: string; costRatePercent: number; costOfGoodsSold: number; grossProfit: number; netIncome: number; margins: { gross: number | null; net: number | null } };
 }
@@ -21,7 +23,9 @@ export interface ProfitAndLossReport {
 /** Export the displayed snapshot, without re-fetching or recomputing its figures. */
 export function profitAndLossCsv(report: ProfitAndLossReport, _legacyEstimated = false) {
   const figures = report;
-  const basis = 'Recorded';
+  // A period with open stock exceptions is exported, but marked: its cost and profit can still change.
+  const notFinal = report.costBasis === 'PROVISIONAL';
+  const basis = notFinal ? 'Not final' : 'Recorded';
   const dates = new Intl.DateTimeFormat('en-CA', { timeZone: report.period.timezone, year: 'numeric', month: '2-digit', day: '2-digit' });
   const start = dates.format(new Date(report.period.start));
   const end = dates.format(new Date(new Date(report.period.end).getTime() - Number(report.period.endExclusive)));
@@ -52,6 +56,7 @@ export function profitAndLossCsv(report: ProfitAndLossReport, _legacyEstimated =
   ];
   if (report.historyWarning) rows.push(['Notes', 'Source limitations', report.historyWarning, '', 'Recorded']);
   if (report.unavailableReason) rows.push(['Notes', 'Reporting limitation', report.unavailableReason, '', 'Recorded']);
+  if (notFinal) rows.push(['Notes', 'Not final', `Includes estimated costs awaiting review. ${report.provisionalReason || ''}`.trim(), '', 'Recorded']);
   return { csv: buildCsv(['Section', 'Metric', 'Value', 'Unit', 'Basis'], rows),
-    filename: `pnl-${report.scope.locationId || 'all-stores'}-${start}-to-${end}-${basis.toLowerCase()}.csv` };
+    filename: `pnl-${report.scope.locationId || 'all-stores'}-${start}-to-${end}-${notFinal ? 'not-final' : 'recorded'}.csv` };
 }
