@@ -17,7 +17,7 @@ test('offline cash survives logout, supports store review, and replays only for 
   const review = page.getByRole('dialog', { name: 'Register recovery', exact: true });
   await expect(review.getByRole('heading', { name: 'Pending cash sales (1)' })).toBeVisible();
   await expect(review.getByRole('button', { name: 'Retry my cash sales' })).toBeDisabled();
-  await expect(review).toContainText('Starting or reloading the POS while offline is not supported');
+  await expect(review).toContainText('A register restarted without a connection keeps its signed-in cashier and saved product list');
   await page.keyboard.press('Escape');
   let originalPayload: unknown;
   await page.route('**/api/sales', async route => {

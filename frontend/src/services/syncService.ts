@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import { useAdminViewStore } from '../store/adminViewStore';
 import { sessionGeneration } from './sessionGeneration';
 import { storeContextGeneration } from './storeContextGeneration';
+import { isOffline, subscribeConnection } from './connection';
 
 function currentCacheScope() {
   const user = useAuthStore.getState().user;
@@ -27,13 +28,14 @@ interface SyncState {
 type SyncListener = (state: SyncState) => void;
 
 class SyncService {
-  private isOnline: boolean = navigator.onLine;
+  // "Online" means the POS server answers, not just that the computer has a network.
+  private isOnline: boolean = !isOffline();
   private isSyncing: boolean = false;
   private syncInterval: number | null = null;
   private listeners: Set<SyncListener> = new Set();
   private state: SyncState = {
     status: 'idle',
-    connectionStatus: navigator.onLine ? 'online' : 'offline',
+    connectionStatus: isOffline() ? 'offline' : 'online',
     pendingSalesCount: 0,
   };
 
@@ -67,19 +69,13 @@ class SyncService {
   }
 
   private setupNetworkListeners(): void {
-    window.addEventListener('online', () => {
-      console.log('Network status: online');
-      this.isOnline = true;
-      this.updateState({ connectionStatus: 'online' });
-      this.startAutoSync();
-      this.syncAll(); // Trigger immediate sync
-    });
-
-    window.addEventListener('offline', () => {
-      console.log('Network status: offline');
-      this.isOnline = false;
-      this.updateState({ connectionStatus: 'offline' });
-      this.stopAutoSync();
+    subscribeConnection(offline => {
+      if (offline === !this.isOnline) return;
+      this.isOnline = !offline;
+      console.log('Server connection: ' + (offline ? 'offline' : 'online'));
+      this.updateState({ connectionStatus: offline ? 'offline' : 'online' });
+      if (offline) this.stopAutoSync();
+      else { this.startAutoSync(); void this.syncAll(); } // send queued sales as soon as the server is back
     });
 
     // Initial check

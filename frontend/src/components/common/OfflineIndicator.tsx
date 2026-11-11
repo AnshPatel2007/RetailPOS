@@ -159,7 +159,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
             <>
               <WifiOff className="w-4 h-4" />
               <span className="text-sm font-medium">
-                Offline: cash only in this loaded shift. Keep the POS open until sales synchronize.
+                Offline: cash only. Sales are saved on this register and sent when the connection returns.
               </span>
             </>
           ) : (

@@ -119,6 +119,17 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   re-prices on the server, so a stale cached price is never charged. A computer set up
   as a register keeps its store's product catalog across cashier sign-outs; customer
   details are always cleared.
+- **Offline**: "offline" means the POS server does not answer, not only that the browser
+  says so (`services/connection.ts`: a request with no answer triggers a check of
+  `/api/health`, and only a failed check takes the register offline; use `isOffline()` /
+  `useOffline()`, never `navigator.onLine`, in register code). A register that starts
+  with no answer keeps the person who was signed in (`authStore.loadUser`,
+  `sessionUnverified`) and re-checks the session when the server returns; a refused
+  session still signs out. The cashier's open drawer is remembered on the register
+  (`services/openShift.ts`) so offline cash sales have a drawer. The built app is
+  installable and its pages are saved by a service worker (`vite-plugin-pwa` in
+  `vite.config.ts`; API requests are never cached). Updates wait for the person:
+  `components/common/AppUpdateNotice.tsx` applies one only when no sale or payment is open.
 - **Reports** (`pages/InsightsWorkspace.tsx`): Overview, Sales, Inventory (Stock Health),
   Staff (Employee Sales), Exports, one view each. The analysis extras (ABC, product
   matrix, forecast, what-if, anomalies, bundles, leaderboards, inventory report) were

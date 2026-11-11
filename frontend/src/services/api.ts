@@ -2,6 +2,8 @@ import axios, { AxiosInstance, AxiosError, CanceledError } from 'axios';
 import { sessionGeneration, changeSessionGeneration } from './sessionGeneration';
 import { storeContextGeneration } from './storeContextGeneration';
 import { invalidateScopedQueries } from './queryCache';
+import { serverAnswered, serverDidNotAnswer, setServerCheck } from './connection';
+import { rememberOpenShift } from './openShift';
 
 /**
  * API client configuration
@@ -63,8 +65,24 @@ const processQueue = (generation: number, error: any, token: string | null = nul
   });
 };
 
+// The register watches whether the POS server answers (see services/connection.ts).
+setServerCheck(async () => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
+  try {
+    const response = await fetch(API_URL + '/health', { cache: 'no-store', signal: controller.signal });
+    return response.ok && (await response.json())?.success === true;
+  } finally { clearTimeout(timeout); }
+});
+
+/** No answer from the POS server itself: no network path, a timeout, or a gateway/proxy error page. */
+const gotNoAnswer = (error: AxiosError) => error.response
+  ? error.response.status >= 500 && typeof (error.response.data as { success?: unknown } | undefined)?.success !== 'boolean'
+  : ['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT'].includes(error.code || '');
+
 api.interceptors.response.use(
   (response) => {
+    serverAnswered();
     if ((response.config as typeof response.config & { _storeGeneration?: number })._storeGeneration !== storeContextGeneration()) throw new CanceledError('Store context changed');
     if ((response.config as typeof response.config & { _sessionGeneration?: number })._sessionGeneration !== sessionGeneration()) throw new CanceledError('Session changed');
     const method = response.config.method?.toUpperCase() || 'GET';
@@ -77,6 +95,7 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as any;
     if (!originalRequest) return Promise.reject(error);
+    if (gotNoAnswer(error)) serverDidNotAnswer(); else if (error.response) serverAnswered();
     if (originalRequest._storeGeneration !== storeContextGeneration()) return Promise.reject(new CanceledError('Store context changed', originalRequest));
     if (originalRequest._sessionGeneration !== sessionGeneration()) return Promise.reject(new CanceledError('Session changed', originalRequest));
     if (error.response?.status === 428 && originalRequest && !originalRequest._approvalRetried) {
@@ -365,11 +384,16 @@ export const customerService = {
 export const shiftService = {
   getAll: (params?: any, signal?: AbortSignal) => api.get('/shifts', { params, signal }),
 
-  getCurrent: (signal?: AbortSignal) => api.get('/shifts/current', { signal }),
+  // Each answer about the cashier's own drawer is remembered on the register (services/openShift.ts),
+  // so a start without a connection still knows which drawer offline cash sales belong to.
+  getCurrent: (signal?: AbortSignal) => api.get('/shifts/current', { signal })
+    .then(response => { void rememberOpenShift(response.data?.data?.id ?? null); return response; }),
 
-  clockIn: (data: any) => api.post('/shifts/clock-in', data),
+  clockIn: (data: any) => api.post('/shifts/clock-in', data)
+    .then(response => { void rememberOpenShift(response.data?.data?.id ?? null); return response; }),
 
-  clockOut: (data: any) => api.post('/shifts/clock-out', data),
+  clockOut: (data: any) => api.post('/shifts/clock-out', data)
+    .then(response => { void rememberOpenShift(null); return response; }),
 
   close: (id: string, data: any) => api.post(`/shifts/${id}/close`, data),
 

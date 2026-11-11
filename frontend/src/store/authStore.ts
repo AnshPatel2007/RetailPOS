@@ -4,9 +4,19 @@ import { authService } from '../services/api';
 import { clearSessionState } from '../services/session';
 import { changeSessionGeneration, sessionGeneration } from '../services/sessionGeneration';
 import { useRegisterStore } from './registerStore';
+import { connectionSettled, isOffline, subscribeConnection } from '../services/connection';
 import toast from 'react-hot-toast';
 
 let logoutPending: Promise<void> | null = null;
+
+/** The person saved at sign-in on this browser, if it still holds their session token. */
+function rememberedUser(): User | null {
+  try {
+    if (!localStorage.getItem('token')) return null;
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    return user && typeof user.id === 'string' && typeof user.role === 'string' ? user as User : null;
+  } catch { return null; }
+}
 
 interface AuthState {
   user: User | null;
@@ -14,6 +24,8 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   isSigningOut: boolean;
+  /** Signed in from this register's memory because the server could not be reached at startup. */
+  sessionUnverified: boolean;
   error: string | null;
 
   login: (email: string, password: string, twoFactorCode?: string) => Promise<{ requiresTwoFactor: boolean }>;
@@ -27,12 +39,13 @@ interface AuthState {
 /**
  * Auth store using Zustand
  */
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   token: localStorage.getItem('token'),
   isAuthenticated: false,
   isLoading: !!localStorage.getItem('token'),
   isSigningOut: false,
+  sessionUnverified: false,
   error: null,
 
   login: async (email: string, password: string, twoFactorCode?: string) => {
@@ -65,6 +78,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         token,
         isAuthenticated: true,
         isLoading: false,
+        sessionUnverified: false,
         error: null, // Explicitly clear error
       });
       return { requiresTwoFactor: false };
@@ -102,7 +116,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     await clearSessionState();
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(user));
-    set({ user, token, isAuthenticated: true, isLoading: false, error: null });
+    set({ user, token, isAuthenticated: true, isLoading: false, sessionUnverified: false, error: null });
   },
 
   logout: async () => {
@@ -110,7 +124,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     const token = localStorage.getItem('token');
     changeSessionGeneration();
     localStorage.removeItem('token'); localStorage.removeItem('user');
-    set({ user: null, token: null, isAuthenticated: false, isLoading: false, isSigningOut: true, error: null });
+    set({ user: null, token: null, isAuthenticated: false, isLoading: false, isSigningOut: true, sessionUnverified: false, error: null });
     const cleanup = clearSessionState();
     logoutPending = (async () => {
       try { await authService.logout(token); }
@@ -131,7 +145,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       return;
     }
 
-    set({ isLoading: true });
+    // Re-checking a session already in use (after an offline start) must not blank the screen mid-sale.
+    if (!get().isAuthenticated) set({ isLoading: true });
     try {
       const response = await authService.getMe();
       const user = response.data.data;
@@ -140,9 +155,21 @@ export const useAuthStore = create<AuthState>((set) => ({
         user,
         isAuthenticated: true,
         isLoading: false,
+        sessionUnverified: false,
       });
     } catch (error) {
       if (generation !== sessionGeneration()) return;
+      // The server gave no answer (the register started without a connection).
+      // That is not a refusal: keep the person who was signed in on this
+      // register so it can sell from its saved catalog. The session is checked
+      // again as soon as the server answers; a refused session signs out then.
+      await connectionSettled();
+      if (generation !== sessionGeneration()) return;
+      const remembered = isOffline() ? rememberedUser() : null;
+      if (remembered) {
+        set({ user: remembered, isAuthenticated: true, isLoading: false, sessionUnverified: true });
+        return;
+      }
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       set({
@@ -150,9 +177,16 @@ export const useAuthStore = create<AuthState>((set) => ({
         token: null,
         isAuthenticated: false,
         isLoading: false,
+        sessionUnverified: false,
       });
     }
   },
 
   clearError: () => set({ error: null }),
 }));
+
+// A register that started without a connection checks its session as soon as the server answers again.
+subscribeConnection(offline => {
+  const state = useAuthStore.getState();
+  if (!offline && state.sessionUnverified && state.isAuthenticated) void state.loadUser();
+});

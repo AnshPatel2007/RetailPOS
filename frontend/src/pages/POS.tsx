@@ -12,6 +12,9 @@ import { syncService } from '@/services/syncService';
 import { checkoutIdentity } from '@/lib/checkoutIdentity';
 import { db, TerminalCheckout } from '@/services/offlineDb';
 import { cachedProducts, lookupPriceEmbedded, lookupScan, rememberProducts, warmRegisterCatalog } from '@/services/registerCatalog';
+import { connectionSettled, isOffline } from '@/services/connection';
+import { recallOpenShift } from '@/services/openShift';
+import { useOffline } from '@/hooks/useOffline';
 import { TerminalRecovery } from '@/components/pos/TerminalRecovery';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -97,10 +100,20 @@ export const POS: React.FC = () => {
 
   const { user } = useAuthStore();
   const [checkoutShiftId, setCheckoutShiftId] = useState<string | null>(null);
-  useEffect(() => {
-    shiftService.getCurrent().then(res => setCheckoutShiftId(res.data.data?.id || null)).catch(() => {});
-  }, [user?.id]);
   const { locationId, isReadOnly, storeName } = useEffectiveLocation();
+  // True while the POS server cannot be reached (browser offline, or no answer from the server).
+  const offline = useOffline();
+  useEffect(() => {
+    let active = true;
+    shiftService.getCurrent().then(res => { if (active) setCheckoutShiftId(res.data.data?.id || null); }).catch(async () => {
+      // No answer from the server: use the drawer this register last saw open for this cashier.
+      await connectionSettled();
+      if (!isOffline() || !user?.id || !locationId) return;
+      const remembered = await recallOpenShift({ userId: user.id, locationId });
+      if (active && remembered) setCheckoutShiftId(remembered);
+    });
+    return () => { active = false; };
+  }, [user?.id, locationId, offline]);
   const [terminalAttempts, setTerminalAttempts] = useState<TerminalCheckout[]>([]);
   const [terminalLoading, setTerminalLoading] = useState(true);
   const [terminalStorageError, setTerminalStorageError] = useState('');
@@ -151,7 +164,7 @@ export const POS: React.FC = () => {
     if (!user?.id || !locationId || isReadOnly || !checkoutShiftId || !paymentReady || paymentReadError) throw new Error('Load the current store, drawer and saved payments first.');
     if (pendingPayment?.status === 'SUBMITTED') throw new Error('Retry the original sale before changing any payments.');
     if ((pendingPayment?.revision ?? null) !== revision) throw new Error('Payment changed in another window. Close and reopen Payment before continuing.');
-    if (event.action === 'ADDED' && navigator.onLine) {
+    if (event.action === 'ADDED' && !isOffline()) {
       const currentShift = await shiftService.getCurrent();
       if (currentShift.data.data?.id !== checkoutShiftId) throw new Error('The original drawer is no longer open. Review received payments before taking more.');
     }
@@ -202,7 +215,7 @@ export const POS: React.FC = () => {
       toast.error('Browser storage is unavailable. Restore storage before taking payment.');
       return;
     }
-    if (navigator.onLine) {
+    if (!isOffline()) {
       quoteInFlight.current = true;
       try {
         // One request: server prices, the open drawer and current store settings, read together.
@@ -229,13 +242,22 @@ export const POS: React.FC = () => {
         setCheckoutShiftId(shiftId);
         useCartStore.getState().applyQuote(quote);
       } catch (error: any) {
-        toast.error(error.response?.data?.error || 'Could not verify the checkout total. Try again before taking payment.');
-        return;
+        // No answer from the server at all (it went away between scans): carry on as an
+        // offline cash sale below. Any answer that refuses the sale still stops here.
+        await connectionSettled();
+        if (!isOffline()) {
+          toast.error(error.response?.data?.error || 'Could not verify the checkout total. Try again before taking payment.');
+          return;
+        }
       } finally { quoteInFlight.current = false; }
     }
     quoteInFlight.current = false;
+    if (isOffline() && !checkoutShiftId) {
+      toast.error('This register has not seen your open drawer yet. Reconnect once (or clock in) before selling offline.');
+      return;
+    }
     // A cashier's discount or price change is approved now, before any money is taken.
-    if (user?.role === 'CASHIER' && navigator.onLine) {
+    if (user?.role === 'CASHIER' && !isOffline()) {
       const lines = checkoutLines();
       // The same rule as the server: a discount, or a hand-changed price (not a barcode-embedded one).
       const needsApproval = useCartStore.getState().items.some(item => item.discount > 0 || (item.priceOverride && !item.product.priceEmbedded && !item.product.id.startsWith('misc-')));
@@ -391,7 +413,7 @@ export const POS: React.FC = () => {
 
       const currentUser = useAuthStore.getState().user;
       const scope = currentUser?.id && locationId ? { userId: currentUser.id, locationId } : null;
-      const offline = !navigator.onLine;
+      const offline = isOffline();
 
       // Price-embedded barcodes (2-prefix scale/deli labels): the barcode itself
       // carries the price; the item code identifies the product
@@ -586,8 +608,9 @@ export const POS: React.FC = () => {
       return true;
     } catch (error: any) {
       if (signal.aborted || error.code === 'ERR_CANCELED') return false;
-      // Fallback to cached products when offline
-      if (!navigator.onLine) {
+      // Fallback to cached products when the server cannot be reached
+      await connectionSettled();
+      if (isOffline()) {
         try {
           const cached = user?.id && locationId ? await cachedProducts({ userId: user.id, locationId }) : [];
           if (signal.aborted) return false;
@@ -890,7 +913,7 @@ export const POS: React.FC = () => {
           return reviewed;
         }
       }
-      const isNetworkError = !error.response && (error.code === 'ERR_NETWORK' || !navigator.onLine);
+      const isNetworkError = isOffline() || (!error.response && error.code === 'ERR_NETWORK');
       if (isNetworkError && payments.every(p => p.paymentMethod === 'CASH') && !pointsRedeemed && checkoutShiftId && user?.locationId) {
         try {
           const cart = useCartStore.getState(), breakdown = cart.getLineBreakdown();

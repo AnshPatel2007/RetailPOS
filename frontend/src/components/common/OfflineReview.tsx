@@ -1,4 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks';
+import { isOffline } from '@/services/connection';
+import { useOffline } from '@/hooks/useOffline';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/services/offlineDb';
@@ -14,8 +16,9 @@ export function OfflineReview({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const offline = useOffline();
   useEffect(() => {
-    if (!user?.locationId || user.role === 'SUPER_ADMIN' || !navigator.onLine) return;
+    if (!user?.locationId || user.role === 'SUPER_ADMIN' || isOffline()) return;
     let active = true;
     void syncService.cacheAllData().catch(() => { if (active) setError('The offline catalog could not be updated. Reopen recovery when connected to try again.'); });
     return () => { active = false; };
@@ -44,7 +47,7 @@ export function OfflineReview({ onClose }: { onClose: () => void }) {
   };
   return <Modal isOpen onClose={() => { if (!busy) onClose(); }} title="Register recovery" size="lg">
     <div className="space-y-4 p-4">
-      <p className="text-sm">Offline checkout supports cash only in an already loaded, signed-in shift. Starting or reloading the POS while offline is not supported. Gift cards, account payments and loyalty require a connection.</p>
+      <p className="text-sm">Offline checkout supports cash only, for the cashier and drawer this register already knows. A register restarted without a connection keeps its signed-in cashier and saved product list. Gift cards, account payments and loyalty require a connection.</p>
       <p className="text-sm text-muted-foreground">Product cache: {records?.cachedAt ? formatDateTime(records.cachedAt) : 'Not available for this cashier and store'}.</p>
       <p className="text-sm text-muted-foreground">These records are stored on this browser. Keep them until the sale is confirmed. Managers and owners can review their store’s records here; only the original cashier can retry saving them.</p>
       {(error || records?.error) && <p role="alert" className="text-destructive">{error || records?.error}</p>}
@@ -60,7 +63,7 @@ export function OfflineReview({ onClose }: { onClose: () => void }) {
             {!record.payload && <p className="text-destructive">Original checkout details are missing. A manager must reconcile the payment with sales history.</p>}
           </li>)}
         </ul>
-        {records.cash.some(record => record.userId === user?.id) && <Button onClick={retry} disabled={busy || !navigator.onLine}>{busy ? 'Retrying…' : 'Retry my cash sales'}</Button>}
+        {records.cash.some(record => record.userId === user?.id) && <Button onClick={retry} disabled={busy || offline}>{busy ? 'Retrying…' : 'Retry my cash sales'}</Button>}
         <h3 className="font-semibold">Terminal payments to confirm ({records.terminal.length})</h3>
         {!records.terminal.length && <p className="text-sm text-muted-foreground">No unconfirmed terminal payments in your scope on this register.</p>}
         <ul className="space-y-3">

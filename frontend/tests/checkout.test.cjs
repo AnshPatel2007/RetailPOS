@@ -168,6 +168,7 @@ function syncFixture() {
     '../store/adminViewStore': { useAdminViewStore: { getState: () => ({ isAdminViewing: false }) } },
     './sessionGeneration': { sessionGeneration: () => 0 },
     './storeContextGeneration': { storeContextGeneration: () => 0 },
+    './connection': { isOffline: () => true, subscribeConnection: () => () => {} },
   }, { navigator: { onLine: false }, window: { addEventListener() {}, setInterval() {}, clearInterval() {} } });
   return { syncService, pending, submitted, setUser: value => { user = value; }, setRequestError: value => { requestError = value; }, failures: () => failures };
 }
@@ -415,4 +416,53 @@ test('settings that arrive with the checkout quote load the store, but never rep
   // A later change made elsewhere still comes through.
   settings.getState().applyServerSettings(store('2026-11-10T10:06:00.000Z', false), 'store-a');
   assert.equal(settings.getState().paymentMethods.giftCard, false);
+});
+
+test('one unanswered request takes the register offline only when the server health check fails too', async () => {
+  const timers = [];
+  const connection = load('services/connection.ts', {}, { navigator: { onLine: true }, window: { addEventListener() {} },
+    setTimeout: callback => { timers.push(callback); return timers.length; }, clearTimeout() {} });
+  let healthy = true;
+  const seen = [];
+  connection.setServerCheck(async () => healthy);
+  connection.subscribeConnection(offline => seen.push(offline));
+
+  // A single blocked or failing request while the server is fine: still online, nobody is told anything.
+  connection.serverDidNotAnswer();
+  await connection.connectionSettled();
+  assert.equal(connection.isOffline(), false);
+  assert.deepEqual(seen, []);
+
+  // The server really is gone: offline, and the register keeps looking for it.
+  healthy = false;
+  connection.serverDidNotAnswer();
+  await connection.connectionSettled();
+  assert.equal(connection.isOffline(), true);
+  assert.deepEqual(seen, [true]);
+  await timers.at(-1)();
+  assert.equal(connection.isOffline(), true);
+  healthy = true;
+  await timers.at(-1)();
+  assert.equal(connection.isOffline(), false);
+  assert.deepEqual(seen, [true, false]);
+
+  // Any real answer from the server also brings the register back at once.
+  healthy = false;
+  connection.serverDidNotAnswer();
+  await connection.connectionSettled();
+  assert.equal(connection.isOffline(), true);
+  connection.serverAnswered();
+  assert.equal(connection.isOffline(), false);
+});
+
+test('a computer with no network at all is offline without asking the server', async () => {
+  const browser = { onLine: false };
+  const connection = load('services/connection.ts', {}, { navigator: browser, window: { addEventListener() {} }, setTimeout: () => 1, clearTimeout() {} });
+  let asked = 0;
+  connection.setServerCheck(async () => { asked++; return true; });
+  assert.equal(connection.isOffline(), true);
+  connection.serverDidNotAnswer();
+  await connection.connectionSettled();
+  assert.equal(asked, 0);
+  assert.equal(connection.isOffline(), true);
 });

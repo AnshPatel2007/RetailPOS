@@ -10,6 +10,7 @@ import { LegacyInsightsRedirect } from './pages/InsightsWorkspace';
 import { ManagerApprovalDialog } from './components/ManagerApprovalDialog';
 import { GlobalAssistant } from './components/assistant/GlobalAssistant';
 import { RegisterLockLayer } from './components/register/RegisterLock';
+import { AppUpdateNotice } from './components/common/AppUpdateNotice';
 import { WorkflowNavigation, PreserveRedirect, StockControlNavigation, purchasingViews, accountViews, TeamNavigation, ShiftRedirect } from './components/common/WorkflowNavigation';
 import { changeSessionGeneration } from './services/sessionGeneration';
 
@@ -154,6 +155,7 @@ function App() {
       <ManagerApprovalDialog />
       <GlobalAssistant />
       <RegisterLockLayer />
+      <AppUpdateNotice />
       {import.meta.env.PROD && <VercelAnalytics />}
       <Toaster
         position="top-right"
