@@ -67,6 +67,13 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   separate terminal; the POS only records the approval reference. Sales, refunds and
   voids carry idempotency keys, and lost responses retry with the same key. Offline
   sales are cash only (`services/syncService.ts`).
+- **Blind drawer close** (on unless the owner turns it off in Settings > Taxes & Payments;
+  `cashControl.blindClose`, `services/cashControl.service.ts`): a cashier counts the drawer
+  before seeing what it should hold. While their drawer is open the server sends a
+  cashier no expected amount, cash sales, cash refunds or tender totals
+  (`GET /shifts/current`, the open shift's Z-report, the dashboard's payment totals); the
+  expected amount and difference show once they clock out. Managers and owners always
+  see them. Do not add a cashier-visible figure that gives the expected cash away.
 - **Stock never blocks a sale.** Selling below zero creates an inventory exception that
   managers resolve in Stock Control. Packs/cartons share base-unit stock with their
   single. Corrections never create artificial profit.

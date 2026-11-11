@@ -28,8 +28,9 @@ export const updateMyStoreSettings = asyncHandler(async (req: AuthRequest, res: 
   if (!locationId) throw new AppError('A store assignment is required', 403);
   if (req.body.locationId && req.body.locationId !== locationId) throw new AppError('Cannot update settings for another location', 403);
   if (!can(req.user?.role, 'settings.operational')) throw new AppError('Store settings are read-only', 403);
-  const { storeInfo, receiptSettings, paymentMethods, notificationSettings } = req.body;
+  const { storeInfo, receiptSettings, paymentMethods, notificationSettings, cashControl } = req.body;
   if (paymentMethods && !can(req.user?.role, 'settings.financial')) throw new AppError('Only the store owner can change payment settings', 403);
+  if (cashControl && !can(req.user?.role, 'settings.financial')) throw new AppError('Only the store owner can change cash control settings', 403);
   const location = await prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM locations WHERE id = ${locationId} FOR UPDATE`;
     const current = await tx.location.findUnique({ where: { id: locationId } });
@@ -45,6 +46,7 @@ export const updateMyStoreSettings = asyncHandler(async (req: AuthRequest, res: 
       ...(receiptSettings ? { receiptSettings } : {}),
       ...(paymentMethods ? { paymentMethods } : {}),
       ...(notificationSettings ? { notificationSettings } : {}),
+      ...(cashControl ? { cashControl } : {}),
     };
     const saved = await tx.location.update({ where: { id: locationId }, data: update, select: storeSettingsSelect });
     await tx.activityLog.create({ data: { userId: req.user!.id, locationId, action: 'STORE_SETTINGS_UPDATED', entity: 'LOCATION', entityId: locationId,

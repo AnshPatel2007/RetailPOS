@@ -281,6 +281,7 @@ export const Shifts: React.FC = () => {
                 <p className="text-sm text-muted-foreground mb-1">Transactions</p>
                 <p className="text-lg font-bold">{currentShift.totalTransactions}</p>
               </div>
+              {!currentShift.blindClose && <>
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Expected in Drawer</p>
                 <p className="text-lg font-bold text-primary">
@@ -291,12 +292,15 @@ export const Shifts: React.FC = () => {
                 <p className="text-sm text-muted-foreground mb-1">Cash Refunds &amp; Voids Paid</p>
                 <p className="text-lg font-bold tabular-nums">{formatCurrency((currentShift.cashRefunds || 0) + (currentShift.cashVoids || 0))}</p>
               </div>
+              </>}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t pt-4 mt-4">
+            {currentShift.blindClose
+              ? <p className="border-t pt-4 mt-4 text-sm text-muted-foreground">When you clock out, count the drawer and enter the total. The expected amount and any difference show after you close.</p>
+              : <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t pt-4 mt-4">
               <div><p className="text-sm text-muted-foreground">Gift Card Cash Funding</p><p className="font-bold tabular-nums">{formatCurrency(currentShift.cashGiftFunding || 0)}</p></div>
               <div><p className="text-sm text-muted-foreground">House Account Cash Payments</p><p className="font-bold tabular-nums">{formatCurrency(currentShift.cashHousePayments || 0)}</p></div>
-            </div>
+            </div>}
             {/* Cash movements this shift */}
             {((currentShift as any).cashMovements?.length ?? 0) > 0 && (
               <div className="mt-4 pt-3 border-t">
@@ -410,6 +414,10 @@ export const Shifts: React.FC = () => {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
+                      {/* Blind close: the report states the expected cash, so it waits until the drawer is counted. */}
+                      {currentShift?.blindClose && !shift.isClosed ? (
+                        <span className="text-xs text-muted-foreground">After closing</span>
+                      ) : (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -418,6 +426,7 @@ export const Shifts: React.FC = () => {
                       >
                         <Printer className="h-4 w-4" />
                       </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 );
@@ -477,7 +486,7 @@ export const Shifts: React.FC = () => {
       >
         {currentShift && (() => {
           const shift = currentShift as typeof currentShift & { totalCashSales?: number; cashMovementNet?: number; expectedDrawer?: number };
-          const expected = shift.expectedDrawer ?? (shift.totalCashSales == null ? null : shift.startingCash + shift.totalCashSales);
+          const expected = shift.blindClose ? null : shift.expectedDrawer ?? (shift.totalCashSales == null ? null : shift.startingCash + shift.totalCashSales);
           // Only lines that moved money are shown; zero rows were noise.
           const lines: [string, number][] = [
             ['Cash sales (after change)', shift.totalCashSales ?? 0],
@@ -491,7 +500,8 @@ export const Shifts: React.FC = () => {
           return (
             <form id="clock-out-form" className="space-y-4" onSubmit={event => { event.preventDefault(); void handleClockOut(); }}>
               {shift.reconciliationWarning && <Alert tone="warning">{shift.reconciliationWarning}</Alert>}
-              <div className="rounded-lg border">
+              {shift.blindClose && <Alert tone="info">Count everything in the drawer and enter the total. The expected amount and any difference show after you close.</Alert>}
+              {!shift.blindClose && <div className="rounded-lg border">
                 <div className="flex items-baseline justify-between gap-3 border-b px-4 py-3">
                   <span className="text-sm font-medium">Expected in drawer</span>
                   <span className="text-xl font-semibold tabular-nums">{expected === null ? 'Unavailable' : formatCurrency(expected)}</span>
@@ -503,7 +513,7 @@ export const Shifts: React.FC = () => {
                   ))}
                 </dl>
                 <p className="border-t px-4 py-2 text-xs text-muted-foreground">All sales this shift, any payment type: {formatCurrency(shift.totalSales)}</p>
-              </div>
+              </div>}
 
               <Input
                 type="number"
@@ -518,7 +528,7 @@ export const Shifts: React.FC = () => {
               />
               <DrawerCountHelper onTotal={setEndingCash} />
 
-              {diff !== null && (
+              {diff !== null && !shift.blindClose && (
                 <div role="status" className={cn('flex items-center justify-between rounded-lg border px-4 py-3',
                   Math.abs(diff) < 0.01 ? 'border-success/40 bg-success/10' : 'border-warning/40 bg-warning/10')}>
                   <span className="text-sm font-medium">{Math.abs(diff) < 0.01 ? 'Drawer balances' : diff > 0 ? 'Drawer is over by' : 'Drawer is short by'}</span>

@@ -334,7 +334,7 @@ const DashboardContent: React.FC = () => {
             {!metrics?.paymentBreakdown?.length ? (
               <div className="h-40 flex flex-col items-center justify-center text-muted-foreground">
                 <CreditCard className="h-8 w-8 mb-2 opacity-30" />
-                <p className="text-sm">No payments today</p>
+                <p className="text-sm text-center">{metrics?.paymentBreakdownHidden ? 'Payment totals show after your drawer is counted and closed.' : 'No payments today'}</p>
               </div>
             ) : (
               <div className="space-y-3">

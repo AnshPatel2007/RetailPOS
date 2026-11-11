@@ -15,6 +15,9 @@ describe('Drawer reconciliation and transaction boundaries', () => {
   const current = async (token = owner) => (await get(token, '/shifts/current').expect(200)).body.data;
   beforeEach(async () => {
     data = await seedTestData();
+    // The drawer arithmetic is checked through a cashier's own figures here, so blind
+    // close is off for this store (cashControl.workflow.test.ts covers it on).
+    await prisma.location.update({ where: { id: data.location.id }, data: { settings: { cashControl: { blindClose: false } } } });
     owner = await createTestToken(data.adminUser.id, 'ADMIN'); cashier = await createTestToken(data.cashierUser.id, 'CASHIER');
   });
 

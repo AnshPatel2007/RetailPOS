@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { logger } from '../utils/logger';
 import { createDateFilter } from '../utils/dateFilter.util';
 import { assertOwnsRecord, getLocationFilter } from '../utils/locationFilter.util';
+import { cashierCountsBlind } from '../services/cashControl.service';
 
 const CASH_MOVEMENT_TYPES = ['SAFE_DROP', 'PAID_IN', 'PAID_OUT'] as const;
 
@@ -196,6 +197,16 @@ export const getCurrentShift = asyncHandler(async (req: AuthRequest, res: Respon
   }), { isolationLevel: 'RepeatableRead' });
   if (!shift) { res.json({ success: true, data: null }); return; }
   const summary = summarizeDrawer(shift);
+  if (await cashierCountsBlind(req)) {
+    // Blind close: the cashier sees their shift, never what the drawer should hold.
+    res.json({ success: true, data: {
+      id: shift.id, userId: shift.userId, locationId: shift.locationId, clockInAt: shift.clockInAt, isClosed: shift.isClosed, notes: shift.notes,
+      startingCash: shift.startingCash, totalSales: summary.totalSales, totalTransactions: summary.totalTransactions,
+      cashMovements: shift.cashMovements, drawerHistoryComplete: shift.drawerHistoryComplete, reconciliationWarning: summary.reconciliationWarning,
+      blindClose: true,
+    } });
+    return;
+  }
   res.json({ success: true, data: { ...shift, ...summary, totalCashSales: summary.cashSales, expectedDrawer: summary.calculatedExpected, drawerEntries: shift.drawerEntries.map(entry => ({ ...entry, amount: Number(entry.amount) })) } });
 });
 
@@ -241,6 +252,8 @@ export const getShiftZReport = asyncHandler(async (req: AuthRequest, res: Respon
   }), { isolationLevel: 'RepeatableRead' });
   if (!shift || (req.user?.role === 'CASHIER' && shift.userId !== req.user.id)) throw new AppError('Shift not found', 404);
   assertOwnsRecord(req, shift.locationId);
+  // Blind close: the report (it states the expected cash) is available once the drawer is counted and closed.
+  if (!shift.isClosed && await cashierCountsBlind(req)) throw new AppError('Count and close your drawer first. Its report is available afterwards.', 409);
   // Discrepancy alerts raised during this shift (sales beyond recorded stock).
   const shiftEnd = shift.clockOutAt ?? new Date();
   const [inventoryExceptionsRaised, inventoryExceptionsOpen] = shift.locationId ? await Promise.all([

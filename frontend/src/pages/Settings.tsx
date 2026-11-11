@@ -62,6 +62,7 @@ export const Settings: React.FC = () => {
   const [receiptSettings, setReceiptSettings] = useState(settingsStore.receiptSettings);
   const [paymentMethods, setPaymentMethods] = useState(settingsStore.paymentMethods);
   const [notificationSettings, setNotificationSettings] = useState(settingsStore.notificationSettings);
+  const [cashControl, setCashControl] = useState(settingsStore.cashControl);
 
   // Fetch settings from backend on mount (syncs across users)
   useEffect(() => {
@@ -74,7 +75,8 @@ export const Settings: React.FC = () => {
     if (!dirty.current.receipts) setReceiptSettings(settingsStore.receiptSettings);
     if (!dirty.current.payments) setPaymentMethods(settingsStore.paymentMethods);
     if (!dirty.current.notifications) setNotificationSettings(settingsStore.notificationSettings);
-  }, [settingsStore.storeInfo, settingsStore.receiptSettings, settingsStore.paymentMethods, settingsStore.notificationSettings]);
+    if (!dirty.current.cash) setCashControl(settingsStore.cashControl);
+  }, [settingsStore.storeInfo, settingsStore.receiptSettings, settingsStore.paymentMethods, settingsStore.notificationSettings, settingsStore.cashControl]);
 
   // User profile state
   const [profileSettings, setProfileSettings] = useState({
@@ -99,7 +101,7 @@ export const Settings: React.FC = () => {
   }, [user]);
 
   const saveSection = async (view: string, operation: () => Promise<void>) => {
-    if (!editable || (view === 'payments' && !canFinance)) return;
+    if (!editable || ((view === 'payments' || view === 'cash') && !canFinance)) return;
     setSaving(true);
     try { await operation(); dirty.current[view] = false; toast.success('Settings saved'); }
     catch (error: any) { toast.error(error.response?.data?.error || error.message || 'Failed to save settings'); }
@@ -108,6 +110,7 @@ export const Settings: React.FC = () => {
   const saveStoreSettings = () => saveSection('store', () => settingsStore.saveStoreInfo({ storeName: storeSettings.storeName, address: storeSettings.address, city: storeSettings.city, state: storeSettings.state, phone: storeSettings.phone }));
   const saveReceiptSettings = () => saveSection('receipts', () => settingsStore.saveReceiptSettings(receiptSettings));
   const savePaymentMethods = () => saveSection('payments', () => settingsStore.savePaymentMethods(paymentMethods));
+  const saveCashControl = () => saveSection('cash', () => settingsStore.saveCashControl(cashControl));
   // A blank tax box is a mistake to fix, never a silent 0%.
   const [taxInput, setTaxInput] = useState<string | null>(null);
   const saveTaxSettings = () => {
@@ -326,6 +329,23 @@ export const Settings: React.FC = () => {
               <Checkbox label="Store Credit" checked={paymentMethods.storeCredit} onChange={(e) => setPaymentMethods({ ...paymentMethods, storeCredit: e.target.checked })} />
             </div>
             <Button variant="primary" onClick={savePaymentMethods} disabled={!editable}>Save Changes</Button>
+          </CardContent>
+        </Card>
+
+        {/* Cash drawer rules */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <DollarSign className="h-5 w-5 mr-2" />
+              Cash Drawer
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Checkbox label="Cashiers count the drawer before seeing the expected amount"
+              description="A cashier closing their drawer enters what they counted first; the expected amount and any difference show afterwards. Managers and owners always see the expected amount."
+              checked={cashControl.blindClose} disabled={!canFinance}
+              onChange={(e) => { dirty.current.cash = true; setCashControl({ blindClose: e.target.checked }); }} />
+            <Button variant="primary" onClick={saveCashControl} disabled={!editable || !canFinance}>Save Changes</Button>
           </CardContent>
         </Card>
 

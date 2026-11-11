@@ -1,4 +1,5 @@
 import { valueProducts, sumInventoryValue } from '../services/inventoryValueRead.service';
+import { cashierCountsBlind } from '../services/cashControl.service';
 import { z } from 'zod';
 import { deliverySelect, retryEmailDelivery } from '../services/emailDelivery.service';
 import { getDashboardReportData, getDashboardWidgetData } from '../services/dashboardReport.service';
@@ -31,7 +32,10 @@ export const getOverallReport = asyncHandler(async (req: AuthRequest, res: Respo
 const dashboardScope = (req: AuthRequest) => ({ ...getLocationFilter(req, req.query.locationId as string),
   ...(req.user?.role === 'CASHIER' ? { userId: req.user.id } : {}) });
 export const getDashboardMetrics = asyncHandler(async (req: AuthRequest, res: Response) => {
-  res.json({ success: true, data: await getDashboardReportData(dashboardScope(req)) });
+  const data = await getDashboardReportData(dashboardScope(req));
+  // Blind close: a cashier's own cash total for today would give away what the drawer should hold.
+  if (await cashierCountsBlind(req)) { res.json({ success: true, data: { ...data, paymentBreakdown: [], paymentBreakdownHidden: true } }); return; }
+  res.json({ success: true, data });
 });
 export const getDashboardHourly = asyncHandler(async (req: AuthRequest, res: Response) => {
   res.json({ success: true, data: await getDashboardWidgetData(dashboardScope(req)) });

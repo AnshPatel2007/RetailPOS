@@ -33,8 +33,14 @@ export interface NotificationSettings {
   notificationEmail: string;
 }
 
+/** Cash handling rules. Blind close: cashiers count the drawer before seeing the expected amount. */
+export interface CashControlSettings {
+  blindClose: boolean;
+}
+
 interface StoreSettingsState {
   timezone: string | null;
+  cashControl: CashControlSettings;
   storeInfo: StoreInfo;
   receiptSettings: ReceiptSettings;
   paymentMethods: EnabledPaymentMethods;
@@ -58,6 +64,7 @@ interface StoreSettingsState {
   saveReceiptSettings: (settings: ReceiptSettings) => Promise<void>;
   savePaymentMethods: (methods: EnabledPaymentMethods) => Promise<void>;
   saveNotificationSettings: (settings: NotificationSettings) => Promise<void>;
+  saveCashControl: (settings: CashControlSettings) => Promise<void>;
   reset: () => void;
 }
 
@@ -93,7 +100,8 @@ const defaultNotificationSettings: NotificationSettings = {
 
 let generation = 0;
 let pending: { locationId: string; promise: Promise<void> } | null = null;
-const defaults = () => ({ timezone: null as string | null, storeInfo: defaultStoreInfo, receiptSettings: defaultReceiptSettings, paymentMethods: defaultPaymentMethods, notificationSettings: defaultNotificationSettings });
+const defaultCashControl: CashControlSettings = { blindClose: true };
+const defaults = () => ({ timezone: null as string | null, cashControl: defaultCashControl, storeInfo: defaultStoreInfo, receiptSettings: defaultReceiptSettings, paymentMethods: defaultPaymentMethods, notificationSettings: defaultNotificationSettings });
 
 /** When the settings held now were last changed on the server (ISO time), for the store they belong to. */
 let held: { locationId: string; updatedAt: string } | null = null;
@@ -109,7 +117,7 @@ export const useStoreSettingsStore = create<StoreSettingsState>()(persist((set, 
     const storeInfo = { storeName: data.name || 'My Store', taxRate: data.taxRate || 0, address: data.address || '', city: data.city || '', state: data.state || '', phone: data.phone || '' };
     const receiptSettings = { ...defaultReceiptSettings, ...settings.receiptSettings };
     hardware.applyStoreBranding(storeInfo, receiptSettings);
-    set({ timezone: data.timezone || null, storeInfo, receiptSettings, paymentMethods: { ...defaultPaymentMethods, ...settings.paymentMethods }, notificationSettings: { ...defaultNotificationSettings, ...settings.notificationSettings }, locationId: data.id, isLoaded: true, isLoading: false, error: null });
+    set({ timezone: data.timezone || null, storeInfo, receiptSettings, paymentMethods: { ...defaultPaymentMethods, ...settings.paymentMethods }, notificationSettings: { ...defaultNotificationSettings, ...settings.notificationSettings }, cashControl: { ...defaultCashControl, ...settings.cashControl }, locationId: data.id, isLoaded: true, isLoading: false, error: null });
   };
   const save = async (patch: Record<string, unknown>) => {
     const { locationId, isLoaded, error } = get();
@@ -156,10 +164,11 @@ export const useStoreSettingsStore = create<StoreSettingsState>()(persist((set, 
     saveReceiptSettings: receiptSettings => save({ receiptSettings }),
     savePaymentMethods: paymentMethods => save({ paymentMethods }),
     saveNotificationSettings: notificationSettings => save({ notificationSettings }),
+    saveCashControl: cashControl => save({ cashControl }),
     reset: () => {
       generation++; pending = null; held = null;
       hardware.applyStoreBranding(defaultStoreInfo, defaultReceiptSettings);
       set({ ...defaults(), locationId: null, isLoaded: false, isLoading: false, error: null });
     },
   };
-}, { name: 'pos-store-settings', version: 1, migrate: (state: any) => ({ ...state, isLoaded: false, isLoading: false, error: null }), partialize: state => ({ storeInfo: state.storeInfo, receiptSettings: state.receiptSettings, paymentMethods: state.paymentMethods, notificationSettings: state.notificationSettings, locationId: state.locationId }) }));
+}, { name: 'pos-store-settings', version: 1, migrate: (state: any) => ({ ...state, isLoaded: false, isLoading: false, error: null }), partialize: state => ({ storeInfo: state.storeInfo, receiptSettings: state.receiptSettings, paymentMethods: state.paymentMethods, notificationSettings: state.notificationSettings, cashControl: state.cashControl, locationId: state.locationId }) }));

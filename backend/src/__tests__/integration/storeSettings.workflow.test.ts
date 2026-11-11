@@ -63,7 +63,8 @@ describe('Store settings ownership, validation and concurrent updates', () => {
     const result = await api.get('/api/locations/' + data.location.id).withAuth(cashier).expectStatus(200).execute();
     expect(result.body.data.activeShifts).toEqual([expect.objectContaining({ id: own.id })]);
     for (const key of ['users', 'recentSales', 'totalRevenue', '_count']) expect(result.body.data).not.toHaveProperty(key);
-    expect(result.body.data.settings).toEqual({ receiptSettings: receipt });
+    // Supported settings only; the cash-control rule is always stated so every screen uses one default.
+    expect(result.body.data.settings).toEqual({ receiptSettings: receipt, cashControl: { blindClose: true } });
     expect(JSON.stringify(result.body)).not.toContain('privateToken');
   });
 

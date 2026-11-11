@@ -211,6 +211,8 @@ export interface CartItem {
 }
 
 export interface Shift {
+  /** Blind close: this cashier counts the drawer before seeing what it should hold, so the cash figures are not sent. */
+  blindClose?: boolean;
   cashRefunds?: number;
   cashGiftFunding?: number;
   cashHousePayments?: number;
@@ -261,6 +263,8 @@ export interface DashboardMetrics {
   activeEmployees: number;
   recentSales: { id: string; status: string; saleNumber: string; total: number; paymentMethod: string; createdAt: string; customerName: string | null }[];
   paymentBreakdown: { method: string; total: number; count: number; percentage: number | null }[];
+  /** Blind close: a cashier's own payment totals are withheld until their drawer is counted. */
+  paymentBreakdownHidden?: boolean;
 }
 
 export interface ApiResponse<T = any> {
