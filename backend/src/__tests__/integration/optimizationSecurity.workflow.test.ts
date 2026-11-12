@@ -38,7 +38,8 @@ describe('Optimization: store isolation and capability boundaries', () => {
   });
 
   it('scopes recurring listing/generation and serializes duplicate generation', async () => {
-    const due = new Date(); due.setUTCDate(due.getUTCDate() - 1);
+    // Recurring dates are calendar days at UTC midnight; two days back is due in every store time zone at any hour.
+    const due = new Date(); due.setUTCHours(0, 0, 0, 0); due.setUTCDate(due.getUTCDate() - 2);
     for (const locationId of [data.location.id, otherStore]) await prisma.recurringExpense.create({ data: { category: 'RENT', description: 'Rent', amount: 200, frequency: 'MONTHLY', startDate: due, nextDueDate: due, locationId, userId: data.adminUser.id } });
     const list = await api.get('/api/financial/recurring-expenses').withAuth(owner).expectStatus(200).execute();
     expect(list.body.data).toHaveLength(1);

@@ -38,7 +38,9 @@ it('finds new receipts by full reference or short number, retains old references
 
 it('keeps legacy recurring expense deduplication while new generated expenses use short numbers', async () => {
   const data = await seedTestData(), token = await createTestToken(data.adminUser.id, 'ADMIN');
-  const due = new Date(); due.setUTCDate(due.getUTCDate() - 1);
+  // Recurring dates are calendar days kept at UTC midnight. Two days back is due in every store
+  // time zone at any hour (one day back at this time of day failed between UTC and store midnight).
+  const due = new Date(); due.setUTCHours(0, 0, 0, 0); due.setUTCDate(due.getUTCDate() - 2);
   const createRecurring = () => prisma.recurringExpense.create({ data: { category: 'RENT', description: 'Recurring fixture', amount: 200, frequency: 'MONTHLY', startDate: due, nextDueDate: due, locationId: data.location.id, userId: data.adminUser.id } });
   const old = await createRecurring();
   await prisma.expense.create({ data: { expenseNumber: 'REC-' + old.id + '-' + due.getTime(), category: 'RENT', description: 'Legacy fixture', amount: 200, expenseDate: due, locationId: data.location.id, userId: data.adminUser.id } });
