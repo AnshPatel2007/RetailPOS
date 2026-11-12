@@ -504,6 +504,8 @@ model Supplier {
   notes          String?
   paymentTerms   String?
   leadTimeDays   Int?
+  /// Weekdays the supplier delivers (0 = Sunday ... 6 = Saturday); empty when not known.
+  deliveryDays   Int[]             @default([])
   minimumOrder   Decimal? @db.Decimal(14, 4)
   isActive       Boolean           @default(true)
   locationId     String? // null = shared across all locations

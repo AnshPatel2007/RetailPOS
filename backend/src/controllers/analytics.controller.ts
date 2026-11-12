@@ -1,5 +1,5 @@
 import { employeeActivity } from '../services/employeeActivity.service';
-import { inventoryPredictions, salesAnomalies, abcAnalysis } from '../services/inventoryAnalytics.service';
+import { salesAnomalies, abcAnalysis } from '../services/inventoryAnalytics.service';
 import { getSalesForecastData } from '../services/salesForecast.service';
 import { Response } from 'express';
 import { getFinancialMetrics, getProductFinancialMetrics } from '../services/financialMetrics.service';
@@ -380,12 +380,6 @@ export const getCustomerInsights = asyncHandler(async (req: AuthRequest, res: Re
     },
   });
 });
-
-/**
- * Get inventory predictions and reorder suggestions
- * GET /api/analytics/inventory-predictions
- */
-export const getInventoryPredictions = asyncHandler(async (req: AuthRequest, res: Response) => res.json({ success: true, data: await inventoryPredictions(getLocationFilter(req, req.query.locationId as string), req.query.page || 1) }));
 
 /**
  * Get sales anomaly detection

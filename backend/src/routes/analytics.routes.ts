@@ -63,15 +63,6 @@ router.get(
 );
 
 /**
- * Get inventory predictions and reorder suggestions
- */
-router.get(
-  '/inventory-predictions',
-  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
-  analyticsController.getInventoryPredictions
-);
-
-/**
  * Get sales anomaly detection
  */
 router.get(

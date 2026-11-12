@@ -553,6 +553,10 @@ export const supplierService = {
 
   update: (id: string, data: any) => api.put(`/suppliers/${id}`, data),
 
+  /** Weekdays deliveries usually arrived (last eight weeks); a suggestion, never saved by itself. */
+  deliveryDaysSuggestion: (id: string, signal?: AbortSignal) =>
+    api.get<{ success: boolean; data: { weekdays: number[]; deliveries: number; weeks: number } }>(`/suppliers/${id}/delivery-days/suggestion`, { signal }),
+
   delete: (id: string) => api.delete(`/suppliers/${id}`),
 
   getPerformance: (id: string) => api.get(`/suppliers/${id}/performance`),

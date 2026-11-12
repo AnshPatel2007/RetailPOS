@@ -22,6 +22,12 @@ import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useAuthStore } from '@/store/authStore';
 import { can } from '@/lib/capabilities';
 import { Spinner } from '@/components/ui/LoadingState';
+import { useSearchParams } from 'react-router-dom';
+import { friendlyDate } from '@/lib/calendarDates';
+
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/** "Tue, Nov 17, 2026" for a store date string. */
+const deliveryDate = (date: string) => `${WEEKDAY[new Date(date + 'T12:00:00Z').getUTCDay()]}, ${friendlyDate(date)}`;
 
 interface SuggestedItem {
   productId: string;
@@ -44,6 +50,12 @@ interface SupplierGroup {
   supplierId: string | null;
   supplierName: string;
   leadTimeDays: number | null;
+  /** DELIVERY_DAYS: planned to the delivery after next; DEFAULT: two weeks of cover. */
+  basis?: 'DELIVERY_DAYS' | 'DEFAULT';
+  deliveryDays?: number[];
+  nextDelivery?: string | null;
+  followingDelivery?: string | null;
+  coverDays?: number;
   estimatedTotal: number;
   items: SuggestedItem[];
 }
@@ -66,6 +78,10 @@ export const SuggestedOrders: React.FC = () => {
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
   const [createdFor, setCreatedFor] = useState<Set<string>>(new Set());
+  // The attention list links here for one supplier (?supplier=<id>).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const onlySupplier = searchParams.get('supplier');
+  const shown = onlySupplier ? groups.filter(group => group.supplierId === onlySupplier) : groups;
 
   const load = useCallback(async (quiet = false, active: () => boolean = () => true, signal?: AbortSignal) => {
     const version = ++requestVersion.current;
@@ -123,7 +139,9 @@ export const SuggestedOrders: React.FC = () => {
       const res = await purchaseOrderService.create({
         supplierId: g.supplierId,
         items,
-        notes: `Auto-suggested reorder (${meta?.velocityWindowDays}-day velocity, ${meta?.coverTargetDays}-day cover)`,
+        notes: g.basis === 'DELIVERY_DAYS' && g.nextDelivery && g.followingDelivery
+          ? `Suggested reorder (${meta?.velocityWindowDays}-day sales) for delivery ${friendlyDate(g.nextDelivery)}, to last until ${friendlyDate(g.followingDelivery)}`
+          : `Auto-suggested reorder (${meta?.velocityWindowDays}-day velocity, ${meta?.coverTargetDays}-day cover)`,
       });
       toast.success(`PO ${res.data.data.orderNumber} created for ${g.supplierName}`);
       setCreatedFor((prev) => new Set(prev).add(g.supplierId!));
@@ -142,18 +160,22 @@ export const SuggestedOrders: React.FC = () => {
         title="Reorder Suggestions"
         subtitle={
           meta
-            ? `Based on ${meta.velocityWindowDays}-day sales velocity, targeting ${meta.coverTargetDays} days of cover`
+            ? `Based on ${meta.velocityWindowDays}-day sales. Suppliers with delivery days are planned to the delivery after next; others to ${meta.coverTargetDays} days of cover.`
             : 'What to reorder, from whom, and how much'
         }
         icon={ClipboardList}
       />
       {autoRefresh.notice}
+      {onlySupplier && !loading && <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span>{shown.length ? `Showing ${shown[0].supplierName} only.` : 'This supplier has nothing to reorder right now.'}</span>
+        <Button size="sm" variant="outline" onClick={() => setSearchParams(params => { const next = new URLSearchParams(params); next.delete('supplier'); return next; }, { replace: true })}>Show all suppliers</Button>
+      </div>}
 
       {loading ? (
         <div className="flex justify-center py-12">
           <Spinner size="lg" />
         </div>
-      ) : loadError ? (<Card><CardContent className="p-6"><div role="alert"><p>{loadError}</p><Button className="mt-3" variant="outline" onClick={() => void load()}>Retry</Button></div></CardContent></Card>) : groups.length === 0 ? (
+      ) : loadError ? (<Card><CardContent className="p-6"><div role="alert"><p>{loadError}</p><Button className="mt-3" variant="outline" onClick={() => void load()}>Retry</Button></div></CardContent></Card>) : shown.length === 0 ? (
         <Card>
           <CardContent className="py-10">
             <EmptyState
@@ -165,7 +187,7 @@ export const SuggestedOrders: React.FC = () => {
         </Card>
       ) : (
         <div className="space-y-6">
-          {groups.map((g) => {
+          {shown.map((g) => {
             const done = g.supplierId ? createdFor.has(g.supplierId) : false;
             return (
               <Card key={g.supplierId ?? 'unassigned'} className={done ? 'opacity-60' : undefined}>
@@ -178,6 +200,9 @@ export const SuggestedOrders: React.FC = () => {
                         {g.leadTimeDays ? ` · ~${g.leadTimeDays} day lead time` : ''}
                         {' · '}est. {formatCurrency(groupTotal(g))}
                       </p>
+                      {g.basis === 'DELIVERY_DAYS' && g.nextDelivery && g.followingDelivery
+                        ? <p className="text-xs text-muted-foreground">Delivers {(g.deliveryDays || []).map(day => WEEKDAY[day]).join(', ')}. Ordered today it arrives {deliveryDate(g.nextDelivery)} and lasts until the next delivery, {deliveryDate(g.followingDelivery)}, plus 2 days.</p>
+                        : g.supplierId && <p className="text-xs text-muted-foreground">No delivery days set: planned for {meta?.coverTargetDays ?? 14} days. Add delivery days in Suppliers to plan to the delivery after next.</p>}
                     </div>
                     {!canManage ? <span className="text-xs text-muted-foreground">Store preview</span> : g.supplierId ? (
                       done ? (

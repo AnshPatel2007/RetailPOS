@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { prisma, seedTestData, TestData } from './setup';
-import { abcAnalysis, inventoryPredictions, salesAnomalies } from '../../services/inventoryAnalytics.service';
+import { abcAnalysis, salesAnomalies } from '../../services/inventoryAnalytics.service';
 import { employeeActivity } from '../../services/employeeActivity.service';
 
 describe('dated inventory and activity analytics', () => {
@@ -20,30 +20,6 @@ describe('dated inventory and activity analytics', () => {
     saleId: sale.id, amount: 11, taxAmount: 1, pointsRestored: 0, method: 'CASH', reason: 'One unit returned', refundedBy: data.adminUser.id,
     createdAt: new Date(at), items: { create: { saleItemId: sale.items[0].id, quantity: 1, amount: 11, taxAmount: 1, costReturned: 4 } },
   } });
-
-  it('uses net dated units and complete local dates without assuming a supplier lead time', async () => {
-    await sell('2026-09-01T12:00:00Z');
-    const original = await sell('2026-10-02T05:00:00Z', 30);
-    await refund(original, '2026-10-31T12:00:00Z');
-    await sell('2026-11-01T05:00:00Z', 100);
-    await sell('2026-10-02T04:59:59Z', 100);
-    const result = await inventoryPredictions({ locationId: data.location.id }, 1, now);
-    expect(result.period).toMatchObject({ start: '2026-10-02T05:00:00.000Z', end: '2026-11-01T05:00:00.000Z', timezone: 'America/Chicago' });
-    expect(result.predictions[0]).toMatchObject({ dailyVelocity: 0.97, observedDays: 30, reorderPoint: null, leadTime: null, demandStatus: 'ESTIMATE' });
-    expect(result.autoOrderSuggestions).toEqual([]);
-  });
-
-  it('paginates every tracked product and distinguishes missing demand from zero demand', async () => {
-    await sell('2026-09-01T12:00:00Z');
-    await prisma.product.createMany({ data: Array.from({ length: 51 }, (_, n) => ({ name: 'New ' + n, sku: 'NEW-' + n, locationId: data.location.id, price: 1, stockQuantity: 4 })) });
-    const first = await inventoryPredictions({ locationId: data.location.id }, 1, now);
-    const second = await inventoryPredictions({ locationId: data.location.id }, 2, now);
-    expect(first.pagination).toMatchObject({ total: 52, totalPages: 2 });
-    expect(first.predictions).toHaveLength(50); expect(second.predictions).toHaveLength(2);
-    expect(new Set([...first.predictions, ...second.predictions].map(row => row.id)).size).toBe(52);
-    expect([...first.predictions, ...second.predictions].find(row => row.id === data.product.id)).toMatchObject({ dailyVelocity: 0, daysOfStock: null, demandStatus: 'NO_RECENT_DEMAND' });
-    expect(first.summary.unavailableDemand).toBe(51);
-  });
 
   it('leaves sparse anomaly history unavailable instead of reporting zero dollars as an estimate', async () => {
     await sell('2026-10-31T12:00:00Z');

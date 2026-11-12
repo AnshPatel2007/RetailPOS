@@ -11,6 +11,8 @@ export const createSupplierSchema = z.object({
     paymentTerms: z.string().optional().nullable(),
     leadTimeDays: z.number().int().min(0).optional().nullable(),
     minimumOrder: z.number().min(0).optional().nullable(),
+    // Weekdays the supplier delivers: 0 = Sunday ... 6 = Saturday.
+    deliveryDays: z.array(z.number().int().min(0).max(6)).max(7).transform(days => [...new Set(days)].sort((a, b) => a - b)).optional(),
   }),
 });
 
@@ -26,6 +28,8 @@ export const updateSupplierSchema = z.object({
     paymentTerms: z.string().optional().nullable(),
     leadTimeDays: z.number().int().min(0).optional().nullable(),
     minimumOrder: z.number().min(0).optional().nullable(),
+    // Weekdays the supplier delivers: 0 = Sunday ... 6 = Saturday.
+    deliveryDays: z.array(z.number().int().min(0).max(6)).max(7).transform(days => [...new Set(days)].sort((a, b) => a - b)).optional(),
   }),
 });
 

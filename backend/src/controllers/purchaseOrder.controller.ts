@@ -10,6 +10,7 @@ import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { orderLine, roundToCases } from '../services/purchaseOrderLines';
 import { assertCanReadRecord, getSharedOrOwnFilter, resolveWriteLocation } from '../utils/locationFilter.util';
+import { loadReorderPlan } from '../services/reorder.service';
 
 /**
  * Generate unique order number
@@ -303,172 +304,10 @@ export const autoGeneratePurchaseOrders = asyncHandler(async (req: AuthRequest, 
 });
 
 /**
- * Suggested purchase orders — velocity-based reorder plan, grouped by supplier.
- *
- * A product is suggested when it's at/below its low-stock threshold, or when
- * its 30-day sales velocity gives it less than a week of cover. Suggested
- * quantity targets two weeks of cover (minimum of restoring 2× the threshold).
- *
- * GET /api/purchase-orders/suggested
+ * Suggested purchase orders, grouped by supplier (services/reorderPlan.ts).
+ * Suppliers with delivery days plan to the delivery after next; others keep
+ * two weeks of cover. GET /api/purchase-orders/suggested
  */
 export const getSuggestedOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const VELOCITY_DAYS = 30;
-  const COVER_TARGET_DAYS = 14;
-  const URGENT_DAYS = 7;
-
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - VELOCITY_DAYS);
-
-  const locationFilter = getSharedOrOwnFilter(req, req.query.locationId as string);
-
-  const [products, soldRows] = await Promise.all([
-    prisma.product.findMany({
-      where: {
-        isActive: true,
-        trackInventory: true,
-        sku: { not: 'MISC-001' },
-        ...locationFilter,
-      },
-      select: {
-        id: true,
-        name: true,
-        sku: true,
-        cost: true,
-        stockQuantity: true,
-        lowStockAlert: true,
-        suppliers: {
-          where: { supplier: { ...locationFilter, isActive: true } },
-          orderBy: { cost: 'asc' },
-          take: 1,
-          select: {
-            cost: true,
-            leadTime: true,
-            minOrder: true,
-            packSize: true,
-            packCost: true,
-            supplier: { select: { id: true, name: true, leadTimeDays: true } },
-          },
-        },
-      },
-    }),
-    // A 12-pack sold counts as 12 units of demand.
-    prisma.saleItem.groupBy({
-      by: ['productId', 'sellingUnitId'],
-      where: {
-        createdAt: { gte: cutoff },
-        sale: {
-          status: { in: ['COMPLETED', 'REFUNDED'] },
-          ...locationFilter,
-        },
-      },
-      _sum: { quantity: true, inventoryQuantity: true },
-    }),
-  ]);
-  // Units refunded in the same window were not real demand.
-  const [refundedRows, openOrderRows] = await Promise.all([
-    prisma.refundItem.findMany({
-      where: { refund: { createdAt: { gte: cutoff }, sale: { status: { in: ['COMPLETED', 'REFUNDED'] }, ...locationFilter } } },
-      select: { quantity: true, saleItem: { select: { productId: true, unitsPerPackage: true } } },
-    }),
-    // Stock already ordered and not yet received is not suggested again.
-    prisma.purchaseOrderItem.findMany({
-      where: { purchaseOrder: { status: { in: ['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED'] }, ...locationFilter } },
-      select: { productId: true, quantity: true, receivedQty: true, damagedQty: true, rejectedQty: true },
-    }),
-  ]);
-
-  const soldMap = new Map<string, number>();
-  for (const row of soldRows) soldMap.set(row.productId, (soldMap.get(row.productId) || 0)
-    + (row.sellingUnitId ? row._sum.inventoryQuantity || 0 : row._sum.quantity || 0));
-  for (const row of refundedRows) soldMap.set(row.saleItem.productId, Math.max(0, (soldMap.get(row.saleItem.productId) || 0)
-    - row.quantity * Math.max(1, row.saleItem.unitsPerPackage || 1)));
-  const onOrderMap = new Map<string, number>();
-  for (const row of openOrderRows) onOrderMap.set(row.productId, (onOrderMap.get(row.productId) || 0)
-    + Math.max(0, row.quantity - row.receivedQty - row.damagedQty - row.rejectedQty));
-
-  interface SuggestedItem {
-    productId: string;
-    name: string;
-    sku: string;
-    stock: number;
-    onOrder: number;
-    lowStockAlert: number;
-    velocityPerDay: number;
-    daysOfCover: number | null;
-    suggestedQty: number;
-    cost: number;
-    packSize: number;
-    packCost: number | null;
-    urgent: boolean;
-  }
-
-  const groups = new Map<
-    string,
-    { supplierId: string | null; supplierName: string; leadTimeDays: number | null; items: SuggestedItem[] }
-  >();
-
-  for (const p of products) {
-    const sold = soldMap.get(p.id) || 0;
-    const velocity = sold / VELOCITY_DAYS;
-    const daysOfCover = velocity > 0 ? Math.round((p.stockQuantity / velocity) * 10) / 10 : null;
-    const onOrder = onOrderMap.get(p.id) || 0;
-    // What will be on the shelf once open orders arrive decides whether to order more.
-    const expected = p.stockQuantity + onOrder;
-    const expectedCover = velocity > 0 ? expected / velocity : null;
-
-    const belowThreshold = p.lowStockAlert > 0 && expected <= p.lowStockAlert;
-    const runningOut = velocity > 0 && (expectedCover as number) < URGENT_DAYS;
-    if (!belowThreshold && !runningOut) continue;
-
-    // Enough for two weeks of selling, or back above 2× the alert threshold
-    const coverQty = Math.ceil(velocity * COVER_TARGET_DAYS) - expected;
-    const thresholdQty = p.lowStockAlert > 0 ? p.lowStockAlert * 2 - expected : 0;
-    const link = p.suppliers[0];
-    // Suppliers sell in cases: round up to whole cases and their minimum order.
-    const suggestedQty = roundToCases(Math.max(coverQty, thresholdQty, 1), link?.packSize, link?.minOrder);
-    const supplierId = link?.supplier.id ?? null;
-    const key = supplierId ?? 'unassigned';
-    if (!groups.has(key)) {
-      groups.set(key, {
-        supplierId,
-        supplierName: link?.supplier.name ?? 'No supplier linked',
-        leadTimeDays: link?.leadTime ?? link?.supplier.leadTimeDays ?? null,
-        items: [],
-      });
-    }
-    groups.get(key)!.items.push({
-      productId: p.id,
-      name: p.name,
-      sku: p.sku,
-      stock: p.stockQuantity,
-      onOrder,
-      lowStockAlert: p.lowStockAlert,
-      velocityPerDay: Math.round(velocity * 100) / 100,
-      daysOfCover,
-      suggestedQty,
-      cost: Number(link?.cost ?? p.cost),
-      packSize: link?.packSize ?? 1,
-      packCost: link?.packCost == null ? null : Number(link.packCost),
-      urgent: p.stockQuantity === 0 || runningOut,
-    });
-  }
-
-  const data = Array.from(groups.values())
-    .map((g) => ({
-      ...g,
-      items: g.items.sort((a, b) => (a.daysOfCover ?? 999) - (b.daysOfCover ?? 999)),
-      estimatedTotal:
-        Math.round(g.items.reduce((s, i) => s + (i.packSize > 1 && i.packCost !== null ? i.packCost * (i.suggestedQty / i.packSize) : i.cost * i.suggestedQty), 0) * 100) / 100,
-    }))
-    // Real suppliers first, unassigned last
-    .sort((a, b) => (a.supplierId === null ? 1 : 0) - (b.supplierId === null ? 1 : 0));
-
-  res.json({
-    success: true,
-    data: {
-      velocityWindowDays: VELOCITY_DAYS,
-      coverTargetDays: COVER_TARGET_DAYS,
-      suppliers: data,
-    },
-  });
+  res.json({ success: true, data: await loadReorderPlan(getSharedOrOwnFilter(req, req.query.locationId as string)) });
 });

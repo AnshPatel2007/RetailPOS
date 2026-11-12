@@ -1,10 +1,10 @@
-import { valueProducts, sumInventoryValue } from './inventoryValueRead.service';
+import { valueProducts } from './inventoryValueRead.service';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { getReportCalendar } from './reportDates.service';
 import { getFinancialBreakdowns, getFinancialMetrics, getProductFinancialMetrics, recordedSaleWhere } from './financialMetrics.service';
-import { lineMoney, roundMoney } from '../utils/moneyNumbers';
+import { roundMoney } from '../utils/moneyNumbers';
 
 type Scope = { locationId?: string };
 const scopeSql = (scope: Scope) => scope.locationId ? Prisma.sql`s."locationId" = ${scope.locationId}` : Prisma.sql`s."locationId" IS NOT NULL`;
@@ -15,65 +15,6 @@ const dateKey = (date: Date, timezone: string) => {
   if(!formatter){formatter=new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'});dateFormatters.set(timezone,formatter);}
   return formatter.format(date);
 };
-const calendarDays = (start: string, end: string) => Math.round((Date.parse(end) - Date.parse(start)) / 86400000);
-
-export async function inventoryPredictions(scope: Scope, pageInput: unknown = 1, now = new Date()) {
-  const page = z.coerce.number().int().min(1).max(100000).parse(pageInput), limit = 50;
-  const calendar = await getReportCalendar(scope, now), start = calendar.day(-30), end = calendar.day();
-  const endKey=dateKey(end,calendar.timezone),deadBefore=calendar.day(-60);
-  return prisma.$transaction(async tx => {
-    const [products, demand, observed] = await Promise.all([
-      tx.product.findMany({ where: { locationId: scope.locationId || { not: null }, isActive: true, trackInventory: true, sku: { not: 'MISC-001' } },
-        select: { id: true, locationId: true, name: true, sku: true, createdAt: true, stockQuantity: true, cost: true, lowStockAlert: true,
-          category: { select: { name: true } }, suppliers: { where: { supplier: { locationId: scope.locationId || { not: null }, isActive: true } },
-            select: { leadTime: true, minOrder: true, supplier: { select: { id: true, name: true, locationId: true } } }, orderBy: { id: 'asc' } } } }),
-      getProductFinancialMetrics(scope, { gte: start, lt: end }, tx),
-      tx.$queryRaw<{ productId: string; firstAt: Date; lastAt: Date }[]>`SELECT si."productId", MIN(s."createdAt") AS "firstAt", MAX(s."createdAt") AS "lastAt"
-        FROM sale_items si JOIN sales s ON s.id = si."saleId" WHERE ${scopeSql(scope)} AND ${recorded}
-          AND s."createdAt" < (${end}::timestamptz AT TIME ZONE 'UTC') GROUP BY si."productId"`,
-    ]);
-    const metrics = new Map(demand.map(row => [row.productId, row])), dates = new Map(observed.map(row => [row.productId, row]));
-    const valued = await valueProducts(tx, products);
-    const predictions = valued.map(product => {
-      const row = metrics.get(product.id), history = dates.get(product.id);
-      const observedDays = history ? Math.min(30, calendarDays(dateKey(history.firstAt, calendar.timezone), endKey)) : 0;
-      const unavailable = observedDays < 7 || row?.incompleteReturns || row?.incompleteVoids || (row?.quantitySold || 0) < 0;
-      const velocity = unavailable ? null : (row?.quantitySold || 0) / observedDays;
-      const days = velocity !== null && velocity > 0 ? Math.ceil(product.stockQuantity / velocity) : null;
-      // Each supplier must belong to this particular product's store, including
-      // a platform-wide preview with several stores in one query.
-      const supplier = product.suppliers.find(link => link.supplier.locationId === product.locationId);
-      const leadTime = supplier?.leadTime !== null && supplier?.leadTime !== undefined && supplier.leadTime >= 0 ? supplier.leadTime : null;
-      const reorderPoint = velocity !== null && leadTime !== null ? Math.ceil(velocity * (leadTime + 7)) : null;
-      const quantity = velocity !== null && supplier ? Math.max(0, Math.ceil(velocity * 30) - product.stockQuantity) : null;
-      const suggestedOrderQty = quantity && supplier?.minOrder ? Math.max(quantity, supplier.minOrder) : quantity;
-      const status = product.stockQuantity <= 0 ? 'critical' : days !== null && leadTime !== null && days <= leadTime ? 'critical'
-        : reorderPoint !== null && velocity! > 0 && product.stockQuantity <= reorderPoint ? 'reorder'
-        : product.stockQuantity <= product.lowStockAlert ? 'low' : days !== null && days > 90 ? 'overstock' : 'adequate';
-      const action = unavailable ? 'Review manually: insufficient dated demand or incomplete return/void history.' : !supplier ? 'Review an active supplier at this store before ordering.'
-        : leadTime === null ? 'Set supplier lead time before estimating a reorder point.' : velocity === 0 ? 'No net unit demand in the observed complete dates; review manually.'
-        : status === 'critical' || status === 'reorder' ? `Review ordering ${suggestedOrderQty || 0} units; approximately ${days} days of stock.` : `Approximately ${days} days of stock at the observed demand.`;
-      return { id: product.id, name: product.name, sku: product.sku, category: product.category?.name || 'Uncategorized', currentStock: product.stockQuantity,
-        dailyVelocity: velocity === null ? null : roundMoney(velocity), daysOfStock: days, observedDays, reorderPoint, suggestedOrderQty,
-        status, action, supplier: supplier?.supplier.name || 'No authorized supplier', supplierId: supplier?.supplier.id || null, leadTime,
-        cost: Number(product.cost), totalValue: product.inventoryValue, lastRecordedSale: history?.lastAt || null,
-        demandStatus: unavailable ? 'UNAVAILABLE' : velocity === 0 ? 'NO_RECENT_DEMAND' : 'ESTIMATE' };
-    });
-    const priority: Record<string, number> = { critical: 0, reorder: 1, low: 2, overstock: 3, adequate: 4 };
-    predictions.sort((a, b) => priority[a.status] - priority[b.status] || a.id.localeCompare(b.id));
-    const deadStock = predictions.filter(product => product.currentStock > 0 && product.lastRecordedSale && product.lastRecordedSale < deadBefore);
-    return { predictions: predictions.slice((page - 1) * limit, page * limit), pagination: { page, limit, total: predictions.length, totalPages: Math.ceil(predictions.length / limit) },
-      summary: { totalProducts: predictions.length, critical: predictions.filter(p => p.status === 'critical').length, needsReorder: predictions.filter(p => p.status === 'reorder').length,
-        overstock: predictions.filter(p => p.status === 'overstock').length, deadStock: deadStock.length, unavailableDemand: predictions.filter(p => p.demandStatus === 'UNAVAILABLE').length,
-        totalInventoryValue: sumInventoryValue(valued), potentialStockouts: predictions.filter(p => p.status === 'critical' || p.status === 'reorder').length },
-      deadStock: deadStock.slice(0, 20).map(p => ({ id: p.id, name: p.name, sku: p.sku, stock: p.currentStock, value: p.totalValue,
-        daysSinceLastSale: calendarDays(dateKey(p.lastRecordedSale!, calendar.timezone), endKey) })),
-      autoOrderSuggestions: predictions.filter(p => (p.status === 'critical' || p.status === 'reorder') && !!p.supplierId && p.suggestedOrderQty !== null && p.suggestedOrderQty > 0 && p.leadTime !== null).slice(0, 10)
-        .map(p => ({ productId: p.id, productName: p.name, quantity: p.suggestedOrderQty, supplier: p.supplier, estimatedCost: lineMoney(p.cost, p.suggestedOrderQty!), urgency: p.status })),
-      period: { start: start.toISOString(), end: end.toISOString(), timezone: calendar.timezone, asOf: now },
-      basis: 'Planning estimates use complete store dates, net units after dated returns/voids, a seven-day safety stock and a 30-day target cover. No historical average inventory, seasonality or delivery promise is assumed. Missing history and supplier lead time remain unavailable.' };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 30000 });
-}
 
 export async function salesAnomalies(scope: Scope, now = new Date()) {
   const calendar = await getReportCalendar(scope, now), end = calendar.day(), start = calendar.day(-60);

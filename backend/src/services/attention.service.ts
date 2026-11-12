@@ -15,6 +15,8 @@ import { listUnmatched } from './stockCorrection.service';
 import { salesAnomalies } from './inventoryAnalytics.service';
 import { costChangeAlertPercent } from '../validators/storeSettings.validator';
 import { countPendingLabels } from './shelfLabels.service';
+import { loadReorderPlan } from './reorder.service';
+import { addDays, WEEKDAYS } from './reorderPlan';
 
 export type Severity = 'high' | 'medium' | 'low';
 export interface Finding {
@@ -206,9 +208,31 @@ export const labelsOutOfDate: AttentionRule = async ({ locationId }) => {
     sentence: `${count} shelf ${plural(count, 'label is', 'labels are')} out of date after price changes. Print new ones.` };
 };
 
+/**
+ * The day before an order must go in to make a supplier's next delivery: how
+ * many items will run out before the delivery after it. Suppliers without
+ * delivery days are not checked.
+ */
+export const supplierOrderDueTomorrow: AttentionRule = async ({ locationId, now }) => {
+  if (!await prisma.supplier.count({ where: { locationId, isActive: true, NOT: { deliveryDays: { isEmpty: true } } } })) return null;
+  const plan = await loadReorderPlan({ locationId }, now);
+  const due = plan.suppliers.filter(supplier => supplier.supplierId && supplier.nextDelivery
+    && addDays(plan.today, 1 + Math.max(1, supplier.leadTimeDays ?? 1)) === supplier.nextDelivery)
+    .map(supplier => ({ ...supplier, short: supplier.items.filter(item => item.runsOutBeforeFollowing).length }))
+    .filter(supplier => supplier.short > 0)
+    .sort((a, b) => b.short - a.short || a.supplierName.localeCompare(b.supplierName));
+  if (!due.length) return null;
+  const [first, ...others] = due;
+  const [year, month, day] = first.nextDelivery!.split('-').map(Number);
+  const weekday = WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+  return { key: 'order-due-tomorrow', severity: 'medium', count: first.short, href: '/inventory/purchasing/suggestions?supplier=' + first.supplierId,
+    sentence: `${first.supplierName} delivers ${weekday}; order by tomorrow. ${first.short} ${plural(first.short, 'item')} will run out before the following delivery.`
+      + (others.length ? ` ${others.length} other ${plural(others.length, 'supplier also needs an order', 'suppliers also need orders')} by tomorrow.` : '') };
+};
+
 /** Shown in this order within one severity. Later packages append their rules here. */
 export const attentionRules: AttentionRule[] = [stockExceptions, profitNotConfirmed, drawerDifferences, pricesBelowTarget, billsDueSoon,
-  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding, labelsOutOfDate];
+  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding, labelsOutOfDate, supplierOrderDueTomorrow];
 const rank: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
 /**

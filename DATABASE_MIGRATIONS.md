@@ -126,6 +126,11 @@ replace them. Integration tests exercise them.
 
 ## Recent changes
 
+- **`20261112030000_supplier_delivery_days` (2026-11-12).** Purely additive:
+  `suppliers.deliveryDays INTEGER[]` (0 = Sunday ... 6 = Saturday), an empty list for
+  every existing supplier, which keeps their two-week reorder planning. The app needs
+  it. Not yet applied to the store database (Phase 4 checkpoint).
+
 - **`20261112020000_shelf_label_dates` (2026-11-12).** Purely additive. Nullable
   `priceChangedAt` and `labelPrintedAt` on `products` and `product_selling_units`, and
   the `products_price_changed` / `product_selling_units_price_changed` triggers

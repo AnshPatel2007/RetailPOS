@@ -6,6 +6,7 @@ import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { assertOwnsRecord, assertCanReadRecord, getLocationFilter, getSharedOrOwnFilter, isSuperAdmin, resolveWriteLocation } from '../utils/locationFilter.util';
 import * as supplierCredits from '../services/supplierCredit.service';
+import { suggestDeliveryDays } from '../services/reorder.service';
 
 /**
  * Get all suppliers
@@ -115,7 +116,7 @@ export const getSupplier = asyncHandler(async (req: AuthRequest, res: Response) 
  * POST /api/suppliers
  */
 export const createSupplier = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { name, contactName, email, phone, address, notes, paymentTerms, leadTimeDays, minimumOrder } = req.body;
+  const { name, contactName, email, phone, address, notes, paymentTerms, leadTimeDays, minimumOrder, deliveryDays } = req.body;
   // Non-SUPER_ADMIN is always forced to their own store
   const locationId = isSuperAdmin(req) ? (req.body.locationId ?? null) : (req.user!.locationId ?? null);
 
@@ -130,6 +131,7 @@ export const createSupplier = asyncHandler(async (req: AuthRequest, res: Respons
       paymentTerms,
       leadTimeDays,
       minimumOrder,
+      ...(deliveryDays ? { deliveryDays } : {}),
       locationId,
     },
   });
@@ -149,7 +151,7 @@ export const createSupplier = asyncHandler(async (req: AuthRequest, res: Respons
  */
 export const updateSupplier = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const { name, contactName, email, phone, address, notes, isActive, paymentTerms, leadTimeDays, minimumOrder } = req.body;
+  const { name, contactName, email, phone, address, notes, isActive, paymentTerms, leadTimeDays, minimumOrder, deliveryDays } = req.body;
 
   const existing = await prisma.supplier.findUnique({ where: { id } });
   if (!existing) {
@@ -170,6 +172,7 @@ export const updateSupplier = asyncHandler(async (req: AuthRequest, res: Respons
       paymentTerms,
       leadTimeDays,
       minimumOrder,
+      ...(deliveryDays ? { deliveryDays } : {}),
     },
   });
 
@@ -482,6 +485,19 @@ export const getSupplierPerformance = asyncHandler(async (req: AuthRequest, res:
       costChanges,
     },
   });
+});
+
+/**
+ * Weekdays this supplier's deliveries usually arrive, from the last eight weeks.
+ * GET /api/suppliers/:id/delivery-days/suggestion
+ */
+export const suggestSupplierDeliveryDays = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const supplier = await prisma.supplier.findUnique({ where: { id: req.params.id }, select: { id: true, locationId: true } });
+  if (!supplier) throw new AppError('Supplier not found', 404);
+  assertCanReadRecord(req, supplier.locationId, 'Supplier not found');
+  const storeId = supplier.locationId ?? req.user?.locationId;
+  const store = storeId ? await prisma.location.findUnique({ where: { id: storeId }, select: { timezone: true } }) : null;
+  res.json({ success: true, data: await suggestDeliveryDays(supplier.id, store?.timezone || 'UTC') });
 });
 
 /** The store's supplier credits: GET /api/suppliers/credits?status=open|settled|all&supplierId= */

@@ -32,6 +32,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Textarea } from '@/components/ui/Textarea';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PageTabs } from '@/components/common/PageTabs';
+import { DeliveryDaysField } from '@/components/inventory/DeliveryDaysField';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -61,6 +62,7 @@ interface Supplier {
   paymentTerms?: string;
   leadTimeDays?: number;
   minimumOrder?: number;
+  deliveryDays?: number[];
   _count?: {
     products: number;
     purchaseOrders: number;
@@ -134,6 +136,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
     paymentTerms: '',
     leadTimeDays: '',
     minimumOrder: '',
+    deliveryDays: [] as number[],
   });
 
   const [orderForm, setOrderForm] = useState({
@@ -489,6 +492,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
       paymentTerms: '',
       leadTimeDays: '',
       minimumOrder: '',
+      deliveryDays: [],
     });
     setEditingSupplier(null);
   };
@@ -518,6 +522,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
       paymentTerms: supplier.paymentTerms || '',
       leadTimeDays: supplier.leadTimeDays?.toString() || '',
       minimumOrder: supplier.minimumOrder?.toString() || '',
+      deliveryDays: supplier.deliveryDays || [],
     });
     setShowSupplierModal(true);
   };
@@ -888,6 +893,8 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                   </Select>
                 </div>
               </div>
+              <DeliveryDaysField className="mt-4" value={supplierForm.deliveryDays} supplierId={editingSupplier?.id}
+                onChange={deliveryDays => setSupplierForm({ ...supplierForm, deliveryDays })} />
             </div>
             <div className="border-t pt-6">
               <label className="block text-sm font-medium mb-1">Notes</label>

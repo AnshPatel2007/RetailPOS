@@ -110,6 +110,14 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   with an open exception or on an open count; "Start Suggested Count" makes a PARTIAL
   count of them. Stock accuracy = items on counts approved in the last 30 days whose
   count matched the record (`GET /cycle-counts/accuracy`).
+- **Reorder suggestions** have one engine: the pure `planReorder` in
+  `services/reorderPlan.ts` (unit tested) behind `loadReorderPlan` in
+  `services/reorder.service.ts`. A supplier with delivery days
+  (`Supplier.deliveryDays`, 0 = Sunday) is planned to the delivery after next plus two
+  days (the next delivery is the first delivery day at least the lead time away, never
+  today); others keep 14 days of cover and a 7-day urgency window. Days are store days
+  (`storeDay`). The supplier form offers the weekdays deliveries usually arrived
+  (`GET /suppliers/:id/delivery-days/suggestion`) but never saves them by itself.
 - **Attention list and morning brief** (`services/attention.service.ts`,
   `services/ownerBrief.service.ts`): one rule per exported function returns one plain
   sentence with its amount and the page that fixes it; the Dashboard (owners and

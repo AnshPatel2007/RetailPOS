@@ -39,6 +39,7 @@ router.get('/:id', supplierController.getSupplier);
  * Get supplier performance metrics
  */
 router.get('/:id/performance', supplierController.getSupplierPerformance);
+router.get('/:id/delivery-days/suggestion', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), supplierController.suggestSupplierDeliveryDays);
 
 /**
  * Create supplier (Admin/Manager only)
