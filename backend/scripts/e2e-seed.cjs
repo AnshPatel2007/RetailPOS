@@ -99,6 +99,18 @@ const prisma = new PrismaClient({ datasources: { db: { url: target.toString() } 
     const ownUser = await prisma.user.create({ data: { email: name + '@example.test', password, firstName: name, lastName: 'Fixture', role: 'ADMIN', locationId: ownStore.id } });
     await prisma.shift.create({ data: { userId: ownUser.id, locationId: ownStore.id, clockInAt: new Date(), startingCash: 100 } });
   }
+  // One business with two stores for the store-switching spec (stores@example.test owns both).
+  // South Street sold $42.00 two days ago; North Street sold nothing.
+  const northStore = await prisma.location.create({ data: { name: 'North Street Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'north-store@example.test', timezone: 'America/Chicago' } });
+  const southStore = await prisma.location.create({ data: { name: 'South Street Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'south-store@example.test', timezone: 'America/Chicago', organizationId: northStore.organizationId } });
+  const storesOwner = await prisma.user.create({ data: { email: 'stores@example.test', password, firstName: 'Multi', lastName: 'Store', role: 'ADMIN', locationId: northStore.id } });
+  await prisma.organizationOwner.create({ data: { organizationId: northStore.organizationId, userId: storesOwner.id } });
+  await prisma.userStoreAccess.create({ data: { userId: storesOwner.id, locationId: southStore.id, role: 'ADMIN' } });
+  await prisma.product.create({ data: { name: 'North Only Lemonade', sku: 'NORTH-LEMONADE', price: 3, cost: 1, stockQuantity: 10, locationId: northStore.id } });
+  await prisma.product.create({ data: { name: 'South Only Iced Tea', sku: 'SOUTH-ICED-TEA', price: 3, cost: 1, stockQuantity: 10, locationId: southStore.id } });
+  const southCalendar = require('../src/services/reportDates.service').reportCalendar('America/Chicago');
+  await prisma.sale.create({ data: { saleNumber: 'SOUTH-STREET-1', userId: storesOwner.id, locationId: southStore.id,
+    createdAt: new Date(southCalendar.day(-2).getTime() + 3600000), subtotal: 40, total: 42, tax: 2, paymentMethod: 'CASH', amountPaid: 42, pricingVersion: 1 } });
   const forecastStore = await prisma.location.create({ data: { name: 'Forecast Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'forecast-store@example.test', timezone: 'America/Chicago' } });
   const forecastUser = await prisma.user.create({ data: { email: 'forecast@example.test', password, firstName: 'Forecast', lastName: 'Fixture', role: 'ADMIN', locationId: forecastStore.id } });
   const { reportCalendar } = require('../src/services/reportDates.service');

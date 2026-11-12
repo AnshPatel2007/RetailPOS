@@ -27,7 +27,9 @@ export const clockIn = asyncHandler(async (req: AuthRequest, res: Response) => {
   // Use transaction to prevent race condition on concurrent clock-in
   const shift = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM users WHERE id = ${req.user!.id} FOR UPDATE`;
-    const employee = await tx.user.findUniqueOrThrow({ where: { id: req.user!.id }, include: { location: true } });
+    const employee = await tx.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { hourlyRate: true } });
+    // Pay rules come from the store this drawer opens in, which may not be the person's home store.
+    const store = req.user!.locationId ? await tx.location.findUnique({ where: { id: req.user!.locationId }, select: { payrollFrequency: true, timezone: true } }) : null;
     const openShift = await tx.shift.findFirst({
       where: {
         userId: req.user!.id,
@@ -46,8 +48,8 @@ export const clockIn = asyncHandler(async (req: AuthRequest, res: Response) => {
         clockInAt: new Date(),
         startingCash: cashAmount(startingCash, 'Starting cash'),
         hourlyRate: employee.hourlyRate,
-        payrollFrequency: employee.location?.payrollFrequency,
-        payrollTimezone: employee.location?.timezone,
+        payrollFrequency: store?.payrollFrequency,
+        payrollTimezone: store?.timezone,
       },
       include: {
         user: {

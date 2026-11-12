@@ -57,7 +57,7 @@ export const requestRecount = asyncHandler(async (req: AuthRequest, res: Respons
   const exception = await prisma.inventoryException.findUnique({ where: { id: req.params.id } });
   if (!exception || exception.locationId !== locationId) throw new AppError('Inventory exception not found', 404);
   if (exception.status === 'RESOLVED') throw new AppError('This exception is already resolved', 409);
-  if (assignedToId && !await prisma.user.findFirst({ where: { id: assignedToId, locationId, isActive: true } })) throw new AppError('Assign the recount to an active employee at this store', 400);
+  if (assignedToId && !await prisma.user.findFirst({ where: { id: assignedToId, isActive: true, storeAccess: { some: { locationId } } } })) throw new AppError('Assign the recount to an active employee at this store', 400);
   const updated = await prisma.inventoryException.update({ where: { id: exception.id }, data: {
     status: 'RECOUNT_REQUESTED', recountRequestedAt: new Date(), recountRequestedById: req.user!.id, assignedToId: assignedToId ?? null } });
   res.json({ success: true, data: updated, message: 'Recount requested' });

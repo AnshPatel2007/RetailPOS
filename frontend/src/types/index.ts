@@ -16,6 +16,32 @@ export interface User {
   twoFactorEnabled?: boolean;
   /** A register PIN is set (the PIN itself never reaches the browser). */
   hasPin?: boolean;
+  /**
+   * `role`, `locationId` and `location` describe the store this sign-in works in.
+   * A person with more than one store may switch; their own store is `homeLocationId`.
+   */
+  homeLocationId?: string | null;
+  homeRole?: User['role'];
+  stores?: StoreAccess[];
+  organization?: UserOrganization | null;
+}
+
+/** A store the signed-in person may work in, with their role there. */
+export interface StoreAccess {
+  locationId: string;
+  name: string;
+  role: User['role'];
+  isActive: boolean;
+  isHome: boolean;
+  isCurrent: boolean;
+}
+
+/** The business that owns the current store. */
+export interface UserOrganization {
+  id: string;
+  name: string;
+  storeCount: number;
+  isOwner: boolean;
 }
 
 export interface Location {

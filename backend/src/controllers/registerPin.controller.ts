@@ -7,6 +7,7 @@ import { config } from '../config';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import { completeSignIn } from './auth.controller';
+import { roleAtStore } from '../services/organization.service';
 
 /**
  * Register PIN sign-in.
@@ -94,7 +95,7 @@ export const setPin = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (isGuessablePin(pin)) throw new AppError('Choose a PIN that is harder to guess (not 1111 or 1234).', 400);
   await prisma.$transaction([
     prisma.user.update({ where: { id: user.id }, data: { pinHash: await bcrypt.hash(pin, 10), pinSetAt: new Date(), pinFailedAttempts: 0, pinLockoutUntil: null } }),
-    prisma.activityLog.create({ data: { userId: user.id, action: user.pinHash ? 'PIN_CHANGED' : 'PIN_SET', entity: 'USER', entityId: user.id, locationId: user.locationId } }),
+    prisma.activityLog.create({ data: { userId: user.id, action: user.pinHash ? 'PIN_CHANGED' : 'PIN_SET', entity: 'USER', entityId: user.id, locationId: req.user!.locationId } }),
   ]);
   res.json({ success: true, message: 'PIN saved' });
 });
@@ -106,7 +107,7 @@ export const removePin = asyncHandler(async (req: AuthRequest, res: Response) =>
   if (user.pinHash) {
     await prisma.$transaction([
       prisma.user.update({ where: { id: user.id }, data: { pinHash: null, pinSetAt: null, pinFailedAttempts: 0, pinLockoutUntil: null } }),
-      prisma.activityLog.create({ data: { userId: user.id, action: 'PIN_REMOVED', entity: 'USER', entityId: user.id, locationId: user.locationId } }),
+      prisma.activityLog.create({ data: { userId: user.id, action: 'PIN_REMOVED', entity: 'USER', entityId: user.id, locationId: req.user!.locationId } }),
     ]);
   }
   res.json({ success: true, message: 'PIN removed' });
@@ -157,24 +158,26 @@ export const revokeRegister = asyncHandler(async (req: AuthRequest, res: Respons
   res.json({ success: true, message: 'Register removed' });
 });
 
-/** POST /api/auth/register-staff — who can sign in with a PIN on this register. */
+/** POST /api/auth/register-staff — who can sign in with a PIN on this register: everyone who may work in its store. */
 export const registerStaff = asyncHandler(async (req: Request, res: Response) => {
   const device = await liveDevice(req.body?.deviceToken);
-  const staff = await prisma.user.findMany({
-    where: { locationId: device.locationId, isActive: true, pinHash: { not: null }, twoFactorEnabled: false, role: { in: [...PIN_ROLES] } },
-    orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
-    select: { id: true, firstName: true, lastName: true, role: true },
+  const staff = await prisma.userStoreAccess.findMany({
+    where: { locationId: device.locationId, role: { in: [...PIN_ROLES] },
+      user: { isActive: true, pinHash: { not: null }, twoFactorEnabled: false, role: { not: 'SUPER_ADMIN' } } },
+    orderBy: [{ user: { firstName: 'asc' } }, { user: { lastName: 'asc' } }],
+    select: { role: true, user: { select: { id: true, firstName: true, lastName: true } } },
   });
-  res.json({ success: true, data: { register: { id: device.id, name: device.name, storeName: device.location.name }, staff: staff.map(user => ({ id: user.id, name: displayName(user), role: user.role })) } });
+  res.json({ success: true, data: { register: { id: device.id, name: device.name, storeName: device.location.name }, staff: staff.map(row => ({ id: row.user.id, name: displayName(row.user), role: row.role })) } });
 });
 
 /** POST /api/auth/pin-login — sign in on a set-up register with name + PIN. */
 export const pinLogin = asyncHandler(async (req: Request, res: Response) => {
   const { deviceToken, userId, pin } = parse(z.object({ deviceToken: deviceTokenSchema, userId: z.string({ required_error: 'Choose who is signing in' }).min(1, 'Choose who is signing in').max(100), pin: pinSchema }), req.body);
   const device = await liveDevice(deviceToken);
-  const user = await prisma.user.findUnique({ where: { id: userId }, include: { location: true } });
-  // Someone from another store, or an inactive account, is simply not on this register.
-  if (!user || !user.isActive || user.locationId !== device.locationId || !PIN_ROLES.includes(user.role as typeof PIN_ROLES[number])) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  // Someone without access to this register's store, or an inactive account, is simply not on this register.
+  const role = user?.isActive && user.role !== 'SUPER_ADMIN' ? await roleAtStore(user.id, device.locationId) : null;
+  if (!user || !role || !PIN_ROLES.includes(role as typeof PIN_ROLES[number])) {
     throw new AppError('That person cannot sign in on this register.', 401);
   }
   if (user.lockoutUntil && user.lockoutUntil > new Date()) throw new AppError('This account is temporarily locked. Try again later.', 423);
@@ -189,10 +192,11 @@ export const pinLogin = asyncHandler(async (req: Request, res: Response) => {
     if (old && !old.isRevoked) {
       await prisma.$transaction(async tx => {
         const revoked = await tx.refreshToken.updateMany({ where: { id: old.id, isRevoked: false }, data: { isRevoked: true } });
-        if (revoked.count) await tx.activityLog.create({ data: { userId: old.userId, action: 'LOGOUT', entity: 'USER', entityId: old.userId, locationId: old.user.locationId, details: { reason: 'Switched cashier on register', registerId: device.id } } });
+        if (revoked.count) await tx.activityLog.create({ data: { userId: old.userId, action: 'LOGOUT', entity: 'USER', entityId: old.userId, locationId: old.activeLocationId ?? old.user.locationId, details: { reason: 'Switched cashier on register', registerId: device.id } } });
       });
     }
   }
   await prisma.registerDevice.update({ where: { id: device.id }, data: { lastUsedAt: new Date() } });
-  await completeSignIn(req, res, user, { method: 'PIN', registerId: device.id, registerName: device.name });
+  // The session works in the register's store, whichever store is the person's home.
+  await completeSignIn(req, res, user, { method: 'PIN', registerId: device.id, registerName: device.name }, device.locationId);
 });

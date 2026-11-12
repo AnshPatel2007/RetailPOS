@@ -7,8 +7,12 @@ export interface AuthRequest extends Request {
   user?: {
     id: string;
     email: string;
+    /** The role in the store this session works in (see locationId). */
     role: UserRole;
+    /** The store this session works in: the home store, or another store the person switched to. */
     locationId: string | null;
+    /** The person's own store (users.locationId). Read the acting store from locationId, not this. */
+    homeLocationId?: string | null;
   };
 }
 

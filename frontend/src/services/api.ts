@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError, CanceledError } from 'axios';
-import { sessionGeneration, changeSessionGeneration } from './sessionGeneration';
+import { sessionGeneration, changeSessionGeneration, signInSettled } from './sessionGeneration';
 import { storeContextGeneration } from './storeContextGeneration';
 import { invalidateScopedQueries } from './queryCache';
 import { serverAnswered, serverDidNotAnswer, setServerCheck } from './connection';
@@ -98,6 +98,13 @@ api.interceptors.response.use(
     if (gotNoAnswer(error)) serverDidNotAnswer(); else if (error.response) serverAnswered();
     if (originalRequest._storeGeneration !== storeContextGeneration()) return Promise.reject(new CanceledError('Store context changed', originalRequest));
     if (originalRequest._sessionGeneration !== sessionGeneration()) return Promise.reject(new CanceledError('Session changed', originalRequest));
+    // Access to the store this sign-in switched to was removed: the server moved the
+    // session home; reload the person there (stale store screens are cancelled).
+    if (error.response?.status === 403 && (error.response.data as { details?: { code?: string } } | undefined)?.details?.code === 'STORE_ACCESS_ENDED') {
+      const { useAuthStore } = await import('../store/authStore');
+      void useAuthStore.getState().storeAccessEnded();
+      return Promise.reject(error);
+    }
     if (error.response?.status === 428 && originalRequest && !originalRequest._approvalRetried) {
       const { requestManagerApproval } = await import('../store/approvalStore');
       const body = typeof originalRequest.data === 'string' ? JSON.parse(originalRequest.data) : originalRequest.data || {};
@@ -147,6 +154,8 @@ api.interceptors.response.use(
         if (refreshingGeneration === generation) refreshingGeneration = null;
       }
 
+      // A cashier switch in progress replaced this session: let it finish first.
+      await signInSettled();
       if (originalRequest._sessionGeneration !== sessionGeneration()) return Promise.reject(error);
 
       // Refresh failed — log out. Dynamic import avoids a circular
@@ -180,6 +189,9 @@ export const authService = {
   logout: (token?: string | null) => api.post('/auth/logout', {}, { timeout: 10000, headers: token ? { Authorization: `Bearer ${token}` } : {} }),
 
   getMe: () => api.get('/auth/me'),
+  // Stores this person may work in, and moving this sign-in to one of them.
+  getStores: () => api.get('/auth/stores'),
+  switchStore: (locationId: string) => api.post('/auth/switch-store', { locationId }),
 
   register: (data: any) => api.post('/auth/register', data),
 

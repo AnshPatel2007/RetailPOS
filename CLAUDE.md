@@ -104,16 +104,33 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   every store of their organization: call `syncOwnerAccess` after adding an owner or a
   store (`services/organization.service.ts`; read a store's organization with
   `organizationIdOf`). Granting ADMIN or ownership stays a platform-admin action.
+- **Active store**: each sign-in works in one store (`refresh_tokens.activeLocationId`,
+  null = home). `authenticate` sets `req.user.locationId`/`role` to that store and the
+  role there (`actingStore` in `services/session.service.ts`); `req.user.homeLocationId`
+  is the person's own store. Read the acting store from `req.user`, never from the user
+  row; to ask "may this person act in store X", use `roleAtStore` (manager approval,
+  PIN sign-in, exports do). Sign-in, `/auth/me` and `POST /auth/switch-store` share one
+  payload (`sessionUser`: `stores`, `organization`, `homeLocationId`). Switching is
+  refused by the server while the person's drawer at the current store is open, and by
+  the app (`authStore.switchStore`) while the cart, held sales, a payment, a terminal
+  payment or an offline sale belongs to the current store. If access to the switched-to
+  store is removed, the next request answers 403 `STORE_ACCESS_ENDED`, the session goes
+  home, and the app reloads the person there. A PIN sign-in on another store's register
+  starts the session in that store. Stores of one organization are connected for
+  transfers (`storesConnected`).
 - **Auth**: access JWTs carry a refresh-session id; the `users_revoke_sessions` trigger
   ends sessions on password/role/store/active changes. Cashier discounts, refunds and
   voids need manager approval (the API answers 428 and the app opens the approval dialog).
   Lottery money is not merchandise revenue.
 - **Register PIN**: works only on a computer a manager set up as a register
-  (Settings > Devices; the server stores only a SHA-256 hash of its secret) for staff of
-  that store. PINs are bcrypt-hashed, 4–6 digits, guessable ones refused. Five wrong PINs
+  (Settings > Devices; the server stores only a SHA-256 hash of its secret) for anyone
+  with access to that store, in their role there. PINs are bcrypt-hashed, 4–6 digits, guessable ones refused. Five wrong PINs
   pause PIN sign-in (never the password). Accounts with 2FA cannot use a PIN. Switching
-  cashier ends the browser's previous session only after the new PIN is right. Unlock
-  answers 422 for a wrong PIN so the client never treats it as an expired session.
+  cashier ends the browser's previous session only after the new PIN is right; requests
+  the previous person still has in flight then fail to renew, so the client waits for the
+  switch (`trackSignIn`/`signInSettled` in `services/sessionGeneration.ts`) before ever
+  signing out. Unlock answers 422 for a wrong PIN so the client never treats it as an
+  expired session.
 
 ## Frontend conventions
 

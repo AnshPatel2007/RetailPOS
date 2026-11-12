@@ -18,7 +18,8 @@ export const getPayroll = asyncHandler(async (req: AuthRequest, res: Response) =
   const limit = 50;
   const [location, staff, entries, unratedShifts, runs, runCount] = await Promise.all([
     prisma.location.findUnique({ where: { id: locationId }, select: { id: true, name: true, payrollFrequency: true, timezone: true } }),
-    prisma.user.findMany({ where: { locationId }, select: { id: true, firstName: true, lastName: true, email: true, hourlyRate: true, isActive: true } }),
+    // Home staff, plus anyone from another store who worked a shift here.
+    prisma.user.findMany({ where: { OR: [{ locationId }, { shifts: { some: { locationId } } }] }, select: { id: true, firstName: true, lastName: true, email: true, hourlyRate: true, isActive: true } }),
     prisma.payrollEntry.findMany({ where: { locationId, expenseId: null }, include: { user: { select: { firstName: true, lastName: true } }, expense: { select: { id: true, expenseNumber: true, status: true } } }, orderBy: [{ periodStart: 'desc' }, { id: 'desc' }], take: 50 }),
     prisma.shift.count({ where: { locationId, hourlyRate: null, clockOutAt: { not: null } } }),
     prisma.expense.findMany({ where: { locationId, category: 'PAYROLL' }, include: { user: { select: { firstName: true, lastName: true } }, _count: { select: { payrollEntries: true } } }, orderBy: [{ expenseDate: 'desc' }, { id: 'desc' }], skip: (page - 1) * limit, take: limit }),

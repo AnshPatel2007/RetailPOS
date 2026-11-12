@@ -444,6 +444,17 @@ export const offlineDb = {
     return { products, customers, pendingSales, syncLogs, dbSize };
   },
 
+  /**
+   * Work on this register that still belongs to one person at one store: an open
+   * payment, an unconfirmed card-terminal payment, or a sale saved offline.
+   */
+  async unfinishedStoreWork(userId: string, locationId: string): Promise<'payment' | 'terminal' | 'offline-sale' | null> {
+    if (await db.paymentSessions.where('[userId+locationId]').equals([userId, locationId]).filter(row => row.status === 'OPEN' || row.status === 'SUBMITTED').count()) return 'payment';
+    if (await db.terminalCheckouts.where('[userId+locationId]').equals([userId, locationId]).filter(row => row.reconciliation?.status !== 'FINAL').count()) return 'terminal';
+    if (await db.pendingSales.filter(row => !row.synced && row.locationId === locationId).count()) return 'offline-sale';
+    return null;
+  },
+
   async clearAll(): Promise<void> {
     await db.transaction('rw', db.tables, async () => {
     if (await db.pendingSales.filter(record => !record.synced).count() || await db.terminalCheckouts.filter(record=>record.reconciliation?.status!=='FINAL').count() || await db.paymentSessions.where('status').anyOf('OPEN', 'SUBMITTED').count()) {

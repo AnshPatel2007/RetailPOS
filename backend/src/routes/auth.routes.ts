@@ -46,6 +46,9 @@ router.post('/pin-login', registerPinController.pinLogin);
  * Protected routes
  */
 router.get('/me', authenticate, authController.getCurrentUser);
+// Multi-store staff: the stores they may work in, and switching this sign-in to one of them.
+router.get('/stores', authenticate, authController.getStores);
+router.post('/switch-store', authenticate, authController.switchStore);
 router.get('/security-notifications',authenticate,asyncHandler(async(req:AuthRequest,res:Response)=>{
   const actor=(req as AuthRequest).user!,page=z.coerce.number().int().min(1).max(100000).parse(req.query.page||1);
   const where={kind:'EMAIL',label:'ACCOUNT SECURITY',requestedBy:actor.id};

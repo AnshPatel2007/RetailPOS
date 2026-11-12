@@ -3,6 +3,7 @@ import prisma from '../config/database';
 import { AuthRequest } from '../types';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { assertOwnsOneOfLocations } from '../utils/locationFilter.util';
+import { storesConnected } from '../services/organization.service';
 import { lockInventory, moveInventory } from '../services/inventory.service';
 import { exactProductMatch, lockTransfer, recordTransferReceipt, requireTransferStore, shipmentProduct, snapshotProduct, TransferReceiptKind } from '../services/transferWorkflow.service';
 
@@ -11,9 +12,8 @@ export const shipTransfer = asyncHandler(async (req: AuthRequest, res: Response)
     const transfer = await lockTransfer(tx, req.params.id);
     requireTransferStore(req, transfer.fromLocationId, 'Only the source store can ship this transfer');
     if (transfer.status !== 'PENDING') throw new AppError('Only pending transfers can be shipped', 400);
-    const [locationAId, locationBId] = [transfer.fromLocationId, transfer.toLocationId].sort();
-    if (!await tx.storeConnection.findUnique({ where: { locationAId_locationBId: { locationAId, locationBId } } })) throw new AppError('These stores are no longer connected for new shipments', 403);
-    if (await tx.location.count({ where: { id: { in: [locationAId, locationBId] }, isActive: true } }) !== 2) throw new AppError('Both stores must be active before shipping', 400);
+    if (!await storesConnected(transfer.fromLocationId, transfer.toLocationId, tx)) throw new AppError('These stores are no longer connected for new shipments', 403);
+    if (await tx.location.count({ where: { id: { in: [transfer.fromLocationId, transfer.toLocationId] }, isActive: true } }) !== 2) throw new AppError('Both stores must be active before shipping', 400);
     await lockInventory(tx, transfer.items.map(item => item.productId));
     for (const item of [...transfer.items].sort((a, b) => a.productId.localeCompare(b.productId))) {
       const product = await tx.product.findUnique({ where: { id: item.productId } });

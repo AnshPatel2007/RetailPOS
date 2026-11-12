@@ -1,9 +1,12 @@
 import { create } from 'zustand';
 import { User } from '../types';
 import { authService } from '../services/api';
-import { clearSessionState } from '../services/session';
-import { changeSessionGeneration, sessionGeneration } from '../services/sessionGeneration';
+import { clearSessionState, clearStoreState } from '../services/session';
+import { changeSessionGeneration, sessionGeneration, trackSignIn } from '../services/sessionGeneration';
+import { changeStoreContextGeneration } from '../services/storeContextGeneration';
+import { offlineDb } from '../services/offlineDb';
 import { useRegisterStore } from './registerStore';
+import { useCartStore } from './cartStore';
 import { connectionSettled, isOffline, subscribeConnection } from '../services/connection';
 import toast from 'react-hot-toast';
 
@@ -33,7 +36,47 @@ interface AuthState {
   pinLogin: (userId: string, pin: string) => Promise<void>;
   logout: () => Promise<void>;
   loadUser: () => Promise<void>;
+  /**
+   * Work in another of this person's stores. Refused while anything on this
+   * register still belongs to the current store (cart, held sales, a payment,
+   * a sale saved offline); the server also refuses while their drawer is open.
+   */
+  switchStore: (locationId: string) => Promise<void>;
+  /** The server said access to the current store ended and moved this sign-in home. */
+  storeAccessEnded: () => Promise<void>;
   clearError: () => void;
+}
+
+let storeAccessEndedPending: Promise<void> | null = null;
+
+const unfinishedWorkMessages = {
+  payment: 'Finish the open payment before switching stores.',
+  terminal: 'Confirm the card terminal payment on the register before switching stores.',
+  'offline-sale': 'Sales saved while offline must reach the server before switching stores.',
+} as const;
+
+/** Why this register cannot leave the current store yet, or null. */
+async function switchBlocker(user: User): Promise<string | null> {
+  if (isOffline()) return 'Switching stores needs a connection to the POS server.';
+  const cart = useCartStore.getState();
+  if (cart.items.length) return 'Finish or clear the sale in the cart before switching stores.';
+  if (cart.heldSales.length && (cart.heldLocationId === null || cart.heldLocationId === user.locationId)) {
+    return 'Held sales stay with this store. Finish or discard them before switching stores.';
+  }
+  try {
+    const work = user.locationId ? await offlineDb.unfinishedStoreWork(user.id, user.locationId) : null;
+    return work ? unfinishedWorkMessages[work] : null;
+  } catch {
+    return 'This register could not check its saved payments. Reload the page and try again.';
+  }
+}
+
+/** Replace the signed-in person's store-specific view after the server moved the session. */
+async function enterStore(user: User) {
+  await clearStoreState();
+  changeStoreContextGeneration();
+  localStorage.setItem('user', JSON.stringify(user));
+  useAuthStore.setState({ user });
 }
 
 /**
@@ -104,19 +147,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!device) throw new Error('This computer is not set up as a register.');
     if (logoutPending) await logoutPending;
     // The PIN is checked before anything changes here: a wrong PIN leaves the current
-    // person signed in, cart and all. The server ends this browser's previous session.
-    let response;
-    try { response = await authService.pinLogin(device.token, userId, pin); }
-    catch (error: any) {
-      if (error.response?.status === 401 && /no longer set up/.test(error.response?.data?.error || '')) useRegisterStore.getState().setDevice(null);
-      throw error;
-    }
-    const { token, user } = response.data.data;
-    changeSessionGeneration();
-    await clearSessionState();
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(user));
-    set({ user, token, isAuthenticated: true, isLoading: false, sessionUnverified: false, error: null });
+    // person signed in, cart and all. The server ends this browser's previous session,
+    // so requests the previous person still has in flight wait for this (trackSignIn).
+    return trackSignIn((async () => {
+      let response;
+      try { response = await authService.pinLogin(device.token, userId, pin); }
+      catch (error: any) {
+        if (error.response?.status === 401 && /no longer set up/.test(error.response?.data?.error || '')) useRegisterStore.getState().setDevice(null);
+        throw error;
+      }
+      const { token, user } = response.data.data;
+      changeSessionGeneration();
+      await clearSessionState();
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+      set({ user, token, isAuthenticated: true, isLoading: false, sessionUnverified: false, error: null });
+    })());
   },
 
   logout: async () => {
@@ -180,6 +226,39 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         sessionUnverified: false,
       });
     }
+  },
+
+  switchStore: async (locationId: string) => {
+    const user = get().user;
+    if (!user || user.role === 'SUPER_ADMIN' || user.locationId === locationId) return;
+    const blocker = await switchBlocker(user);
+    if (blocker) throw new Error(blocker);
+    const generation = sessionGeneration();
+    const response = await authService.switchStore(locationId);
+    if (generation !== sessionGeneration()) return;
+    await enterStore(response.data.data.user);
+  },
+
+  storeAccessEnded: async () => {
+    if (storeAccessEndedPending) return storeAccessEndedPending;
+    storeAccessEndedPending = (async () => {
+      const generation = sessionGeneration();
+      const leaving = get().user?.location?.name;
+      try {
+        // Cancel everything still aimed at the store first, then read where the session is now.
+        changeStoreContextGeneration();
+        const response = await authService.getMe();
+        if (generation !== sessionGeneration()) return;
+        const user: User = response.data.data;
+        await enterStore(user);
+        toast.error(`Your access to ${leaving || 'that store'} ended. You are back at ${user.location?.name || 'your home store'}.`, { duration: 8000 });
+      } catch {
+        // A refused session is handled by the usual sign-out path.
+      } finally {
+        storeAccessEndedPending = null;
+      }
+    })();
+    return storeAccessEndedPending;
   },
 
   clearError: () => set({ error: null }),

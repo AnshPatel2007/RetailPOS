@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
-import type { Location, Prisma, User } from '@prisma/client';
+import type { Prisma, User } from '@prisma/client';
 import { resolveUserAssignment } from '../utils/userPermissions';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { generateToken, generateRefreshToken, verifyToken } from '../utils/jwt';
-import { createLoginSession } from '../services/session.service';
+import { createLoginSession, sessionUser } from '../services/session.service';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { config } from '../config';
@@ -126,11 +126,12 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * Start a session for a verified user: refresh cookie, access token, last login and
- * the LOGIN activity entry. Shared by password and register PIN sign-in.
+ * the LOGIN activity entry. Shared by password and register PIN sign-in. A PIN
+ * sign-in on another store's register starts the session in that store.
  */
-export const completeSignIn = async (req: Request, res: Response, user: User & { location: Location | null }, details?: Prisma.InputJsonValue) => {
+export const completeSignIn = async (req: Request, res: Response, user: User, details?: Prisma.InputJsonValue, activeLocationId: string | null = null) => {
   const refreshToken = generateRefreshToken();
-  const session = await createLoginSession(user, refreshToken, req.headers['user-agent'] || 'Unknown', req.ip);
+  const session = await createLoginSession(user, refreshToken, req.headers['user-agent'] || 'Unknown', req.ip, activeLocationId);
   const token = generateToken({
     sessionId: session.id,
     userId: user.id,
@@ -153,7 +154,7 @@ export const completeSignIn = async (req: Request, res: Response, user: User & {
       entityId: user.id,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
-      locationId: user.locationId,
+      locationId: session.activeLocationId ?? user.locationId,
       ...(details !== undefined ? { details } : {}),
     },
   });
@@ -168,20 +169,7 @@ export const completeSignIn = async (req: Request, res: Response, user: User & {
 
   res.json({
     success: true,
-    data: {
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        locationId: user.locationId,
-        location: user.location,
-        twoFactorEnabled: user.twoFactorEnabled,
-        hasPin: !!user.pinHash,
-      },
-    },
+    data: { token, user: await sessionUser(user.id, session.activeLocationId) },
   });
 };
 
@@ -247,44 +235,49 @@ export const getCurrentUser = asyncHandler(async (req: AuthRequest, res: Respons
   if (!req.user) {
     throw new AppError('User not authenticated', 401);
   }
+  // The acting store was resolved by authenticate (home, or the store switched to).
+  res.json({ success: true, data: await sessionUser(req.user.id, req.user.locationId) });
+});
 
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-    select: {
-      id: true,
-      email: true,
-      firstName: true,
-      lastName: true,
-      role: true,
-      isActive: true,
-      locationId: true,
-      twoFactorEnabled: true,
-      pinHash: true,
-      location: {
-        select: {
-          id: true,
-          name: true,
-          address: true,
-          city: true,
-          state: true,
-          timezone: true,
-        },
-      },
-      createdAt: true,
-      lastLoginAt: true,
-    },
-  });
+/**
+ * The stores the signed-in person may work in.
+ * GET /api/auth/stores
+ */
+export const getStores = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: (await sessionUser(req.user!.id, req.user!.locationId)).stores });
+});
 
-  if (!user) {
-    throw new AppError('User not found', 404);
+/**
+ * Work in another store this person has access to, in this sign-in only. The role
+ * there comes from their access to that store. An open drawer at the current store
+ * must be closed first, so its cash and sales never mix with the other store's.
+ * POST /api/auth/switch-store { locationId }
+ */
+export const switchStore = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const actor = req.user!;
+  const locationId = typeof req.body?.locationId === 'string' ? req.body.locationId : '';
+  if (!locationId) throw new AppError('Choose a store', 400);
+  if (actor.role === 'SUPER_ADMIN') throw new AppError('Platform admins open stores from the store list.', 403);
+  if (locationId === actor.locationId) {
+    res.json({ success: true, data: { user: await sessionUser(actor.id, actor.locationId) } });
+    return;
   }
-
-  // Only whether a register PIN is set ever leaves the server, never its hash.
-  const { pinHash, ...profile } = user;
-  res.json({
-    success: true,
-    data: { ...profile, hasPin: !!pinHash },
+  const active = locationId === actor.homeLocationId ? null : locationId;
+  await prisma.$transaction(async tx => {
+    // Clock-in locks the same row, so a drawer cannot open at the old store mid-switch.
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${actor.id} FOR UPDATE`;
+    if (!await tx.userStoreAccess.findUnique({ where: { userId_locationId: { userId: actor.id, locationId } }, select: { id: true } })) {
+      throw new AppError('You do not have access to that store.', 403);
+    }
+    if (actor.locationId && await tx.shift.findFirst({ where: { userId: actor.id, locationId: actor.locationId, isClosed: false }, select: { id: true } })) {
+      throw new AppError('Clock out before switching stores.', 409);
+    }
+    const moved = await tx.refreshToken.updateMany({ where: { id: req.sessionId, userId: actor.id, isRevoked: false }, data: { activeLocationId: active } });
+    if (!moved.count) throw new AppError('Session expired or revoked. Sign in again.', 401);
+    await tx.activityLog.create({ data: { userId: actor.id, action: 'STORE_SWITCHED', entity: 'USER', entityId: actor.id, locationId,
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], details: { fromLocationId: actor.locationId } } });
   });
+  res.json({ success: true, data: { user: await sessionUser(actor.id, active) } });
 });
 
 /**
@@ -380,7 +373,7 @@ export const logout = asyncHandler(async (req: AuthRequest, res: Response) => {
         action: 'LOGOUT',
         entity: 'USER',
         entityId: session.userId,
-        locationId: session.user.locationId,
+        locationId: session.activeLocationId ?? session.user.locationId,
       },
     });
     }
@@ -676,7 +669,7 @@ export const changePassword = asyncHandler(async (req: AuthRequest, res: Respons
       action: 'PASSWORD_CHANGED',
       entity: 'USER',
       entityId: user.id,
-      locationId: user.locationId,
+      locationId: req.user!.locationId,
     },
   });
   });

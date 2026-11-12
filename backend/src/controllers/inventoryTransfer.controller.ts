@@ -5,6 +5,8 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { assertOwnsOneOfLocations, isSuperAdmin } from '../utils/locationFilter.util';
+import { Prisma } from '@prisma/client';
+import { connectedStoreIds, storesConnected } from '../services/organization.service';
 
 const include = { items: { include: { product: { select: { id: true, name: true, sku: true } }, destinationProduct: { select: { id: true, name: true, sku: true } } } } };
 const ownStore = (req: AuthRequest) => {
@@ -13,9 +15,9 @@ const ownStore = (req: AuthRequest) => {
   return id;
 };
 const connectionKey = (a: string, b: string) => { const [locationAId, locationBId] = [a, b].sort(); return { locationAId, locationBId }; };
-const requireConnection = async (db: any, a: string, b: string) => {
-  const connected = await db.storeConnection.findUnique({ where: { locationAId_locationBId: connectionKey(a,b) } });
-  if (!connected) throw new AppError('These stores are not connected for inventory transfers. Ask a super-admin to link them.', 403);
+// Stores of one organization are connected; other stores need a platform-admin link.
+const requireConnection = async (db: Prisma.TransactionClient | typeof prisma, a: string, b: string) => {
+  if (!await storesConnected(a, b, db)) throw new AppError('These stores are not connected for inventory transfers. Ask a super-admin to link them.', 403);
 };
 const attachNames = async (transfers: any[]) => {
   const ids = [...new Set(transfers.flatMap(t => [t.fromLocationId, t.toLocationId]))];
@@ -25,8 +27,7 @@ const attachNames = async (transfers: any[]) => {
 
 export const getTransferOptions = asyncHandler(async (req: AuthRequest, res: Response) => {
   const id = ownStore(req);
-  const connections = await prisma.storeConnection.findMany({ where: { OR: [{ locationAId: id }, { locationBId: id }] } });
-  const ids = connections.map(c => c.locationAId === id ? c.locationBId : c.locationAId);
+  const ids = await connectedStoreIds(id);
   const locations = await prisma.location.findMany({ where: { id: { in: [id,...ids] }, isActive: true }, select: { id: true, name: true } });
   res.json({ success: true, data: { source: locations.find(l => l.id === id), destinations: locations.filter(l => l.id !== id) } });
 });

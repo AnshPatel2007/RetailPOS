@@ -18,7 +18,8 @@ const csvCell = (value: unknown) => {
   return '"' + content.replace(/"/g, '""') + '"';
 };
 export async function generateExportJob(job: BackgroundJob): Promise<JobOutcome> {
-  if (!job.locationId || !await prisma.user.findFirst({ where: { id: job.requestedBy || '', locationId: job.locationId, role: 'ADMIN', isActive: true, location: { isActive: true } } })) return { status: 'CANCELLED', code: 'OWNER_NO_LONGER_AUTHORIZED' };
+  // The requester must still be an ADMIN of the store, home store or one they work in as an owner.
+  if (!job.locationId || !await prisma.user.findFirst({ where: { id: job.requestedBy || '', isActive: true, storeAccess: { some: { locationId: job.locationId, role: 'ADMIN', location: { isActive: true } } } } })) return { status: 'CANCELLED', code: 'OWNER_NO_LONGER_AUTHORIZED' };
   const payload = jobPayload<ExportPayload>(job), range: MetricRange = { gte: new Date(payload.start), lt: new Date(payload.end) };
   const temporary = exportPath(job.id, job.leaseToken!, true), destination = exportPath(job.id, job.leaseToken!), snapshotAt = new Date();
   await fs.mkdir(path.dirname(destination), { recursive: true });

@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import prisma from '../config/database';
 import { AppError } from '../utils/errorHandler';
 
@@ -22,6 +22,38 @@ export async function isOwner(userId: string, organizationId: string, client: Cl
     select: { id: true },
   });
   return owner !== null;
+}
+
+/**
+ * The role a person has at a store, or null when they may not work there. The home
+ * store's row always exists (users_sync_home_access), so this covers home and other stores.
+ */
+export async function roleAtStore(userId: string, locationId: string, client: Client = prisma): Promise<UserRole | null> {
+  const access = await client.userStoreAccess.findUnique({
+    where: { userId_locationId: { userId, locationId } },
+    select: { role: true },
+  });
+  return access && access.role !== 'SUPER_ADMIN' ? access.role : null;
+}
+
+/** Stock may move between two stores of one organization, or between stores a platform admin linked. */
+export async function storesConnected(a: string, b: string, client: Client = prisma): Promise<boolean> {
+  const [locationAId, locationBId] = [a, b].sort();
+  if (await client.storeConnection.findUnique({ where: { locationAId_locationBId: { locationAId, locationBId } }, select: { id: true } })) return true;
+  const stores = await client.location.findMany({ where: { id: { in: [a, b] } }, select: { organizationId: true } });
+  return stores.length === 2 && !!stores[0].organizationId && stores[0].organizationId === stores[1].organizationId;
+}
+
+/** Other stores that stock may move to from this one: same organization or linked. */
+export async function connectedStoreIds(locationId: string, client: Client = prisma): Promise<string[]> {
+  const [links, store] = await Promise.all([
+    client.storeConnection.findMany({ where: { OR: [{ locationAId: locationId }, { locationBId: locationId }] }, select: { locationAId: true, locationBId: true } }),
+    client.location.findUnique({ where: { id: locationId }, select: { organizationId: true } }),
+  ]);
+  const siblings = store?.organizationId
+    ? await client.location.findMany({ where: { organizationId: store.organizationId, id: { not: locationId } }, select: { id: true } })
+    : [];
+  return [...new Set([...links.map(link => link.locationAId === locationId ? link.locationBId : link.locationAId), ...siblings.map(row => row.id)])];
 }
 
 /**

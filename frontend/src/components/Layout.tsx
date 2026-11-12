@@ -163,7 +163,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 <PanelLeftClose className="h-4 w-4" />
               </button>
             </div>
-            {user?.role === 'SUPER_ADMIN' && isAdminViewing
+            {(user?.role === 'SUPER_ADMIN' ? isAdminViewing : (user?.stores?.length ?? 0) > 1)
               ? <StoreSwitcher className="basis-full pt-1" />
               : storeName && <p className="basis-full text-xs leading-5 text-muted-foreground break-words" data-sidebar-store-name>{storeName}</p>}
           </>

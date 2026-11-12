@@ -47,7 +47,11 @@ jest.mock('../utils/jwt', () => ({
   verifyRefreshToken: jest.fn(),
   verifyToken: jest.fn(),
 }));
-jest.mock('../services/session.service', () => ({ createLoginSession: jest.fn().mockResolvedValue({ id: 'session' }) }));
+jest.mock('../services/session.service', () => ({
+  createLoginSession: jest.fn(),
+  // The signed-in person as the app sees them (built from the database in session.service); set in beforeEach.
+  sessionUser: jest.fn(),
+}));
 
 // Mock 2FA verification
 jest.mock('../controllers/twoFactor.controller', () => ({
@@ -81,7 +85,8 @@ describe('Auth Controller', () => {
     jest.clearAllMocks();
     (prisma.$transaction as jest.Mock).mockImplementation((action: (tx: typeof prisma) => unknown) => action(prisma));
     (prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
-    require('../services/session.service').createLoginSession.mockResolvedValue({ id: 'session' });
+    require('../services/session.service').createLoginSession.mockResolvedValue({ id: 'session', activeLocationId: null });
+    require('../services/session.service').sessionUser.mockImplementation(async (id: string, locationId: string | null) => ({ id, email: 'test@example.com', locationId: locationId ?? 'store-1' }));
   });
 
   describe('login', () => {
@@ -274,6 +279,8 @@ describe('Auth Controller', () => {
         mockNext
       );
 
+      // The store resolved by authenticate (here none) decides what the payload describes.
+      expect(require('../services/session.service').sessionUser).toHaveBeenCalledWith('123', null);
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: true,

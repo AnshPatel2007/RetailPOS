@@ -9,6 +9,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { can } from '../policies/capabilities';
 import { approvalAction, approvalToken, discountApprovalHash, discountedLines, DISCOUNT_APPROVAL_MINUTES, DISCOUNT_APPROVAL_PATH, hashToken, requestHash } from '../services/managerApproval.service';
 import { verifyTOTPCode } from '../controllers/twoFactor.controller';
+import { roleAtStore } from '../services/organization.service';
 
 const router = Router();
 const schema = z.object({ email: z.string().email(), password: z.string().min(1).max(200), twoFactorCode: z.string().optional(), reason: z.string().trim().min(1).max(500), request: z.object({ method: z.literal('POST'), path: z.string().max(300), body: z.record(z.unknown()) }) });
@@ -49,7 +50,9 @@ router.post('/', asyncHandler(async (req: AuthRequest, res: Response) => {
   const body = schema.parse(req.body);
   const action = approvalAction(body.request.path, body.request.method);
   const manager = await prisma.user.findUnique({ where: { email: body.email.trim().toLowerCase() } });
-  const validManager = manager?.isActive && manager.locationId === req.user!.locationId && can(manager.role, action);
+  // The approver must be able to approve in this store: their role here, home store or not.
+  const managerRole = manager?.isActive && req.user!.locationId ? await roleAtStore(manager.id, req.user!.locationId) : null;
+  const validManager = manager && managerRole && can(managerRole, action);
   if (!validManager || (manager.lockoutUntil && manager.lockoutUntil > new Date())) throw new AppError('Manager verification failed', 403);
   const passwordValid = await bcrypt.compare(body.password, manager.password);
   const secondFactorValid = passwordValid && (!manager.twoFactorEnabled || (!!body.twoFactorCode && await verifyTOTPCode(manager.id, body.twoFactorCode)));

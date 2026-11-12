@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { AuthRequest } from '../types';
 import { AppError } from '../utils/errorHandler';
 import { can, Capability } from '../policies/capabilities';
+import { roleAtStore } from './organization.service';
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -53,8 +54,9 @@ export async function requireTransactionApproval(req: AuthRequest, tx: Prisma.Tr
   if (!approval || approval.consumedAt || approval.expiresAt <= new Date() || approval.cashierId !== req.user.id || approval.locationId !== req.user.locationId || approval.action !== capability || (approval.requestHash !== requestHash(req.method, route, req.body) && !alsoAccept.includes(approval.requestHash))) {
     throw new AppError('Approval expired, was already used, or does not match this action. Request approval again.', 428);
   }
-  const manager = await tx.user.findUnique({ where: { id: approval.managerId }, select: { role: true, locationId: true, isActive: true } });
-  if (!manager?.isActive || manager.locationId !== req.user.locationId || !can(manager.role, capability)) throw new AppError('The approving manager no longer has permission', 403);
+  const manager = await tx.user.findUnique({ where: { id: approval.managerId }, select: { isActive: true } });
+  const managerRole = manager?.isActive && req.user.locationId ? await roleAtStore(approval.managerId, req.user.locationId, tx) : null;
+  if (!managerRole || !can(managerRole, capability)) throw new AppError('The approving manager no longer has permission', 403);
   await tx.managerApproval.update({ where: { id: approval.id }, data: { consumedAt: new Date() } });
   await tx.activityLog.create({ data: { userId: req.user.id, locationId: req.user.locationId, action: 'MANAGER_APPROVAL_USED', entity: 'ManagerApproval', entityId: approval.id, details: { managerId: approval.managerId, cashierId: req.user.id, action: capability, route, reason: approval.reason } } });
   return { id: approval.id, managerId: approval.managerId };
