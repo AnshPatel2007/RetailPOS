@@ -16,6 +16,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ResolveDiscrepancyDialog, DiscrepancyDetail } from '@/components/inventory/ResolveDiscrepancyDialog';
 import { inventoryExceptionService } from '@/services/api';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import { useSearchParams } from 'react-router-dom';
 import { formatCurrency, formatDate, formatEnumLabel } from '@/lib/utils';
 
 type View = 'open' | 'resolved' | 'all' | 'corrections' | 'unmatched';
@@ -64,7 +65,9 @@ const signedMoney = (value: number | string | null) => value === null ? '—' : 
 
 export const InventoryExceptions: React.FC = () => {
   const { locationId, isReadOnly, isSuperAdmin } = useEffectiveLocation();
-  const [view, setView] = useState<View>('open');
+  // A link can open a view directly (the Dashboard's "Match invoices" opens Added Without Invoice).
+  const [params] = useSearchParams();
+  const [view, setView] = useState<View>(() => (['open', 'resolved', 'all', 'corrections', 'unmatched'] as const).find(option => option === params.get('view')) ?? 'open');
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<ExceptionRow[]>([]);
   const [corrections, setCorrections] = useState<CorrectionRow[]>([]);

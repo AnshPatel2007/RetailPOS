@@ -94,7 +94,7 @@ const prisma = new PrismaClient({ datasources: { db: { url: target.toString() } 
   } });
   // Stores of their own for the not-final profit and stock-loss specs, so no other spec's sales,
   // costs or write-offs change the figures they check (profit@example.test, losses@example.test).
-  for (const [name, store] of [['profit', 'Profit Check Store'], ['losses', 'Loss Check Store']]) {
+  for (const [name, store] of [['profit', 'Profit Check Store'], ['losses', 'Loss Check Store'], ['attention', 'Attention Check Store']]) {
     const ownStore = await prisma.location.create({ data: { name: store, address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: name + '-store@example.test', timezone: 'America/Chicago' } });
     const ownUser = await prisma.user.create({ data: { email: name + '@example.test', password, firstName: name, lastName: 'Fixture', role: 'ADMIN', locationId: ownStore.id } });
     await prisma.shift.create({ data: { userId: ownUser.id, locationId: ownStore.id, clockInAt: new Date(), startingCash: 100 } });

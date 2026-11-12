@@ -167,10 +167,14 @@ a designated test recipient before enabling delivery. Set APP_URL to the deploye
 frontend URL so links point to the correct application.
 
 For local development keep BACKGROUND_WORKER_DISABLED=true,
-EMAIL_DELIVERY_WORKER_DISABLED=true, DAILY_DIGEST_DISABLED=true and
+EMAIL_DELIVERY_WORKER_DISABLED=true, OWNER_BRIEF_DISABLED=true and
 BIRTHDAY_EMAILS_DISABLED=true. The first flag disables the durable email, export
-and webhook worker. The second disables the separate digest delivery worker;
-the remaining flags stop the digest and birthday schedulers. Work can be queued
+and webhook worker. The second disables the separate owner-email delivery worker;
+the remaining flags stop the morning brief and birthday schedulers. The morning
+brief goes to each store's owners from OWNER_BRIEF_HOUR (store-local, default 7)
+until noon, once per store day, unless the store turns off "Morning brief email"
+in Settings; OWNER_BRIEF_EMAILS can narrow who receives it. The older names
+DAILY_DIGEST_DISABLED, DAILY_DIGEST_HOUR and DAILY_DIGEST_EMAILS still work. Work can be queued
 while delivery is disabled. Review pending jobs before enabling a worker in a
 configured deployment. NODE_ENV=test also disables the durable worker.
 

@@ -206,9 +206,9 @@ if (config.nodeEnv !== 'test') {
   import('./services/emailDelivery.service').then(({ startEmailDeliveryWorker }) => startEmailDeliveryWorker());
   import('./services/backgroundWorker.service').then(({ startBackgroundWorker }) => startBackgroundWorker());
 
-  // End-of-day digest email (see services/dailyDigest.service.ts)
-  import('./services/dailyDigest.service').then(({ startDailyDigestScheduler }) => {
-    startDailyDigestScheduler();
+  // Morning brief email (see services/ownerBrief.service.ts)
+  import('./services/ownerBrief.service').then(({ startOwnerBriefScheduler }) => {
+    startOwnerBriefScheduler();
   });
 
   // Daily birthday emails (see services/marketing.service.ts)

@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { can } from '@/lib/capabilities';
 import { formatCurrency, formatDate, formatDateTime, formatEnumLabel, formatChartCurrency } from '@/lib/utils';
 import { useInventoryExceptionCount } from '@/hooks/useInventoryExceptionCount';
+import { AttentionList, AttentionReport } from '@/components/common/AttentionList';
 import {
   BarChart,
   Bar,
@@ -105,6 +106,10 @@ const DashboardContent: React.FC = () => {
   const query = useScopedQuery<DashboardMetrics>(['dashboard'], async signal => (await reportService.getDashboard(signal)).data.data);
   const metrics = query.data;
   const exceptionCount = useInventoryExceptionCount(canInventory && user?.role !== 'SUPER_ADMIN');
+  // Owners and managers start the day with what needs attention; owners also see money tiles.
+  const isOwner = user?.role === 'ADMIN';
+  const attention = useScopedQuery<AttentionReport>(['attention'], async signal => (await reportService.getAttention(signal)).data.data, canReports, 60000);
+  const figures = attention.data?.figures;
 
   if (query.loading) {
     return (
@@ -147,6 +152,7 @@ const DashboardContent: React.FC = () => {
         <p>Sales include tax. Refunds and voids come off on the day they happen, so a refund today lowers today&apos;s sales even when the sale was earlier.</p>
         <p>Average sale uses today&apos;s sales before any refunds.</p>
       </AboutNumbers>
+      {canReports && <AttentionList report={attention.data} error={attention.error} onRetry={attention.refresh} />}
       {metrics.historyWarning && <p role="status" className="mb-4 text-sm text-warning">{metrics.historyWarning}</p>}
       {metrics.todayVoidCount > 0 && <p className="mb-4 text-sm text-muted-foreground">{metrics.todayVoidCount} {metrics.todayVoidCount === 1 ? 'sale was' : 'sales were'} voided today ({formatCurrency(metrics.todayVoids)}), already taken out of these totals.</p>}
       <SummaryStrip className="mb-6" items={[
@@ -236,10 +242,18 @@ const DashboardContent: React.FC = () => {
 
       {/* Middle row: secondary stats, one strip; each tile opens its page */}
       <SummaryStrip className="mb-6" items={[
-        { label: 'Customers', value: metrics?.totalCustomers || 0, href: '/customers' },
+        ...(isOwner && figures ? [
+          { label: 'Profit yesterday', value: figures.yesterday.grossProfit === null ? 'Unavailable' : formatCurrency(figures.yesterday.grossProfit),
+            detail: figures.yesterday.grossProfit === null ? 'Needs complete costs' : figures.yesterday.grossMargin === null ? (figures.yesterday.sales ? 'Margin unavailable' : 'No sales yesterday')
+              : `${figures.yesterday.grossMargin}% margin${figures.yesterday.costBasis === 'PROVISIONAL' ? ' · not final' : ''}`,
+            tone: figures.yesterday.grossProfit !== null && figures.yesterday.grossProfit < 0 ? 'danger' as const : 'default' as const, href: '/financial?tab=pnl' },
+          { label: 'Bills due this week', value: formatCurrency(figures.billsDue.amount),
+            detail: figures.billsDue.count ? `${figures.billsDue.count} unpaid${figures.billsDue.overdue ? `, ${figures.billsDue.overdue} overdue` : ''}` : 'Nothing due',
+            tone: figures.billsDue.overdue ? 'danger' as const : 'default' as const, href: '/financial?tab=expenses' },
+        ] : [{ label: 'Customers', value: metrics?.totalCustomers || 0, href: '/customers' }]),
         ...(isManager ? [{ label: 'On shift', value: metrics?.activeEmployees || 0, href: '/shifts' }] : []),
         ...(canInventory ? [
-          { label: 'Products', value: metrics?.totalProducts || 0, href: '/inventory' },
+          ...(isOwner && figures ? [] : [{ label: 'Products', value: metrics?.totalProducts || 0, href: '/inventory' }]),
           { label: 'Stock alerts', value: metrics?.lowStockCount || 0, tone: metrics?.lowStockCount ? 'warning' as const : 'default' as const, href: '/inventory' },
         ] : []),
         ...(canInventory && exceptionCount > 0 ? [{ label: 'Inventory exceptions', value: exceptionCount, detail: 'Sold below recorded stock', tone: 'danger' as const, href: '/inventory/stock-control/exceptions' }] : []),

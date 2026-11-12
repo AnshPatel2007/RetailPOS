@@ -86,6 +86,15 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   Finances > Inventory Costs > Losses (`services/stockLossReport.service.ts`) groups
   real losses by cause at cost and lists paper corrections (wrong product rung up,
   delivery entered late, sold without scanning) apart: those are never counted as loss.
+- **Attention list and morning brief** (`services/attention.service.ts`,
+  `services/ownerBrief.service.ts`): one rule per exported function returns one plain
+  sentence with its amount and the page that fixes it; the Dashboard (owners and
+  managers) and the morning brief email share the list. Every number is computed from
+  records. The brief covers the last complete store day, goes out once per store day
+  from `OWNER_BRIEF_HOUR` (default 07:00 store time) unless Settings > Notifications >
+  "Morning brief email" is off, and its AI paragraph is used only when every number in
+  it appears in the data (`narrativeNumbersSupported`); otherwise the template is sent.
+  Add new attention rules to `attentionRules`, never a number the records cannot back.
 - **Multi-store**: everything is scoped by `locationId`. `SUPER_ADMIN` is the platform
   owner: no store of their own, read-only store preview (`store/adminViewStore.ts`),
   and store writes are denied by the backend.

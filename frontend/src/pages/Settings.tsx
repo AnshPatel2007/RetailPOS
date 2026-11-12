@@ -364,7 +364,7 @@ export const Settings: React.FC = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <Checkbox label="Low stock alerts" checked={notificationSettings.lowStockAlerts} onChange={(e) => setNotificationSettings({ ...notificationSettings, lowStockAlerts: e.target.checked })} />
-            <Checkbox label="End of day reports" checked={notificationSettings.endOfDayReports} onChange={(e) => setNotificationSettings({ ...notificationSettings, endOfDayReports: e.target.checked })} />
+            <Checkbox label="Morning brief email" description="Owners get yesterday's sales and what needs attention, each morning around 7:00" checked={notificationSettings.endOfDayReports} onChange={(e) => setNotificationSettings({ ...notificationSettings, endOfDayReports: e.target.checked })} />
             <Checkbox label="Email notifications" checked={notificationSettings.emailNotifications} onChange={(e) => setNotificationSettings({ ...notificationSettings, emailNotifications: e.target.checked })} />
             <Input
               label="Notification Email"

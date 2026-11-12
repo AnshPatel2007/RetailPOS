@@ -88,10 +88,14 @@ router.get(
   reportController.getStockHealthReport
 );
 
+// What needs the owner's attention today (Dashboard and the morning brief share it).
+router.get('/attention', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), reportController.getAttention);
+
+// "Send brief now": the address predates the morning brief and is kept for saved requests.
 router.post(
   '/daily-digest/send',
   authorize('ADMIN'),
-  reportController.sendDailyDigestNow
+  reportController.sendOwnerBriefNow
 );
 
 router.get(

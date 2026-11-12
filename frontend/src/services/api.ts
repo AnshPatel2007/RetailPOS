@@ -428,6 +428,8 @@ export const reportService = {
 
   getStockHealth: (params?: { days?: number }) => api.get('/reports/stock-health', { params }),
 
+  /** What needs attention at this store today (Dashboard). */
+  getAttention: (signal?: AbortSignal) => api.get('/reports/attention', { signal }),
   sendDailyDigest: (idempotencyKey: string) => api.post('/reports/daily-digest/send', { idempotencyKey }),
   getDigestDeliveries: (page = 1, signal?: AbortSignal) => api.get('/reports/daily-digest/deliveries', { params: { page }, signal }),
   retryDigestDelivery: (id: string, input: { reason: string; confirmedNotDelivered: boolean }) => api.post(`/reports/daily-digest/deliveries/${id}/retry`, input),

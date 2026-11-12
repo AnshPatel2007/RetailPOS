@@ -41,7 +41,7 @@ export function DigestDeliveryControls({ userId, storeId }: { userId: string; st
       const key = localStorage.getItem(storageKey) || crypto.randomUUID(); localStorage.setItem(storageKey, key);
       const result = await reportService.sendDailyDigest(key);
       localStorage.removeItem(storageKey); toast.success(result.data.message); setOpen(true); if (open) await load();
-    } catch { toast.error('The digest could not be confirmed. Retry uses the same request to prevent duplicate emails.'); }
+    } catch { toast.error('The brief could not be confirmed. Retry uses the same request to prevent duplicate emails.'); }
     finally { setBusy(false); }
   };
   const submitRetry = async () => {
@@ -51,9 +51,9 @@ export function DigestDeliveryControls({ userId, storeId }: { userId: string; st
     finally { setBusy(false); }
   };
   return <>
-    <Button variant="outline" disabled={busy} onClick={send}>{busy ? 'Working...' : 'Send Daily Digest'}</Button>
+    <Button variant="outline" disabled={busy} onClick={send}>{busy ? 'Working...' : 'Send Morning Brief'}</Button>
     <Button variant="outline" onClick={() => setOpen(true)}>Delivery History</Button>
-    <div data-auto-refresh={!retry ? 'allow' : undefined}><Modal isOpen={open} onClose={() => { if (!busy) { setOpen(false); setRetry(null); } }} title="Daily digest deliveries" size="lg">
+    <div data-auto-refresh={!retry ? 'allow' : undefined}><Modal isOpen={open} onClose={() => { if (!busy) { setOpen(false); setRetry(null); } }} title="Morning brief deliveries" size="lg">
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">Each email is stored before sending. Provider acceptance does not confirm arrival in the recipient's inbox.</p>
         {error && <div role="alert" className="text-sm text-destructive"><p>{error}</p>{!retry && <Button variant="outline" onClick={updates.refresh}>Retry</Button>}</div>}
@@ -65,7 +65,7 @@ export function DigestDeliveryControls({ userId, storeId }: { userId: string; st
           <div className="flex gap-2"><Button disabled={busy || reason.trim().length < 8 || (retry.status === 'REVIEW' && !confirmed)} onClick={submitRetry}>Queue retry</Button><Button variant="outline" disabled={busy} onClick={() => setRetry(null)}>Back to history</Button></div>
         </div> : <>
           {loading && <p role="status" className="text-sm">Refreshing delivery history...</p>}
-          {!loading && !error && deliveries.length === 0 && <p>No daily digests have been queued for this store.</p>}
+          {!loading && !error && deliveries.length === 0 && <p>No morning briefs have been queued for this store.</p>}
           <div className="space-y-3">{deliveries.map(delivery => <div key={delivery.id} className="rounded-md border border-border p-4 space-y-2">
             <div className="flex flex-wrap justify-between gap-2"><p className="font-medium break-all">{delivery.recipientEmail}</p><p className="text-sm">{statuses[delivery.status]}</p></div>
             <p className="text-sm text-muted-foreground">{delivery.subject}</p><p className="text-xs text-muted-foreground">{formatDateTime(delivery.createdAt)} | Attempts: {delivery.attempts}</p>

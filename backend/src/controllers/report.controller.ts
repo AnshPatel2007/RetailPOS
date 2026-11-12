@@ -11,7 +11,7 @@ import { sendSalesReportPdf } from '../services/salesReportPdf.service';
 import { Response } from 'express';
 import { getReportCalendar, getReportRange } from '../services/reportDates.service';
 import { getProductFinancialMetrics } from '../services/financialMetrics.service';
-import { asyncHandler } from '../utils/errorHandler';
+import { asyncHandler, AppError } from '../utils/errorHandler';
 import prisma from '../config/database';
 import { SaleStatus, ExpenseStatus, Prisma } from '@prisma/client';
 import { AuthRequest } from '../types';
@@ -742,23 +742,34 @@ export const getStockHealthReport = asyncHandler(async (req: AuthRequest, res: R
 });
 
 /**
- * Send the end-of-day digest email now (also returns the narrative for preview)
+ * What needs attention at this store today, one sentence each.
+ * GET /api/reports/attention
+ */
+export const getAttention = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const scope = getLocationFilter(req, req.query.locationId as string);
+  if (!scope.locationId) throw new AppError('Select a store', 400);
+  const { collectAttention } = await import('../services/attention.service');
+  res.json({ success: true, data: await collectAttention(scope.locationId, new Date(), req.user!.role) });
+});
+
+/**
+ * Send the morning brief email now (also returns the narrative for preview)
  * POST /api/reports/daily-digest/send
  */
-export const sendDailyDigestNow = asyncHandler(async (req: AuthRequest, res: Response) => {
+export const sendOwnerBriefNow = asyncHandler(async (req: AuthRequest, res: Response) => {
   // Imported lazily so test runs don't construct the Anthropic client path eagerly
-  const { sendDailyDigest } = await import('../services/dailyDigest.service');
+  const { sendOwnerBrief } = await import('../services/ownerBrief.service');
   const scope = getLocationFilter(req, req.query.locationId as string);
   const { idempotencyKey } = z.object({ idempotencyKey: z.string().uuid() }).parse(req.body);
-  const result = await sendDailyDigest(scope.locationId!, idempotencyKey);
+  const result = await sendOwnerBrief(scope.locationId!, idempotencyKey);
 
   res.json({
     success: true,
     data: result,
     message:
       result.recipients.length > 0
-        ? 'Digest queued. Check delivery history for provider status.'
-        : 'No recipients configured — set DAILY_DIGEST_EMAILS or add admin users',
+        ? 'Morning brief queued. Check delivery history for provider status.'
+        : 'No recipients: add an active owner to this store, or check OWNER_BRIEF_EMAILS',
   });
 });
 
