@@ -24,6 +24,13 @@ router.use(authenticate);
 router.get('/', supplierController.getSuppliers);
 
 /**
+ * Credits suppliers owe the store (above /:id so "credits" is not read as an id)
+ */
+router.get('/credits', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), supplierController.listCredits);
+router.post('/credits', authorize('ADMIN', 'MANAGER'), supplierController.createCredit);
+router.post('/credits/:id/settle', authorize('ADMIN', 'MANAGER'), supplierController.settleCredit);
+
+/**
  * Get supplier by ID
  */
 router.get('/:id', supplierController.getSupplier);

@@ -9,7 +9,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 test('a delivery scanned on a phone updates stock and cost, after a shelf count of the low item', async ({ page }) => {
   await login(page, 'receive@example.test');
   const headers = await auth(page), stamp = Date.now();
-  const call = async (method: 'get' | 'post', path: string, data?: object) => {
+  const call = async (method: 'get' | 'post' | 'put', path: string, data?: object) => {
     const response = await page.request[method]('/api' + path, { headers, ...(data ? { data } : {}) });
     expect(response.ok(), `${path}: ${await response.text()}`).toBe(true);
     return (await response.json()).data;
@@ -26,6 +26,8 @@ test('a delivery scanned on a phone updates stock and cost, after a shelf count 
   await call('post', `/products/${cola.id}/selling-units`, { name: '12-pack', barcode: colaPack, unitsPerPackage: 12, price: 12 });
   // The supplier now charges $14.40 for a case of 24: $0.60 each, up from $0.50.
   await call('post', `/suppliers/${supplier.id}/products`, { productId: lemon.id, packSize: 24, packCost: 14.4, packBarcode: lemonCase });
+  // The store aims for a 60% margin, so a cost rise suggests a new price.
+  await call('put', '/pricing/rules', { scope: 'STORE', targetMargin: 0.6, rounding: 'CENT' });
 
   await page.goto('/inventory/purchasing/receive');
   await expect(page.getByRole('link', { name: 'Receive Delivery' })).toHaveAttribute('aria-current', 'page');
@@ -78,6 +80,10 @@ test('a delivery scanned on a phone updates stock and cost, after a shelf count 
   // The shelf count went in first, so the review starts from the counted 2.
   await expect(page.getByRole('row').filter({ hasText: cola.sku })).toContainText('2 → 26');
   await expect(page.getByRole('row').filter({ hasText: lemon.sku })).toContainText('40 → 88');
+  // The cost rise is flagged with the margin it leaves and the price that meets the target.
+  const costChanges = page.getByRole('region', { name: 'Cost changes (1 up 3% or more)' });
+  await expect(costChanges.getByRole('listitem')).toHaveText([`Lemon Can ${stamp}: $0.50 → $0.60 (+20%), margin 52.0% at $1.25, target 60.0%, suggested $1.50`]);
+  await expect(costChanges.getByRole('link', { name: 'Open Price Review' })).toHaveAttribute('href', '/inventory/purchasing/price-review');
   await page.getByRole('button', { name: 'Save delivery' }).click();
   await expect(page.getByText('Delivery saved')).toBeVisible();
   await expect(page.getByText('2 items received (2 existing, 0 new). Stock and costs are updated.')).toBeVisible();

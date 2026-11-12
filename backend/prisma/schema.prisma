@@ -504,9 +504,33 @@ model Supplier {
   updatedAt      DateTime          @updatedAt
   products       ProductSupplier[]
   purchaseOrders PurchaseOrder[]
+  credits        SupplierCredit[]
 
   @@index([locationId])
   @@map("suppliers")
+}
+
+/// Money a supplier owes the store: damaged or rejected goods they billed for,
+/// returns, shortages and price corrections. Settled when the credit arrives or
+/// is written off.
+model SupplierCredit {
+  id          String    @id @default(uuid())
+  locationId  String
+  supplierId  String
+  receiptId   String?
+  reason      String // DAMAGED | REJECTED | SHORT | PRICE | RETURN | OTHER
+  amount      Decimal   @db.Decimal(14, 2)
+  status      String    @default("OPEN") // OPEN | RECEIVED | WRITTEN_OFF
+  notes       String?
+  createdById String
+  createdAt   DateTime  @default(now())
+  settledAt   DateTime?
+  settledById String?
+  supplier    Supplier  @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+
+  @@index([locationId, status])
+  @@index([supplierId])
+  @@map("supplier_credits")
 }
 
 model ProductSupplier {
@@ -605,6 +629,8 @@ model PurchaseReceiptItem {
   sellingUnitName String?
   receivedPackageQuantity Int @default(0)
   unitCost Decimal? @db.Decimal(24, 8)
+  /// The item's cost price before this delivery (null on older receipts).
+  previousUnitCost Decimal? @db.Decimal(24, 8)
   packSize Int @default(1)
   lineDiscount Decimal @default(0) @db.Decimal(14, 2)
   allocatedCharges Decimal @default(0) @db.Decimal(14, 2)

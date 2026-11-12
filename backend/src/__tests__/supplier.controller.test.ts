@@ -19,6 +19,10 @@ jest.mock('../config/database', () => ({
     product: {
       findUnique: jest.fn(),
     },
+    // No supplier here has credits on record, so deleting is allowed.
+    supplierCredit: {
+      count: jest.fn().mockResolvedValue(0),
+    },
     productSupplier: {
       findUnique: jest.fn(),
       create: jest.fn(),

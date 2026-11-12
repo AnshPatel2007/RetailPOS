@@ -30,12 +30,16 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
   const [charges, setCharges] = useState({ freight: String(pending?.freight || 0), acquisitionTax: String(pending?.acquisitionTax || 0), invoiceDiscount: String(pending?.invoiceDiscount || 0) });
   const [notes, setNotes] = useState(pending?.notes || '');
   const [finalDelivery, setFinalDelivery] = useState(pending?.finalDelivery || false);
+  // Unset follows the invoice number: an invoice that lists the goods usually charged for them.
+  const [billedOverride, setBilledOverride] = useState<boolean | null>(pending?.supplierBilledForProblems ?? null);
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
   const [error, setError] = useState('');
   const totalRemaining = (order.items || []).reduce((sum, item) => sum + outstandingQuantity(item), 0);
   const counted = lines.reduce((sum, line) => sum + Number(line.quantity) + Number(line.damagedQty) + Number(line.rejectedQty), 0);
   const missing = Math.max(0, totalRemaining - counted);
+  const hasProblems = lines.some(line => Number(line.damagedQty) > 0 || Number(line.rejectedQty) > 0);
+  const billed = billedOverride ?? !!invoiceNumber.trim();
 
   const save = async () => {
     if (submitting.current) return;
@@ -62,7 +66,8 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
       }
       payload = { idempotencyKey: crypto.randomUUID(), receivedItems, notes: notes.trim(), finalDelivery,
         invoiceNumber: invoiceNumber.trim() || undefined, invoiceDate: invoiceDate ? invoiceDate + 'T12:00:00.000Z' : undefined,
-        freight: Number(charges.freight), acquisitionTax: Number(charges.acquisitionTax), invoiceDiscount: Number(charges.invoiceDiscount) };
+        freight: Number(charges.freight), acquisitionTax: Number(charges.acquisitionTax), invoiceDiscount: Number(charges.invoiceDiscount),
+        ...(hasProblems ? { supplierBilledForProblems: billed } : {}) };
       try { localStorage.setItem(storageKey, JSON.stringify(payload)); }
       catch { setError('This browser cannot preserve a safe retry. Allow local storage before recording the delivery.'); return; }
       setPending(payload);
@@ -111,6 +116,8 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
         </div>)}
         <div className="grid gap-3 sm:grid-cols-3">{(['freight','acquisitionTax','invoiceDiscount'] as const).map((field, index) => <Input key={field} label={['Freight','Nonrecoverable acquisition tax','Invoice discount'][index]} type="number" min={0} step="0.01" value={charges[field]} onChange={e => setCharges(old => ({ ...old, [field]: e.target.value }))} />)}</div>
         <p className="text-xs text-muted-foreground">Invoice charges apply to accepted merchandise and are allocated by its value. Invoice and payment dates do not change the stock receipt date.</p>
+        {hasProblems && <Checkbox label="The invoice charged for the damaged or rejected items" checked={billed} onChange={e => setBilledOverride(e.target.checked)}
+          description="The supplier then owes a credit for them, listed under Purchasing > Credits Owed." />}
         <Checkbox label="Close the order after this delivery, including any missing units" checked={finalDelivery} onChange={e => setFinalDelivery(e.target.checked)} />
         {finalDelivery && missing > 0 && <p className="text-sm text-warning">{missing} missing units will remain documented. They will not be added to stock.</p>}
         <label className="block text-sm font-medium">Delivery notes / discrepancy reason<textarea className="mt-1 block min-h-[80px] w-full rounded-md border border-input bg-background p-3 text-sm" value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} /></label>

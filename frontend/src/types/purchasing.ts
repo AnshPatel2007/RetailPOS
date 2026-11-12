@@ -23,6 +23,8 @@ export interface PurchaseReceiptRequest {
   receivedItems: Array<{ purchaseOrderItemId: string; quantity: number; damagedQty: number; rejectedQty: number; unitCost?: number; packSize?: number; lineDiscount?: number; zeroCostConfirmed?: boolean; sellingUnitId?: string; packQuantity?: number }>;
   notes: string;
   finalDelivery: boolean;
+  /** The invoice still charged for damaged or rejected goods: the supplier owes a credit. */
+  supplierBilledForProblems?: boolean;
 }
 
 export interface PurchaseReceipt {

@@ -67,6 +67,7 @@ const pageViews: (NavLink & { within: string })[] = [
   { within: 'Purchasing', name: 'Suppliers', href: '/inventory/purchasing/suppliers', icon: Truck, roles: MANAGERS, keywords: 'vendors distributors' },
   { within: 'Purchasing', name: 'Reorder suggestions', href: '/inventory/purchasing/suggestions', icon: Truck, roles: MANAGERS, keywords: 'low stock reorder' },
   { within: 'Purchasing', name: 'Price review', href: '/inventory/purchasing/price-review', icon: Truck, roles: MANAGERS, keywords: 'cost change margin' },
+  { within: 'Purchasing', name: 'Credits owed', href: '/inventory/purchasing/credits', icon: Truck, roles: MANAGERS, keywords: 'supplier credit damaged rejected return refund owed' },
   { within: 'Stock Control', name: 'Stock exceptions', href: STOCK_CONTROL + '/exceptions', icon: ArrowLeftRight, roles: MANAGERS, keywords: 'negative stock oversold' },
   { within: 'Stock Control', name: 'Stock counts', href: STOCK_CONTROL + '/counts', icon: ArrowLeftRight, roles: MANAGERS, keywords: 'cycle count physical count' },
   { within: 'Stock Control', name: 'Transfers', href: STOCK_CONTROL + '/transfers', icon: ArrowLeftRight, roles: MANAGERS, keywords: 'move stock between stores' },

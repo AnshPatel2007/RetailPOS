@@ -124,6 +124,15 @@ replace them. Integration tests exercise them.
 
 ## Recent changes
 
+- **`20261112010000_supplier_credits` (2026-11-12).** Purely additive. New nullable
+  column `purchase_receipt_items.previousUnitCost` (the item's cost price before that
+  delivery; older receipt lines stay `NULL`, not known) and new table
+  `supplier_credits` (money a supplier owes: damaged or rejected goods an invoice
+  charged for, returns, shortages, price corrections; `OPEN` until `RECEIVED` or
+  `WRITTEN_OFF`), with a foreign key to `suppliers` that blocks deleting a supplier
+  that has credits. No triggers, no backfill. The app needs it: this version's Prisma
+  client writes both. Not yet applied to the store database (Phase 4 checkpoint).
+
 - **`20261112000000_organizations_store_access` (2026-11-12).** Multi-store owners,
   data only. New tables `organizations`, `organization_owners` and
   `user_store_access`; new nullable columns `locations.organizationId` and

@@ -86,6 +86,17 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   Finances > Inventory Costs > Losses (`services/stockLossReport.service.ts`) groups
   real losses by cause at cost and lists paper corrections (wrong product rung up,
   delivery entered late, sold without scanning) apart: those are never counted as loss.
+- **Cost changes and supplier credits**: receiving stores each line's previous cost
+  (`purchase_receipt_items.previousUnitCost`, read in `receiveOrder` before
+  `receiveStock` changes the item's cost; a receipt import must not write the cost
+  first). The receipt review (`previewInventoryImport`, kind RECEIPT) returns a
+  `costReview` per changed line: before/after, percent, margin at today's price and the
+  target-margin suggestion; rises of at least `purchasing.costChangeAlertPercent`
+  (Settings > Pricing, default 3) are flagged. `services/supplierCredit.service.ts`:
+  damaged/rejected goods the invoice charged for (`supplierBilledForProblems`, assumed
+  when an invoice number is entered) and supplier returns create OPEN credits;
+  Purchasing > Credits Owed records and settles them once (RECEIVED or WRITTEN_OFF).
+  Credits never change stock or inventory value.
 - **Attention list and morning brief** (`services/attention.service.ts`,
   `services/ownerBrief.service.ts`): one rule per exported function returns one plain
   sentence with its amount and the page that fixes it; the Dashboard (owners and

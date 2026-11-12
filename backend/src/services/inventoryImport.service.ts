@@ -9,6 +9,8 @@ import { resolveWriteLocation } from '../utils/locationFilter.util';
 import { parseProductCsv } from '../utils/productCsv';
 import { lockInventory, moveInventory } from './inventory.service';
 import { receiveOrder } from './purchaseReceiving.service';
+import { pickRule, priceMetrics, Rounding, storeRules, suggestPrice } from './pricing.service';
+import { costChangeAlertPercent } from '../validators/storeSettings.validator';
 
 const money = z.number().finite().min(0).max(1_000_000);
 const fields = z.object({ sku: z.string().trim().min(1).max(100), name: z.string().trim().min(1).max(250).optional(),
@@ -18,10 +20,34 @@ const fields = z.object({ sku: z.string().trim().min(1).max(100), name: z.string
 type Fields = z.infer<typeof fields>;
 type Row = { number: number; data: Fields; productId: string | null; fingerprint: string | null; previousStock: number; nextStock: number; changes: { field: string; before: unknown; after: unknown }[] };
 type Payload = { rows: Row[]; supplier?: string; invoiceNumber?: string; purchaseOrderId?: string; invoiceDate?: string; notes?: string;
-  freight?: number; acquisitionTax?: number; invoiceDiscount?: number; receiptLines?: { packSize: number; sellingUnitId?: string; receivedPackageQuantity?: number; lineDiscount: number; damagedQty: number; rejectedQty: number; zeroCostConfirmed: boolean }[] };
+  supplierBilledForProblems?: boolean; freight?: number; acquisitionTax?: number; invoiceDiscount?: number; receiptLines?: { packSize: number; sellingUnitId?: string; receivedPackageQuantity?: number; lineDiscount: number; damagedQty: number; rejectedQty: number; zeroCostConfirmed: boolean }[] };
 const fingerprint = (p: Product) => createHash('sha256').update(JSON.stringify(p)).digest('hex');
 const asJson = (input: unknown) => JSON.parse(JSON.stringify(input)) as Prisma.InputJsonValue;
 const boolean = (input: string) => input === 'true' ? true : input === 'false' ? false : input;
+
+/**
+ * For each existing item on a delivery whose unit cost changed: before and
+ * after, the change in percent, the margin at today's price with the new cost,
+ * and the price the item's target-margin rule suggests. Rises of at least the
+ * store's alert percent (default 3) are flagged.
+ */
+async function reviewCosts(locationId: string, rows: Row[], products: Product[]) {
+  const [location, rules] = await Promise.all([prisma.location.findUnique({ where: { id: locationId }, select: { settings: true } }), storeRules(prisma, locationId)]);
+  const alertPercent = costChangeAlertPercent(location?.settings);
+  return { alertPercent, reviews: new Map(rows.flatMap(row => {
+    const product = products.find(candidate => candidate.id === row.productId);
+    if (!product || row.data.cost === undefined) return [];
+    const previous = new Prisma.Decimal(product.cost).toDecimalPlaces(4), next = new Prisma.Decimal(row.data.cost).toDecimalPlaces(4);
+    if (previous.equals(next)) return [];
+    const percentChange = previous.isZero() ? null : Number(next.minus(previous).div(previous).mul(100).toDecimalPlaces(1));
+    const picked = pickRule(rules, { productId: product.id, categoryId: product.categoryId, brand: product.brand });
+    const suggested = picked ? suggestPrice(next, picked.rule.targetMargin, picked.rule.rounding as Rounding) : null;
+    return [[row.number, { name: product.name, previousUnitCost: Number(previous), unitCost: Number(next), percentChange, price: Number(product.price),
+      margin: priceMetrics(product.price, next).margin, targetMargin: picked ? Number(picked.rule.targetMargin) : null,
+      suggestedPrice: suggested && suggested.price > Number(product.price) ? suggested.price : null,
+      flagged: percentChange !== null && percentChange >= alertPercent }]] as const;
+  })) };
+}
 
 export async function previewInventoryImport(req: AuthRequest, kind: 'CSV' | 'RECEIPT') {
   const locationId = resolveWriteLocation(req);
@@ -41,7 +67,7 @@ export async function previewInventoryImport(req: AuthRequest, kind: 'CSV' | 'RE
     });
   } else {
     const body = z.object({ supplier: z.string().trim().max(250).optional(), invoiceNumber: z.string().trim().max(100).optional(),
-      purchaseOrderId: z.string().min(1).optional(), invoiceDate: z.string().datetime().optional(),
+      purchaseOrderId: z.string().min(1).optional(), invoiceDate: z.string().datetime().optional(), supplierBilledForProblems: z.boolean().optional(),
       notes: z.string().trim().max(2000).optional(),
       freight: money.default(0), acquisitionTax: money.default(0), invoiceDiscount: money.default(0),
       items: z.array(z.object({ matchedProductId: z.string().min(1).nullish(), name: z.string().trim().min(1).max(250),
@@ -69,6 +95,7 @@ export async function previewInventoryImport(req: AuthRequest, kind: 'CSV' | 'RE
       return { ...item, matchedProductId: format?.productId ?? item.matchedProductId, sellingUnitId: format?.id ?? item.sellingUnitId };
     });
     receiptDetails = { purchaseOrderId: body.purchaseOrderId, invoiceDate: body.invoiceDate, freight: body.freight, notes: body.notes,
+      supplierBilledForProblems: body.supplierBilledForProblems,
       acquisitionTax: body.acquisitionTax, invoiceDiscount: body.invoiceDiscount,
       receiptLines: resolved.map(i => ({ packSize: i.packSize, sellingUnitId: i.sellingUnitId, receivedPackageQuantity: i.receivedPackageQuantity ?? 0, lineDiscount: i.lineDiscount, damagedQty: i.damagedQty, rejectedQty: i.rejectedQty, zeroCostConfirmed: i.zeroCostConfirmed })) };
     const matched = await prisma.product.findMany({ where: { locationId, id: { in: resolved.map(i => i.matchedProductId).filter((id): id is string => !!id) } } });
@@ -113,8 +140,11 @@ export async function previewInventoryImport(req: AuthRequest, kind: 'CSV' | 'RE
       changes: Object.entries(row.data).filter(([key, value]) => key !== 'sku' && (key === 'stockQuantity' ? nextStock !== previousStock : !current || Number(current[key as keyof Product]) !== value))
         .map(([key, value]) => ({ field: key, before: Number(current ? current[key as keyof Product] : null), after: key === 'stockQuantity' ? nextStock : value })) };
   });
-  if (errors.length) return { id: null, errors, rows, total: input.length, created: 0, updated: 0 };
-  const preview = { rows, total: rows.length, created: rows.filter(r => !r.productId).length, updated: rows.filter(r => r.productId).length, errors: [] };
+  const costs = kind === 'RECEIPT' ? await reviewCosts(locationId, rows, existing) : null;
+  const shown = rows.map(row => ({ ...row, costReview: costs?.reviews.get(row.number) ?? null }));
+  const costAlertPercent = costs?.alertPercent ?? null;
+  if (errors.length) return { id: null, errors, rows: shown, total: input.length, created: 0, updated: 0, costAlertPercent };
+  const preview = { rows: shown, total: rows.length, created: rows.filter(r => !r.productId).length, updated: rows.filter(r => r.productId).length, errors: [], costAlertPercent };
   const record = await prisma.inventoryImport.create({ data: { locationId, userId: req.user!.id, kind,
     payload: asJson({ rows, supplier, invoiceNumber, ...receiptDetails }), preview: asJson(preview), expiresAt: new Date(Date.now() + 15 * 60000) } });
   return { ...preview, id: record.id, expiresAt: record.expiresAt, kind };
@@ -140,22 +170,28 @@ export async function applyInventoryImport(req: AuthRequest) {
       supplierId = supplier?.id || (await tx.supplier.create({ data: { name, locationId } })).id;
     }
     const items: { id: string; sku: string; action: string; previousStock: number; stockQuantity: number }[] = [];
+    const names = new Map<string, string>();
     for (const row of [...payload.rows].sort((a, b) => a.data.sku.localeCompare(b.data.sku))) {
       let product = await tx.product.findFirst({ where: { locationId, sku: row.data.sku } });
       if (row.productId ? !product || product.id !== row.productId || fingerprint(product) !== row.fingerprint : !!product) throw new AppError(`Row ${row.number}: ${row.data.sku} changed since preview. Review the import again.`, 409);
       if (row.data.categoryId && !await tx.category.findFirst({ where: { id: row.data.categoryId, locationId } })) throw new AppError(`Row ${row.number}: category is no longer available`, 409);
       if (row.data.barcode && await tx.product.findFirst({ where: { locationId, barcode: row.data.barcode, ...(product ? { id: { not: product.id } } : {}) } })) throw new AppError(`Row ${row.number}: barcode is no longer available`, 409);
       if (row.data.barcode && await tx.productSellingUnit.findFirst({ where: { locationId, barcode: row.data.barcode } })) throw new AppError(`Row ${row.number}: barcode belongs to a linked package. Review the import again.`, 409);
-      const { stockQuantity: _stock, ...updates } = row.data;
+      const { stockQuantity: _stock, ...fields } = row.data;
+      // On a receipt the new cost reaches an existing item through receiveOrder, which first records its previous cost.
+      const { cost: _receiptCost, ...withoutCost } = fields;
+      const updates = record.kind === 'RECEIPT' && product ? withoutCost : fields;
       if (product && updates.trackInventory !== undefined && updates.trackInventory !== product.trackInventory &&
         (product.stockQuantity !== 0 || await tx.inventoryValueEntry.count({ where: { productId: product.id } })))
         throw new AppError(`Row ${row.number}: stock tracking cannot change after inventory activity; archive the product instead.`, 409);
       const previousVersion = product?.stockVersion;
       product = product ? await tx.product.update({ where: { id: product.id }, data: updates })
-        : await tx.product.create({ data: { ...updates, name: updates.name!, price: updates.price!, cost: updates.cost || 0, locationId, stockQuantity: 0 } });
+        : await tx.product.create({ data: { ...updates, name: updates.name!, price: updates.price!, cost: fields.cost || 0, locationId, stockQuantity: 0 } });
       if (record.kind === 'CSV' && row.nextStock !== product.stockQuantity) product = await moveInventory(tx, { productId: product.id, locationId, userId: req.user!.id,
         type: 'IMPORT', reason: 'STOCK_FILE_IMPORT', sourceId: id, setQuantity: row.nextStock, expectedVersion: previousVersion, notes: 'Reviewed CSV import' });
-      if (supplierId) await tx.productSupplier.upsert({ where: { productId_supplierId: { productId: product.id, supplierId } }, create: { productId: product.id, supplierId, cost: product.cost }, update: { cost: product.cost } });
+      const supplierCost = record.kind === 'RECEIPT' && row.data.cost !== undefined ? row.data.cost : product.cost;
+      if (supplierId) await tx.productSupplier.upsert({ where: { productId_supplierId: { productId: product.id, supplierId } }, create: { productId: product.id, supplierId, cost: supplierCost }, update: { cost: supplierCost } });
+      names.set(product.id, product.name);
       items.push({ id: product.id, sku: product.sku, action: row.productId ? 'updated' : 'created', previousStock: row.previousStock, stockQuantity: product.stockQuantity });
     }
     let purchaseReceipt: unknown;
@@ -170,11 +206,11 @@ export async function applyInventoryImport(req: AuthRequest) {
           status: 'ORDERED', orderedAt: new Date(), notes: 'Reviewed invoice import', totalAmount: payload.rows.reduce((sum, row) => sum + (row.data.cost || 0) * (row.nextStock - row.previousStock), 0),
           items: { create: payload.rows.map((row, index) => { const product = items.find(i => i.sku === row.data.sku)!; const details = payload.receiptLines?.[index];
             const quantity = row.nextStock - row.previousStock + (details?.damagedQty || 0) + (details?.rejectedQty || 0);
-            return { productId: product.id, sku: row.data.sku, productName: row.data.name || row.data.sku, quantity, cost: row.data.cost || 0, total: quantity * (row.data.cost || 0) }; }) } } });
+            return { productId: product.id, sku: row.data.sku, productName: names.get(product.id) || row.data.name || row.data.sku, quantity, cost: row.data.cost || 0, total: quantity * (row.data.cost || 0) }; }) } } });
         orderId = order.id;
       }
       purchaseReceipt = await receiveOrder(tx, { ...req, user: req.user, params: { ...req.params, id: orderId }, body: {
-        idempotencyKey: id, invoiceNumber: payload.invoiceNumber || undefined, invoiceDate: payload.invoiceDate,
+        idempotencyKey: id, invoiceNumber: payload.invoiceNumber || undefined, invoiceDate: payload.invoiceDate, supplierBilledForProblems: payload.supplierBilledForProblems,
         freight: payload.freight, acquisitionTax: payload.acquisitionTax, invoiceDiscount: payload.invoiceDiscount,
         notes: payload.notes || 'Reviewed invoice import ' + (payload.invoiceNumber || id),
         receivedItems: payload.rows.map((row, index) => { const details = payload.receiptLines?.[index]; return {

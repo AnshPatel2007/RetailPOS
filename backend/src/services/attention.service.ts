@@ -13,6 +13,7 @@ import { getReportCalendar } from './reportDates.service';
 import { priceReview } from './pricing.service';
 import { listUnmatched } from './stockCorrection.service';
 import { salesAnomalies } from './inventoryAnalytics.service';
+import { costChangeAlertPercent } from '../validators/storeSettings.validator';
 
 export type Severity = 'high' | 'medium' | 'low';
 export interface Finding {
@@ -163,9 +164,42 @@ export const jobFailures: AttentionRule = async ({ locationId, now }) => {
     sentence: `${count} ${plural(count, 'email or export', 'emails or exports')} did not go through this week and ${plural(count, 'needs', 'need')} a look.` };
 };
 
+/** Credits suppliers still owe the store; those older than 30 days make it more urgent. */
+export const supplierCreditsOutstanding: AttentionRule = async ({ locationId, now }) => {
+  const open = await prisma.supplierCredit.findMany({ where: { locationId, status: 'OPEN' }, select: { amount: true, createdAt: true } });
+  if (!open.length) return null;
+  const amount = money(open.reduce((sum, credit) => sum + Number(credit.amount), 0));
+  const cutoff = new Date(now.getTime() - 30 * 86400000);
+  const old = money(open.filter(credit => credit.createdAt < cutoff).reduce((sum, credit) => sum + Number(credit.amount), 0));
+  return { key: 'supplier-credits', severity: old ? 'medium' : 'low', count: open.length, amount, href: '/inventory/purchasing/credits',
+    sentence: `Suppliers owe you ${usd(amount)} in ${open.length} ${plural(open.length, 'credit')}` + (old ? `; ${usd(old)} of it is more than 30 days old.` : '.') };
+};
+
+/** Items whose unit cost rose by at least the store's alert percent on a delivery in the last seven days. */
+export const costsWentUp: AttentionRule = async ({ locationId, now }) => {
+  const [location, lines] = await Promise.all([
+    prisma.location.findUnique({ where: { id: locationId }, select: { settings: true } }),
+    prisma.purchaseReceiptItem.findMany({ where: { previousUnitCost: { gt: 0 }, unitCost: { not: null },
+      receipt: { createdAt: { gte: new Date(now.getTime() - 7 * 86400000) }, purchaseOrder: { locationId } } },
+    select: { previousUnitCost: true, unitCost: true, purchaseOrderItem: { select: { productId: true, productName: true } } } }),
+  ]);
+  const alert = costChangeAlertPercent(location?.settings);
+  const rises = new Map<string, { name: string; percent: number }>();
+  for (const line of lines) {
+    const percent = Math.round((Number(line.unitCost) - Number(line.previousUnitCost)) / Number(line.previousUnitCost) * 1000) / 10;
+    const item = line.purchaseOrderItem;
+    if (percent >= alert && percent > (rises.get(item.productId)?.percent ?? -Infinity)) rises.set(item.productId, { name: item.productName, percent });
+  }
+  if (!rises.size) return null;
+  const top = [...rises.values()].sort((a, b) => b.percent - a.percent || a.name.localeCompare(b.name))[0];
+  return { key: 'costs-went-up', severity: 'medium', count: rises.size, href: '/inventory/purchasing/price-review',
+    sentence: rises.size === 1 ? `${top.name} cost ${top.percent}% more on a delivery this week. Check its price.`
+      : `${rises.size} items cost more on deliveries this week, up to ${top.percent}% (${top.name}). Check their prices.` };
+};
+
 /** Shown in this order within one severity. Later packages append their rules here. */
 export const attentionRules: AttentionRule[] = [stockExceptions, profitNotConfirmed, drawerDifferences, pricesBelowTarget, billsDueSoon,
-  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay];
+  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding];
 const rank: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
 /**

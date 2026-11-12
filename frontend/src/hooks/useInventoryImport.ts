@@ -4,10 +4,17 @@ import { useAuthStore } from '@/store/authStore';
 import { sessionGeneration } from '@/services/sessionGeneration';
 import { cashOperationRejected } from '@/services/pendingCashOperation';
 
+/** A receipt line whose unit cost changed: margin at today's price and the target-margin suggestion. */
+export interface CostReview {
+  name: string; previousUnitCost: number; unitCost: number; percentChange: number | null; price: number;
+  margin: number | null; targetMargin: number | null; suggestedPrice: number | null; flagged: boolean;
+}
 export interface ImportPreview {
   id: string | null; total: number; created: number; updated: number; errors: string[];
   rows: { number: number; data: { sku: string; name?: string }; productId: string | null; previousStock: number; nextStock: number;
-    changes: { field: string; before: unknown; after: unknown }[] }[];
+    changes: { field: string; before: unknown; after: unknown }[]; costReview?: CostReview | null }[];
+  /** Receipts: rises of at least this percent are flagged. */
+  costAlertPercent?: number | null;
 }
 export function useInventoryImport(kind: 'CSV' | 'RECEIPT', onSuccess: () => void, open: boolean) {
   const user = useAuthStore(state => state.user);

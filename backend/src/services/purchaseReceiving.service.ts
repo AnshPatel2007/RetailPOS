@@ -7,6 +7,7 @@ import { lockInventory } from './inventory.service';
 import { allocateReceiptCosts, receiveStock } from './receiptCost.service';
 import { receivePurchaseOrderSchema } from '../validators/supplier.validator';
 import { receiveSealedPackages } from './productSellingUnit.service';
+import { creditReceiptProblems } from './supplierCredit.service';
 
 export async function lockPurchaseOrder(tx: Prisma.TransactionClient, req: AuthRequest) {
   await tx.$queryRaw`SELECT id FROM purchase_orders WHERE id = ${req.params.id} FOR UPDATE`;
@@ -93,6 +94,8 @@ export async function receiveOrder(tx: Prisma.TransactionClient, req: AuthReques
       sellingUnitId: line.sellingUnit?.id, sellingUnitName: line.sellingUnit?.name, receivedPackageQuantity: line.receivedPackageQuantity,
       allocatedCharges: costs.find(cost => cost.id === line.item.id)!.allocatedCharges,
       inventoryValue: costs.find(cost => cost.id === line.item.id)!.inventoryValue,
+      // Read before receiveStock overwrites it below: what the item cost until this delivery.
+      previousUnitCost: productMap.get(line.item.productId)!.cost,
     })) },
   }, include: { items: true } });
   for (const line of [...lines].sort((a, b) => a.item.productId.localeCompare(b.item.productId))) {
@@ -113,6 +116,9 @@ export async function receiveOrder(tx: Prisma.TransactionClient, req: AuthReques
       receivedQty: { increment: line.acceptedQty }, damagedQty: { increment: line.damagedQty }, rejectedQty: { increment: line.rejectedQty },
     } });
   }
+  if (body.supplierBilledForProblems ?? !!body.invoiceNumber) await creditReceiptProblems(tx, { locationId: order.locationId, supplierId: order.supplierId,
+    receiptId: receipt.id, userId: req.user!.id, lines: lines.map(line => ({ productName: line.item.productName, damagedQty: line.damagedQty,
+      rejectedQty: line.rejectedQty, unitCost: costs.find(cost => cost.id === line.item.id)!.unitCost })) });
   const status = finalDelivery ? 'RECEIVED' : 'PARTIALLY_RECEIVED';
   await tx.purchaseOrder.update({ where: { id: order.id }, data: { status, receivedAt: finalDelivery ? new Date() : null } });
   await tx.activityLog.create({ data: { userId: req.user!.id, locationId: order.locationId, action: 'PURCHASE_RECEIVED', entity: 'PurchaseReceipt', entityId: receipt.id, details: { orderId: order.id, finalDelivery, remaining: remainingAfter } } });

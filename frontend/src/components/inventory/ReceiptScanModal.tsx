@@ -78,6 +78,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
   const [purchaseOrderId, setPurchaseOrderId] = useState(''), [invoiceDate, setInvoiceDate] = useState('');
   const [charges, setCharges] = useState({ freight: '0', acquisitionTax: '0', invoiceDiscount: '0' });
   const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [billedOverride, setBilledOverride] = useState<boolean | null>(null);
   const orders = useScopedQuery<{ id: string; orderNumber: string; status: string; supplier: { name: string } }[]>(['invoice-open-orders'],
     async signal => (await purchaseOrderService.getAll({ limit: 100 }, signal)).data.data, isOpen && step === 'review');
   const [items, setItems] = useState<ScannedItem[]>([]);
@@ -231,8 +232,9 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
     }
 
     setError('');
+    const hasProblems = items.some(item => (item.damagedQty || 0) > 0 || (item.rejectedQty || 0) > 0);
     await workflow.review({ supplier, invoiceNumber: invoiceNumber || undefined,
-      notes: deliveryNotes || undefined,
+      notes: deliveryNotes || undefined, ...(hasProblems ? { supplierBilledForProblems: billedOverride ?? !!invoiceNumber.trim() } : {}),
       purchaseOrderId: purchaseOrderId || undefined, invoiceDate: invoiceDate ? invoiceDate + 'T12:00:00.000Z' : undefined,
       freight: Number(charges.freight), acquisitionTax: Number(charges.acquisitionTax), invoiceDiscount: Number(charges.invoiceDiscount),
       items: items.map(item => ({ matchedProductId: item.matchedProductId, name: item.name,
@@ -253,7 +255,7 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
     setPreviewUrl(null);
     setSupplier('');
     setInvoiceNumber('');
-    setPurchaseOrderId(''); setInvoiceDate(''); setCharges({ freight: '0', acquisitionTax: '0', invoiceDiscount: '0' });
+    setPurchaseOrderId(''); setInvoiceDate(''); setCharges({ freight: '0', acquisitionTax: '0', invoiceDiscount: '0' }); setBilledOverride(null);
     setItems([]);
     setExistingProducts([]);
     setExistingPacks([]);
@@ -380,6 +382,8 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
               <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm">Purchase order<Select className="mt-1 h-9 w-full rounded-md border bg-background px-3 text-sm" value={purchaseOrderId} onChange={e => { setPurchaseOrderId(e.target.value); const order = orders.data?.find(order => order.id === e.target.value); if (order) setSupplier(order.supplier.name); }}><option value="">New invoice receipt</option>{orders.data?.filter(order => ['ORDERED','PARTIALLY_RECEIVED'].includes(order.status)).map(order => <option key={order.id} value={order.id}>{order.orderNumber} · {order.supplier.name}</option>)}</Select></label><Input label="Invoice date" type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></div>
               <div className="grid gap-3 sm:grid-cols-3">{(['freight','acquisitionTax','invoiceDiscount'] as const).map((field, index) => <Input key={field} label={['Freight','Nonrecoverable acquisition tax','Invoice discount'][index]} type="number" min={0} step="0.01" value={charges[field]} onChange={e => setCharges(old => ({ ...old, [field]: e.target.value }))} />)}</div>
               <p className="text-sm text-muted-foreground">Enter accepted sellable units. Shared invoice charges apply to accepted merchandise; damaged and rejected goods remain outside available inventory.</p>
+              {items.some(item => (item.damagedQty || 0) > 0 || (item.rejectedQty || 0) > 0) && <Checkbox label="The invoice charged for the damaged or rejected items"
+                checked={billedOverride ?? !!invoiceNumber.trim()} onChange={e => setBilledOverride(e.target.checked)} description="The supplier then owes a credit for them, listed under Purchasing > Credits Owed." />}
               <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg text-sm">
                 <span>{items.length} item{items.length !== 1 ? 's' : ''} found</span>
                 <span>{totalUnits} total units</span>

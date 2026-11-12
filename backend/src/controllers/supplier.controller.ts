@@ -4,7 +4,8 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
-import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
+import { assertOwnsRecord, assertCanReadRecord, getLocationFilter, getSharedOrOwnFilter, isSuperAdmin, resolveWriteLocation } from '../utils/locationFilter.util';
+import * as supplierCredits from '../services/supplierCredit.service';
 
 /**
  * Get all suppliers
@@ -210,6 +211,10 @@ export const deleteSupplier = asyncHandler(async (req: AuthRequest, res: Respons
       'Cannot delete supplier with existing purchase orders. Deactivate instead.',
       400
     );
+  }
+
+  if (await prisma.supplierCredit.count({ where: { supplierId: id } })) {
+    throw new AppError('Cannot delete a supplier with credits on record. Deactivate instead.', 400);
   }
 
   await prisma.supplier.delete({ where: { id } });
@@ -458,6 +463,8 @@ export const getSupplierPerformance = asyncHandler(async (req: AuthRequest, res:
 
   // Calculate average order value
   const avgOrderValue = completedOrders > 0 ? totalSpent / completedOrders : 0;
+  // Cost changes seen at receiving, and units accepted per unit ordered on closed orders.
+  const { costChanges, fillRate } = await supplierCredits.supplierCostHistory(prisma, id);
 
   res.json({
     success: true,
@@ -471,6 +478,25 @@ export const getSupplierPerformance = asyncHandler(async (req: AuthRequest, res:
       onTimeDeliveryRate: onTimeRate,
       lateDeliveries,
       productCount,
+      fillRate,
+      costChanges,
     },
   });
+});
+
+/** The store's supplier credits: GET /api/suppliers/credits?status=open|settled|all&supplierId= */
+export const listCredits = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { locationId } = getLocationFilter(req, req.query.locationId as string);
+  if (!locationId) throw new AppError('Select a store to see supplier credits', 400);
+  res.json({ success: true, data: await supplierCredits.listCredits(prisma, locationId, req.query) });
+});
+
+/** Record a credit owed by hand: POST /api/suppliers/credits */
+export const createCredit = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.status(201).json({ success: true, data: await supplierCredits.createCredit(resolveWriteLocation(req), req.user!.id, req.body) });
+});
+
+/** Mark a credit received or written off: POST /api/suppliers/credits/:id/settle */
+export const settleCredit = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: await supplierCredits.settleCredit(resolveWriteLocation(req), req.user!.id, req.params.id, req.body) });
 });

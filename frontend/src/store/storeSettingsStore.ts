@@ -38,9 +38,15 @@ export interface CashControlSettings {
   blindClose: boolean;
 }
 
+/** Purchasing checks: a delivery cost rise of at least this percent is flagged. */
+export interface PurchasingSettings {
+  costChangeAlertPercent: number;
+}
+
 interface StoreSettingsState {
   timezone: string | null;
   cashControl: CashControlSettings;
+  purchasing: PurchasingSettings;
   storeInfo: StoreInfo;
   receiptSettings: ReceiptSettings;
   paymentMethods: EnabledPaymentMethods;
@@ -65,6 +71,7 @@ interface StoreSettingsState {
   savePaymentMethods: (methods: EnabledPaymentMethods) => Promise<void>;
   saveNotificationSettings: (settings: NotificationSettings) => Promise<void>;
   saveCashControl: (settings: CashControlSettings) => Promise<void>;
+  savePurchasing: (settings: PurchasingSettings) => Promise<void>;
   reset: () => void;
 }
 
@@ -101,7 +108,8 @@ const defaultNotificationSettings: NotificationSettings = {
 let generation = 0;
 let pending: { locationId: string; promise: Promise<void> } | null = null;
 const defaultCashControl: CashControlSettings = { blindClose: true };
-const defaults = () => ({ timezone: null as string | null, cashControl: defaultCashControl, storeInfo: defaultStoreInfo, receiptSettings: defaultReceiptSettings, paymentMethods: defaultPaymentMethods, notificationSettings: defaultNotificationSettings });
+const defaultPurchasing: PurchasingSettings = { costChangeAlertPercent: 3 };
+const defaults = () => ({ timezone: null as string | null, cashControl: defaultCashControl, purchasing: defaultPurchasing, storeInfo: defaultStoreInfo, receiptSettings: defaultReceiptSettings, paymentMethods: defaultPaymentMethods, notificationSettings: defaultNotificationSettings });
 
 /** When the settings held now were last changed on the server (ISO time), for the store they belong to. */
 let held: { locationId: string; updatedAt: string } | null = null;
@@ -117,7 +125,7 @@ export const useStoreSettingsStore = create<StoreSettingsState>()(persist((set, 
     const storeInfo = { storeName: data.name || 'My Store', taxRate: data.taxRate || 0, address: data.address || '', city: data.city || '', state: data.state || '', phone: data.phone || '' };
     const receiptSettings = { ...defaultReceiptSettings, ...settings.receiptSettings };
     hardware.applyStoreBranding(storeInfo, receiptSettings);
-    set({ timezone: data.timezone || null, storeInfo, receiptSettings, paymentMethods: { ...defaultPaymentMethods, ...settings.paymentMethods }, notificationSettings: { ...defaultNotificationSettings, ...settings.notificationSettings }, cashControl: { ...defaultCashControl, ...settings.cashControl }, locationId: data.id, isLoaded: true, isLoading: false, error: null });
+    set({ timezone: data.timezone || null, storeInfo, receiptSettings, paymentMethods: { ...defaultPaymentMethods, ...settings.paymentMethods }, notificationSettings: { ...defaultNotificationSettings, ...settings.notificationSettings }, cashControl: { ...defaultCashControl, ...settings.cashControl }, purchasing: { ...defaultPurchasing, ...settings.purchasing }, locationId: data.id, isLoaded: true, isLoading: false, error: null });
   };
   const save = async (patch: Record<string, unknown>) => {
     const { locationId, isLoaded, error } = get();
@@ -165,10 +173,11 @@ export const useStoreSettingsStore = create<StoreSettingsState>()(persist((set, 
     savePaymentMethods: paymentMethods => save({ paymentMethods }),
     saveNotificationSettings: notificationSettings => save({ notificationSettings }),
     saveCashControl: cashControl => save({ cashControl }),
+    savePurchasing: purchasing => save({ purchasing }),
     reset: () => {
       generation++; pending = null; held = null;
       hardware.applyStoreBranding(defaultStoreInfo, defaultReceiptSettings);
       set({ ...defaults(), locationId: null, isLoaded: false, isLoading: false, error: null });
     },
   };
-}, { name: 'pos-store-settings', version: 1, migrate: (state: any) => ({ ...state, isLoaded: false, isLoading: false, error: null }), partialize: state => ({ storeInfo: state.storeInfo, receiptSettings: state.receiptSettings, paymentMethods: state.paymentMethods, notificationSettings: state.notificationSettings, cashControl: state.cashControl, locationId: state.locationId }) }));
+}, { name: 'pos-store-settings', version: 1, migrate: (state: any) => ({ ...state, isLoaded: false, isLoading: false, error: null }), partialize: state => ({ storeInfo: state.storeInfo, receiptSettings: state.receiptSettings, paymentMethods: state.paymentMethods, notificationSettings: state.notificationSettings, cashControl: state.cashControl, purchasing: state.purchasing, locationId: state.locationId }) }));

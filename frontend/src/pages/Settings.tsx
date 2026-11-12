@@ -27,6 +27,7 @@ import { TwoFactorCard } from '@/components/settings/TwoFactorCard';
 import { RegisterPinCard } from '@/components/settings/RegisterPinCard';
 import { RegisterDeviceCard } from '@/components/settings/RegisterDeviceCard';
 import { PricingRulesCard } from '@/components/settings/PricingRulesCard';
+import { CostAlertCard } from '@/components/settings/CostAlertCard';
 import {SecurityNotifications} from '@/components/settings/SecurityNotifications';
 import { ManagementPage } from '@/components/common/Workspace';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -351,7 +352,7 @@ export const Settings: React.FC = () => {
 
         </fieldset>)}
 
-        {selected === 'pricing' && <PricingRulesCard editable={canOperate} />}
+        {selected === 'pricing' && <><PricingRulesCard editable={canOperate} /><CostAlertCard editable={canOperate} /></>}
 
         {selected === 'notifications' && (<fieldset disabled={!editable} className="contents">
         {/* Notifications */}

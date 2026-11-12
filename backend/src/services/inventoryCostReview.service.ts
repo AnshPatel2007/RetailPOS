@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { AppError } from '../utils/errorHandler';
 import { decimal, effectiveEntry, portion, valueMovement } from './inventoryCost.service';
+import { creditSupplierReturn } from './supplierCredit.service';
 import { lockInventory, moveInventory } from './inventory.service';
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -176,5 +177,8 @@ export async function supplierReturn(tx: Prisma.TransactionClient, locationId: s
     sourceId: input.idempotencyKey, sourceKey: 'supplier-return:' + input.idempotencyKey, quantity: -input.quantity, notes: input.reason });
   const carryingValue = moved.inventoryEntry.valueChange?.negated() ?? null;
   const costAdjustment = carryingValue?.minus(input.creditAmount) ?? null;
-  return tx.supplierReturn.create({ data: { ...input, productId: receipt.productId, locationId, userId, carryingValue, costAdjustment, requestHash } });
+  const created = await tx.supplierReturn.create({ data: { ...input, productId: receipt.productId, locationId, userId, carryingValue, costAdjustment, requestHash } });
+  // The supplier owes the credit until it arrives (Suppliers > Credits Owed).
+  await creditSupplierReturn(tx, { locationId, userId, receiptEntryId: receipt.id, amount: input.creditAmount, quantity: input.quantity, productName: moved.name, reason: input.reason });
+  return created;
 }

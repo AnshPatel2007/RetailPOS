@@ -23,6 +23,14 @@ export function blindCloseEnabled(settings: unknown): boolean {
   const parsed = cashControlSettingsSchema.safeParse(saved);
   return parsed.success ? parsed.data.blindClose : true;
 }
+/** Purchasing checks. A delivery whose unit cost rose by at least this percent is flagged in its review. */
+export const purchasingSettingsSchema = z.object({ costChangeAlertPercent: z.number().finite().min(0.1).max(100) }).strict();
+export const DEFAULT_COST_CHANGE_ALERT_PERCENT = 3;
+export function costChangeAlertPercent(settings: unknown): number {
+  const saved = settings && typeof settings === 'object' && !Array.isArray(settings) ? (settings as Record<string, unknown>).purchasing : undefined;
+  const parsed = purchasingSettingsSchema.safeParse(saved);
+  return parsed.success ? parsed.data.costChangeAlertPercent : DEFAULT_COST_CHANGE_ALERT_PERCENT;
+}
 export const updateStoreSettingsSchema = z.object({ body: z.object({
   locationId: z.string().min(1).optional().nullable(),
   storeInfo: z.object({
@@ -34,6 +42,7 @@ export const updateStoreSettingsSchema = z.object({ body: z.object({
   paymentMethods: paymentSettingsSchema.refine(methods => Object.values(methods).some(Boolean), 'Enable at least one payment method').optional(),
   notificationSettings: notificationSettingsSchema.optional(),
   cashControl: cashControlSettingsSchema.optional(),
+  purchasing: purchasingSettingsSchema.optional(),
 }).strict().refine(body => Object.keys(body).some(key => key !== 'locationId'), 'Choose settings to update') });
 
 /** The store facts and settings a signed-in user of that store may read (same shape as GET /locations/my-settings). */
@@ -58,5 +67,6 @@ export function publicStoreSettings(value: unknown) {
     ...(notifications.success ? { notificationSettings: notifications.data } : {}),
     // Always present, so every screen applies the same default.
     cashControl: { blindClose: blindCloseEnabled(saved) },
+    purchasing: { costChangeAlertPercent: costChangeAlertPercent(saved) },
   };
 }

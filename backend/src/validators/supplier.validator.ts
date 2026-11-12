@@ -119,5 +119,8 @@ export const receivePurchaseOrderSchema = z.object({
     idempotencyKey: z.string().uuid().optional(),
     finalDelivery: z.boolean().default(false),
     notes: z.string().trim().max(2000).optional(),
+    // The invoice still charged for damaged or rejected goods, so the supplier owes a credit.
+    // Unset: assumed when an invoice number is entered.
+    supplierBilledForProblems: z.boolean().optional(),
   }),
 });
