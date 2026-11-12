@@ -18,6 +18,7 @@ import { countPendingLabels } from './shelfLabels.service';
 import { loadReorderPlan } from './reorder.service';
 import { addDays, WEEKDAYS } from './reorderPlan';
 import { likelyMixUps } from './inventoryException.service';
+import { missedSales } from './missedSales.service';
 
 export type Severity = 'high' | 'medium' | 'low';
 export interface Finding {
@@ -245,9 +246,27 @@ export const likelyMixUp: AttentionRule = async ({ locationId }) => {
       + (more.length ? ` ${more.length} more stock ${plural(more.length, 'problem has', 'problems have')} a likely mix-up.` : '') };
 };
 
+/**
+ * Mondays: about how much empty shelves cost in the last seven store days, with
+ * the three items that cost most. An estimate (services/missedSales.service.ts),
+ * shown only at $20 or more.
+ */
+export const emptyShelves: AttentionRule = async ({ locationId, now, calendar }) => {
+  if (calendar.weekday !== 1) return null;
+  const missed = await missedSales(locationId, now);
+  const total = Math.round(missed.total);
+  if (total < 20) return null;
+  const about = (value: number) => '$' + Math.round(value).toLocaleString('en-US');
+  const named = missed.items.slice(0, 3).map(item => `${item.name} about ${about(item.value)}`);
+  const list = named.length > 1 ? `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}` : named[0];
+  return { key: 'empty-shelves', severity: 'medium', amount: total, count: missed.items.length, href: '/inventory/purchasing/suggestions',
+    sentence: missed.items.length === 1 ? `Empty shelves cost about ${about(total)} last week, all of it ${missed.items[0].name}.`
+      : `Empty shelves cost about ${about(total)} last week: ${list}.` };
+};
+
 /** Shown in this order within one severity. Later packages append their rules here. */
 export const attentionRules: AttentionRule[] = [stockExceptions, profitNotConfirmed, drawerDifferences, pricesBelowTarget, billsDueSoon,
-  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding, labelsOutOfDate, supplierOrderDueTomorrow, likelyMixUp];
+  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding, labelsOutOfDate, supplierOrderDueTomorrow, likelyMixUp, emptyShelves];
 const rank: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
 /**

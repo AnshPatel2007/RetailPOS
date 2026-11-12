@@ -124,6 +124,12 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   reclasses and sale-line corrections, either direction; +25 each, at most +75) and items
   at the same price (+15). The attention list names the likeliest pair with stock to
   count (`likelyMixUps`). Nothing is corrected automatically.
+- **Missed sales** (`services/missedSales.service.ts`) is an estimate, always worded
+  "about": items with 21+ days of history selling 1+ a day over the 28 days before the
+  week; out-of-stock stretches from the stock log (a stretch with a sale in it is
+  skipped); only the store's selling hours (a sale in that local hour on half the 28
+  days); capped at three average days per item; valued at today's price. The attention
+  rule `emptyShelves` runs on Mondays for the last seven store days, at $20 or more.
 - **Attention list and morning brief** (`services/attention.service.ts`,
   `services/ownerBrief.service.ts`): one rule per exported function returns one plain
   sentence with its amount and the page that fixes it; the Dashboard (owners and
