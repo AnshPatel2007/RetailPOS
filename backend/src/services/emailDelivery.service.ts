@@ -11,7 +11,8 @@ export const deliverySelect = { id: true, recipientEmail: true, subject: true, s
 export const briefAllowlist = () => (process.env.OWNER_BRIEF_EMAILS || process.env.DAILY_DIGEST_EMAILS || '').split(',').map(email => email.trim().toLowerCase()).filter(Boolean);
 
 export async function enqueueDigestEmails(locationId: string, key: string, recipients: string[], subject: string, html: string) {
-  const owners = await prisma.user.findMany({ where: { locationId, role: 'ADMIN', isActive: true, email: { in: recipients }, location: { isActive: true } }, select: { id: true, email: true } });
+  // Anyone who runs the store as ADMIN (home store or as an owner of its business).
+  const owners = await prisma.user.findMany({ where: { isActive: true, email: { in: recipients }, storeAccess: { some: { locationId, role: 'ADMIN', location: { isActive: true } } } }, select: { id: true, email: true } });
   const keys = owners.map(owner => key + ':' + owner.id);
   await prisma.emailDelivery.createMany({ data: owners.map((owner, index) => ({ locationId, recipientId: owner.id, recipientEmail: owner.email, idempotencyKey: keys[index], subject, html })), skipDuplicates: true });
   return prisma.emailDelivery.findMany({ where: { locationId, idempotencyKey: { in: keys } }, select: deliverySelect, orderBy: { createdAt: 'asc' } });
@@ -32,7 +33,7 @@ export async function processNextEmailDelivery(now = new Date()): Promise<boolea
     RETURNING *`;
   const job = rows[0]; if (!job) return false;
   const finish = (data: Parameters<typeof prisma.emailDelivery.updateMany>[0]['data']) => prisma.emailDelivery.updateMany({ where: { id: job.id, leaseToken, status: 'SENDING' }, data: { ...data, leaseToken: null, leaseExpiresAt: null } });
-  const owner = job.recipientId ? await prisma.user.findFirst({ where: { id: job.recipientId, locationId: job.locationId, email: job.recipientEmail, role: 'ADMIN', isActive: true, location: { isActive: true } }, select: { id: true } }) : null;
+  const owner = job.recipientId ? await prisma.user.findFirst({ where: { id: job.recipientId, email: job.recipientEmail, isActive: true, storeAccess: { some: { locationId: job.locationId, role: 'ADMIN', location: { isActive: true } } } }, select: { id: true } }) : null;
   const allowlist = briefAllowlist();
   if (!owner || (allowlist.length > 0 && !allowlist.includes(job.recipientEmail.toLowerCase()))) {
     await finish({ status: 'CANCELLED', errorCode: 'RECIPIENT_NO_LONGER_AUTHORIZED' }); return true;

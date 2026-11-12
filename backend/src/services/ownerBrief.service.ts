@@ -180,7 +180,8 @@ const composeNarrative = async (d: BriefData): Promise<{ text: string; ai: boole
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-const buildBriefHtml = (d: BriefData, narrative: string): string => {
+/** One store's brief as a card; a page holds one card, or one per store for an owner of several. */
+const briefCard = (d: BriefData, narrative: string, heading: string): string => {
   const stat = (label: string, value: string, note = '') =>
     `<td style="padding:12px;text-align:center;background:#f8f8fb;border-radius:8px;">
        <div style="font-size:20px;font-weight:bold;color:#111;">${value}</div>
@@ -220,10 +221,8 @@ const buildBriefHtml = (d: BriefData, narrative: string): string => {
       ? '—'
       : `${d.revenueChangePct >= 0 ? '▲' : '▼'} ${Math.abs(d.revenueChangePct)}%`;
 
-  return `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#333;margin:0;padding:0;background:#f1f1f4;">
-  <div style="max-width:560px;margin:0 auto;padding:24px 16px;">
-    <div style="background:#fff;border-radius:12px;padding:24px;">
-      <h2 style="margin:0 0 2px;color:#111;">Morning brief — ${esc(d.date)}</h2>
+  return `<div style="background:#fff;border-radius:12px;padding:24px;margin-bottom:16px;">
+      <h2 style="margin:0 0 2px;color:#111;">${esc(heading)}</h2>
       <p style="margin:0 0 16px;font-size:12px;color:#888;">${esc(d.storeName)} | ${esc(d.timezone)} | the whole store day</p>
 
       <p style="font-size:14px;line-height:1.6;background:#f6f5ff;border-left:3px solid #6c5ce7;padding:12px 14px;border-radius:0 8px 8px 0;">
@@ -255,20 +254,78 @@ const buildBriefHtml = (d: BriefData, narrative: string): string => {
       ${d.lowStock.length > 0 ? `
       <h3 style="font-size:14px;margin:16px 0 6px;color:#b45309;">Low stock — reorder soon</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">${lowStockRows}</table>` : ''}
-    </div>
+    </div>`;
+};
+
+const briefPage = (body: string): string => `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#333;margin:0;padding:0;background:#f1f1f4;">
+  <div style="max-width:560px;margin:0 auto;padding:24px 16px;">
+    ${body}
     <p style="text-align:center;font-size:11px;color:#999;margin-top:12px;">
       Automated morning brief · sales include tax; returns and voids count on the day they happen
     </p>
   </div>
   </body></html>`;
-};
 
-/** A global recipient override may narrow delivery, never grant another store access. */
-export const resolveBriefRecipients = async (locationId: string): Promise<string[]> => {
+const buildBriefHtml = (d: BriefData, narrative: string): string => briefPage(briefCard(d, narrative, `Morning brief — ${d.date}`));
+
+/** An owner of several stores: one email, one section per store, each about that store's last complete day. */
+const buildOwnerBriefHtml = (sections: { data: BriefData; narrative: string }[]): string => briefPage(
+  `<h1 style="font-size:20px;margin:0 0 12px;color:#111;">Morning brief — your ${sections.length} stores</h1>` +
+  sections.map(section => briefCard(section.data, section.narrative, `${section.data.storeName} — ${section.data.date}`)).join(''));
+
+/**
+ * Who gets a store's brief: everyone who runs it as ADMIN, the owners of its business
+ * included. With `ownersGetTheirOwn`, owners of more than one store are left out: the
+ * scheduler sends them a single email covering all their stores instead.
+ * A global recipient override may narrow delivery, never grant another store access.
+ */
+export const resolveBriefRecipients = async (locationId: string, ownersGetTheirOwn = false): Promise<string[]> => {
   if (!locationId) throw new AppError('A store assignment is required', 403);
-  const admins = await prisma.user.findMany({ where: { locationId, role: 'ADMIN', isActive: true, location: { isActive: true } }, select: { email: true } });
+  const admins = await prisma.user.findMany({
+    where: { isActive: true, storeAccess: { some: { locationId, role: 'ADMIN', location: { isActive: true } } },
+      ...(ownersGetTheirOwn ? { NOT: { id: { in: await multiStoreOwnerIds() } } } : {}) },
+    select: { email: true },
+  });
   const allowlist = briefAllowlist();
   return [...new Set(admins.map(admin => admin.email))].filter(email => !allowlist.length || allowlist.includes(email.toLowerCase()));
+};
+
+/** Active owners whose businesses have more than one active store, with those stores. */
+async function multiStoreOwners() {
+  const owners = await prisma.organizationOwner.findMany({
+    where: { user: { isActive: true, role: 'ADMIN', locationId: { not: null } } },
+    select: { userId: true, user: { select: { email: true, locationId: true, location: { select: { timezone: true, isActive: true } } } },
+      organization: { select: { locations: { where: { isActive: true }, select: { id: true, name: true, settings: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] } } } },
+  });
+  const byOwner = new Map<string, { userId: string; email: string; homeLocationId: string; timezone: string; homeActive: boolean; stores: { id: string; name: string; settings: Prisma.JsonValue }[] }>();
+  for (const owner of owners) {
+    const entry = byOwner.get(owner.userId) ?? { userId: owner.userId, email: owner.user.email, homeLocationId: owner.user.locationId!,
+      timezone: owner.user.location?.timezone || 'UTC', homeActive: owner.user.location?.isActive !== false, stores: [] };
+    entry.stores.push(...owner.organization.locations);
+    byOwner.set(owner.userId, entry);
+  }
+  return [...byOwner.values()].filter(owner => owner.stores.length > 1);
+}
+const multiStoreOwnerIds = async () => (await multiStoreOwners()).map(owner => owner.userId);
+
+/**
+ * One morning brief for an owner of several stores: a section per store that keeps the
+ * brief on, each about that store's own last complete day. Queued to the owner through
+ * their home store; `requestKey` keeps it to one email per owner per day.
+ */
+export const sendOwnerCombinedBrief = async (owner: Awaited<ReturnType<typeof multiStoreOwners>>[number], requestKey: string, now = new Date()) => {
+  const allowlist = briefAllowlist();
+  if (!owner.homeActive || (allowlist.length && !allowlist.includes(owner.email.toLowerCase()))) return [];
+  const stores = owner.stores.filter(store => publicStoreSettings(store.settings).notificationSettings?.endOfDayReports !== false);
+  if (!stores.length) return [];
+  const sections = [];
+  for (const store of stores) {
+    const data = await collectBriefData(store.id, now);
+    sections.push({ data, narrative: (await composeNarrative(data)).text });
+  }
+  const total = sections.reduce((sum, section) => rc(sum + section.data.revenue), 0);
+  return enqueueDigestEmails(owner.homeLocationId, 'brief-owner:' + owner.userId + ':' + requestKey, [owner.email],
+    `Morning brief for your ${sections.length} stores: ${money(total)} | ${sections[0].data.date}`, buildOwnerBriefHtml(sections));
 };
 
 /**
@@ -276,7 +333,7 @@ export const resolveBriefRecipients = async (locationId: string): Promise<string
  * for the same owner: the scheduler passes the store date, "Send brief now" its
  * own request id.
  */
-export const sendOwnerBrief = async (locationId: string, requestKey: string = randomUUID(), now = new Date()): Promise<{
+export const sendOwnerBrief = async (locationId: string, requestKey: string = randomUUID(), now = new Date(), options: { ownersGetTheirOwn?: boolean } = {}): Promise<{
   deliveries: Awaited<ReturnType<typeof enqueueDigestEmails>>;
   narrative: string;
   ai: boolean;
@@ -284,7 +341,7 @@ export const sendOwnerBrief = async (locationId: string, requestKey: string = ra
   data: BriefData;
 }> => {
   const data = await collectBriefData(locationId, now);
-  const recipients = await resolveBriefRecipients(locationId);
+  const recipients = await resolveBriefRecipients(locationId, options.ownersGetTheirOwn);
   const { text: narrative, ai } = recipients.length ? await composeNarrative(data) : { text: templateNarrative(data), ai: false };
 
   if (recipients.length === 0) {
@@ -331,11 +388,27 @@ export async function runOwnerBriefSchedule(now = new Date()) {
       // The database, not this process, remembers that today's brief went out (restarts, several servers).
       const key = 'brief:' + store.id + ':' + today;
       if (await prisma.emailDelivery.count({ where: { locationId: store.id, idempotencyKey: { startsWith: key + ':' } } })) continue;
-      const result = await sendOwnerBrief(store.id, today, now);
+      const result = await sendOwnerBrief(store.id, today, now, { ownersGetTheirOwn: true });
       queued += result.deliveries.length;
     } catch {
       handled.delete(store.id);
       logger.error('Morning brief failed for a store; delivery requires review');
+    }
+  }
+  // Owners of several stores: one email each, in the morning window of their home store.
+  for (const owner of await multiStoreOwners()) {
+    const handledKey = 'owner:' + owner.userId;
+    try {
+      const today = reportCalendar(owner.timezone, now).day().toLocaleDateString('en-CA', { timeZone: owner.timezone });
+      const localHour = Number(now.toLocaleString('en-US', { timeZone: owner.timezone, hour: 'numeric', hourCycle: 'h23' }));
+      if (localHour < hour || localHour >= lastHour || handled.get(handledKey) === today) continue;
+      handled.set(handledKey, today);
+      const key = 'brief-owner:' + owner.userId + ':' + today;
+      if (await prisma.emailDelivery.count({ where: { idempotencyKey: { startsWith: key + ':' } } })) continue;
+      queued += (await sendOwnerCombinedBrief(owner, today, now)).length;
+    } catch {
+      handled.delete(handledKey);
+      logger.error('Morning brief failed for an owner of several stores; delivery requires review');
     }
   }
   return queued;

@@ -24,6 +24,7 @@ import { AccessDenied, NotFound } from './components/common/StatusPage';
 
 // Lazy-load all page components
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const MyStores = lazy(() => import('./pages/MyStores').then(m => ({ default: m.MyStores })));
 const POS = lazy(() => import('./pages/POS').then(m => ({ default: m.POS })));
 const Inventory = lazy(() => import('./pages/Inventory').then(m => ({ default: m.Inventory })));
 const Customers = lazy(() => import('./pages/Customers').then(m => ({ default: m.Customers })));
@@ -182,6 +183,7 @@ function App() {
 
         {/* Main routes */}
         <Route path="/dashboard" element={<PageRoute page={<Dashboard />} />} />
+        <Route path="/stores" element={<PageRoute roles={['ADMIN']} page={<MyStores />} />} />
         <Route path="/pos" element={<PageRoute page={<POS />} />} />
         <Route path="/inventory" element={<PageRoute page={<Inventory />} roles={MANAGER_ROLES} />} />
         <Route path="/customers" element={<PageRoute page={<Customers view="directory" />} />} />

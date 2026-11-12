@@ -12,18 +12,25 @@ export const getAllUsers = asyncHandler(async (req: AuthRequest, res: Response) 
   const { locationId, role, isActive, search } = req.query;
 
   const where: any = {};
+  const storeId = (getLocationFilter(req, locationId as string) as { locationId?: string }).locationId;
+  const and: any[] = [];
 
-  Object.assign(where, getLocationFilter(req, locationId as string));
+  // A store's team: its own staff, and people from the owner's other stores who also
+  // work here. Their role here is the one on their access to this store.
+  if (storeId) and.push({ OR: [{ locationId: storeId }, { storeAccess: { some: { locationId: storeId } } }] });
 
-  // Filter by role
+  // Filter by role (the role at this store when listing one store's team)
   if (role) {
-    where.role = role;
+    if (storeId) and.push({ storeAccess: { some: { locationId: storeId, role } } });
+    else where.role = role;
   }
 
   // Filter by active status
   if (isActive !== undefined) {
     where.isActive = isActive === 'true';
   }
+
+  if (and.length) where.AND = and;
 
   // Search
   if (search) {
@@ -58,11 +65,16 @@ export const getAllUsers = asyncHandler(async (req: AuthRequest, res: Response) 
           shifts: true,
         },
       },
+      storeAccess: { where: { locationId: storeId ?? '' }, select: { role: true } },
     },
     orderBy: [{ isActive: 'desc' }, { lastName: 'asc' }],
   });
 
-  res.json({ success: true, data: users });
+  res.json({ success: true, data: users.map(({ storeAccess, ...user }) => ({
+    ...user,
+    storeRole: storeAccess[0]?.role ?? user.role,
+    alsoWorksHere: !!storeId && user.locationId !== storeId,
+  })) });
 });
 
 // Create new user

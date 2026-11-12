@@ -30,6 +30,7 @@ import auditLogRoutes from './auditLog.routes';
 import promotionRoutes from './promotion.routes';
 import houseAccountRoutes from './houseAccount.routes';
 import developerRoutes from './developer.routes';
+import { organizationAdminRoutes, organizationRoutes } from './organization.routes';
 
 const router = Router();
 
@@ -78,5 +79,7 @@ router.use('/audit-logs', auditLogRoutes);
 router.use('/promotions', promotionRoutes);
 router.use('/house-accounts', houseAccountRoutes);
 router.use('/developer', developerRoutes);
+router.use('/organization', organizationRoutes);
+router.use('/organizations', organizationAdminRoutes);
 
 export default router;

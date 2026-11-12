@@ -81,3 +81,63 @@ export async function syncOwnerAccess(tx: Prisma.TransactionClient, organization
   });
   return { granted: granted.count, raised: raised.count };
 }
+
+/** Organizations this person owns. */
+export async function ownedOrganizationIds(userId: string, client: Client = prisma): Promise<string[]> {
+  return (await client.organizationOwner.findMany({ where: { userId }, select: { organizationId: true } })).map(row => row.organizationId);
+}
+
+/**
+ * Make someone an owner of an organization: ADMIN access to all of its stores.
+ * Only a person who is an ADMIN at one of its stores (their home store) can own it,
+ * so owning never changes anyone's role at home.
+ */
+export async function addOwner(tx: Prisma.TransactionClient, organizationId: string, userId: string, createdById: string) {
+  const person = await tx.user.findUnique({ where: { id: userId }, select: { isActive: true, role: true, location: { select: { id: true, organizationId: true } } } });
+  if (!person?.isActive) throw new AppError('No active account has that email.', 404);
+  if (person.role !== 'ADMIN' || person.location?.organizationId !== organizationId) {
+    throw new AppError('An owner must be an admin of one of this business\'s stores.', 400);
+  }
+  await tx.organizationOwner.upsert({
+    where: { organizationId_userId: { organizationId, userId } },
+    create: { organizationId, userId, createdById },
+    update: {},
+  });
+  await syncOwnerAccess(tx, organizationId, createdById);
+  await tx.activityLog.create({ data: { userId: createdById, action: 'OWNER_ADDED', entity: 'USER', entityId: userId, locationId: person.location.id, details: { organizationId } } });
+}
+
+/** End someone's ownership: their ADMIN access to the organization's other stores goes; their home store stays. */
+export async function removeOwner(tx: Prisma.TransactionClient, organizationId: string, userId: string, actorId: string) {
+  const removed = await tx.organizationOwner.deleteMany({ where: { organizationId, userId } });
+  if (!removed.count) throw new AppError('That person is not an owner of this business.', 404);
+  const person = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { locationId: true } });
+  await tx.userStoreAccess.deleteMany({
+    where: { userId, role: 'ADMIN', location: { organizationId }, ...(person.locationId ? { locationId: { not: person.locationId } } : {}) },
+  });
+  await tx.activityLog.create({ data: { userId: actorId, action: 'OWNER_REMOVED', entity: 'USER', entityId: userId, locationId: person.locationId, details: { organizationId } } });
+}
+
+/**
+ * Move a store to another organization (null: a new one of its own, named after the
+ * store). Access that came from the old organization ends: its owners' ADMIN access and
+ * grants between this store and the old organization's people and stores. Home stores
+ * and home roles never change here. The new organization's owners get ADMIN access.
+ */
+export async function moveStoreToOrganization(tx: Prisma.TransactionClient, locationId: string, organizationId: string | null, actorId: string) {
+  const previous = await organizationIdOf(locationId, tx);
+  if (previous === organizationId) return previous;
+  if (organizationId && !await tx.organization.findUnique({ where: { id: organizationId }, select: { id: true } })) throw new AppError('Organization not found', 404);
+  // Rows at this store for people whose home is elsewhere in the old organization, and rows
+  // elsewhere in the old organization for this store's own people. Home rows are never touched.
+  const oldStores = (await tx.location.findMany({ where: { organizationId: previous, id: { not: locationId } }, select: { id: true } })).map(store => store.id);
+  await tx.userStoreAccess.deleteMany({ where: { locationId, user: { locationId: { in: oldStores } } } });
+  await tx.userStoreAccess.deleteMany({ where: { locationId: { in: oldStores }, user: { locationId } } });
+  // Owners of the old organization stop administering this store (unless it is their home).
+  await tx.userStoreAccess.deleteMany({ where: { locationId, role: 'ADMIN', user: { organizationOwnerships: { some: { organizationId: previous } }, locationId: { not: locationId } } } });
+  // The database gives the store a new organization of its own when none is chosen.
+  const moved = await tx.location.update({ where: { id: locationId }, data: { organizationId }, select: { organizationId: true } });
+  await syncOwnerAccess(tx, moved.organizationId!, actorId);
+  await tx.activityLog.create({ data: { userId: actorId, action: 'STORE_MOVED', entity: 'LOCATION', entityId: locationId, locationId, details: { fromOrganizationId: previous, toOrganizationId: moved.organizationId } } });
+  return moved.organizationId!;
+}

@@ -9,7 +9,7 @@ import { useLayoutStore } from '@/store/layoutStore';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { useQuickFindStore } from '@/store/quickFindStore';
 import { cn } from '@/lib/utils';
-import { sidebarSections, STOCK_CONTROL, type NavLink } from '@/lib/navigation';
+import { runsSeveralStores, sidebarSections, STOCK_CONTROL, type NavLink } from '@/lib/navigation';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useInventoryExceptionCount } from '@/hooks/useInventoryExceptionCount';
 import { AdminViewBanner } from './AdminViewBanner';
@@ -98,7 +98,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     );
   }
 
-  const sections = sidebarSections.map(section => ({ ...section, items: section.items.filter(item => hasRole(item.roles)) })).filter(section => section.items.length > 0);
+  const severalStores = runsSeveralStores(user);
+  const sections = sidebarSections.map(section => ({ ...section, items: section.items.filter(item => hasRole(item.roles) && (!item.severalStores || severalStores)) })).filter(section => section.items.length > 0);
   const showTitles = sections.reduce((total, section) => total + section.items.length, 0) >= SECTION_TITLES_FROM;
 
   const exceptionLabel = `${exceptionCount} inventory exception${exceptionCount === 1 ? ' needs' : 's need'} review`;

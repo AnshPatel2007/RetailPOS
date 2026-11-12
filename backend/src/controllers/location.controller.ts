@@ -8,7 +8,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { validateLocationAccess } from '../utils/locationFilter.util';
 import { can } from '../policies/capabilities';
 import { storeSettingsView } from '../validators/storeSettings.validator';
-import { organizationIdOf, syncOwnerAccess } from '../services/organization.service';
+import { moveStoreToOrganization, organizationIdOf, syncOwnerAccess } from '../services/organization.service';
 
 const storeSettingsSelect = { id: true, name: true, address: true, city: true, state: true, zipCode: true, phone: true, email: true, taxRate: true, cardSurchargePercent: true, timezone: true, isActive: true, settings: true, updatedAt: true } as const;
 // One shape for store settings wherever they are returned (also with the checkout quote).
@@ -61,7 +61,7 @@ export const updateMyStoreSettings = asyncHandler(async (req: AuthRequest, res: 
 // for (?include=stats), so store pickers do not pay for them.
 export const getAllLocations = asyncHandler(async (req: AuthRequest, res: Response) => {
   const locations = await prisma.location.findMany({
-    include: { _count: { select: { users: true, products: true, sales: true } } },
+    include: { _count: { select: { users: true, products: true, sales: true } }, organization: { select: { id: true, name: true } } },
     orderBy: { name: 'asc' },
   });
   if (req.query.include !== 'stats') { res.json({ success: true, data: locations }); return; }
@@ -258,11 +258,14 @@ export const updateLocation = asyncHandler(async (req: AuthRequest, res: Respons
     catch { throw new AppError('Choose a valid timezone', 400); }
   }
   if (updateData.isActive !== undefined && typeof updateData.isActive !== 'boolean') throw new AppError('Active must be true or false', 400);
+  const organizationId = req.body?.organizationId;
+  if (organizationId !== undefined && organizationId !== null && (typeof organizationId !== 'string' || !organizationId)) throw new AppError('Choose a business for the store', 400);
   if (!await prisma.location.findUnique({ where: { id }, select: { id: true } })) throw new AppError('Location not found', 404);
 
-  const location = await prisma.location.update({
-    where: { id },
-    data: updateData,
+  const location = await prisma.$transaction(async tx => {
+    // Moving to another business (null: one of its own) also moves who runs the store.
+    if (organizationId !== undefined) await moveStoreToOrganization(tx, id, organizationId, req.user!.id);
+    return tx.location.update({ where: { id }, data: updateData });
   });
 
   res.json({ success: true, data: location });

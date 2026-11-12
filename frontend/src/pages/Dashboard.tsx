@@ -6,6 +6,7 @@ import { DashboardMetrics } from '@/types';
 import { useAuthStore } from '@/store/authStore';
 import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
 import { PageHeader } from '@/components/common/PageHeader';
+import { TrendBadge } from '@/components/common/TrendBadge';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
 import { AboutNumbers } from '@/components/common/AboutNumbers';
@@ -29,26 +30,12 @@ import {
   Users,
   Package,
   TrendingUp,
-  TrendingDown,
   Clock,
   CreditCard,
   BarChart3,
 } from 'lucide-react';
 
 
-const TrendBadge = ({ trend, label }: { trend?: number | null; label?: string }) => {
-  if (trend === undefined || trend === null) return null;
-  const up = trend >= 0;
-  return (
-    <div className="flex items-center gap-1">
-      <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${up ? 'text-success' : 'text-destructive'}`}>
-        {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-        {up ? '+' : ''}{trend}%
-      </span>
-      {label && <span className="text-xs text-muted-foreground">{label}</span>}
-    </div>
-  );
-};
 
 const elapsedTime = (iso: string) => {
   const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));

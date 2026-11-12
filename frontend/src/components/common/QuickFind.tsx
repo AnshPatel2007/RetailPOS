@@ -3,7 +3,7 @@ import { ModalOverlay, Modal as AriaModal, Dialog } from 'react-aria-components'
 import { useNavigate } from 'react-router-dom';
 import { CornerDownLeft, Search, Users, Package } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
-import { matchNavigation, navigationFor, type QuickFindEntry } from '@/lib/navigation';
+import { matchNavigation, navigationFor, runsSeveralStores, type QuickFindEntry } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
 import { Kbd } from '@/components/ui/Kbd';
 
@@ -14,13 +14,14 @@ export const quickFindShortcut = isMac ? '⌘K' : 'Ctrl K';
 /** Jump to any page, tab or setting by typing a few letters. Opens with Ctrl+K (⌘K on Mac). */
 export function QuickFind({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const role = useAuthStore(state => state.user?.role);
+  const severalStores = useAuthStore(state => runsSeveralStores(state.user));
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const list = useRef<HTMLUListElement>(null);
   const id = useId();
 
-  const entries = useMemo(() => navigationFor(role), [role]);
+  const entries = useMemo(() => navigationFor(role, severalStores), [role, severalStores]);
   const results = useMemo(() => {
     const matches = matchNavigation(entries, query).slice(0, 12);
     const text = query.trim();

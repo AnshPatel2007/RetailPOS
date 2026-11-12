@@ -106,6 +106,7 @@ const prisma = new PrismaClient({ datasources: { db: { url: target.toString() } 
   const storesOwner = await prisma.user.create({ data: { email: 'stores@example.test', password, firstName: 'Multi', lastName: 'Store', role: 'ADMIN', locationId: northStore.id } });
   await prisma.organizationOwner.create({ data: { organizationId: northStore.organizationId, userId: storesOwner.id } });
   await prisma.userStoreAccess.create({ data: { userId: storesOwner.id, locationId: southStore.id, role: 'ADMIN' } });
+  await prisma.user.create({ data: { email: 'north-cashier@example.test', password, firstName: 'Nora', lastName: 'North', role: 'CASHIER', locationId: northStore.id } });
   await prisma.product.create({ data: { name: 'North Only Lemonade', sku: 'NORTH-LEMONADE', price: 3, cost: 1, stockQuantity: 10, locationId: northStore.id } });
   await prisma.product.create({ data: { name: 'South Only Iced Tea', sku: 'SOUTH-ICED-TEA', price: 3, cost: 1, stockQuantity: 10, locationId: southStore.id } });
   const southCalendar = require('../src/services/reportDates.service').reportCalendar('America/Chicago');

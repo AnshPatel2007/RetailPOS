@@ -5,7 +5,8 @@ import { Select } from '@/components/ui/Select';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
 import React, { useState, useEffect, useRef } from 'react';
-import { userService } from '@/services/api';
+import { apiErrorMessage, organizationService, userService } from '@/services/api';
+import { useAuthStore } from '@/store/authStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -20,7 +21,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Search, Edit, Trash2, Key, Users, Plus, ShieldAlert } from 'lucide-react';
+import { Search, Edit, Trash2, Key, Users, Plus, ShieldAlert, Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -38,7 +39,15 @@ interface StaffUser {
   createdAt: string;
   location: { id: string; name: string } | null;
   _count: { sales: number; shifts: number };
+  /** Their role at this store (differs from `role` for someone whose home store is another one). */
+  storeRole?: string;
+  /** Works here through access an owner gave; their home store is another one. */
+  alsoWorksHere?: boolean;
 }
+
+/** Access to the owner's stores (from GET /organization/access). */
+interface AccessRow { id: string; locationId: string; role: string; userId: string; name: string; email: string; isHome: boolean; isOwner: boolean; homeLocationId: string | null }
+interface AccessData { stores: { id: string; name: string; isActive: boolean }[]; access: AccessRow[] }
 
 const STAFF_ROLES = ['MANAGER', 'CASHIER'] as const;
 
@@ -81,8 +90,52 @@ export const Team: React.FC = () => {
   const users = query.data || [], isLoading = query.loading, loadUsers = query.refresh;
   const loadError = query.stale ? '' : query.error;
 
-  /** Only managers/cashiers are ever editable here — admin accounts are hands-off */
-  const isManageable = (u: StaffUser) => (STAFF_ROLES as readonly string[]).includes(u.role);
+  /** Only this store's own managers/cashiers are editable here — admin accounts and visiting staff are hands-off */
+  const isManageable = (u: StaffUser) => !u.alsoWorksHere && (STAFF_ROLES as readonly string[]).includes(u.role);
+
+  // Owners of several stores let their staff work in their other stores too.
+  const me = useAuthStore(state => state.user);
+  const ownsSeveral = !!me?.organization?.isOwner && me.organization.storeCount > 1;
+  const access = useScopedQuery<AccessData>(['organization-access'], async signal => (await organizationService.listAccess(signal)).data.data, ownsSeveral);
+  const grants = (access.data?.access || []).filter(row => !row.isHome && !row.isOwner);
+  const storeName = (id: string | null) => access.data?.stores.find(store => store.id === id)?.name || 'another store';
+  const [grantOpen, setGrantOpen] = useState(false);
+  const [grantForm, setGrantForm] = useState({ email: '', locationId: '', role: 'CASHIER' as 'MANAGER' | 'CASHIER' });
+  const [removeGrant, setRemoveGrant] = useState<AccessRow | null>(null);
+  const grantPeople = users.filter(u => isManageable(u) && u.isActive);
+  const grantStores = (access.data?.stores || []).filter(store => store.id !== me?.locationId && store.isActive);
+
+  const openGrant = () => {
+    setGrantForm({ email: grantPeople[0]?.email || '', locationId: grantStores[0]?.id || '', role: 'CASHIER' });
+    setGrantOpen(true);
+  };
+  const handleGrant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      await organizationService.grantAccess(grantForm);
+      const person = grantPeople.find(u => u.email === grantForm.email);
+      toast.success(`${person?.firstName || 'They'} can now work at ${storeName(grantForm.locationId)} as ${formatEnumLabel(grantForm.role).toLowerCase()}`);
+      setGrantOpen(false);
+      access.refresh();
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Could not give access. Try again.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const handleRemoveGrant = async () => {
+    if (!removeGrant) return;
+    try {
+      await organizationService.removeAccess(removeGrant.id);
+      toast.success(`${removeGrant.name} no longer works at ${storeName(removeGrant.locationId)}`);
+      access.refresh(); loadUsers();
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Could not remove access. Try again.'));
+    } finally {
+      setRemoveGrant(null);
+    }
+  };
 
   const resetForm = () => {
     setFormData({ firstName: '', lastName: '', email: '', password: '', role: 'CASHIER', isActive: true });
@@ -187,12 +240,16 @@ export const Team: React.FC = () => {
       <PageHeader
         title="My Team"
         subtitle="Add and manage managers and cashiers for your store"
-        actions={
+        actions={<>
+          {ownsSeveral && <Button variant="outline" onClick={openGrant} disabled={!access.data || !grantPeople.length || !grantStores.length}>
+            <Building2 className="h-4 w-4 mr-2" />
+            Give access to another store
+          </Button>}
           <Button variant="primary" onClick={openCreateModal}>
             <Plus className="h-4 w-4 mr-2" />
             Add Team Member
           </Button>
-        }
+        </>}
       />
       <AutoRefreshStatus state={query} />
       <Card className="mb-6">
@@ -246,7 +303,7 @@ export const Team: React.FC = () => {
             }
           />
         ) : (
-          <Table scrollLabel="Team records">
+          <Table scrollLabel="Team records" aria-label="Staff">
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
@@ -262,11 +319,15 @@ export const Team: React.FC = () => {
                   <TableCell>
                     <p className="font-medium">{u.firstName} {u.lastName}</p>
                     <p className="text-sm text-muted-foreground">{u.email}</p>
+                    {u.alsoWorksHere && <p className="text-xs text-muted-foreground">Home store: {u.location?.name || 'another store'}</p>}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={u.role === 'MANAGER' ? 'default' : 'secondary'}>
-                      {formatEnumLabel(u.role)}
-                    </Badge>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant={(u.storeRole || u.role) === 'MANAGER' ? 'default' : 'secondary'}>
+                        {formatEnumLabel(u.storeRole || u.role)}
+                      </Badge>
+                      {u.alsoWorksHere && <Badge variant="secondary">Also works here</Badge>}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <p className="text-sm">{u._count.sales} sales</p>
@@ -284,6 +345,8 @@ export const Team: React.FC = () => {
                           ...(u.isActive ? [{ id: 'deactivate', label: 'Deactivate', icon: <Trash2 size={16} />, destructive: true, onAction: () => setDeleteTarget(u) }] : []),
                         ]} />
                       </div>
+                    ) : u.alsoWorksHere ? (
+                      <span className="text-xs text-muted-foreground">Managed at their home store</span>
                     ) : (
                       <span className="text-xs text-muted-foreground flex items-center justify-end gap-1">
                         <ShieldAlert className="h-3 w-3" /> Admin-managed
@@ -296,6 +359,55 @@ export const Team: React.FC = () => {
           </Table>
         )}
       </Card>
+
+      {ownsSeveral && <Card className="mt-6">
+        <CardHeader><CardTitle>Access to your other stores</CardTitle></CardHeader>
+        {access.loading ? <div className="p-6 text-center"><Spinner className="mx-auto" /></div>
+          : access.error && !access.data ? <div role="alert" className="p-4 space-y-3"><p>{access.error}</p><Button variant="outline" onClick={access.refresh}>Retry</Button></div>
+          : !grants.length ? <EmptyState icon={Building2} title="No one works in more than one store yet" hint="Give a manager or cashier access to another of your stores; they switch stores from the menu." />
+          : <Table scrollLabel="Access to other stores" aria-label="Access to other stores">
+            <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Works at</TableHead><TableHead>Role there</TableHead><TableHead>Home store</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+            <TableBody>{grants.map(row => <TableRow key={row.id}>
+              <TableCell><p className="font-medium">{row.name}</p><p className="text-sm text-muted-foreground">{row.email}</p></TableCell>
+              <TableCell>{storeName(row.locationId)}</TableCell>
+              <TableCell>{formatEnumLabel(row.role)}</TableCell>
+              <TableCell>{storeName(row.homeLocationId)}</TableCell>
+              <TableCell className="text-right"><Button variant="outline" size="sm" onClick={() => setRemoveGrant(row)} aria-label={`Remove ${row.name} from ${storeName(row.locationId)}`}>Remove</Button></TableCell>
+            </TableRow>)}</TableBody>
+          </Table>}
+      </Card>}
+
+      <Modal isOpen={grantOpen} onClose={() => setGrantOpen(false)} title="Give access to another store">
+        <form onSubmit={handleGrant} className="space-y-4">
+          <Select label="Team member" value={grantForm.email} onChange={(e) => setGrantForm({ ...grantForm, email: e.target.value })} required>
+            {grantPeople.map(u => <option key={u.id} value={u.email}>{u.firstName} {u.lastName}</option>)}
+          </Select>
+          <Select label="Store" value={grantForm.locationId} onChange={(e) => setGrantForm({ ...grantForm, locationId: e.target.value })} required>
+            {grantStores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}
+          </Select>
+          <Select label="Role there" value={grantForm.role} onChange={(e) => setGrantForm({ ...grantForm, role: e.target.value as 'MANAGER' | 'CASHIER' })}>
+            <option value="CASHIER">Cashier</option>
+            <option value="MANAGER">Manager</option>
+          </Select>
+          <p className="text-xs text-muted-foreground">They keep this store as their home and switch to the other store from the menu. Giving the same person access again changes their role there.</p>
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={() => setGrantOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="primary" className="flex-1" disabled={submitting || !grantForm.email || !grantForm.locationId}>
+              {submitting ? 'Saving...' : 'Give Access'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={removeGrant !== null}
+        onClose={() => setRemoveGrant(null)}
+        onConfirm={handleRemoveGrant}
+        title="Remove access?"
+        message={removeGrant ? `${removeGrant.name} will no longer be able to work at ${storeName(removeGrant.locationId)}. Their home store stays the same.` : ''}
+        destructive
+        confirmLabel="Remove Access"
+      />
 
       {/* Add Team Member */}
       <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Add Team Member">

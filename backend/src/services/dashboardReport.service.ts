@@ -38,6 +38,17 @@ async function widgets(scope: Scope, calendar: Calendar, tx: Prisma.TransactionC
   };
 }
 
+type Metrics = Awaited<ReturnType<typeof getFinancialMetrics>>;
+/** Percent change in sales after refunds; none when the earlier period had no sales or either has incomplete history. */
+export const salesTrend = (current: Metrics, previous: Metrics) => previous.netCollected > 0 && !current.historyWarning && !previous.historyWarning
+  ? round((current.netCollected - previous.netCollected) / previous.netCollected * 100) : null;
+
+/** Today so far, and yesterday up to the same time of day (the Dashboard's comparison). */
+export const todayRanges = (calendar: Calendar, now: Date) => ({
+  today: { gte: calendar.day(), lte: now },
+  sameTimeYesterday: { gte: calendar.day(-1), lte: new Date(Math.min(now.getTime() - 86400000, calendar.day().getTime() - 1)) },
+});
+
 export async function getDashboardWidgetData(scope: Scope, now = new Date()) {
   const calendar = await getReportCalendar(scope, now);
   return prisma.$transaction(async tx => widgets(scope, calendar, tx, await getFinancialMetrics(scope, { gte: calendar.day(), lte: now }, tx)),
@@ -54,9 +65,9 @@ export async function getDashboardReportData(scope: Scope, now = new Date()) {
   return prisma.$transaction(async tx => {
     const [daily, yesterday, weekly, previousWeek, monthly, previousMonth, lowStockCount, lowStockItems,
       totalProducts, totalCustomers, activeEmployees, recentSales, payments] = await Promise.all([
-      getFinancialMetrics(scope, { gte: today, lte: now }, tx),
+      getFinancialMetrics(scope, todayRanges(calendar, now).today, tx),
       // Today so far is compared with yesterday up to the same time, not all of yesterday.
-      getFinancialMetrics(scope, { gte: calendar.day(-1), lte: new Date(Math.min(now.getTime() - 86400000, today.getTime() - 1)) }, tx),
+      getFinancialMetrics(scope, todayRanges(calendar, now).sameTimeYesterday, tx),
       getFinancialMetrics(scope, { gte: week, lte: now }, tx),
       getFinancialMetrics(scope, { gte: calendar.day(-13), lt: week }, tx),
       getFinancialMetrics(scope, { gte: month, lte: now }, tx),
@@ -72,13 +83,11 @@ export async function getDashboardReportData(scope: Scope, now = new Date()) {
       getFinancialBreakdowns(scope, { gte: today, lte: now }, calendar.timezone, today, tx, ['payment']),
     ]);
     const details = await widgets(scope, calendar, tx, daily);
-    const trend = (current: typeof daily, previous: typeof daily) => previous.netCollected > 0 && !current.historyWarning && !previous.historyWarning
-      ? round((current.netCollected - previous.netCollected) / previous.netCollected * 100) : null;
     const meaningfulShares = daily.netCollected > 0 && payments.every(payment => payment.total >= 0);
     return {
       ...details, period: { ...details.period, week, month },
-      todaySales: daily.netCollected, todayTransactions: daily.transactions, todayTrend: trend(daily, yesterday),
-      weekSales: weekly.netCollected, weekTrend: trend(weekly, previousWeek), monthSales: monthly.netCollected, monthTrend: trend(monthly, previousMonth),
+      todaySales: daily.netCollected, todayTransactions: daily.transactions, todayTrend: salesTrend(daily, yesterday),
+      weekSales: weekly.netCollected, weekTrend: salesTrend(weekly, previousWeek), monthSales: monthly.netCollected, monthTrend: salesTrend(monthly, previousMonth),
       averageOrderValue: daily.transactions ? round(daily.grossCollected / daily.transactions) : null,
       todayRefunds: daily.refunds, todayRefundCount: daily.refundCount, todayVoids: daily.voids, todayVoidCount: daily.voidCount,
       lowStockCount, lowStockItems: lowStockItems.map(product => ({ id: product.id, name: product.name, sku: product.sku, stock: product.stockQuantity, alert: product.lowStockAlert })),

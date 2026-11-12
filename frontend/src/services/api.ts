@@ -638,6 +638,24 @@ export const locationService = {
   delete: (id: string) => api.delete(`/locations/${id}`),
   getMySettings: (locationId?: string) => api.get('/locations/my-settings', { params: locationId ? { locationId } : {} }),
   updateMySettings: (data: any) => api.put('/locations/my-settings', data),
+  /** Platform admin: move a store to another business (null: one of its own). */
+  moveToOrganization: (id: string, organizationId: string | null) => api.put(`/locations/${id}`, { organizationId }),
+};
+
+/** Owners of several stores: the My Stores overview and access to their other stores. */
+export const organizationService = {
+  getOverview: (signal?: AbortSignal) => api.get('/organization/overview', { signal }),
+  listAccess: (signal?: AbortSignal) => api.get('/organization/access', { signal }),
+  grantAccess: (data: { email: string; locationId: string; role: 'MANAGER' | 'CASHIER' }) => api.post('/organization/access', data),
+  removeAccess: (id: string) => api.delete(`/organization/access/${id}`),
+};
+
+/** Platform admin: businesses and their owners. */
+export const organizationAdminService = {
+  getAll: (signal?: AbortSignal) => api.get('/organizations', { signal }),
+  create: (name: string) => api.post('/organizations', { name }),
+  addOwner: (id: string, email: string) => api.post(`/organizations/${id}/owners`, { email }),
+  removeOwner: (id: string, userId: string) => api.delete(`/organizations/${id}/owners/${userId}`),
 };
 
 /**

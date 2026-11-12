@@ -5,6 +5,7 @@ import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
 import { useNavigate } from 'react-router-dom';
 import { useAdminViewStore } from '@/store/adminViewStore';
 import { StoreConnections } from '@/components/StoreConnections';
+import { StoreBusiness } from '@/components/admin/StoreBusiness';
 import { LotteryConfiguration } from '@/components/lottery/LotteryConfiguration';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useFocusTrap, isTopFocusTrap } from '@/hooks/useFocusTrap';
@@ -37,6 +38,7 @@ import {
   Eye,
   Link2,
   X,
+  Building2,
 } from 'lucide-react';
 import {
   BarChart,
@@ -68,6 +70,8 @@ interface Location {
   currency: string;
   timezone: string;
   isActive: boolean;
+  /** The business the store belongs to; its owners run all of its stores. */
+  organization?: { id: string; name: string } | null;
   _count: {
     users: number;
     products: number;
@@ -102,6 +106,7 @@ export const StoreManagement: React.FC = () => {
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
   const [connectionStore, setConnectionStore] = useState<Location | null>(null);
   const [lotteryStore, setLotteryStore] = useState<Location | null>(null);
+  const [businessStore, setBusinessStore] = useState<Location | null>(null);
 
   // Store detail modal state
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -286,6 +291,7 @@ export const StoreManagement: React.FC = () => {
 
       {connectionStore && <StoreConnections key={connectionStore.id} stores={locations} store={connectionStore} onClose={() => setConnectionStore(null)} />}
       {lotteryStore && <LotteryConfiguration key={lotteryStore.id} store={lotteryStore} onClose={() => setLotteryStore(null)} />}
+      {businessStore && <StoreBusiness key={businessStore.id} store={businessStore} onClose={() => setBusinessStore(null)} onChanged={loadLocations} />}
 
       {/* Summary */}
       <SummaryStrip items={[
@@ -318,6 +324,7 @@ export const StoreManagement: React.FC = () => {
             <TableHeader>
               <TableRow>
                 <TableHead>Store Name</TableHead>
+                <TableHead>Business</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead className="text-right">Users</TableHead>
@@ -338,6 +345,9 @@ export const StoreManagement: React.FC = () => {
                     <p className="text-sm text-muted-foreground">
                       Tax Rate: {location.taxRate}%
                     </p>
+                  </TableCell>
+                  <TableCell>
+                    <p className="break-words">{location.organization?.name || '—'}</p>
                   </TableCell>
                   <TableCell>
                     <p>{location.address}</p>
@@ -366,6 +376,9 @@ export const StoreManagement: React.FC = () => {
                   <TableCell className="text-right">
                     <div className="flex flex-wrap justify-end gap-2">
                       <Button variant="outline" aria-label={`Configure lottery for ${location.name}`} onClick={(e) => { e.stopPropagation(); setLotteryStore(location); }}>Lottery</Button>
+                      <Button variant="outline" size="sm" aria-label={`Business and owners for ${location.name}`} onClick={(e) => { e.stopPropagation(); setBusinessStore(location); }}>
+                        <Building2 className="h-4 w-4 mr-2" />Business
+                      </Button>
                       <Button variant="outline" size="sm" aria-label={`Manage connections for ${location.name}`} onClick={(e) => { e.stopPropagation(); setConnectionStore(location); }}>
                         <Link2 className="h-4 w-4 mr-2" />Connections
                       </Button>

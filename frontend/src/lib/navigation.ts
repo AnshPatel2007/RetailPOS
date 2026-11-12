@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, ShoppingCart, Ticket, Clock, Package, Truck, ArrowLeftRight, Tag, Users, Wallet,
-  TrendingUp, DollarSign, BarChart3, FileText, Settings, Shield, UserCog, Monitor,
+  TrendingUp, DollarSign, BarChart3, FileText, Settings, Shield, UserCog, Monitor, Building2,
 } from 'lucide-react';
 
 export type Role = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'CASHIER';
@@ -16,6 +16,8 @@ export interface NavLink {
   roles: Role[];
   /** Other words people use for this place; quick-find matches them too. */
   keywords?: string;
+  /** Shown only to someone who runs more than one store (see `runsSeveralStores`). */
+  severalStores?: boolean;
 }
 export interface NavSection { title?: string; items: NavLink[] }
 
@@ -28,6 +30,7 @@ export const STOCK_CONTROL = '/inventory/stock-control';
 export const sidebarSections: NavSection[] = [
   { items: [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ALL, keywords: 'home today summary' },
+    { name: 'My Stores', href: '/stores', icon: Building2, roles: ['ADMIN'], severalStores: true, keywords: 'locations all stores overview switch business' },
     { name: 'POS', href: '/pos', icon: ShoppingCart, roles: ALL, keywords: 'register checkout sell sale' },
     { name: 'Lottery', href: '/lottery', icon: Ticket, roles: ALL, keywords: 'scratch tickets instant games' },
     { name: 'My Shift', href: '/my-shift', icon: Clock, roles: ['CASHIER'], keywords: 'clock in clock out drawer' },
@@ -94,8 +97,12 @@ const pageViews: (NavLink & { within: string })[] = [
 
 export interface QuickFindEntry extends NavLink { within?: string }
 
-export function navigationFor(role: string | undefined): QuickFindEntry[] {
-  const allowed = (link: NavLink) => !!role && link.roles.includes(role as Role);
+/** Runs more than one store as ADMIN (an owner of several stores): My Stores is shown. */
+export const runsSeveralStores = (user: { stores?: { role: string }[] } | null | undefined) =>
+  (user?.stores?.filter(store => store.role === 'ADMIN').length ?? 0) > 1;
+
+export function navigationFor(role: string | undefined, severalStores = false): QuickFindEntry[] {
+  const allowed = (link: NavLink) => !!role && link.roles.includes(role as Role) && (!link.severalStores || severalStores);
   return [...sidebarSections.flatMap(section => section.items), ...pageViews].filter(allowed);
 }
 

@@ -8,7 +8,7 @@ import { can, Capability } from '../policies/capabilities';
 import { omitWageDetails } from '../utils/wagePrivacy';
 import { actingStore, STORE_ACCESS_ENDED } from '../services/session.service';
 
-const operationAreas = new Set(['products', 'categories', 'sales', 'customers', 'shifts', 'reports', 'expenses', 'suppliers', 'purchase-orders', 'analytics', 'financial', 'gift-cards', 'store-credit', 'exchanges', 'inventory-transfers', 'cycle-counts', 'inventory-exceptions', 'lottery', 'audit-logs', 'promotions', 'house-accounts', 'payroll', 'offline']);
+const operationAreas = new Set(['products', 'categories', 'sales', 'customers', 'shifts', 'reports', 'expenses', 'suppliers', 'purchase-orders', 'analytics', 'financial', 'gift-cards', 'store-credit', 'exchanges', 'inventory-transfers', 'cycle-counts', 'inventory-exceptions', 'lottery', 'audit-logs', 'promotions', 'house-accounts', 'payroll', 'offline', 'organization']);
 const restrictedAreas: Record<string, Capability> = {
   payroll: 'payroll.manage', expenses: 'financial.read', financial: 'financial.read',
   suppliers: 'inventory.read', 'purchase-orders': 'inventory.read', 'inventory-transfers': 'inventory.read',

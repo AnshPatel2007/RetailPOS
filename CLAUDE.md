@@ -118,6 +118,17 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   home, and the app reloads the person there. A PIN sign-in on another store's register
   starts the session in that store. Stores of one organization are connected for
   transfers (`storesConnected`).
+- **Owners of several stores** (`routes/organization.routes.ts`): My Stores (`/stores`,
+  shown when the person runs more than one store as ADMIN) reads
+  `GET /organization/overview` (`services/storeOverview.service.ts`), whose today figures
+  share `salesTrend`/`todayRanges` with the Dashboard. Owners give their own staff
+  MANAGER or CASHIER access to their other stores from Team & Time > Staff
+  (`/organization/access`); ADMIN access, ownership and moving a store between
+  businesses are platform-admin actions (`/organizations`, `PUT /locations/:id
+  { organizationId }`, Admin > Stores > Business). Removing access is refused while that
+  person's drawer is open at the store. The morning brief goes to everyone who runs a
+  store as ADMIN; an owner of several stores instead gets one email with a section per
+  store (`sendOwnerCombinedBrief`), in their home store's morning.
 - **Auth**: access JWTs carry a refresh-session id; the `users_revoke_sessions` trigger
   ends sessions on password/role/store/active changes. Cashier discounts, refunds and
   voids need manager approval (the API answers 428 and the app opens the approval dialog).
