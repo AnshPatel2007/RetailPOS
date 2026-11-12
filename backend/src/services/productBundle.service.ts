@@ -59,7 +59,7 @@ const countWeights = (components: { quantity: number }[]) => components.map(comp
 
 export async function getBundle(db: Db, productId: string, locationId: string) {
   const product = await db.product.findFirst({ where: { id: productId, locationId }, include: {
-    bundleComponents: { include: { component: { select: { id: true, name: true, sku: true, trackInventory: true, stockQuantity: true } } }, orderBy: { createdAt: 'asc' } },
+    bundleComponents: { include: { component: { select: { id: true, name: true, sku: true, trackInventory: true, stockQuantity: true } } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
     bundleMemberships: { include: { bundle: { select: { id: true, name: true, sku: true } } } },
   } });
   if (!product) throw new AppError('Product not found at this store', 404);
@@ -96,9 +96,11 @@ export async function setBundleContents(tx: Prisma.TransactionClient, input: { p
     if (nested) throw new AppError(`${nested.name} is a variety pack itself; add its contents instead`, 400);
   }
   await tx.productBundleComponent.deleteMany({ where: { bundleProductId: bundle.id } });
-  if (input.components.length) await tx.productBundleComponent.createMany({ data: input.components.map(component => ({
+  // One statement stamps every row with the same time; a millisecond apart keeps the order they were entered.
+  const enteredAt = Date.now();
+  if (input.components.length) await tx.productBundleComponent.createMany({ data: input.components.map((component, index) => ({
     bundleProductId: bundle.id, componentProductId: component.productId, locationId: input.locationId,
-    quantity: component.quantity })) });
+    quantity: component.quantity, createdAt: new Date(enteredAt + index) })) });
 }
 
 /** Open variety packs: the pack's units leave stock and their value moves into the contents. */

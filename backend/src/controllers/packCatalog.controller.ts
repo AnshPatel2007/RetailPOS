@@ -33,7 +33,7 @@ export const getPacks = asyncHandler(async (req: AuthRequest, res: Response) => 
     }),
     prisma.product.findMany({
       where: { locationId, bundleComponents: { some: {} }, ...(text ? { OR: [{ name: text }, { barcode: text }, { sku: text }] } : {}) },
-      include: { bundleComponents: { include: { component: { select: { name: true } } }, orderBy: { createdAt: 'asc' } } },
+      include: { bundleComponents: { include: { component: { select: { name: true } } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] } },
     }),
   ]);
 
