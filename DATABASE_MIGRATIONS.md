@@ -132,10 +132,12 @@ replace them. Integration tests exercise them.
   access row for everyone with a store, with their current role; every active ADMIN
   owns their store's organization, so nobody gains or loses access. Adds the
   `locations_default_organization` and `users_sync_home_access` triggers (above).
-  The app needs it: this version's Prisma client reads both new columns. On the
-  local preview copy: 3 stores, 3 organizations, 4 access rows matching each
-  person's home store and role, 2 owners. Applied to the disposable test databases
-  and the preview copy only; the store database still needs it (backup first).
+  The app needs it: this version's Prisma client reads both new columns. Applied to
+  the local store database on 2026-11-11 after the backup in
+  `.local/backups/pre-phase3-organizations-20261111-231815/`: 3 stores, 3
+  organizations named after them, 4 access rows matching each person's home store and
+  role, 2 owners; sales (462, $1,608,771.21) and live sessions (25) identical before
+  and after.
 
 - **`20261111010000_inventory_value_reason` (2026-11-11).** Adds the nullable column
   `inventory_value_entries.reason`: why a stock change happened (damaged, expired,
