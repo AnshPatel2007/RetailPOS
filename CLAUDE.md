@@ -118,6 +118,12 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   today); others keep 14 days of cover and a 7-day urgency window. Days are store days
   (`storeDay`). The supplier form offers the weekdays deliveries usually arrived
   (`GET /suppliers/:id/delivery-days/suggestion`) but never saves them by itself.
+- **Mis-scan suggestions learn**: an exception's related items
+  (`relatedProducts`/`rankRelatedProducts` in `services/inventoryException.service.ts`)
+  rank items mixed up with it in the last 180 days (`mixUpHistory`: SOLD_AS_OTHER
+  reclasses and sale-line corrections, either direction; +25 each, at most +75) and items
+  at the same price (+15). The attention list names the likeliest pair with stock to
+  count (`likelyMixUps`). Nothing is corrected automatically.
 - **Attention list and morning brief** (`services/attention.service.ts`,
   `services/ownerBrief.service.ts`): one rule per exported function returns one plain
   sentence with its amount and the page that fixes it; the Dashboard (owners and

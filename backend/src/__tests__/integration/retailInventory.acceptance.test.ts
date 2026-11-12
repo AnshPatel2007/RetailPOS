@@ -160,6 +160,23 @@ describe('Retail inventory acceptance', () => {
     expect(ranked.map(r => r.id)).toEqual(['a', 'b']);
   });
 
+  it('ranks items mixed up before, and items at the same price, above lookalikes', () => {
+    const base = { barcode: null, stockQuantity: 3, categoryId: 'c', supplierIds: ['s'], variant: null, brand: null, productFamily: null, size: null };
+    const target = { ...base, id: 't', name: 'Blue Razz Vape', sku: 't', price: 19.99 };
+    const lookalike = { ...base, id: 'look', name: 'Blue Razz Ice Vape', sku: 'l', price: 21.99 };
+    const grape = { ...base, id: 'grape', name: 'Grape Vape', sku: 'g', price: 18.99 };
+    const mint = { ...base, id: 'mint', name: 'Mint Pods', sku: 'm', price: 19.99 };
+    const plain = rankRelatedProducts(target, [lookalike, grape, mint]);
+    expect(plain.map(r => r.id)).toEqual(['look', 'mint', 'grape']);
+    expect(plain[1]).toMatchObject({ samePrice: true, score: 35 });
+    expect(plain[1].reasons).toContain('Same price');
+    // Mixed up three times before: +75 puts it first, and more mix-ups add nothing beyond that.
+    const learned = rankRelatedProducts(target, [lookalike, grape, mint], 8, new Map([['grape', 3]]));
+    expect(learned[0]).toMatchObject({ id: 'grape', mixedUp: 3, score: 105 });
+    expect(learned[0].reasons).toContain('Mixed up before (3 times)');
+    expect(rankRelatedProducts(target, [grape], 8, new Map([['grape', 10]]))[0].score).toBe(105);
+  });
+
   it('12. requires reasons for stock changes, records counts with an audit trail, and is retry-safe', async () => {
     await opening(0, 0);
     await sell(3).expect(201);

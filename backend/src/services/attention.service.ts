@@ -17,6 +17,7 @@ import { costChangeAlertPercent } from '../validators/storeSettings.validator';
 import { countPendingLabels } from './shelfLabels.service';
 import { loadReorderPlan } from './reorder.service';
 import { addDays, WEEKDAYS } from './reorderPlan';
+import { likelyMixUps } from './inventoryException.service';
 
 export type Severity = 'high' | 'medium' | 'low';
 export interface Finding {
@@ -230,9 +231,23 @@ export const supplierOrderDueTomorrow: AttentionRule = async ({ locationId, now 
       + (others.length ? ` ${others.length} other ${plural(others.length, 'supplier also needs an order', 'suppliers also need orders')} by tomorrow.` : '') };
 };
 
+/** A negative item whose likely mix-up partner has stock on hand: count both. */
+export const likelyMixUp: AttentionRule = async ({ locationId }) => {
+  const found = await likelyMixUps(prisma, locationId);
+  if (!found.length) return null;
+  const [top, ...more] = found;
+  const shows = (quantity: number) => quantity < 0 ? '−' + Math.abs(quantity) : String(quantity);
+  const pair = `${top.product.name} shows ${shows(top.product.stockQuantity)} while ${top.partner.name}`;
+  return { key: 'likely-mix-up', severity: 'medium', count: found.length, href: '/inventory/stock-control/exceptions',
+    sentence: (top.partner.mixedUp
+      ? `${pair} shows ${shows(top.partner.stockQuantity)} and they were mixed up ${top.partner.mixedUp} ${plural(top.partner.mixedUp, 'time')} before. Count both.`
+      : `${pair}, at the same price, shows ${shows(top.partner.stockQuantity)}. Count both.`)
+      + (more.length ? ` ${more.length} more stock ${plural(more.length, 'problem has', 'problems have')} a likely mix-up.` : '') };
+};
+
 /** Shown in this order within one severity. Later packages append their rules here. */
 export const attentionRules: AttentionRule[] = [stockExceptions, profitNotConfirmed, drawerDifferences, pricesBelowTarget, billsDueSoon,
-  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding, labelsOutOfDate, supplierOrderDueTomorrow];
+  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding, labelsOutOfDate, supplierOrderDueTomorrow, likelyMixUp];
 const rank: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
 /**

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { AppError } from '../utils/errorHandler';
+import type prisma from '../config/database';
 
 /**
  * Negative-stock discrepancy alerts.
@@ -50,13 +51,23 @@ function nameSimilarity(a: string, b: string) {
 const same = (a?: string | null, b?: string | null) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 
 type Candidate = { id: string; name: string; sku: string; barcode: string | null; stockQuantity: number; brand: string | null;
-  productFamily: string | null; variant: string | null; size: string | null; categoryId: string | null; supplierIds: string[] };
+  productFamily: string | null; variant: string | null; size: string | null; categoryId: string | null; supplierIds: string[];
+  /** Selling price; two items at one price are easy to ring up as each other. */
+  price?: number | null };
 
-/** Rank SKUs worth counting alongside the negative one. Suggests; never asserts a cause. */
-export function rankRelatedProducts(target: Candidate, candidates: Candidate[], limit = 8) {
+/**
+ * Rank SKUs worth counting alongside the negative one. Suggests; never asserts a cause.
+ * `history` counts how often each candidate was mixed up with the target before
+ * (sold as the other, or a sale line corrected between them).
+ */
+export function rankRelatedProducts(target: Candidate, candidates: Candidate[], limit = 8, history: Map<string, number> = new Map()) {
   const ranked = candidates.filter(c => c.id !== target.id).map(candidate => {
     const reasons: string[] = [];
     let score = 0;
+    const mixedUp = history.get(candidate.id) || 0;
+    if (mixedUp) { score += Math.min(75, 25 * mixedUp); reasons.push(`Mixed up before (${mixedUp} ${mixedUp === 1 ? 'time' : 'times'})`); }
+    const samePrice = candidate.price != null && target.price != null && Math.round(candidate.price * 100) === Math.round(target.price * 100);
+    if (samePrice) { score += 15; reasons.push('Same price'); }
     const sameSize = same(candidate.size, target.size);
     if (same(candidate.productFamily, target.productFamily)) { score += sameSize ? 100 : 70; reasons.push(sameSize ? 'Same product family and size' : 'Same product family'); }
     else if (same(candidate.brand, target.brand)) { score += sameSize ? 60 : 35; reasons.push(sameSize ? 'Same brand and size' : 'Same brand'); }
@@ -68,18 +79,38 @@ export function rankRelatedProducts(target: Candidate, candidates: Candidate[], 
     if (similarity >= 0.25) { score += Math.round(similarity * 40); reasons.push('Similar name'); }
     if (candidate.stockQuantity > 0 && score > 0) reasons.push('Has recorded stock (a mis-scan may have reduced the wrong item)');
     return { id: candidate.id, name: candidate.name, sku: candidate.sku, barcode: candidate.barcode, variant: candidate.variant,
-      size: candidate.size, stockQuantity: candidate.stockQuantity, score, reasons };
+      size: candidate.size, stockQuantity: candidate.stockQuantity, score, reasons, mixedUp, samePrice };
   }).filter(c => c.score >= 12);
   return ranked.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, limit);
 }
 
 const candidateSelect = { id: true, name: true, sku: true, barcode: true, stockQuantity: true, brand: true, productFamily: true,
-  variant: true, size: true, categoryId: true, suppliers: { select: { supplierId: true } } } as const;
-const toCandidate = (p: Prisma.ProductGetPayload<{ select: typeof candidateSelect }>): Candidate => ({ ...p, supplierIds: p.suppliers.map(s => s.supplierId) });
+  variant: true, size: true, categoryId: true, price: true, suppliers: { select: { supplierId: true } } } as const;
+const toCandidate = (p: Prisma.ProductGetPayload<{ select: typeof candidateSelect }>): Candidate => ({ ...p, price: Number(p.price), supplierIds: p.suppliers.map(s => s.supplierId) });
+const HISTORY_DAYS = 180;
 
-export async function relatedProducts(db: Prisma.TransactionClient, product: Prisma.ProductGetPayload<{ select: typeof candidateSelect }> & { locationId: string | null }) {
+/** How often each other product was mixed up with this one in the last 180 days, in either direction. */
+export async function mixUpHistory(db: Prisma.TransactionClient | typeof prisma, productId: string, locationId: string | null, now = new Date()) {
+  const since = new Date(now.getTime() - HISTORY_DAYS * 86400000);
+  const pair = { OR: [{ fromProductId: productId }, { toProductId: productId }] };
+  const [reclasses, corrections] = await Promise.all([
+    db.stockReclass.findMany({ where: { ...(locationId ? { locationId } : {}), reason: 'SOLD_AS_OTHER', createdAt: { gte: since }, ...pair }, select: { fromProductId: true, toProductId: true } }),
+    db.saleItemCorrection.findMany({ where: { ...(locationId ? { locationId } : {}), createdAt: { gte: since }, ...pair }, select: { fromProductId: true, toProductId: true } }),
+  ]);
+  const history = new Map<string, number>();
+  for (const row of [...reclasses, ...corrections]) {
+    const other = row.fromProductId === productId ? row.toProductId : row.fromProductId;
+    if (other !== productId) history.set(other, (history.get(other) || 0) + 1);
+  }
+  return history;
+}
+
+export async function relatedProducts(db: Prisma.TransactionClient | typeof prisma, product: Prisma.ProductGetPayload<{ select: typeof candidateSelect }> & { locationId: string | null }) {
+  const history = await mixUpHistory(db, product.id, product.locationId);
   const nameTokens = [...words(product.name)].filter(w => w.length > 2).slice(0, 3);
   const or: Prisma.ProductWhereInput[] = [];
+  // Items mixed up with this one before are always considered, however different they look.
+  if (history.size) or.push({ id: { in: [...history.keys()] } });
   if (product.productFamily) or.push({ productFamily: { equals: product.productFamily, mode: 'insensitive' } });
   if (product.brand) or.push({ brand: { equals: product.brand, mode: 'insensitive' } });
   if (product.categoryId) or.push({ categoryId: product.categoryId });
@@ -87,7 +118,23 @@ export async function relatedProducts(db: Prisma.TransactionClient, product: Pri
   if (!or.length) return [];
   const candidates = await db.product.findMany({ where: { locationId: product.locationId, isActive: true, trackInventory: true, id: { not: product.id }, OR: or },
     select: candidateSelect, take: 300 });
-  return rankRelatedProducts(toCandidate(product), candidates.map(toCandidate));
+  return rankRelatedProducts(toCandidate(product), candidates.map(toCandidate), 8, history);
+}
+
+/**
+ * Open exceptions whose likeliest partner (mixed up before, or the same price)
+ * has stock on hand: counting both usually finds the mis-scan. Most past
+ * mix-ups first. Suggests only; nothing is corrected automatically.
+ */
+export async function likelyMixUps(db: Prisma.TransactionClient | typeof prisma, locationId: string, limit = 20) {
+  const open = await db.inventoryException.findMany({ where: { locationId, status: { in: ['OPEN', 'RECOUNT_REQUESTED'] } },
+    orderBy: [{ lastNegativeAt: 'desc' }, { id: 'asc' }], take: limit, include: { product: { select: { ...candidateSelect, locationId: true } } } });
+  const found = [];
+  for (const exception of open) {
+    const partner = (await relatedProducts(db, exception.product)).find(candidate => (candidate.mixedUp > 0 || candidate.samePrice) && candidate.stockQuantity > 0);
+    if (partner) found.push({ exceptionId: exception.id, product: { id: exception.product.id, name: exception.product.name, stockQuantity: exception.product.stockQuantity }, partner });
+  }
+  return found.sort((a, b) => b.partner.mixedUp - a.partner.mixedUp || b.partner.score - a.partner.score || a.product.name.localeCompare(b.product.name));
 }
 
 /** Everything a manager needs to investigate one exception. */
