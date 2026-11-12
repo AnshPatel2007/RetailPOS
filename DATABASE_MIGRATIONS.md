@@ -129,7 +129,7 @@ replace them. Integration tests exercise them.
 - **`20261112030000_supplier_delivery_days` (2026-11-12).** Purely additive:
   `suppliers.deliveryDays INTEGER[]` (0 = Sunday ... 6 = Saturday), an empty list for
   every existing supplier, which keeps their two-week reorder planning. The app needs
-  it. Not yet applied to the store database (Phase 4 checkpoint).
+  it. Applied to the local store database on 2026-11-12 with the other Phase 4 migrations (see `20261112010000_supplier_credits`).
 
 - **`20261112020000_shelf_label_dates` (2026-11-12).** Purely additive. Nullable
   `priceChangedAt` and `labelPrintedAt` on `products` and `product_selling_units`, and
@@ -137,7 +137,7 @@ replace them. Integration tests exercise them.
   (above). No backfill: existing items have no recorded price change, so Products >
   Labels to print starts empty. Trigger times are written as UTC explicitly
   (`now() AT TIME ZONE 'UTC'`), because a local PostgreSQL session may run in local
-  time. The app needs it. Not yet applied to the store database (Phase 4 checkpoint).
+  time. The app needs it. Applied to the local store database on 2026-11-12 with the other Phase 4 migrations (see `20261112010000_supplier_credits`).
 
 - **`20261112010000_supplier_credits` (2026-11-12).** Purely additive. New nullable
   column `purchase_receipt_items.previousUnitCost` (the item's cost price before that
@@ -146,7 +146,12 @@ replace them. Integration tests exercise them.
   charged for, returns, shortages, price corrections; `OPEN` until `RECEIVED` or
   `WRITTEN_OFF`), with a foreign key to `suppliers` that blocks deleting a supplier
   that has credits. No triggers, no backfill. The app needs it: this version's Prisma
-  client writes both. Not yet applied to the store database (Phase 4 checkpoint).
+  client writes both. Applied to the local store database on 2026-11-12 after the
+  backup in `.local/backups/pre-phase4-purchasing-20261112-144518/`, together with
+  `20261112020000_shelf_label_dates` and `20261112030000_supplier_delivery_days`: sales
+  (462, $1,608,771.21), products (9), users (5), suppliers (3), stores (3) and live
+  sessions (19) identical before and after; `check` reported no difference; both price
+  triggers present; no item stamped, no credits, no delivery days.
 
 - **`20261112000000_organizations_store_access` (2026-11-12).** Multi-store owners,
   data only. New tables `organizations`, `organization_owners` and
