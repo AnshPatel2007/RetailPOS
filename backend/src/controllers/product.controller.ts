@@ -11,7 +11,8 @@ import { logger } from '../utils/logger';
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
-import { assertOwnsRecord, getLocationFilter } from '../utils/locationFilter.util';
+import { assertOwnsRecord, getLocationFilter, resolveWriteLocation } from '../utils/locationFilter.util';
+import { listPendingLabels, markLabelsPrinted } from '../services/shelfLabels.service';
 import { lockInventory, moveInventory } from '../services/inventory.service';
 import { valueProducts } from '../services/inventoryValueRead.service';
 import { barcodeVariants } from '../utils/barcode';
@@ -251,6 +252,23 @@ export const resolveBarcode = asyncHandler(async (req: AuthRequest, res: Respons
         packCost: link.packCost === null ? null : Number(link.packCost) } })),
   ];
   res.json({ success: true, data: { code, matches } });
+});
+
+/**
+ * Shelf labels to reprint after price changes.
+ * GET /api/products/labels/pending
+ */
+export const pendingLabels = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { locationId } = getLocationFilter(req, req.query.locationId as string);
+  if (!locationId) throw new AppError('Select a store to see shelf labels', 400);
+  res.json({ success: true, data: await listPendingLabels(prisma, locationId) });
+});
+
+/**
+ * POST /api/products/labels/printed { products: [{ id, priceChangedAt }], sellingUnits: [...] }
+ */
+export const labelsPrinted = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: await markLabelsPrinted(resolveWriteLocation(req), req.user!.id, req.body) });
 });
 
 /**

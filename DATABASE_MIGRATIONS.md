@@ -111,7 +111,9 @@ replace them. Integration tests exercise them.
   `users_sync_home_access` keeps each person's home-store row in `user_store_access`
   in step with `users.locationId` and `role`: when the home store changes the old row
   goes, unless the person owns that store's organization (then it stays ADMIN), and
-  platform admins keep no row.
+  platform admins keep no row. `products_price_changed` and
+  `product_selling_units_price_changed` stamp `priceChangedAt` (UTC) whenever a
+  product's or pack's price changes, whatever wrote it, for the shelf labels to print.
 - **Views.** `effective_inventory_values` and `reported_inventory_values`.
 - **Precision.** Booked USD is `Decimal(14,2)`; unit prices, costs and wages are
   `Decimal(14,4)`; percentages are `Decimal(9,4)`. The Float-to-Decimal conversion
@@ -123,6 +125,14 @@ replace them. Integration tests exercise them.
   reviewed in Finances > Balance Corrections > Old Voids.
 
 ## Recent changes
+
+- **`20261112020000_shelf_label_dates` (2026-11-12).** Purely additive. Nullable
+  `priceChangedAt` and `labelPrintedAt` on `products` and `product_selling_units`, and
+  the `products_price_changed` / `product_selling_units_price_changed` triggers
+  (above). No backfill: existing items have no recorded price change, so Products >
+  Labels to print starts empty. Trigger times are written as UTC explicitly
+  (`now() AT TIME ZONE 'UTC'`), because a local PostgreSQL session may run in local
+  time. The app needs it. Not yet applied to the store database (Phase 4 checkpoint).
 
 - **`20261112010000_supplier_credits` (2026-11-12).** Purely additive. New nullable
   column `purchase_receipt_items.previousUnitCost` (the item's cost price before that

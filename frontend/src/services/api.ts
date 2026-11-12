@@ -244,6 +244,12 @@ export type BarcodeMatch =
   | { kind: 'PRODUCT' | 'PACK'; product: import('@/types').Product; openExceptionId?: string | null }
   | { kind: 'SUPPLIER_CASE'; product: import('@/types').Product; openExceptionId?: string | null; supplierCase: { supplierId: string; supplierName: string; packSize: number; packCost: number | null } };
 
+/** An item or pack whose shelf label shows an old price. */
+export interface PendingLabel {
+  kind: 'PRODUCT' | 'PACK'; id: string; productId: string; sellingUnitId: string | null;
+  name: string; sku: string; barcode: string | null; price: number; priceChangedAt: string;
+}
+
 export type PriceRounding = 'CENT' | 'NICKEL' | 'NINE' | 'NINETY_NINE';
 export interface PriceRule { id: string; scope: 'STORE' | 'CATEGORY' | 'BRAND' | 'PRODUCT' | 'SELLING_UNIT'; scopeId: string; label: string; targetMargin: number; minMargin: number | null; rounding: PriceRounding }
 export const pricingService = {
@@ -267,6 +273,12 @@ export const productService = {
 
   /** Exact barcode lookup (UPC/EAN forms match). Supplier case matches are returned to managers only. */
   resolveBarcode: (code: string, signal?: AbortSignal) => api.get<{ success: boolean; data: { code: string; matches: BarcodeMatch[] } }>('/products/resolve-barcode', { params: { code }, signal }),
+
+  /** Shelf labels whose price changed since they were printed (newest change first). */
+  pendingLabels: (signal?: AbortSignal) => api.get<{ success: boolean; data: { items: PendingLabel[]; total: number } }>('/products/labels/pending', { signal }),
+  /** Marks labels printed for the price change each was printed for (its `priceChangedAt`). */
+  labelsPrinted: (data: { products: { id: string; priceChangedAt: string }[]; sellingUnits: { id: string; priceChangedAt: string }[] }) =>
+    api.post('/products/labels/printed', data),
 
   getSellingUnits: (id: string, signal?: AbortSignal) => api.get(`/products/${id}/selling-units`, { signal }),
   // packCost: what one pack costs the store; the single's cost price becomes packCost / units.

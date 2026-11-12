@@ -33,6 +33,11 @@ interface BarcodeLabelPrintProps {
   isOpen: boolean;
   onClose: () => void;
   products: Product[];
+  /**
+   * Labels to print after price changes: once the print window opens, ask
+   * whether they printed and, if so, mark these items printed.
+   */
+  onPrinted?: (printed: Product[]) => Promise<void>;
 }
 
 interface LabelItem {
@@ -44,16 +49,29 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
   isOpen,
   onClose,
   products,
+  onPrinted,
 }) => {
   const [labelItems, setLabelItems] = useState<LabelItem[]>(() =>
     products.map((p) => ({ product: p, quantity: 1 }))
   );
+  const [printed, setPrinted] = useState<Product[] | null>(null);
+  const [marking, setMarking] = useState(false);
+  const [problem, setProblem] = useState('');
   const [labelSize, setLabelSize] = useState<'small' | 'medium' | 'large'>('medium');
 
   // Update quantities when products prop changes
   React.useEffect(() => {
     setLabelItems(products.map((p) => ({ product: p, quantity: 1 })));
+    setPrinted(null); setProblem('');
   }, [products]);
+
+  const confirmPrinted = async () => {
+    if (!printed || !onPrinted) return;
+    setMarking(true); setProblem('');
+    try { await onPrinted(printed); }
+    catch (failure) { setProblem((failure as { response?: { data?: { error?: string } } }).response?.data?.error || 'The labels were not marked printed. Try again.'); }
+    finally { setMarking(false); }
+  };
 
   const updateQuantity = (index: number, qty: number) => {
     setLabelItems((prev) =>
@@ -161,8 +179,26 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
     if (printWindow) {
       printWindow.document.write(html);
       printWindow.document.close();
-    }
+      setProblem('');
+      if (onPrinted) setPrinted(labelsToprint.map(item => item.product));
+    } else setProblem('The print window was blocked. Allow pop-ups for this site, then print again.');
   };
+
+  if (printed && onPrinted) return (
+    <Modal isOpen={isOpen} onClose={() => { if (!marking) onClose(); }} title="Did the labels print?" size="sm">
+      <div className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Mark {printed.length === 1 ? 'this item' : `these ${printed.length} items`} printed once the new labels are on the shelf.
+          {' '}They leave Labels to print until their price changes again.
+        </p>
+        {problem && <p role="alert" className="text-sm text-destructive">{problem}</p>}
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="outline" disabled={marking} onClick={() => setPrinted(null)}>Not yet</Button>
+          <Button variant="primary" disabled={marking} onClick={() => void confirmPrinted()}>{marking ? 'Saving…' : 'Yes, mark printed'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Print Barcode Labels" size="lg">
@@ -218,6 +254,7 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
           ))}
         </div>
 
+        {problem && <p role="alert" className="text-sm text-destructive">{problem}</p>}
         <div className="flex items-center justify-between pt-2">
           <span className="text-sm text-muted-foreground">
             {totalLabels} label{totalLabels !== 1 ? 's' : ''} to print

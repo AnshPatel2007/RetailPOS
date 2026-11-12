@@ -97,6 +97,13 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   when an invoice number is entered) and supplier returns create OPEN credits;
   Purchasing > Credits Owed records and settles them once (RECEIVED or WRITTEN_OFF).
   Credits never change stock or inventory value.
+- **Shelf labels**: price changes are stamped by trigger (`priceChangedAt` on products
+  and packs, any write path); Products > "Labels to print (N)" and Price Review's
+  "Print labels for these items" print them through `BarcodeLabelPrint`, and confirming
+  marks each printed for the price change it was printed for
+  (`services/shelfLabels.service.ts`, `POST /products/labels/printed`). Raw SQL that
+  writes times must write UTC (`now() AT TIME ZONE 'UTC'`): a local database session
+  may run in local time.
 - **Attention list and morning brief** (`services/attention.service.ts`,
   `services/ownerBrief.service.ts`): one rule per exported function returns one plain
   sentence with its amount and the page that fixes it; the Dashboard (owners and

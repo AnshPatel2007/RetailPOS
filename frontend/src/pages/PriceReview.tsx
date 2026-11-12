@@ -14,6 +14,8 @@ import { formatCurrency } from '@/lib/utils';
 import { formatPercent, priceMetrics } from '@/lib/pricing';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { Spinner } from '@/components/ui/LoadingState';
+import { Alert } from '@/components/ui/Alert';
+import { LabelTarget, ShelfLabelsDialog } from '@/components/inventory/ShelfLabelsDialog';
 
 interface ReviewRow {
   productId: string; sellingUnitId: string | null; name: string; sku: string; price: number; unitCost: number;
@@ -40,6 +42,9 @@ const PriceReview: React.FC = () => {
   const [prices, setPrices] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
+  // The items whose prices were just applied: their shelf labels now show the old price.
+  const [applied, setApplied] = useState<LabelTarget[] | null>(null);
+  const [printing, setPrinting] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -60,6 +65,7 @@ const PriceReview: React.FC = () => {
     try {
       await pricingService.apply(changes);
       toast.success(`Updated ${changes.length} price${changes.length === 1 ? '' : 's'}`);
+      setApplied(changes.map(change => ({ productId: change.productId, sellingUnitId: change.sellingUnitId ?? null })));
       await load();
     } catch (err: any) { toast.error(err.response?.data?.error || 'Could not update prices'); }
     finally { setApplying(false); }
@@ -72,6 +78,12 @@ const PriceReview: React.FC = () => {
       <PageHeader title="Price Review" icon={Tags}
         subtitle="Items priced below cost or under their target margin. Prices change only when you apply them."
         actions={rows && rows.length > 0 && !isReadOnly ? <Button onClick={apply} disabled={applying || selected.size === 0}>Apply {selected.size} price{selected.size === 1 ? '' : 's'}</Button> : undefined} />
+      {applied && <Alert tone="success" title={`New prices for ${applied.length} item${applied.length === 1 ? '' : 's'}`}
+        action={<div className="flex flex-wrap gap-2"><Button size="sm" onClick={() => setPrinting(true)}>Print labels for these items</Button>
+          <Button size="sm" variant="ghost" onClick={() => setApplied(null)}>Later</Button></div>}>
+        Their shelf labels still show the old price. They stay under Products &gt; Labels to print until printed.
+      </Alert>}
+      <ShelfLabelsDialog isOpen={printing && !!applied} only={applied || undefined} onClose={() => { setPrinting(false); setApplied(null); }} />
       {error ? <Card><CardContent className="p-6"><div role="alert"><p>{error}</p><Button className="mt-3" variant="outline" onClick={() => void load()}>Retry</Button></div></CardContent></Card>
         : rows === null ? <div className="flex justify-center py-12"><Spinner size="lg" /></div>
         : rows.length === 0 ? <Card><CardContent className="py-10"><EmptyState icon={CheckCircle2} title="Every price meets its target"

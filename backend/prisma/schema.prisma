@@ -386,6 +386,10 @@ model Product {
   categoryId      String?
   cost            Decimal @db.Decimal(14, 4)             @default(0)
   price           Decimal @db.Decimal(14, 4)
+  /// Set by the products_price_changed trigger whenever the price changes (any write path).
+  priceChangedAt  DateTime?
+  /// When a shelf label with the current price was last printed.
+  labelPrintedAt  DateTime?
   compareAtPrice  Decimal? @db.Decimal(14, 4)
   trackInventory  Boolean           @default(true)
   stockQuantity   Int               @default(0)
@@ -432,6 +436,9 @@ model ProductSellingUnit {
   sku String?
   barcode String
   price Decimal @db.Decimal(14, 4)
+  /// Set by the product_selling_units_price_changed trigger whenever the pack price changes.
+  priceChangedAt DateTime?
+  labelPrintedAt DateTime?
   unitsPerPackage Int
   sealedQuantity Int @default(0)
   isActive Boolean @default(true)

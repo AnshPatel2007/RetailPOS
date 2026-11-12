@@ -31,6 +31,9 @@ router.get('/low-stock', productController.getLowStockProducts);
 router.get('/resolve-barcode', productController.resolveBarcode);
 router.get('/movements', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), getInventoryHistory);
 router.get('/stats', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), productController.getProductStats);
+// Shelf labels that no longer show the price (above /:id).
+router.get('/labels/pending', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), productController.pendingLabels);
+router.post('/labels/printed', authorize('ADMIN', 'MANAGER'), productController.labelsPrinted);
 // Inventory > Packs: packs of one item and variety packs, listed on their own.
 router.get('/packs', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), packCatalogController.getPacks);
 

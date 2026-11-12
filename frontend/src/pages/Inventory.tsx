@@ -36,6 +36,8 @@ import { Plus, Search, AlertTriangle, Package, FolderPlus, Camera, Tag, Upload, 
 import { StockAdjustmentModal } from '@/components/inventory/StockAdjustmentModal';
 import { ReceiptScanModal } from '@/components/inventory/ReceiptScanModal';
 import { BarcodeLabelPrint } from '@/components/inventory/BarcodeLabelPrint';
+import { ShelfLabelsDialog } from '@/components/inventory/ShelfLabelsDialog';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { CSVImportModal } from '@/components/inventory/CSVImportModal';
 import '@/styles/products.css';
 import { Spinner } from '@/components/ui/LoadingState';
@@ -78,6 +80,14 @@ export const Inventory: React.FC = () => {
   // Inventory is split into single items and packs (cartons, 12-packs, variety packs).
   const [searchParams, setSearchParams] = useSearchParams();
   const view = searchParams.get('view') === 'packs' ? 'packs' : 'singles';
+  // Shelf labels showing an old price; the attention list links here with ?labels=pending.
+  const [showShelfLabels, setShowShelfLabels] = useState(false);
+  const labelsToPrint = useScopedQuery<number>(['shelf-labels-pending', locationId], async signal => (await productService.pendingLabels(signal)).data.data.total, canManage && !!locationId);
+  useEffect(() => {
+    if (searchParams.get('labels') !== 'pending') return;
+    if (canManage) setShowShelfLabels(true);
+    setSearchParams(params => { const next = new URLSearchParams(params); next.delete('labels'); return next; }, { replace: true });
+  }, [searchParams, setSearchParams, canManage]);
   // Quick-find links here with ?search=…; take it into the search box, then tidy the address.
   const linkedSearch = searchParams.get('search');
   useEffect(() => {
@@ -440,6 +450,7 @@ export const Inventory: React.FC = () => {
       <PageHeader title="Products" actions={<>
         {canManage && view === 'singles' && <Button variant="outline" onClick={() => setShowCSVImportModal(true)}><Upload size={16} />Import CSV</Button>}
         {view === 'singles' && <Button variant="outline" disabled={isLoading || !!loadError || !products.length} onClick={() => { setSelectedForLabels(products); setShowLabelPrintModal(true); }}><Tag size={16} />Print Labels</Button>}
+        {canManage && !!labelsToPrint.data && <Button variant="outline" onClick={() => setShowShelfLabels(true)}><Tag size={16} />Labels to print ({labelsToPrint.data})</Button>}
         {canManage && <Button variant="outline" onClick={() => setShowReceiptScanModal(true)}><Camera size={16} />Scan Receipt</Button>}
         {canManage && (view === 'singles'
           ? <Button variant="primary" onClick={openCreateModal}><Plus size={16} />Add single item</Button>
@@ -686,6 +697,8 @@ export const Inventory: React.FC = () => {
         onClose={() => setShowLabelPrintModal(false)}
         products={selectedForLabels}
       />
+
+      <ShelfLabelsDialog isOpen={canManage && showShelfLabels} onClose={() => setShowShelfLabels(false)} />
 
       <CSVImportModal
         isOpen={canManage && showCSVImportModal}

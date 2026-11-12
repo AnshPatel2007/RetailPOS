@@ -14,6 +14,7 @@ import { priceReview } from './pricing.service';
 import { listUnmatched } from './stockCorrection.service';
 import { salesAnomalies } from './inventoryAnalytics.service';
 import { costChangeAlertPercent } from '../validators/storeSettings.validator';
+import { countPendingLabels } from './shelfLabels.service';
 
 export type Severity = 'high' | 'medium' | 'low';
 export interface Finding {
@@ -197,9 +198,17 @@ export const costsWentUp: AttentionRule = async ({ locationId, now }) => {
       : `${rises.size} items cost more on deliveries this week, up to ${top.percent}% (${top.name}). Check their prices.` };
 };
 
+/** Shelf labels still showing an old price. */
+export const labelsOutOfDate: AttentionRule = async ({ locationId }) => {
+  const count = await countPendingLabels(prisma, locationId);
+  if (!count) return null;
+  return { key: 'labels-out-of-date', severity: 'low', count, href: '/inventory?labels=pending',
+    sentence: `${count} shelf ${plural(count, 'label is', 'labels are')} out of date after price changes. Print new ones.` };
+};
+
 /** Shown in this order within one severity. Later packages append their rules here. */
 export const attentionRules: AttentionRule[] = [stockExceptions, profitNotConfirmed, drawerDifferences, pricesBelowTarget, billsDueSoon,
-  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding];
+  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding, labelsOutOfDate];
 const rank: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
 /**
