@@ -97,7 +97,13 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   Add new attention rules to `attentionRules`, never a number the records cannot back.
 - **Multi-store**: everything is scoped by `locationId`. `SUPER_ADMIN` is the platform
   owner: no store of their own, read-only store preview (`store/adminViewStore.ts`),
-  and store writes are denied by the backend.
+  and store writes are denied by the backend. Every store belongs to an
+  `Organization` (the database gives a new store its own); `UserStoreAccess` lists the
+  stores a person may work in with their role there, and the home store's row follows
+  `users.locationId`/`role` by trigger. Owners (`OrganizationOwner`) get ADMIN access to
+  every store of their organization: call `syncOwnerAccess` after adding an owner or a
+  store (`services/organization.service.ts`; read a store's organization with
+  `organizationIdOf`). Granting ADMIN or ownership stays a platform-admin action.
 - **Auth**: access JWTs carry a refresh-session id; the `users_revoke_sessions` trigger
   ends sessions on password/role/store/active changes. Cashier discounts, refunds and
   voids need manager approval (the API answers 428 and the app opens the approval dialog).

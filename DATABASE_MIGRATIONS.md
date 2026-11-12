@@ -106,7 +106,12 @@ replace them. Integration tests exercise them.
   inventory imports, values, revisions and corrections, supplier returns, lottery
   audit and earnings, and background job content and attempts. Two identifier
   triggers stop one barcode or SKU from belonging to both a product and a pack in
-  the same store.
+  the same store. `locations_default_organization` gives a store inserted (or moved
+  out of an organization) without an organization its own, named after the store.
+  `users_sync_home_access` keeps each person's home-store row in `user_store_access`
+  in step with `users.locationId` and `role`: when the home store changes the old row
+  goes, unless the person owns that store's organization (then it stays ADMIN), and
+  platform admins keep no row.
 - **Views.** `effective_inventory_values` and `reported_inventory_values`.
 - **Precision.** Booked USD is `Decimal(14,2)`; unit prices, costs and wages are
   `Decimal(14,4)`; percentages are `Decimal(9,4)`. The Float-to-Decimal conversion
@@ -119,6 +124,19 @@ replace them. Integration tests exercise them.
 
 ## Recent changes
 
+- **`20261112000000_organizations_store_access` (2026-11-12).** Multi-store owners,
+  data only. New tables `organizations`, `organization_owners` and
+  `user_store_access`; new nullable columns `locations.organizationId` and
+  `refresh_tokens.activeLocationId` (stays `NULL`, meaning the home store, until
+  store switching ships). Backfill: one organization per store, named after it; an
+  access row for everyone with a store, with their current role; every active ADMIN
+  owns their store's organization, so nobody gains or loses access. Adds the
+  `locations_default_organization` and `users_sync_home_access` triggers (above).
+  The app needs it: this version's Prisma client reads both new columns. On the
+  local preview copy: 3 stores, 3 organizations, 4 access rows matching each
+  person's home store and role, 2 owners. Applied to the disposable test databases
+  and the preview copy only; the store database still needs it (backup first).
+
 - **`20261111010000_inventory_value_reason` (2026-11-11).** Adds the nullable column
   `inventory_value_entries.reason`: why a stock change happened (damaged, expired,
   theft, a count difference, a transfer loss...), used by Finances > Inventory Costs >
@@ -126,16 +144,17 @@ replace them. Integration tests exercise them.
   report reads their cause from the resolved stock exception or the stock log where one
   exists. **Unlike the customer change below, the app needs this column**: code from
   this version reads and writes it, so apply the migration to a database before
-  running this version against it (backup first, as above). Applied to the disposable
-  test databases and the local preview copy only; the store database still needs it.
+  running this version against it (backup first, as above). Applied to the local
+  store database on 2026-11-11, together with the customer change below, after the
+  backup in `.local/backups/pre-phase2-migrations-20261111-212937/`.
 
 - **`20261111000000_customers_unique_per_store` (2026-11-11).** Customer email and
   phone were unique across every store; they are now unique within a store
   (`customers_email_locationId_key`, `customers_phone_locationId_key` replace
   `customers_email_key`, `customers_phone_key`). Existing rows already satisfy the
-  looser rule, so no data changes. Applied to the disposable test databases only; the
-  store database still needs it (backup first, as above). Until then the store keeps
-  the stricter, global rule and the new code works unchanged. If customers with no
+  looser rule, so no data changes. Applied to the local store database on 2026-11-11
+  (see the entry above). A database without it keeps the stricter, global rule and
+  the new code works unchanged. If customers with no
   store remain (`backfillLocationScoping.ts`), run that backfill before stores start
   adding customers who already exist elsewhere, or the backfill can meet a duplicate.
 

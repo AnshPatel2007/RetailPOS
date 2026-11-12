@@ -8,6 +8,7 @@ import { asyncHandler, AppError } from '../utils/errorHandler';
 import { validateLocationAccess } from '../utils/locationFilter.util';
 import { can } from '../policies/capabilities';
 import { storeSettingsView } from '../validators/storeSettings.validator';
+import { organizationIdOf, syncOwnerAccess } from '../services/organization.service';
 
 const storeSettingsSelect = { id: true, name: true, address: true, city: true, state: true, zipCode: true, phone: true, email: true, taxRate: true, cardSurchargePercent: true, timezone: true, isActive: true, settings: true, updatedAt: true } as const;
 // One shape for store settings wherever they are returned (also with the checkout quote).
@@ -202,29 +203,43 @@ export const createLocation = asyncHandler(async (req: AuthRequest, res: Respons
     businessHours,
     currency,
     timezone,
+    organizationId,
   } = req.body;
 
   // Validate required fields
   if (!name || !address || !city || !state || !zipCode || !phone || !email) {
     throw new AppError('Missing required fields: name, address, city, state, zipCode, phone, email', 400);
   }
+  if (organizationId !== undefined && organizationId !== null && typeof organizationId !== 'string') {
+    throw new AppError('Choose an organization for the store', 400);
+  }
 
-  const location = await prisma.location.create({
-    data: {
-      name,
-      address,
-      city,
-      state,
-      zipCode,
-      country: country || 'US',
-      phone,
-      email,
-      taxRate: taxRate || 0,
-      cardSurchargePercent: cardSurchargePercent || 0,
-      businessHours,
-      currency: currency || 'USD',
-      timezone: timezone || 'America/New_York',
-    },
+  // Without an organization the database gives the new store its own. Joining an
+  // existing one gives that organization's owners access to the new store.
+  const location = await prisma.$transaction(async tx => {
+    if (organizationId && !await tx.organization.findUnique({ where: { id: organizationId }, select: { id: true } })) {
+      throw new AppError('Organization not found', 404);
+    }
+    const created = await tx.location.create({
+      data: {
+        name,
+        address,
+        city,
+        state,
+        zipCode,
+        country: country || 'US',
+        phone,
+        email,
+        taxRate: taxRate || 0,
+        cardSurchargePercent: cardSurchargePercent || 0,
+        businessHours,
+        currency: currency || 'USD',
+        timezone: timezone || 'America/New_York',
+        organizationId: organizationId || undefined,
+      },
+    });
+    await syncOwnerAccess(tx, await organizationIdOf(created.id, tx), req.user?.id ?? null);
+    return created;
   });
 
   res.status(201).json({ success: true, data: location });

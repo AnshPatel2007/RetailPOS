@@ -116,6 +116,10 @@ datasource db {
 }
 
 model User {
+  /// Stores this person may work in (one row per store, with the role there). The home
+  /// store's row is kept in step with `locationId`/`role` by the users_sync_home_access trigger.
+  storeAccess                UserStoreAccess[]    @relation("StoreAccess")
+  organizationOwnerships     OrganizationOwner[]  @relation("OrganizationOwnerships")
   operationReceipts OperationReceipt[]
   emailDeliveries EmailDelivery[]
   hourlyRate                 Decimal? @db.Decimal(14, 4)
@@ -198,11 +202,57 @@ model RefreshToken {
   createdAt  DateTime @default(now())
   lastUsedAt DateTime @default(now())
   isRevoked  Boolean  @default(false)
+  /// The store this sign-in is working in; null means the person's home store.
+  activeLocationId String?
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([token])
   @@map("refresh_tokens")
+}
+
+/// The business that owns one or more stores. Every store belongs to one; a store
+/// created without one gets its own (locations_default_organization trigger).
+model Organization {
+  id        String              @id @default(uuid())
+  name      String
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  locations Location[]
+  owners    OrganizationOwner[]
+
+  @@map("organizations")
+}
+
+/// An owner has ADMIN access to every store of the organization (organization.service syncOwnerAccess).
+model OrganizationOwner {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation("OrganizationOwnerships", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_owners")
+}
+
+/// A store a person may work in and their role there.
+model UserStoreAccess {
+  id          String   @id @default(uuid())
+  userId      String
+  locationId  String
+  role        UserRole
+  createdById String?
+  createdAt   DateTime @default(now())
+  user        User     @relation("StoreAccess", fields: [userId], references: [id], onDelete: Cascade)
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, locationId])
+  @@index([locationId])
+  @@map("user_store_access")
 }
 
 /// A computer a manager has set up as a register: staff there sign in with name + PIN.
@@ -224,6 +274,11 @@ model RegisterDevice {
 }
 
 model Location {
+  /// Nullable in Prisma only so code and seeds may omit it: the database fills it on insert.
+  /// Read it through organization.service organizationIdOf, which refuses a missing one.
+  organizationId  String?
+  organization    Organization?     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  storeAccess     UserStoreAccess[]
   registerDevices RegisterDevice[]
   costingActivatedAt DateTime?
   historicalIncome HistoricalIncome[]
@@ -267,6 +322,7 @@ model Location {
   lotteryDailyEntries  LotteryDailyEntry[]
   lotteryDayStatuses   LotteryDayStatus[]
 
+  @@index([organizationId])
   @@map("locations")
 }
 
