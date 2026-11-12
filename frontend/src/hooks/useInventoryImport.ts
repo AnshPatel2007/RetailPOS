@@ -55,5 +55,5 @@ export function useInventoryImport(kind: 'CSV' | 'RECEIPT', onSuccess: () => voi
       setError(!saved ? 'Nothing was sent. Restore browser storage before importing.' : (failure as { response?: { data?: { error?: string } } }).response?.data?.error || 'Result unconfirmed. Retry the saved import; it will be applied only once.');
     } finally { inFlight.current = false; if (generation === sessionGeneration()) setBusy(false); }
   };
-  return { preview, result, pending, busy, error, review, commit, resetPreview: () => setPreview(null) };
+  return { preview, result, pending, busy, error, review, commit, resetPreview: () => setPreview(null), clearResult: () => setResult(null) };
 }

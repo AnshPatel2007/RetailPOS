@@ -63,6 +63,7 @@ export const sidebarSections: NavSection[] = [
 const pageViews: (NavLink & { within: string })[] = [
   { within: 'Products', name: 'Packs & cartons', href: '/inventory?view=packs', icon: Package, roles: MANAGERS, keywords: 'variety pack case carton' },
   { within: 'Purchasing', name: 'Purchase orders', href: '/inventory/purchasing/orders', icon: Truck, roles: MANAGERS, keywords: 'po receive order' },
+  { within: 'Purchasing', name: 'Receive delivery', href: '/inventory/purchasing/receive', icon: Truck, roles: MANAGERS, keywords: 'receive delivery scan truck check in invoice phone' },
   { within: 'Purchasing', name: 'Suppliers', href: '/inventory/purchasing/suppliers', icon: Truck, roles: MANAGERS, keywords: 'vendors distributors' },
   { within: 'Purchasing', name: 'Reorder suggestions', href: '/inventory/purchasing/suggestions', icon: Truck, roles: MANAGERS, keywords: 'low stock reorder' },
   { within: 'Purchasing', name: 'Price review', href: '/inventory/purchasing/price-review', icon: Truck, roles: MANAGERS, keywords: 'cost change margin' },

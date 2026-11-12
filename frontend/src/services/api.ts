@@ -236,10 +236,13 @@ export const twoFactorService = {
 /**
  * Pricing: target-margin rules, suggested prices and the price review list.
  */
-/** One barcode hit: a product, one of its packs, or (managers) a supplier's case of it. */
+/**
+ * One barcode hit: a product, one of its packs, or (managers) a supplier's case of it.
+ * For managers, `openExceptionId` names the item's open stock exception, if any.
+ */
 export type BarcodeMatch =
-  | { kind: 'PRODUCT' | 'PACK'; product: import('@/types').Product }
-  | { kind: 'SUPPLIER_CASE'; product: import('@/types').Product; supplierCase: { supplierId: string; supplierName: string; packSize: number; packCost: number | null } };
+  | { kind: 'PRODUCT' | 'PACK'; product: import('@/types').Product; openExceptionId?: string | null }
+  | { kind: 'SUPPLIER_CASE'; product: import('@/types').Product; openExceptionId?: string | null; supplierCase: { supplierId: string; supplierName: string; packSize: number; packCost: number | null } };
 
 export type PriceRounding = 'CENT' | 'NICKEL' | 'NINE' | 'NINETY_NINE';
 export interface PriceRule { id: string; scope: 'STORE' | 'CATEGORY' | 'BRAND' | 'PRODUCT' | 'SELLING_UNIT'; scopeId: string; label: string; targetMargin: number; minMargin: number | null; rounding: PriceRounding }

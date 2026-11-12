@@ -51,6 +51,7 @@ export const stockControlViews = [
 // Orders (the landing view) first, then the steps around them; suppliers are reference data, last.
 export const purchasingViews = [
   { label: 'Orders', path: '/inventory/purchasing/orders' },
+  { label: 'Receive Delivery', path: '/inventory/purchasing/receive' },
   { label: 'Reorder Suggestions', path: '/inventory/purchasing/suggestions' },
   { label: 'Price Review', path: '/inventory/purchasing/price-review' },
   { label: 'Suppliers', path: '/inventory/purchasing/suppliers' },

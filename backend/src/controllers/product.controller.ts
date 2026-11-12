@@ -235,12 +235,18 @@ export const resolveBarcode = asyncHandler(async (req: AuthRequest, res: Respons
         include: { supplier: { select: { id: true, name: true } }, product: { include } }, orderBy: { id: 'asc' } })
       : Promise.resolve([]),
   ]);
-  const valued = new Map((await valueProducts(prisma, [...products, ...packs.map(pack => pack.product), ...cases.map(link => link.product)]))
-    .map(product => [product.id, product]));
+  const found = [...products, ...packs.map(pack => pack.product), ...cases.map(link => link.product)];
+  const valued = new Map((await valueProducts(prisma, found)).map(product => [product.id, product]));
+  // Receiving offers a shelf count unless the item already has an open stock exception.
+  const openExceptions = can(req.user?.role, 'inventory.read') && found.length
+    ? new Map((await prisma.inventoryException.findMany({ where: { openProductId: { in: found.map(product => product.id) } }, select: { id: true, productId: true } }))
+      .map(exception => [exception.productId, exception.id]))
+    : new Map<string, string>();
+  const openExceptionId = (productId: string) => openExceptions.get(productId) ?? null;
   const matches = [
-    ...products.map(product => ({ kind: 'PRODUCT' as const, product: packagingSummary(valued.get(product.id)!) })),
-    ...packs.map(pack => ({ kind: 'PACK' as const, product: projectSellingUnit(valued.get(pack.product.id)!, pack) })),
-    ...cases.map(link => ({ kind: 'SUPPLIER_CASE' as const, product: packagingSummary(valued.get(link.product.id)!),
+    ...products.map(product => ({ kind: 'PRODUCT' as const, product: packagingSummary(valued.get(product.id)!), openExceptionId: openExceptionId(product.id) })),
+    ...packs.map(pack => ({ kind: 'PACK' as const, product: projectSellingUnit(valued.get(pack.product.id)!, pack), openExceptionId: openExceptionId(pack.product.id) })),
+    ...cases.map(link => ({ kind: 'SUPPLIER_CASE' as const, product: packagingSummary(valued.get(link.product.id)!), openExceptionId: openExceptionId(link.product.id),
       supplierCase: { supplierId: link.supplier.id, supplierName: link.supplier.name, packSize: link.packSize,
         packCost: link.packCost === null ? null : Number(link.packCost) } })),
   ];

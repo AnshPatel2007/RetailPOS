@@ -104,6 +104,12 @@ describe('register catalog sync and barcode lookup', () => {
     expect(supplierCase.body.data.matches).toEqual([expect.objectContaining({ kind: 'SUPPLIER_CASE',
       product: expect.objectContaining({ id: soda.id }), supplierCase: { supplierId: data.supplier.id, supplierName: 'Test Supplier', packSize: 24, packCost: 14.4 } })]);
 
+    // Receiving links an open stock exception instead of asking for a shelf count (managers only).
+    expect(supplierCase.body.data.matches[0].openExceptionId).toBeNull();
+    const exception = await prisma.inventoryException.create({ data: { productId: soda.id, locationId: data.location.id, openProductId: soda.id, lowestQuantity: -2, latestQuantity: -2 } });
+    expect((await resolve(adminToken, '049000028911')).body.data.matches[0].openExceptionId).toBe(exception.id);
+    expect((await resolve(cashierToken, '049000000443')).body.data.matches[0].openExceptionId).toBeNull();
+
     // Archived items and unknown codes resolve to nothing.
     await prisma.product.update({ where: { id: soda.id }, data: { isActive: false } });
     expect((await resolve(cashierToken, '049000000443')).body.data.matches).toEqual([]);

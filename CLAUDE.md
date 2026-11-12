@@ -178,6 +178,16 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   re-prices on the server, so a stale cached price is never charged. A computer set up
   as a register keeps its store's product catalog across cashier sign-outs; customer
   details are always cleared.
+- **Receiving by scanning** (Purchasing > Receive Delivery, `pages/ReceiveDelivery.tsx`;
+  line logic in `lib/deliveryLines.ts`, laid out for a phone): supplier, optional open
+  order, then scans through `components/common/CameraScanner.tsx` (the browser's
+  BarcodeDetector on the rear camera, or a typed/USB code) answered by
+  `GET /products/resolve-barcode` (a supplier's case barcode brings its case size and cost;
+  managers also get `openExceptionId`). Saving goes only through the reviewed receipt
+  import (`/products/imports/receipt/preview`, then `/apply`); don't add another receiving
+  write path. Low items without an open exception offer a shelf count, posted first
+  (`adjust-inventory`, `MANUAL_COUNT`, `expectedVersion`, idempotency key). The list stays
+  in this browser per store and person until it is saved.
 - **Offline**: "offline" means the POS server does not answer, not only that the browser
   says so (`services/connection.ts`: a request with no answer triggers a check of
   `/api/health`, and only a failed check takes the register offline; use `isOffline()` /
