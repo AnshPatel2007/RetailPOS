@@ -761,7 +761,12 @@ export const cycleCountService = {
   refresh: (id: string) => api.post(`/cycle-counts/${id}/refresh`),
   approve: (id: string) => api.post(`/cycle-counts/${id}/approve`),
   cancel: (id: string) => api.post(`/cycle-counts/${id}/cancel`),
+  /** The items most worth counting now, each with the reasons. */
+  suggested: (limit = 8, signal?: AbortSignal) => api.get<{ success: boolean; data: SuggestedCount[] }>('/cycle-counts/suggested', { params: { limit }, signal }),
+  /** Share of items on counts approved in the last 30 days that matched the record. */
+  accuracy: (signal?: AbortSignal) => api.get<{ success: boolean; data: { counted: number; matched: number; accuracy: number | null } }>('/cycle-counts/accuracy', { signal }),
 };
+export interface SuggestedCount { productId: string; name: string; sku: string; stockQuantity: number; score: number; reasons: string[] }
 
 /**
  * Inventory exceptions: negative-stock discrepancy alerts

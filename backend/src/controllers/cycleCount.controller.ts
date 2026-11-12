@@ -7,6 +7,7 @@ import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { assertOwnsRecord, getLocationFilter, resolveWriteLocation } from '../utils/locationFilter.util';
 import { lockInventory, moveInventory } from '../services/inventory.service';
+import { stockAccuracy, suggestedCounts } from '../services/countSuggestion.service';
 
 const itemInclude = { product: { select: { id: true, name: true, sku: true, stockVersion: true, stockQuantity: true } } } as const;
 async function lockedCount(tx: Prisma.TransactionClient, req: AuthRequest) {
@@ -30,6 +31,23 @@ export const getCycleCounts = asyncHandler(async (req: AuthRequest, res: Respons
   res.json({ success: true, total, data: counts.map(({ _count, ...count }) => ({ ...count, itemCount: _count.items,
     countedCount: counted.find(row => row.cycleCountId === count.id)?._count ?? 0,
     locationName: stores.find(store => store.id === count.locationId)?.name ?? null })) });
+});
+
+const storeOf = (req: AuthRequest) => {
+  const { locationId } = getLocationFilter(req, req.query.locationId as string);
+  if (!locationId) throw new AppError('Select a store first', 400);
+  return locationId;
+};
+
+/** GET /api/cycle-counts/suggested?limit=8: the items most worth counting now, with why. */
+export const getSuggestedCounts = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { limit } = z.object({ limit: z.coerce.number().int().min(1).max(50).default(8) }).parse(req.query);
+  res.json({ success: true, data: await suggestedCounts(storeOf(req), limit) });
+});
+
+/** GET /api/cycle-counts/accuracy: share of items counted in the last 30 days that matched the record. */
+export const getStockAccuracy = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: await stockAccuracy(storeOf(req)) });
 });
 
 export const getCycleCount = asyncHandler(async (req: AuthRequest, res: Response) => {

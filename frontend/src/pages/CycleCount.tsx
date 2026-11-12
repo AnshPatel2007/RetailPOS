@@ -1,9 +1,10 @@
-import { ManagementPage } from '@/components/common/Workspace';
+import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { Select } from '@/components/ui/Select';
 import { formatEnumLabel, formatDate } from '@/lib/utils';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ClipboardCheck, Plus, CheckCircle, XCircle, Eye, Send } from 'lucide-react';
+import { ClipboardCheck, Plus, CheckCircle, XCircle, Eye, Send, ListChecks } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -285,6 +286,24 @@ export const CycleCount: React.FC = () => {
 
   const autoRefresh = useLegacyPageRefresh((current, signal) => fetchCounts(true, current, signal), { key: JSON.stringify([locationId, page, statusFilter]), paused: loading });
 
+  // What to count next, and how often counts have matched the record lately.
+  const suggestions = useScopedQuery(['count-suggestions', locationId], async signal => (await cycleCountService.suggested(8, signal)).data.data, !!locationId);
+  const accuracy = useScopedQuery(['count-accuracy', locationId], async signal => (await cycleCountService.accuracy(signal)).data.data, !!locationId);
+  const [startingSuggested, setStartingSuggested] = useState(false);
+  const startSuggested = async () => {
+    const items = suggestions.data || [];
+    if (!items.length || !locationId) return;
+    setStartingSuggested(true);
+    try {
+      const { data } = await cycleCountService.create({ locationId, type: 'PARTIAL', productIds: items.map(item => item.productId), notes: 'Suggested count' });
+      toast.success('Suggested count started');
+      fetchCounts();
+      setRecordId(data.data.id);
+    } catch (err) { toast.error(apiErrorMessage(err, 'Failed to start the suggested count')); }
+    finally { setStartingSuggested(false); }
+  };
+  const accuracyData = accuracy.data;
+
   return (
     <ManagementPage className="">
       <PageHeader
@@ -300,7 +319,35 @@ export const CycleCount: React.FC = () => {
         )}
       />
       {autoRefresh.notice}
+      <SummaryStrip items={[
+        { label: 'Stock accuracy (last 30 days)', value: accuracyData?.accuracy == null ? '—' : `${Math.round(accuracyData.accuracy * 100)}%`,
+          tone: accuracyData?.accuracy != null && accuracyData.accuracy < 0.9 ? 'warning' : 'default',
+          detail: !accuracyData ? (accuracy.error ? 'Did not load' : 'Loading…') : accuracyData.counted
+            ? `${accuracyData.matched} of ${accuracyData.counted} counted items matched the record` : 'No counts approved in the last 30 days' },
+      ]} />
 
+      {canManage && <Card>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+          <CardTitle>Suggested Count</CardTitle>
+          <Button variant="primary" onClick={() => void startSuggested()} disabled={startingSuggested || !suggestions.data?.length}>
+            <ListChecks className="w-4 h-4 mr-2" />Start Suggested Count
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {suggestions.error ? <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">Suggestions did not load.<Button size="sm" variant="outline" onClick={suggestions.refresh}>Retry</Button></div>
+            : !suggestions.data ? <div className="flex justify-center py-4"><Spinner /></div>
+            : !suggestions.data.length ? <p className="text-sm text-muted-foreground">Nothing to suggest: every tracked item is already on an open count or has a stock exception to resolve first.</p>
+            : <>
+              <p className="mb-3 text-sm text-muted-foreground">A short count of the {suggestions.data.length} items most worth checking now: never or long ago counted, high value, fast selling, recently adjusted, or quick to count.</p>
+              <ol className="divide-y rounded-md border" aria-label="Suggested items to count">
+                {suggestions.data.map(item => <li key={item.productId} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                  <span className="min-w-0 font-medium">{item.name}<span className="ml-2 text-xs font-normal text-muted-foreground">{item.stockQuantity} on record</span></span>
+                  <span className="text-xs text-muted-foreground">{item.reasons.join(' · ') || 'Due for a count'}</span>
+                </li>)}
+              </ol>
+            </>}
+        </CardContent>
+      </Card>}
 
       {/* Table */}
       <Card>
@@ -456,12 +503,13 @@ export const CycleCount: React.FC = () => {
               </h4>
               <div className="max-h-[300px] overflow-y-auto space-y-1">
                 {selectedCount.items.map((item) => (
-                  <div key={item.id} className="flex items-center gap-3 text-sm p-2 bg-muted/50 rounded">
-                    <span className="flex-1 truncate" title={item.product?.sku}>{item.product?.name || item.productId}</span>
-                    <span className="text-muted-foreground w-20 text-right">Expected: {item.expectedQty}</span>
+                  <div key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm p-2 bg-muted/50 rounded">
+                    <span className="min-w-0 basis-full truncate sm:basis-0 sm:flex-1" title={item.product?.sku}>{item.product?.name || item.productId}</span>
+                    <span className="ml-auto whitespace-nowrap text-right text-muted-foreground sm:ml-0">Expected: {item.expectedQty}</span>
                     {selectedCount.status === 'IN_PROGRESS' && canManage ? (
-                      <Input
+                      <div className="w-20 shrink-0"><Input
                         type="number"
+                        inputMode="numeric"
                         min="0"
                         aria-label={'Count for ' + (item.product?.name || item.productId)}
                         value={itemCounts[item.id] ?? ''}
@@ -474,11 +522,11 @@ export const CycleCount: React.FC = () => {
                           setItemCounts(next);
                         }}
                         placeholder="Count"
-                        className="w-20 text-right"
-                      />
+                        className="text-right"
+                      /></div>
                     ) : (
                       <>
-                        <span className="w-20 text-right">Counted: {item.countedQty ?? '\u2014'}</span>
+                        <span className="ml-auto whitespace-nowrap text-right sm:ml-0">Counted: {item.countedQty ?? '\u2014'}</span>
                         {item.discrepancy !== null && item.discrepancy !== 0 && (
                           <span className={`w-16 text-right font-medium ${item.discrepancy > 0 ? 'text-success' : 'text-destructive'}`}>
                             {item.discrepancy > 0 ? '+' : ''}{item.discrepancy}
@@ -501,7 +549,7 @@ export const CycleCount: React.FC = () => {
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
               {selectedCount.status === 'IN_PROGRESS' && canManage && (
                 <>
                   <Button

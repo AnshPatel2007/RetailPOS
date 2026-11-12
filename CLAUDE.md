@@ -104,6 +104,12 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   (`services/shelfLabels.service.ts`, `POST /products/labels/printed`). Raw SQL that
   writes times must write UTC (`now() AT TIME ZONE 'UTC'`): a local database session
   may run in local time.
+- **Spot counts** (Stock Control > Counts): `services/countSuggestion.service.ts` ranks
+  what to count next with the pure `scoreCountCandidates` (never/long ago counted, stock
+  value, 30-day sales, a hand adjustment in 14 days, quick to count), leaving out items
+  with an open exception or on an open count; "Start Suggested Count" makes a PARTIAL
+  count of them. Stock accuracy = items on counts approved in the last 30 days whose
+  count matched the record (`GET /cycle-counts/accuracy`).
 - **Attention list and morning brief** (`services/attention.service.ts`,
   `services/ownerBrief.service.ts`): one rule per exported function returns one plain
   sentence with its amount and the page that fixes it; the Dashboard (owners and
