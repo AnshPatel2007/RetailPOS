@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const OUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.local/ux-audit-2026-11');
+// UX_AUDIT_DIR picks the output folder, e.g. "ux-audit-2026-11b/before" for a before/after picture set.
+export const OUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.local', process.env.UX_AUDIT_DIR || 'ux-audit-2026-11');
 export const SHOTS = path.join(OUT, 'shots');
 export const PASSWORD = 'BrowserTest123!';
 fs.mkdirSync(SHOTS, { recursive: true });
@@ -15,6 +16,7 @@ export const VIEWPORTS = {
   wide: { name: '1920-light', width: 1920, height: 1080 },
   dark: { name: '1366-dark', width: 1366, height: 768, dark: true },
   small: { name: '1024-light', width: 1024, height: 768 },
+  phone: { name: '390-light', width: 390, height: 844 },
 } satisfies Record<string, Viewport>;
 
 export const slug = (value: string) => value.replace(/^\//, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'root';
@@ -32,12 +34,13 @@ export async function apiToken(page: Page, email: string) {
 }
 
 /** A browser context signed in as one role, with a theme and (for platform admins) an optional previewed store. */
-export async function roleContext(browser: Browser, email: string, options: { dark?: boolean; preview?: { id: string; name: string } } = {}) {
+export async function roleContext(browser: Browser, email: string, options: { dark?: boolean; preview?: { id: string; name: string }; look?: string } = {}) {
   const context = await browser.newContext({ viewport: { width: 1366, height: 768 } });
-  await context.addInitScript(({ dark, preview }) => {
+  await context.addInitScript(({ dark, preview, look }) => {
     localStorage.setItem('theme', dark ? 'dark' : 'light');
+    if (look) localStorage.setItem('look', look);
     if (preview) localStorage.setItem('admin-view-storage', JSON.stringify({ state: { isAdminViewing: true, viewingLocationId: preview.id, viewingStoreName: preview.name }, version: 0 }));
-  }, { dark: !!options.dark, preview: options.preview ?? null });
+  }, { dark: !!options.dark, preview: options.preview ?? null, look: options.look ?? process.env.UX_AUDIT_LOOK ?? null });
   const page = await context.newPage();
   await page.goto('/login');
   await page.getByLabel('Email', { exact: true }).fill(email);
