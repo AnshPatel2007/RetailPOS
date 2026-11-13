@@ -12,6 +12,6 @@ export default defineConfig({
   ],
   webServer: [
     { command: 'node ../backend/scripts/e2e-server.cjs', url: 'http://127.0.0.1:5001/api/health', reuseExistingServer: false, timeout: 120000 },
-    { command: 'npm run dev -- --host 127.0.0.1 --port 5174 --strictPort', url: 'http://127.0.0.1:5174', env: { POS_API_PROXY: 'http://127.0.0.1:5001', VITE_API_URL: '/api' }, reuseExistingServer: false }
+    { command: 'npm run dev -- --host 127.0.0.1 --port 5174 --strictPort', url: 'http://127.0.0.1:5174', env: { POS_API_PROXY: 'http://127.0.0.1:5001', VITE_API_URL: '/api', VITE_DEFAULT_LOOK: process.env.E2E_LOOK || 'classic' }, reuseExistingServer: false }
   ]
 });

@@ -11,7 +11,7 @@ import { ManagerApprovalDialog } from './components/ManagerApprovalDialog';
 import { GlobalAssistant } from './components/assistant/GlobalAssistant';
 import { RegisterLockLayer } from './components/register/RegisterLock';
 import { AppUpdateNotice } from './components/common/AppUpdateNotice';
-import { WorkflowNavigation, PreserveRedirect, StockControlNavigation, purchasingViews, accountViews, TeamNavigation, ShiftRedirect } from './components/common/WorkflowNavigation';
+import { WorkflowNavigation, PreserveRedirect, StockControlNavigation, PurchasingNavigation, PRICE_REVIEW, SUPPLIER_CREDITS, accountViews, TeamNavigation, ShiftRedirect } from './components/common/WorkflowNavigation';
 import { changeSessionGeneration } from './services/sessionGeneration';
 
 // Eager-load Login (needed immediately) and AdminLayout (small)
@@ -124,7 +124,7 @@ function AnalyticsEntry() {
 
 function App() {
   const { loadUser, isAuthenticated, user } = useAuthStore();
-  const { theme, setTheme } = useThemeStore();
+  const { theme, setTheme, look } = useThemeStore();
   const { fetchSettings } = useStoreSettingsStore();
   const { locationId: settingsLocationId } = useEffectiveLocation();
 
@@ -152,6 +152,11 @@ function App() {
   useEffect(() => {
     setTheme(theme);
   }, [setTheme, theme]);
+
+  // The look (Classic or New) is a data-look attribute on the page; styles/look-new.css keys on it.
+  useEffect(() => {
+    document.documentElement.dataset.look = look;
+  }, [look]);
 
   return (
     <BrowserRouter>
@@ -218,7 +223,11 @@ function App() {
         <Route path="/promotions" element={<PageRoute page={<Promotions />} roles={MANAGER_ROLES} />} />
         <Route path="/suggested-orders" element={<PreserveRedirect to="/inventory/purchasing/suggestions" />} />
         <Route path="/inventory/purchasing" element={<PreserveRedirect to="/inventory/purchasing/orders" />} />
-        {([['orders', <Suppliers key="orders" view="orders" />], ['receive', <ReceiveDelivery />], ['suppliers', <Suppliers key="suppliers" view="suppliers" />], ['suggestions', <SuggestedOrders />], ['price-review', <PriceReview />], ['credits', <SupplierCredits />]] as const).map(([view, page]) => <Route key={view} path={'/inventory/purchasing/' + view} element={<PageRoute roles={MANAGER_ROLES} page={<WorkflowNavigation label="Inventory / Purchasing" views={purchasingViews}>{page}</WorkflowNavigation>} />} />)}
+        {([['orders', <Suppliers key="orders" view="orders" />], ['receive', <ReceiveDelivery />], ['suppliers', <Suppliers key="suppliers" view="suppliers" />], ['suggestions', <SuggestedOrders />], ['suppliers/credits', <SupplierCredits />]] as const).map(([view, page]) => <Route key={view} path={'/inventory/purchasing/' + view} element={<PageRoute roles={MANAGER_ROLES} page={<PurchasingNavigation>{page}</PurchasingNavigation>} />} />)}
+        {/* Price Review is a Products tab and Credits Owed sits under Suppliers; their old addresses still work. */}
+        <Route path={PRICE_REVIEW} element={<PageRoute roles={MANAGER_ROLES} page={<PriceReview />} />} />
+        <Route path="/inventory/purchasing/price-review" element={<PreserveRedirect to={PRICE_REVIEW} />} />
+        <Route path="/inventory/purchasing/credits" element={<PreserveRedirect to={SUPPLIER_CREDITS} />} />
         <Route path="/customer-display" element={<PageRoute page={<CustomerDisplay />} />} />
         <Route path="/house-accounts" element={<PreserveRedirect to="/customers/accounts/house-accounts" />} />
         <Route path="/developers" element={<PreserveRedirect to="/admin/integrations" />} />

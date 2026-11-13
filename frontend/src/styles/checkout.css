@@ -44,8 +44,15 @@
 .pos-cart { display: flex; flex-direction: column; width: 100%; min-height: 0; background: hsl(var(--card)); }
 .pos-cart-header { flex-shrink: 0; padding: 12px; border-bottom: 1px solid hsl(var(--border)); }
 .pos-cart-heading { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; min-width: 0; }
-.pos-cart-tool, .pos-cart .pos-cart-tool.app-button { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; height: 32px; width: 32px; min-height: 32px; padding: 0; border-radius: 6px; }
-.pos-cart-tool:hover { background: hsl(var(--accent)); }
+/* Cart tools are words ("Held (2)", "Refund", "Reprint", "Clear"); an icon-only one stays a 32px square. */
+.pos-cart-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 2px; }
+.pos-cart-tool, .pos-cart .pos-cart-tool.app-button { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; height: 32px; width: auto; min-width: 32px; min-height: 32px; padding: 0 8px; border-radius: 6px; font-size: 13px; font-weight: 500; }
+.pos-cart-tools .pos-cart-tool { color: hsl(var(--muted-foreground)); }
+.pos-cart-tools .pos-cart-tool:hover { color: hsl(var(--foreground)); }
+.pos-cart-tools .pos-cart-tool.has-held { color: hsl(var(--warning-text)); }
+.pos-cart-tools .pos-cart-tool.is-danger { color: hsl(var(--destructive-text)); }
+.pos-cart-tool:hover, .pos-cart-close:hover { background: hsl(var(--accent)); }
+.pos-cart-close { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 6px; }
 .pos-cart-items { flex: 1; min-height: 0; overflow: auto; padding: 0 12px; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .pos-cart-line { padding: 10px 0; border-bottom: 1px solid hsl(var(--border) / .75); }
 .pos-cart-line-main { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(65px, auto) 32px; align-items: center; gap: 8px; min-height: 44px; }
@@ -108,7 +115,8 @@
 @media (any-pointer: coarse), (max-width: 639px) {
   .pos-category { height: 44px; }
   .pos-product-favorite { width: 44px; height: 44px; }
-  .pos-cart-tool, .pos-cart .pos-cart-tool.app-button, .pos-cart-line-main .action-menu-icon { width: 44px; height: 44px; min-height: 44px; }
+  .pos-cart-tool, .pos-cart .pos-cart-tool.app-button { min-width: 44px; height: 44px; min-height: 44px; }
+  .pos-cart-close, .pos-cart-line-main .action-menu-icon { width: 44px; height: 44px; min-height: 44px; }
   .pos-quantity-button { min-width: 44px; height: 44px; }
   .pos-cart-line-main { grid-template-columns: minmax(0, 1fr) auto minmax(65px, auto) 44px; }
   .pos-product-tile.is-text .pos-product-name { padding-right: 38px; }

@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { CheckCircle2, Tags } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import { ManagementPage } from '@/components/common/Workspace';
 import { PageHeader } from '@/components/common/PageHeader';
+import { ProductTabs } from '@/components/common/WorkflowNavigation';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -75,13 +76,12 @@ const PriceReview: React.FC = () => {
 
   return (
     <ManagementPage>
-      <PageHeader title="Price Review" icon={Tags}
-        subtitle="Items priced below cost or under their target margin. Prices change only when you apply them."
-        actions={rows && rows.length > 0 && !isReadOnly ? <Button variant="primary" onClick={apply} disabled={applying || selected.size === 0}>Apply {selected.size} price{selected.size === 1 ? '' : 's'}</Button> : undefined} />
+      <PageHeader title="Products" tabs={<ProductTabs value="price-review" />}
+        actions={rows && rows.length > 0 && !isReadOnly ? <Button variant="primary" onClick={apply} loading={applying} disabled={selected.size === 0}>Apply {selected.size} price{selected.size === 1 ? '' : 's'}</Button> : undefined} />
       {applied && <Alert tone="success" title={`New prices for ${applied.length} item${applied.length === 1 ? '' : 's'}`}
         action={<div className="flex flex-wrap gap-2"><Button variant="primary" onClick={() => setPrinting(true)}>Print labels for these items</Button>
           <Button variant="ghost" onClick={() => setApplied(null)}>Later</Button></div>}>
-        Their shelf labels still show the old price. They stay under Products &gt; Labels to print until printed.
+        Their shelf labels still show the old price. They stay under the Labels button on Products until printed.
       </Alert>}
       <ShelfLabelsDialog isOpen={printing && !!applied} only={applied || undefined} onClose={() => { setPrinting(false); setApplied(null); }} />
       {error ? <Card><CardContent className="p-6"><div role="alert"><p>{error}</p><Button className="mt-3" variant="outline" onClick={() => void load()}>Retry</Button></div></CardContent></Card>

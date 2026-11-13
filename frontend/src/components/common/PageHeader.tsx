@@ -40,7 +40,8 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   toolbar,
 }) => {
   const workflow = useWorkflowNavigation();
-  const nestedTabs = workflow?.secondaryTabs || secondaryTabs;
+  // A workflow's own sub-tabs (Suppliers | Credits Owed) come first; a page's sub-tabs follow, never replaced.
+  const nestedTabs = workflow?.secondaryTabs;
   const additionalTabs = workflow?.tabs && tabs;
   return (
     <header className="page-header mb-6 space-y-4">
@@ -52,6 +53,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
       </div>
       {(workflow?.tabs || tabs) && <PageTabStyleContext.Provider value="primary"><div>{workflow?.tabs || tabs}</div></PageTabStyleContext.Provider>}
       {nestedTabs && <PageTabStyleContext.Provider value="subtle"><div className="page-secondary-row">{nestedTabs}</div></PageTabStyleContext.Provider>}
+      {secondaryTabs && <PageTabStyleContext.Provider value="subtle"><div className="page-secondary-row">{secondaryTabs}</div></PageTabStyleContext.Provider>}
       {additionalTabs && <PageTabStyleContext.Provider value="subtle"><div className="page-secondary-row">{additionalTabs}</div></PageTabStyleContext.Provider>}
       {hasContent(toolbar) && <div className="page-toolbar flex flex-wrap items-center gap-2">{toolbar}</div>}
       {children}

@@ -26,7 +26,9 @@ for (const width of [1093, 390]) test(`product save preserves drafts and prevent
   await expect(save).toBeInViewport();
   await save.click();
   await expect.poll(() => attempts).toBe(1);
-  await expect(dialog.getByRole('button', { name: 'Saving...', exact: true })).toBeDisabled();
+  // While saving, the main button keeps its words, shows a spinner and cannot be pressed again.
+  await expect(save).toBeDisabled();
+  await expect(save).toHaveAttribute('aria-busy', 'true');
   await expect(dialog.getByLabel('Product Name', { exact: true })).toBeDisabled();
   // A second programmatic submission must also be ignored, not just a second click.
   await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));

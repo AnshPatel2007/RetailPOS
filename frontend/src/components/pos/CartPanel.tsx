@@ -11,10 +11,6 @@ import { useConfirm } from '@/components/ui/useConfirm';
 import { Kbd } from '@/components/ui/Kbd';
 import { SaleComplete, type CompletedSale } from '@/components/pos/SaleComplete';
 import {
-  Trash2,
-  Printer,
-  List,
-  RotateCcw,
   PauseCircle,
   StickyNote,
   ShoppingCart,
@@ -90,40 +86,16 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             <h2 className="text-base font-semibold whitespace-nowrap">Current Sale</h2>
             <span className="text-xs text-muted-foreground whitespace-nowrap">{getItemCount()} {getItemCount() === 1 ? 'item' : 'items'}</span>
           </div>
-          <div className="flex gap-0.5 items-center">
-            {/* Held sales button */}
-            <button
-              onClick={onShowHeldSales}
-              className="pos-cart-tool relative"
-              title="Held sales (F6)"
-            >
-              <List className="h-4 w-4 text-muted-foreground" />
-              {heldSales.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 bg-warning text-warning-foreground text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
-                  {heldSales.length}
-                </span>
-              )}
-            </button>
-
+          {/* Every tool is a word, not only an icon. */}
+          <div className="pos-cart-tools">
+            <Button variant="ghost" className={heldSales.length > 0 ? 'pos-cart-tool has-held' : 'pos-cart-tool'} onClick={onShowHeldSales} title="Held sales (F6)">
+              {heldSales.length > 0 ? `Held (${heldSales.length})` : 'Held'}
+            </Button>
             {canRequestRefund && (
-              <button
-                onClick={onShowRefund}
-                className="pos-cart-tool"
-                title="Quick refund"
-              >
-                <RotateCcw className="h-4 w-4 text-muted-foreground" />
-              </button>
+              <Button variant="ghost" className="pos-cart-tool" onClick={onShowRefund} title="Quick refund" aria-label="Quick refund">Refund</Button>
             )}
-
             {lastReceipt && hardware.printer.isEnabled() && (
-              <Button
-                variant="ghost"
-                className="pos-cart-tool"
-                onClick={onPrintReceipt}
-                title="Print last receipt"
-              >
-                <Printer className="h-4 w-4" />
-              </Button>
+              <Button variant="ghost" className="pos-cart-tool" onClick={onPrintReceipt} title="Print last receipt">Reprint</Button>
             )}
             {items.length > 0 && (
               <Button
@@ -132,14 +104,14 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                   const count = getItemCount();
                   if (await confirm({ title: `Clear all ${count} item${count > 1 ? 's' : ''}?`, message: 'The sale starts over. Hold the sale instead to keep it for later.', confirmLabel: 'Clear cart', cancelLabel: 'Keep items', destructive: true })) clearCart();
                 }}
-                className="text-destructive pos-cart-tool"
+                className="pos-cart-tool is-danger"
                 title="Clear cart"
                 aria-label="Clear cart"
               >
-                <Trash2 className="h-4 w-4 mr-1" />
+                Clear
               </Button>
             )}
-            {onClose && <button type="button" onClick={onClose} aria-label="Close sale cart" className="pos-cart-tool"><X size={18} /></button>}
+            {onClose && <button type="button" onClick={onClose} aria-label="Close sale cart" className="pos-cart-close"><X size={18} /></button>}
           </div>
         </div>
       </div>

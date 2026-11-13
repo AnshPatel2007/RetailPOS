@@ -8,7 +8,7 @@ test('partial delivery survives a lost response and reload, then closes with doc
   })).json()).data.profitability);
   await page.getByRole('navigation', { name: 'Inventory / Purchasing views' }).getByRole('link', { name: 'Orders', exact: true }).click();
   const row = page.getByRole('row').filter({ hasText: 'PO-FIXTURE' });
-  await row.getByTitle('Receive Delivery').click();
+  await row.getByRole('button', { name: 'Receive PO-FIXTURE', exact: true }).click();
   const delivery = page.getByRole('dialog', { name: 'Receive delivery · PO-FIXTURE', exact: true });
   await delivery.getByLabel('Fixture Delivery accepted').fill('3');
   await expect(delivery.getByText('7 units will remain open for a later delivery.')).toBeVisible();
@@ -22,14 +22,15 @@ test('partial delivery survives a lost response and reload, then closes with doc
   await page.reload();
   await page.getByRole('navigation', { name: 'Inventory / Purchasing views' }).getByRole('link', { name: 'Orders', exact: true }).click();
   await expect(row.getByText('Partially received', { exact: true })).toBeVisible();
-  await row.getByTitle('Receive Delivery').click();
+  await row.getByRole('button', { name: 'Receive PO-FIXTURE', exact: true }).click();
   await expect(delivery.getByLabel('Fixture Delivery accepted')).toHaveValue('3');
   await expect(delivery.getByLabel('Fixture Delivery accepted')).toBeDisabled();
   const replayed = page.waitForResponse(r => r.url().endsWith('/receive') && r.request().method() === 'POST');
   await delivery.getByRole('button', { name: 'Retry saved delivery', exact: true }).click();
   const replay = await (await replayed).json(); expect(replay.data.replayed).toBe(true);
   await expect(delivery).toHaveCount(0);
-  await row.getByTitle('View Details').click();
+  await row.getByRole('button', { name: 'More actions for PO-FIXTURE', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'View details', exact: true }).click();
   const details = page.getByRole('dialog', { name: 'Order PO-FIXTURE', exact: true });
   await expect(details.getByText('3 accepted · 0 damaged · 0 rejected')).toBeVisible();
   await expect(details.getByText(/· Partial delivery/)).toHaveCount(1);

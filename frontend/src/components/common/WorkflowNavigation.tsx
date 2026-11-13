@@ -17,8 +17,14 @@ export const useWorkflowNavigation = () => useContext(WorkflowContext);
 export function WorkflowNavigation({ label, views, children, secondaryTabs }: { label: string; views: { label: React.ReactNode; path: string }[]; children: React.ReactNode; secondaryTabs?: React.ReactNode }) {
   const location = useLocation();
   const title = label === 'Customers / Accounts' ? 'Gift Cards & Accounts' : label.split(' / ').slice(-1)[0] || label;
-  const tabs = views.length > 1 ? <PageTabs label={label + ' views'} items={views.map(view => ({ id: view.path, label: view.label, href: view.path }))} value={location.pathname} /> : undefined;
+  const tabs = views.length > 1 ? <PageTabs label={label + ' views'} items={views.map(view => ({ id: view.path, label: view.label, href: view.path }))} value={currentView(views, location.pathname)} /> : undefined;
   return <WorkflowContext.Provider value={{ title, tabs, secondaryTabs }}>{children}</WorkflowContext.Provider>;
+}
+
+/** The view a path belongs to: itself, or the deepest view it sits under (a sub-tab keeps its tab lit). */
+function currentView(views: { path: string }[], pathname: string) {
+  return views.filter(view => pathname === view.path || pathname.startsWith(view.path + '/'))
+    .sort((a, b) => b.path.length - a.path.length)[0]?.path ?? pathname;
 }
 
 /** Keep old bookmarks, selected records and filters when their destination moves. */
@@ -49,14 +55,36 @@ export const stockControlViews = [
 ];
 
 // Orders (the landing view) first, then the steps around them; suppliers are reference data, last.
+// At most five tabs in a row: what a supplier owes sits under Suppliers, and Price Review under Products.
 export const purchasingViews = [
   { label: 'Orders', path: '/inventory/purchasing/orders' },
   { label: 'Receive Delivery', path: '/inventory/purchasing/receive' },
   { label: 'Reorder Suggestions', path: '/inventory/purchasing/suggestions' },
-  { label: 'Price Review', path: '/inventory/purchasing/price-review' },
   { label: 'Suppliers', path: '/inventory/purchasing/suppliers' },
-  { label: 'Credits Owed', path: '/inventory/purchasing/credits' },
 ];
+export const SUPPLIER_CREDITS = '/inventory/purchasing/suppliers/credits';
+const supplierViews = [
+  { id: '/inventory/purchasing/suppliers', label: 'Suppliers', href: '/inventory/purchasing/suppliers' },
+  { id: SUPPLIER_CREDITS, label: 'Credits Owed', href: SUPPLIER_CREDITS },
+];
+
+/** Purchasing tabs; the Suppliers tab carries its two views (the list, and what suppliers owe). */
+export function PurchasingNavigation({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  const suppliers = pathname === supplierViews[0].href || pathname.startsWith(supplierViews[0].href + '/');
+  return <WorkflowNavigation label="Inventory / Purchasing" views={purchasingViews}
+    secondaryTabs={suppliers ? <PageTabs label="Supplier views" items={supplierViews} value={pathname} /> : undefined}>{children}</WorkflowNavigation>;
+}
+
+export const PRICE_REVIEW = '/inventory/price-review';
+/** The Products page's tabs. Single Items and Packs are one page (`?view=`); Price Review is its own. */
+export function ProductTabs({ value }: { value: 'singles' | 'packs' | 'price-review' }) {
+  return <PageTabs label="Products views" value={value} items={[
+    { id: 'singles', label: 'Single Items', href: '/inventory' },
+    { id: 'packs', label: 'Packs', href: '/inventory?view=packs' },
+    { id: 'price-review', label: 'Price Review', href: PRICE_REVIEW },
+  ]} />;
+}
 
 export const accountViews = [
   { label: 'Gift Cards', path: '/customers/accounts/gift-cards' },

@@ -11,8 +11,8 @@ import { login } from './utils/auth-helper';
  */
 const routes = [
   '/dashboard', '/lottery', '/inventory', '/inventory?view=packs',
-  '/inventory/purchasing/orders', '/inventory/purchasing/receive', '/inventory/purchasing/suggestions', '/inventory/purchasing/price-review',
-  '/inventory/purchasing/suppliers', '/inventory/purchasing/credits',
+  '/inventory/price-review', '/inventory/purchasing/orders', '/inventory/purchasing/receive', '/inventory/purchasing/suggestions',
+  '/inventory/purchasing/suppliers', '/inventory/purchasing/suppliers/credits',
   '/inventory/stock-control/exceptions', '/inventory/stock-control/counts', '/inventory/stock-control/transfers', '/inventory/stock-control/movements',
   '/promotions', '/customers', '/customers/accounts/gift-cards', '/customers/accounts/store-credits', '/customers/accounts/house-accounts',
   '/customers/insights?analysis=overview',
@@ -30,6 +30,9 @@ const routes = [
  */
 const popups: { route: string; opens: string }[] = [
   { route: '/customers', opens: 'Add Customer' },
+  { route: '/inventory', opens: 'Add single item' },
+  { route: '/inventory/purchasing/suppliers', opens: 'Add Supplier' },
+  { route: '/inventory/purchasing/orders', opens: 'New Order' },
 ];
 
 const FILLED = '[data-variant="primary"], [data-variant="destructive"]';
@@ -107,19 +110,44 @@ for (const viewport of viewports) {
   });
 }
 
-test('a crowded header folds extra buttons under More, and they still work', async ({ page }) => {
-  await page.setViewportSize({ width: 1366, height: 768 });
+test('a header with more buttons than fit folds the extras under More, and they still work', async ({ page }) => {
   await login(page, 'owner@example.test');
+  // Products has three header buttons: all show on a computer, with the main one last and the only filled one.
+  await page.setViewportSize({ width: 1366, height: 768 });
   await visit(page, '/inventory');
   const actions = page.locator('.page-actions');
   const more = actions.getByRole('button', { name: 'More actions', exact: true });
+  await expect(more).toHaveCount(0);
+  await expect(actions.locator('button, a').filter({ visible: true })).toHaveText(['Import CSV', /^Labels/, 'Add single item']);
+  await expect(actions.locator(FILLED)).toHaveText('Add single item');
+  // A phone shows the main button and "More".
+  await page.setViewportSize({ width: 390, height: 844 });
   await expect(more).toHaveText('More');
-  // The main action is last (rightmost) and is the only filled button.
   await expect(actions.locator('button, a').filter({ visible: true }).last()).toHaveText('Add single item');
-  await expect(actions.locator(FILLED)).toHaveCount(1);
   await more.click();
   const menu = page.getByRole('dialog', { name: 'More actions', exact: true });
   await menu.getByRole('button', { name: 'Import CSV', exact: true }).click();
   await expect(menu).toHaveCount(0);
   await expect(page.getByRole('dialog', { name: 'Import Products from CSV', exact: true })).toBeVisible();
+});
+
+test('register tools are words, and Payment keeps its buttons in the footer', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await login(page, 'owner@example.test');
+  await page.goto('/pos');
+  await page.locator('.pos-product-button').filter({ visible: true }).first().click();
+  const cart = page.locator('[data-sale-cart]').filter({ visible: true });
+  // Held, Refund, Clear (and Reprint after a sale): each is a word, never only an icon.
+  const tools = cart.locator('.pos-cart-tools button');
+  await expect(tools.first()).toBeVisible();
+  for (const tool of await tools.all()) await expect(tool).toHaveText(/[A-Za-z]{4,}/);
+  await expect(cart.getByRole('button', { name: 'Quick refund', exact: true })).toHaveText('Refund');
+  await expect(cart.getByRole('button', { name: 'Clear cart', exact: true })).toHaveText('Clear');
+  // Charge stays the one big filled button of the cart.
+  await expect(cart.locator(FILLED).filter({ visible: true })).toHaveText(/^Charge/);
+  await cart.getByRole('button', { name: /^Charge/ }).click();
+  const payment = page.locator('.app-dialog').filter({ visible: true }).last();
+  await expect(payment.getByRole('heading', { name: 'Payment', exact: true })).toBeVisible();
+  await expect(payment.locator('.dialog-body').locator(FILLED).filter({ visible: true })).toHaveCount(0);
+  await expect(payment.locator('.dialog-footer').locator(FILLED).filter({ visible: true })).toHaveCount(1);
 });

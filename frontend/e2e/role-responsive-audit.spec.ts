@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { titleSize } from './utils/look';
 
 const operations = ['/dashboard', '/inventory', '/customers', '/customers/insights', '/customers/accounts/gift-cards',
   '/customers/accounts/store-credits', '/customers/accounts/house-accounts', '/team-time/shifts', '/financial',
@@ -24,7 +25,7 @@ async function inspect(page: Page, path: string, dark: boolean) {
     const heading = content.locator('.page-header h1');
     await expect(heading).toHaveCount(1);
     await expect(heading).toBeVisible();
-    await expect(heading).toHaveCSS('font-size', '24px');
+    await expect(heading).toHaveCSS('font-size', titleSize(page.viewportSize()?.width || 0));
     await expect(content.getByRole('heading', { level: 1 })).toHaveCount(1);
     await expect(content.getByRole('button', { name: /^Refresh(?: |$)/ })).toHaveCount(0);
     for (const button of await content.locator('.page-actions .app-button[data-control-size="standard"]').all()) {

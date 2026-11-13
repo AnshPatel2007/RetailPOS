@@ -83,7 +83,7 @@ test('a delivery scanned on a phone updates stock and cost, after a shelf count 
   // The cost rise is flagged with the margin it leaves and the price that meets the target.
   const costChanges = page.getByRole('region', { name: 'Cost changes (1 up 3% or more)' });
   await expect(costChanges.getByRole('listitem')).toHaveText([`Lemon Can ${stamp}: $0.50 → $0.60 (+20%), margin 52.0% at $1.25, target 60.0%, suggested $1.50`]);
-  await expect(costChanges.getByRole('link', { name: 'Open Price Review' })).toHaveAttribute('href', '/inventory/purchasing/price-review');
+  await expect(costChanges.getByRole('link', { name: 'Open Price Review' })).toHaveAttribute('href', '/inventory/price-review');
   await page.getByRole('button', { name: 'Save delivery' }).click();
   await expect(page.getByText('Delivery saved')).toBeVisible();
   await expect(page.getByText('2 items received (2 existing, 0 new). Stock and costs are updated.')).toBeVisible();

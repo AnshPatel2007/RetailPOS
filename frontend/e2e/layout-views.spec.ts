@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { titleSize } from './utils/look';
 
 const views: [string, string][] = [
   ['/insights/reports/overview?view=summary', 'Reports'], ['/insights/reports/inventory?view=stock-health', 'Reports'], ['/insights/reports/staff?view=sales', 'Reports'],
@@ -26,7 +27,7 @@ for (const width of [1440, 768, 390]) for (const dark of [false, true]) {
       const heading = main.getByRole('heading', { level: 1 });
       await expect(heading, path).toHaveCount(1);
       await expect(heading, path).toHaveText(title);
-      await expect(heading).toHaveCSS('font-size', '24px');
+      await expect(heading).toHaveCSS('font-size', titleSize(width));
       await expect(main.getByRole('combobox', { name: 'Analysis view', exact: true })).toHaveCount(0);
       await expect(main.getByRole('button', { name: /^Refresh(?: |$)|^Ask AI$/ })).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), path).toBe(true);

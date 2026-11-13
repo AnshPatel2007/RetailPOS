@@ -28,7 +28,7 @@ test('delivery days set on a supplier plan its reorder to the delivery after nex
   // Set Tuesday and Friday on the supplier form.
   await page.goto('/inventory/purchasing/suppliers');
   await page.getByPlaceholder('Search suppliers...').fill(supplierName);
-  await page.getByRole('button', { name: `Edit supplier ${supplierName}` }).click();
+  await page.getByRole('button', { name: `Edit ${supplierName}` }).click();
   const form = page.getByRole('dialog', { name: 'Edit Supplier' });
   const days = form.getByRole('group', { name: 'Delivery days' });
   await days.getByRole('button', { name: 'Tuesday' }).click();

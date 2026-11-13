@@ -62,12 +62,12 @@ export const sidebarSections: NavSection[] = [
 /** Places inside pages (tabs and sections) that quick-find can jump straight to. */
 const pageViews: (NavLink & { within: string })[] = [
   { within: 'Products', name: 'Packs & cartons', href: '/inventory?view=packs', icon: Package, roles: MANAGERS, keywords: 'variety pack case carton' },
+  { within: 'Products', name: 'Price review', href: '/inventory/price-review', icon: Package, roles: MANAGERS, keywords: 'cost change margin purchasing' },
   { within: 'Purchasing', name: 'Purchase orders', href: '/inventory/purchasing/orders', icon: Truck, roles: MANAGERS, keywords: 'po receive order' },
   { within: 'Purchasing', name: 'Receive delivery', href: '/inventory/purchasing/receive', icon: Truck, roles: MANAGERS, keywords: 'receive delivery scan truck check in invoice phone' },
   { within: 'Purchasing', name: 'Suppliers', href: '/inventory/purchasing/suppliers', icon: Truck, roles: MANAGERS, keywords: 'vendors distributors' },
   { within: 'Purchasing', name: 'Reorder suggestions', href: '/inventory/purchasing/suggestions', icon: Truck, roles: MANAGERS, keywords: 'low stock reorder' },
-  { within: 'Purchasing', name: 'Price review', href: '/inventory/purchasing/price-review', icon: Truck, roles: MANAGERS, keywords: 'cost change margin' },
-  { within: 'Purchasing', name: 'Credits owed', href: '/inventory/purchasing/credits', icon: Truck, roles: MANAGERS, keywords: 'supplier credit damaged rejected return refund owed' },
+  { within: 'Purchasing', name: 'Credits owed', href: '/inventory/purchasing/suppliers/credits', icon: Truck, roles: MANAGERS, keywords: 'supplier credit damaged rejected return refund owed' },
   { within: 'Stock Control', name: 'Stock exceptions', href: STOCK_CONTROL + '/exceptions', icon: ArrowLeftRight, roles: MANAGERS, keywords: 'negative stock oversold' },
   { within: 'Stock Control', name: 'Stock counts', href: STOCK_CONTROL + '/counts', icon: ArrowLeftRight, roles: MANAGERS, keywords: 'cycle count physical count' },
   { within: 'Stock Control', name: 'Transfers', href: STOCK_CONTROL + '/transfers', icon: ArrowLeftRight, roles: MANAGERS, keywords: 'move stock between stores' },

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Minus, PackageCheck, Plus, Search, Trash2 } from 'lucide-react';
+import { Camera, Minus, PackageCheck, Plus, Search, Trash2 } from 'lucide-react';
 import { FormSection, ManagementPage } from '@/components/common/Workspace';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -8,6 +8,7 @@ import { SupplierPicker } from '@/components/common/SupplierPicker';
 import { CameraScanner } from '@/components/common/CameraScanner';
 import { PickableProduct, ProductPicker } from '@/components/common/ProductPicker';
 import { ImportReview } from '@/components/inventory/ImportReview';
+import { ReceiptScanModal } from '@/components/inventory/ReceiptScanModal';
 import { Alert } from '@/components/ui/Alert';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -88,6 +89,8 @@ export default function ReceiveDelivery() {
   const [choices, setChoices] = useState<{ code: string; matches: BarcodeMatch[] } | null>(null);
   const [newItem, setNewItem] = useState<NewItemForm | null>(null);
   const [findByName, setFindByName] = useState(false);
+  // The other way in: a photo of the paper invoice (it used to start from Products > Scan Receipt).
+  const [scanningInvoice, setScanningInvoice] = useState(false);
   const [orderLoading, setOrderLoading] = useState(false);
   const [countingShelves, setCountingShelves] = useState(false);
   const [reviewError, setReviewError] = useState('');
@@ -279,6 +282,7 @@ export default function ReceiveDelivery() {
       <PageHeader title="Receive Delivery" icon={PackageCheck}
         actions={draft.lines.length > 0 && !reviewing && !isReadOnly ? <Button variant="ghost" onClick={() => void startOver()} disabled={locked}>Start over</Button> : undefined} />
       {confirmDialog}
+      <ReceiptScanModal isOpen={scanningInvoice && !isReadOnly} onClose={() => setScanningInvoice(false)} onSuccess={() => openOrders.refresh()} />
       <div className="mx-auto w-full max-w-3xl space-y-4 pb-2">
         {isReadOnly && <Alert tone="info">This store is open for viewing only, so deliveries cannot be received here.</Alert>}
         {workflow.error && <Alert tone="error">{workflow.error}</Alert>}
@@ -311,6 +315,11 @@ export default function ReceiveDelivery() {
               {order && !orderList.some(candidate => candidate.id === order.id) && <option value={order.id}>{order.orderNumber}</option>}
               {orderList.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.orderNumber} · ordered {formatDate(candidate.orderedAt || candidate.createdAt)}</option>)}
             </Select>}
+            {/* The other way to receive: a photo of the paper invoice fills in the lines. */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+              <p className="text-sm text-muted-foreground">Have the paper invoice? A photo of it can fill in the items.</p>
+              <Button type="button" disabled={locked} onClick={() => setScanningInvoice(true)}><Camera aria-hidden="true" />Scan the invoice instead</Button>
+            </div>
           </section>
 
           <section aria-label="Scan items" className="space-y-3 rounded-lg border bg-card p-4">

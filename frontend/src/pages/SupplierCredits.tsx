@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckCircle2, Plus, Receipt } from 'lucide-react';
+import { CheckCircle2, Plus } from 'lucide-react';
 import { DataPanel, ManagementPage, SummaryStrip } from '@/components/common/Workspace';
 import { PageHeader } from '@/components/common/PageHeader';
 import { PageTabs } from '@/components/common/PageTabs';
@@ -51,16 +51,16 @@ export default function SupplierCredits() {
 
   return (
     <ManagementPage>
-      <PageHeader title="Credits Owed" icon={Receipt}
-        secondaryTabs={<PageTabs secondary label="Credit status" value={view} onChange={value => setView(value as 'open' | 'settled')}
-          items={[{ id: 'open', label: 'Owed' }, { id: 'settled', label: 'Settled' }]} />}
+      <PageHeader title="Credits Owed"
         actions={canManage ? <Button variant="primary" onClick={() => setAdding(true)}><Plus className="h-4 w-4" aria-hidden="true" />Record credit</Button> : undefined} />
       {summary && <SummaryStrip items={[
         { label: 'Owed to you', value: formatCurrency(summary.openAmount), detail: `${summary.openCount} open credit${summary.openCount === 1 ? '' : 's'}` },
         { label: 'Older than 30 days', value: formatCurrency(summary.olderThan30Amount), tone: summary.olderThan30Amount > 0 ? 'warning' : 'default',
           detail: summary.olderThan30Amount > 0 ? 'Ask the supplier for these' : 'Nothing overdue' },
       ]} />}
-      <DataPanel>
+      {/* Owed or settled is a filter on this list, so it sits with the list, not with the page's tabs. */}
+      <DataPanel toolbar={<PageTabs secondary label="Credit status" value={view} onChange={value => setView(value as 'open' | 'settled')}
+        items={[{ id: 'open', label: 'Owed' }, { id: 'settled', label: 'Settled' }]} />}>
         {query.error ? <Alert tone="error" action={<Button variant="outline" onClick={query.refresh}>Retry</Button>}>Credits did not load.</Alert>
           : !query.data ? <div className="flex justify-center py-10"><Spinner size="lg" /></div>
           : !credits.length ? <EmptyState icon={CheckCircle2} title={view === 'open' ? 'No supplier owes you anything' : 'No settled credits yet'}

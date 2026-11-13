@@ -111,7 +111,7 @@ export const PricingRulesCard: React.FC<{ editable: boolean }> = ({ editable }) 
               setDraft({ ...draft, scopeId: '', target: '', minimum: '' });
           }}>Add target</Button>
         </fieldset>
-        <p className="text-xs text-muted-foreground">Prices never change on their own. Review items under target in <Link className="text-primary underline underline-offset-2" to="/inventory/purchasing/price-review">Price Review</Link>.</p>
+        <p className="text-xs text-muted-foreground">Prices never change on their own. Review items under target in <Link className="text-primary underline underline-offset-2" to="/inventory/price-review">Price Review</Link>.</p>
       </CardContent>
     </Card>
   );

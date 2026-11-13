@@ -22,8 +22,9 @@ export const Badge: React.FC<BadgeProps> = ({
 
   return (
     <span
+      data-variant={variant}
       className={cn(
-        'inline-flex w-fit max-w-full items-center whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium leading-4 transition-colors',
+        'app-badge inline-flex w-fit max-w-full items-center whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium leading-4 transition-colors',
         variants[variant],
         className
       )}

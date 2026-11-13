@@ -104,6 +104,22 @@
 .dialog-actions-remove { margin-right: auto; }
 /* Table rows (RowActions): one visible word and a "…" menu. */
 .row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+/* Temporary Classic | New look switch (components/common/LookSwitch.tsx). */
+.look-switch { display: flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid hsl(var(--border)); border-radius: 8px; font-size: 12px; line-height: 16px; }
+.look-switch-label { padding: 0 6px 0 8px; color: hsl(var(--muted-foreground)); font-weight: 500; }
+.look-switch button { flex: 1; min-height: 28px; padding: 0 10px; border-radius: 6px; color: hsl(var(--muted-foreground)); font-weight: 500; }
+.look-switch button:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.look-switch button[aria-pressed="true"] { background: hsl(221 83% 53%); color: #fff; font-weight: 600; }
+.dark .look-switch button[aria-pressed="true"] { background: hsl(217 91% 50%); }
+.look-switch-single { display: flex; width: 36px; height: 36px; align-items: center; justify-content: center; border: 1px solid hsl(var(--border)); border-radius: 8px; font-size: 12px; font-weight: 600; }
+.look-switch-single:hover { background: hsl(var(--accent)); }
+.look-switch button:focus-visible, .look-switch-single:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.look-switch-register { flex-shrink: 0; }
+.look-switch-register button { min-height: 38px; }
+@media (any-pointer: coarse), (max-width: 639px) {
+  .look-switch button { min-height: 44px; }
+  .look-switch-single { width: 44px; height: 44px; }
+}
 @media (min-width: 640px) and (max-width: 800px) {
   .date-range-dialog { flex-direction: column; }
   .date-range-presets { display: grid; width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); border-right: 0; border-bottom: 1px solid hsl(var(--border)); }
@@ -146,6 +162,8 @@
   .table-stack tbody tr { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; padding: 12px 16px; }
   .table-stack tbody td { display: flow-root; flex: 0 0 100%; min-width: 0; padding: 3px 0; text-align: right; white-space: normal; overflow-wrap: anywhere; }
   .table-stack tbody td[data-label]::before { content: attr(data-label); float: left; max-width: 45%; margin-right: 16px; color: hsl(var(--muted-foreground)); font-size: 12px; font-weight: 400; line-height: 20px; text-align: left; }
+  /* A cell whose content is its own row (an icon beside a number) lines up on the right like plain text. */
+  .table-stack tbody td[data-stack="field"] > div { justify-content: flex-end; }
   .table-stack tbody td[data-stack="title"] { padding-bottom: 6px; font-size: 15px; font-weight: 600; text-align: left; }
   .table-stack tbody td[data-stack="select"] { flex: 0 0 auto; }
   .table-stack tbody td[data-stack="select"] + td[data-stack="title"] { flex: 1 1 0; }

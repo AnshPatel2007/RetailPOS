@@ -38,19 +38,15 @@ test('invalid CSV rows remain a review error without an apply control', async ({
 });
 
 test('receipt suggestions require an explicit SKU and price before a reviewed import', async ({ page }) => {
-  await login(page, TEST_USER.email); await page.goto('/inventory');
+  // Scanning a paper invoice starts where deliveries are received (it used to be Products > Scan Receipt).
+  await login(page, TEST_USER.email); await page.goto('/inventory/purchasing/receive');
   await page.setViewportSize({ width: 390, height: 844 });
-  const moreActions = page.getByRole('button', { name: 'More actions', exact: true });
-  await moreActions.click();
-  await page.keyboard.press('Escape');
-  await expect(moreActions).toBeFocused();
-  await moreActions.click();
   // Stub only the external OCR provider response; preview/application use the real API.
   await page.route('**/api/products/scan-receipt', route => route.fulfill({ json: { success: true, data: {
     supplier: 'Browser Receipt Supplier', invoiceNumber: 'BROWSER-1', existingProducts: [],
     items: [{ name: 'Receipt Coffee', quantity: 2, packSize: 3, unitQuantity: 6, unitCost: 1.25, totalCost: 7.5 }],
   } } }));
-  await page.getByRole('button', { name: 'Scan Receipt', exact: true }).click();
+  await page.getByRole('button', { name: 'Scan the invoice instead', exact: true }).click();
   await page.getByLabel('Receipt image', { exact: true }).setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD6sAAAAASUVORK5CYII=', 'base64') });
   await page.getByRole('dialog').getByRole('button', { name: 'Scan Receipt', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Review Scanned Items', exact: true });
@@ -71,6 +67,8 @@ test('receipt suggestions require an explicit SKU and price before a reviewed im
   await expect(modal.getByRole('status')).toContainText('Import complete: 1 created, 0 updated.');
   await modal.getByRole('button', { name: 'Done', exact: true }).click();
   await page.setViewportSize({ width: 1280, height: 720 });
+  // The new item is in the catalog with the stock the invoice brought.
+  await page.goto('/inventory');
   await page.getByPlaceholder('Search by name, SKU, or barcode...').fill('BROWSER-RECEIPT');
   const row = page.getByRole('row').filter({ hasText: 'BROWSER-RECEIPT' });
   await expect(row).toHaveCount(1); await expect(row.getByText('6', { exact: true })).toBeVisible();

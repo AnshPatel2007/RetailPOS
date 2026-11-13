@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { OfflineIndicator } from '@/components/common/OfflineIndicator';
+import { LookSwitch } from '@/components/common/LookSwitch';
 import { useRegisterStore, canLockRegister } from '@/store/registerStore';
 
 interface CurrentShift {
@@ -130,6 +131,8 @@ export const POSTopBar: React.FC = () => {
             Lock
           </button>
         )}
+
+        <LookSwitch className="look-switch-register" />
 
         <button
           onClick={toggleTheme}

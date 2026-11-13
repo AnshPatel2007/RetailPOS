@@ -28,10 +28,10 @@ const allHrefs = sidebarSections.flatMap(section => section.items.map(item => it
 
 function isPathActive(pathname: string, href: string): boolean {
   if (pathname === href) return true;
-  // /inventory must not light up for /inventory/purchasing, which has its own menu item.
-  const hasCollision = allHrefs.some(other => other !== href && other.startsWith(href + '/'));
-  if (hasCollision) return false;
-  return pathname.startsWith(href + '/');
+  if (!pathname.startsWith(href + '/')) return false;
+  // /inventory lights up for its own pages (/inventory/price-review) but not for
+  // /inventory/purchasing, which has its own menu item.
+  return !allHrefs.some(other => other !== href && other.startsWith(href + '/') && (pathname === other || pathname.startsWith(other + '/')));
 }
 
 /** Menus this short read better as one plain list than as labelled sections. */
@@ -255,7 +255,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         aria-modal={isMobileMenuOpen ? true : undefined}
         aria-hidden={!isMobileMenuOpen}
         className={cn(
-          'lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-background border-r border-border flex flex-col transition-transform duration-300 shadow-2xl',
+          'app-sidebar lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-background border-r border-border flex flex-col transition-transform duration-300 shadow-2xl',
           isMobileMenuOpen ? 'visible translate-x-0' : 'invisible pointer-events-none -translate-x-full'
         )}
       >
@@ -272,7 +272,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Sidebar — desktop */}
       <aside
         className={cn(
-          'hidden lg:flex flex-col bg-card border-r border-border transition-all duration-300',
+          'app-sidebar hidden lg:flex flex-col bg-card border-r border-border transition-all duration-300',
           isSidebarCollapsed ? 'w-16' : 'w-60'
         )}
       >

@@ -43,7 +43,7 @@ test('the owner dashboard opens with what needs attention, each with a link to f
   await expect(page).toHaveURL(/\/inventory\/stock-control\/exceptions$/);
   await page.goBack();
   await items.nth(0).getByRole('link', { name: 'Review prices', exact: true }).click();
-  await expect(page).toHaveURL(/\/inventory\/purchasing\/price-review$/);
+  await expect(page).toHaveURL(/\/inventory\/price-review$/);
 });
 
 test('cashiers do not get the attention list', async ({ page }) => {

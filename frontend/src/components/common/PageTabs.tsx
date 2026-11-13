@@ -41,7 +41,7 @@ export function PageTabs({ label, items, value, onChange, secondary = false }: {
   }, [value, scroll.overflow]);
   if (items.length < 2) return null;
   // On a phone a long tab row is swiped; a faded edge shows there is more that way.
-  return <div className={cn('page-tab-scroll-shell', secondary && 'page-tabs-secondary')} data-more-left={scroll.left || undefined} data-more-right={scroll.right || undefined}>
+  return <div className={cn('page-tab-scroll-shell', secondary && 'page-tabs-secondary')} data-level={prominent ? 'primary' : 'secondary'} data-more-left={scroll.left || undefined} data-more-right={scroll.right || undefined}>
     <nav ref={navigation} aria-label={label} className="page-tabs flex min-w-0 items-center gap-2">
     {items.map(item => {
       const active = item.id === value;

@@ -1,0 +1,161 @@
+/*
+ * The "New" look: modern and clean. One switchable layer over the same screens.
+ * Everything here sits under :root[data-look="new"] (set from store/themeStore.ts),
+ * so the Classic look is untouched. Blue stays the action color, dark mode stays
+ * pure black, and control sizes stay as they are (the register fits 1366x768).
+ * Whichever look the owner does not choose is deleted.
+ */
+
+/* ---- Tokens ------------------------------------------------------------ */
+:root[data-look="new"] {
+  --radius: 0.625rem;
+  --canvas: 220 18% 95.5%;
+  --surface-subtle: 220 20% 97.5%;
+  --border: 220 16% 90.5%;
+  /* The soft grey fill of supporting buttons, and its hover and pressed steps. */
+  --control: 220 14% 92%;
+  --control-hover: 220 14% 87.5%;
+  --control-active: 220 13% 83%;
+  /* Filled blue surfaces that carry white text (main buttons, the menu pill). */
+  --primary-fill: 221.2 83.2% 53.3%;
+  --primary-hover: 221 83% 47%;
+  --primary-active: 221 83% 41%;
+  --ink: 222 30% 11%;
+  --elevation: 0 1px 2px rgb(16 24 40 / .06), 0 2px 8px rgb(16 24 40 / .05);
+  --elevation-raised: 0 2px 4px rgb(16 24 40 / .06), 0 8px 20px rgb(16 24 40 / .09);
+}
+:root[data-look="new"].dark {
+  --canvas: 0 0% 0%;
+  --surface-subtle: 0 0% 9%;
+  --border: 0 0% 16.5%;
+  --control: 0 0% 15%;
+  --control-hover: 0 0% 19.5%;
+  --control-active: 0 0% 24%;
+  /* Dark mode's brighter blue is for text and outlines; white text needs this deeper fill (5:1). */
+  --primary-fill: 217 91% 50%;
+  --primary-hover: 217 91% 45%;
+  --primary-active: 217 91% 40%;
+  --ink: 0 0% 14%;
+  --elevation: none;
+  --elevation-raised: none;
+}
+
+/* ---- Side menu: dark ink in the light theme; the dark theme keeps its black menu ---- */
+:root[data-look="new"]:not(.dark) .app-sidebar {
+  color-scheme: dark;
+  --background: 222 30% 11%;
+  --card: 222 30% 11%;
+  --foreground: 220 30% 96%;
+  --muted: 222 24% 18%;
+  --muted-foreground: 220 15% 72%;
+  --accent: 222 24% 18%;
+  --accent-foreground: 0 0% 100%;
+  --border: 222 22% 19%;
+  --input: 222 18% 28%;
+  --primary-text: 0 0% 100%;
+  --success-text: 142 65% 64%;
+  --warning-text: 40 95% 64%;
+  --destructive-text: 0 90% 74%;
+  --info-text: 199 89% 64%;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  border-right-color: transparent;
+}
+:root[data-look="new"] .sidebar-link { border-radius: 8px; }
+/* The current page is a bright pill. */
+:root[data-look="new"] .sidebar-link[aria-current="page"] { background: hsl(var(--primary-fill)); color: #fff; font-weight: 600; }
+
+/* ---- Buttons ----------------------------------------------------------- */
+:root[data-look="new"] .app-button { transition: background-color .12s, box-shadow .12s; }
+/* The main action: solid blue, semi-bold, a light shadow. */
+:root[data-look="new"] .app-button[data-variant="primary"] { background: hsl(var(--primary-fill)); color: #fff; font-weight: 600; box-shadow: 0 1px 2px rgb(16 24 40 / .2), inset 0 1px 0 rgb(255 255 255 / .14); }
+:root[data-look="new"] .app-button[data-variant="primary"]:hover { background: hsl(var(--primary-hover)); }
+:root[data-look="new"] .app-button[data-variant="primary"]:active { background: hsl(var(--primary-active)); box-shadow: inset 0 1px 2px rgb(0 0 0 / .22); }
+:root[data-look="new"] .app-button[data-variant="destructive"] { font-weight: 600; box-shadow: 0 1px 2px rgb(16 24 40 / .2), inset 0 1px 0 rgb(255 255 255 / .12); }
+:root[data-look="new"] .app-button[data-variant="destructive"]:active { box-shadow: inset 0 1px 2px rgb(0 0 0 / .22); }
+/* Supporting actions: a soft grey fill, no outline. */
+:root[data-look="new"] .app-button[data-variant="outline"],
+:root[data-look="new"] .app-button[data-variant="secondary"],
+:root[data-look="new"] .page-action { border-color: transparent; background: hsl(var(--control)); }
+:root[data-look="new"] .app-button[data-variant="secondary"] { color: hsl(var(--foreground)); }
+:root[data-look="new"] .app-button[data-variant="outline"]:hover,
+:root[data-look="new"] .app-button[data-variant="secondary"]:hover,
+:root[data-look="new"] .page-action:hover { background: hsl(var(--control-hover)); }
+:root[data-look="new"] .app-button[data-variant="outline"]:active,
+:root[data-look="new"] .app-button[data-variant="secondary"]:active,
+:root[data-look="new"] .page-action:active { background: hsl(var(--control-active)); }
+/* Minor actions are text only, with a clear hover and pressed state. */
+:root[data-look="new"] .app-button[data-variant="ghost"]:hover { background: hsl(var(--control)); }
+:root[data-look="new"] .app-button[data-variant="ghost"]:active { background: hsl(var(--control-hover)); }
+:root[data-look="new"] .page-action { border-radius: 8px; }
+/* Folded header actions stay a plain menu. */
+:root[data-look="new"] .header-more-menu > .app-button,
+:root[data-look="new"] .header-more-menu > .page-action { background: transparent; box-shadow: none; font-weight: 400; }
+:root[data-look="new"] .header-more-menu > .app-button:hover,
+:root[data-look="new"] .header-more-menu > .page-action:hover { background: hsl(var(--accent)); }
+
+/* ---- Cards and panels: soft shadows, not thin borders; 12px corners ---- */
+:root[data-look="new"] .app-card,
+:root[data-look="new"] .data-panel,
+:root[data-look="new"] .summary-strip { border-radius: 12px; box-shadow: var(--elevation); }
+/* A card that sets its own border (a warning tint, a dashed drop zone) keeps it. */
+:root[data-look="new"]:not(.dark) .app-card:not([class*="border-"]),
+:root[data-look="new"]:not(.dark) .data-panel,
+:root[data-look="new"]:not(.dark) .summary-strip { border-color: transparent; }
+/* A card inside a card, panel or pop-up is a section, not a second layer. */
+:root[data-look="new"] .app-card .app-card:not([class*="border-"]),
+:root[data-look="new"] .data-panel .app-card:not([class*="border-"]),
+:root[data-look="new"] .app-dialog .app-card:not([class*="border-"]) { border-color: hsl(var(--border)); box-shadow: none; }
+:root[data-look="new"] .data-panel .table-scroll tbody tr:last-child td:first-child { border-bottom-left-radius: 12px; }
+:root[data-look="new"] .summary-strip-emphasis .summary-item:last-child { border-radius: 0 12px 12px 0; }
+:root[data-look="new"] .data-panel-summary .summary-strip { border-color: hsl(var(--border)); border-radius: 12px 12px 0 0; box-shadow: none; }
+:root[data-look="new"] .control-popover { border-radius: 12px; box-shadow: 0 12px 32px rgb(16 24 40 / .14), 0 2px 6px rgb(16 24 40 / .06); }
+:root[data-look="new"] .selection-control, :root[data-look="new"] .date-control { border-radius: 8px; }
+@media (min-width: 640px) {
+  :root[data-look="new"] .app-dialog { border-radius: 16px; box-shadow: 0 24px 60px rgb(16 24 40 / .22), 0 4px 12px rgb(16 24 40 / .08); }
+  :root[data-look="new"]:not(.dark) .app-dialog { border-color: transparent; }
+  :root[data-look="new"] .app-dialog .dialog-footer { border-radius: 0 0 16px 16px; }
+}
+
+/* ---- Tabs: page tabs are underlined text; sub-tabs are a segmented control ---- */
+:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] > .page-tabs { gap: 4px; border-bottom: 1px solid hsl(var(--border)); padding-bottom: 0; }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] .page-tab { margin-bottom: -1px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: hsl(var(--muted-foreground)); }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] .page-tab:hover { color: hsl(var(--foreground)); border-bottom-color: hsl(var(--border)); }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] .page-tab[aria-current="page"] { border-bottom-color: hsl(var(--primary)); color: hsl(var(--primary-text)); font-weight: 600; }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] > .page-tabs { flex: 0 1 auto; gap: 2px; padding: 3px; border-radius: 10px; background: hsl(var(--control)); }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab { border: 0; border-radius: 7px; background: transparent; color: hsl(var(--muted-foreground)); }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab:hover { color: hsl(var(--foreground)); }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab[aria-current="page"] { background: hsl(var(--card)); color: hsl(var(--foreground)); font-weight: 600; box-shadow: 0 1px 2px rgb(16 24 40 / .14); }
+:root[data-look="new"].dark .page-tab-scroll-shell[data-level="secondary"] .page-tab[aria-current="page"] { background: hsl(var(--control-active)); box-shadow: none; }
+/* The underline already separates the levels. */
+:root[data-look="new"] .page-secondary-row, :root[data-look="new"] .page-tabs-secondary { border-top: 0; padding-top: 0; }
+
+/* ---- Tables: taller rows, a tinted heading row, a hover highlight ------ */
+:root[data-look="new"] .table-scroll th { height: 44px; background: hsl(var(--surface-subtle)); font-weight: 600; }
+:root[data-look="new"] .table-scroll tbody tr:hover { background: hsl(var(--primary) / .045); }
+@media (min-width: 640px) {
+  :root[data-look="new"] .table-scroll tbody td { height: 48px; }
+}
+/* Statuses are tinted pills with a dot. */
+:root[data-look="new"] .app-badge { gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; }
+:root[data-look="new"] .app-badge:not(:has(svg))::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* ---- Titles ------------------------------------------------------------ */
+@media (min-width: 640px) {
+  :root[data-look="new"] .management-content .page-header h1 { font-size: 28px; line-height: 36px; font-weight: 700; letter-spacing: -.02em; }
+}
+
+/* ---- Register ---------------------------------------------------------- */
+:root[data-look="new"] .pos-workspace { background: hsl(var(--canvas)); }
+:root[data-look="new"]:not(.dark) .pos-topbar { border-bottom-color: transparent; box-shadow: 0 1px 0 hsl(var(--border)), 0 2px 6px rgb(16 24 40 / .04); }
+:root[data-look="new"] .pos-category { border-color: transparent; border-radius: 999px; background: hsl(var(--control)); }
+:root[data-look="new"] .pos-category:hover { background: hsl(var(--control-hover)); }
+:root[data-look="new"] .pos-category.is-selected { background: hsl(var(--primary-fill)); border-color: transparent; color: #fff; font-weight: 600; }
+:root[data-look="new"] .pos-product-button { border-radius: 12px; box-shadow: var(--elevation); transition: box-shadow .12s, background-color .12s; }
+:root[data-look="new"]:not(.dark) .pos-product-button { border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; }
+:root[data-look="new"]:not(.dark) .pos-product-tile:not(.is-text) .pos-product-button { border-left-color: transparent; }
+:root[data-look="new"] .pos-product-button:hover { box-shadow: var(--elevation-raised); }
+:root[data-look="new"]:not(.dark) .pos-desktop-cart { border-left-color: transparent; box-shadow: -1px 0 0 hsl(var(--border)), -8px 0 24px rgb(16 24 40 / .05); }
+/* The Total sits on a dark bar in larger type. */
+:root[data-look="new"] .pos-cart-total { align-items: center; margin-top: 8px; padding: 8px 14px; border-top: 0; border-radius: 10px; background: hsl(var(--ink)); color: #fff; font-size: 26px; line-height: 32px; font-weight: 700; }
+:root[data-look="new"] .pos-cart-total > span:first-child { font-size: 14px; line-height: 20px; font-weight: 600; opacity: .82; }

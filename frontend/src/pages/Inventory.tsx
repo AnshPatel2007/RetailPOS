@@ -4,7 +4,7 @@ import { ProductPacksSection } from '@/components/inventory/ProductPacksSection'
 import { SupplierCasesEditor } from '@/components/inventory/SupplierCasesEditor';
 import { PackForm, PackFormTarget } from '@/components/inventory/PackForm';
 import { PackCatalog } from '@/components/inventory/PackCatalog';
-import { PageTabs } from '@/components/common/PageTabs';
+import { ProductTabs } from '@/components/common/WorkflowNavigation';
 import { useProductPackaging } from '@/hooks/useProductPackaging';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ADJUSTMENT_REASONS } from '@/components/inventory/StockAdjustmentModal';
@@ -34,7 +34,7 @@ import { ProductImage } from '@/components/inventory/ProductImage';
 import toast from 'react-hot-toast';
 import { Plus, Search, AlertTriangle, Package, FolderPlus, Camera, Tag, Upload, X } from 'lucide-react';
 import { StockAdjustmentModal } from '@/components/inventory/StockAdjustmentModal';
-import { ReceiptScanModal } from '@/components/inventory/ReceiptScanModal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { BarcodeLabelPrint } from '@/components/inventory/BarcodeLabelPrint';
 import { ShelfLabelsDialog } from '@/components/inventory/ShelfLabelsDialog';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
@@ -73,8 +73,8 @@ export const Inventory: React.FC = () => {
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [showStockAdjustModal, setShowStockAdjustModal] = useState(false);
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null);
-  const [showReceiptScanModal, setShowReceiptScanModal] = useState(false);
   const [showLabelPrintModal, setShowLabelPrintModal] = useState(false);
+  const [showLabelChoice, setShowLabelChoice] = useState(false);
   const [showCSVImportModal, setShowCSVImportModal] = useState(false);
   const [selectedForLabels, setSelectedForLabels] = useState<Product[]>([]);
   // Inventory is split into single items and packs (cartons, 12-packs, variety packs).
@@ -444,20 +444,27 @@ export const Inventory: React.FC = () => {
   const hasFilters = !!(search || filterCategory || filterStatus);
   const clearFilters = () => { setSearch(''); setFilterCategory(''); setFilterStatus(''); setCurrentPage(1); };
 
+  // Labels: the ones whose price changed, the items on this page, or a choice when both apply.
+  const pendingLabels = canManage ? labelsToPrint.data || 0 : 0;
+  const pageLabels = view === 'singles' && !isLoading && !loadError && products.length > 0;
+  const printPageLabels = () => { setSelectedForLabels(products); setShowLabelPrintModal(true); };
+  const openLabels = () => {
+    if (pendingLabels && pageLabels) setShowLabelChoice(true);
+    else if (pendingLabels) setShowShelfLabels(true);
+    else printPageLabels();
+  };
+
   return (
     <ManagementPage className="products-workspace">
       {confirmDialog}
       <PageHeader title="Products" actions={<>
-        {canManage && view === 'singles' && <Button variant="outline" onClick={() => setShowCSVImportModal(true)}><Upload size={16} />Import CSV</Button>}
-        {view === 'singles' && <Button variant="outline" disabled={isLoading || !!loadError || !products.length} onClick={() => { setSelectedForLabels(products); setShowLabelPrintModal(true); }}><Tag size={16} />Print Labels</Button>}
-        {canManage && !!labelsToPrint.data && <Button variant="outline" onClick={() => setShowShelfLabels(true)}><Tag size={16} />Labels to print ({labelsToPrint.data})</Button>}
-        {canManage && <Button variant="outline" onClick={() => setShowReceiptScanModal(true)}><Camera size={16} />Scan Receipt</Button>}
+        {canManage && view === 'singles' && <Button onClick={() => setShowCSVImportModal(true)}><Upload size={16} />Import CSV</Button>}
+        {/* One Labels button: the count is the shelf labels still showing an old price. */}
+        {(view === 'singles' || pendingLabels > 0) && <Button disabled={!pendingLabels && !pageLabels} onClick={openLabels}><Tag size={16} />{pendingLabels ? `Labels (${pendingLabels})` : 'Labels'}</Button>}
         {canManage && (view === 'singles'
           ? <Button variant="primary" onClick={openCreateModal}><Plus size={16} />Add single item</Button>
           : <Button variant="primary" onClick={() => setPackTarget({ mode: 'create' })}><Plus size={16} />Add pack</Button>)}
-      </>} />
-      <PageTabs label="Inventory view" secondary value={view} items={[{ id: 'singles', label: 'Single Items' }, { id: 'packs', label: 'Packs' }]}
-        onChange={id => setSearchParams(params => { const next = new URLSearchParams(params); if (id === 'packs') next.set('view', 'packs'); else next.delete('view'); return next; }, { replace: true })} />
+      </>} tabs={<ProductTabs value={view} />} />
 
       <AutoRefreshStatus state={productUpdates} />
       <AutoRefreshStatus state={summaryUpdates} />
@@ -519,12 +526,8 @@ export const Inventory: React.FC = () => {
         size="lg"
         footer={<div className="space-y-3">
           {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="outline" disabled={isSavingProduct} onClick={() => { setShowModal(false); resetForm(); }}>Cancel</Button>
-            <Button variant="primary" type="submit" form={productFormId} disabled={isSavingProduct || !!duplicateProductId}>
-              {isSavingProduct ? 'Saving...' : editingProduct ? 'Update Product' : 'Create Product'}
-            </Button>
-          </div>
+          <DialogActions form={productFormId} confirmLabel={editingProduct ? 'Update Product' : 'Create Product'} loading={isSavingProduct} disabled={!!duplicateProductId}
+            onCancel={() => { setShowModal(false); resetForm(); }} />
         </div>}
       >
         <form id={productFormId} onSubmit={handleSubmit} aria-busy={isSavingProduct}>
@@ -685,12 +688,14 @@ export const Inventory: React.FC = () => {
         product={adjustingProduct}
       />
 
-      {/* Receipt Scan Modal */}
-      <ReceiptScanModal
-        isOpen={canManage && showReceiptScanModal}
-        onClose={() => setShowReceiptScanModal(false)}
-        onSuccess={() => { productUpdates.refresh(); summaryUpdates.refresh(); }}
-      />
+      {/* Labels: when some labels show an old price, ask which set to print. */}
+      <Modal isOpen={showLabelChoice} onClose={() => setShowLabelChoice(false)} title="Labels" size="sm"
+        footer={<DialogActions confirmLabel={`Print ${pendingLabels} changed label${pendingLabels === 1 ? '' : 's'}`} onConfirm={() => { setShowLabelChoice(false); setShowShelfLabels(true); }}
+          onCancel={() => setShowLabelChoice(false)}>
+          <Button type="button" onClick={() => { setShowLabelChoice(false); printPageLabels(); }}>Labels for this page</Button>
+        </DialogActions>}>
+        <p className="text-sm text-muted-foreground">{pendingLabels === 1 ? '1 shelf label shows' : `${pendingLabels} shelf labels show`} an old price. Print {pendingLabels === 1 ? 'it' : 'them'} now, or print labels for the {products.length} item{products.length === 1 ? '' : 's'} on this page.</p>
+      </Modal>
 
       <BarcodeLabelPrint
         isOpen={showLabelPrintModal}

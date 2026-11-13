@@ -1,6 +1,6 @@
 import { test, type Browser, type Page } from '@playwright/test';
 import path from 'node:path';
-import { closeAll, record, roleContext, settle, shoot, SHOTS, slug, VIEWPORTS } from './shared';
+import { closeAll, inspect, record, roleContext, settle, shoot, SHOTS, slug, VIEWPORTS } from './shared';
 import { seedDemo } from './seed-demo';
 
 /**
@@ -19,6 +19,7 @@ const OWNER = 'owner@example.test';
 const pages = [
   '/dashboard', '/pos', '/lottery',
   '/inventory', '/inventory?view=packs',
+  // Price Review and Credits Owed moved; their old addresses redirect, and keep the picture names the same before and after.
   '/inventory/purchasing/orders', '/inventory/purchasing/receive', '/inventory/purchasing/suggestions', '/inventory/purchasing/price-review',
   '/inventory/purchasing/suppliers', '/inventory/purchasing/credits',
   '/inventory/stock-control/exceptions', '/inventory/stock-control/counts', '/inventory/stock-control/transfers', '/inventory/stock-control/movements',
@@ -64,6 +65,23 @@ test('owner computer B', async ({ browser }) => { await capture(browser, OWNER, 
 test('owner phone A', async ({ browser }) => { await capture(browser, OWNER, 'owner', pages.slice(0, 21), 'phone'); });
 test('owner phone B', async ({ browser }) => { await capture(browser, OWNER, 'owner', pages.slice(21), 'phone'); });
 test('owner dark', async ({ browser }) => { await capture(browser, OWNER, 'owner', keyPages, 'dark', true); });
+test('key pages', async ({ browser }) => { await capture(browser, OWNER, 'owner', keyPages, 'laptop'); await capture(browser, OWNER, 'owner', keyPages, 'phone'); });
+
+/** Contrast and other WCAG A/AA checks (axe) on the key pages in both themes, for comparing looks: checks.jsonl. */
+test('accessibility of key pages', async ({ browser }) => {
+  test.setTimeout(8 * 60_000);
+  for (const dark of [false, true]) {
+    const { context, page } = await roleContext(browser, OWNER, { dark });
+    for (const route of keyPages) {
+      try {
+        await open(page, route);
+        const checks = await inspect(page);
+        record('checks.jsonl', { route, dark, axe: checks.axe, smallControls: checks.smallControlCount, smallText: checks.smallTextCount, pageOverflow: checks.pageOverflow });
+      } catch (error) { record('checks.jsonl', { route, dark, error: String(error).slice(0, 300) }); }
+    }
+    await closeAll(context);
+  }
+});
 
 test('cashier and platform', async ({ browser }) => {
   const cashier = ['/dashboard', '/pos', '/customers', '/my-shift', '/lottery', '/settings?section=profile'];

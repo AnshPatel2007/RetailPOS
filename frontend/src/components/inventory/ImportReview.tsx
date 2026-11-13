@@ -20,7 +20,7 @@ function CostChanges({ preview }: { preview: ImportPreview }) {
   return <section aria-labelledby="import-cost-changes" className="space-y-2 rounded-lg border p-3">
     <div className="flex flex-wrap items-baseline justify-between gap-2">
       <h3 id="import-cost-changes" className="text-sm font-semibold">Cost changes{flagged ? ` (${flagged} up ${preview.costAlertPercent}% or more)` : ''}</h3>
-      <Link to="/inventory/purchasing/price-review" className="text-sm text-primary hover:underline">Open Price Review</Link>
+      <Link to="/inventory/price-review" className="text-sm text-primary hover:underline">Open Price Review</Link>
     </div>
     <ul className="space-y-1.5 text-sm">{rows.map(row => <li key={row.number} className={cn(row.costReview!.flagged && 'text-warning')}>
       <span className="font-medium">{row.costReview!.name}</span>: {describe(row.costReview!)}

@@ -1,4 +1,4 @@
-import { ManagementPage } from '@/components/common/Workspace';
+import { FormSection, ManagementPage } from '@/components/common/Workspace';
 import { Select } from '@/components/ui/Select';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/authStore';
 import { can } from '@/lib/capabilities';
 import { PurchaseReceiptModal } from '@/components/inventory/PurchaseReceiptModal';
 import { PurchaseOrder, outstandingQuantity } from '@/types/purchasing';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
 import {
   Plus,
   Search,
@@ -20,9 +20,7 @@ import {
   XCircle,
   Truck,
   RefreshCw,
-  DollarSign,
   Clock,
-  AlertTriangle,
 } from 'lucide-react';
 import { supplierService, purchaseOrderService, productService, apiErrorMessage } from '../services/api';
 import { Button } from '@/components/ui/Button';
@@ -48,7 +46,8 @@ import {
 } from '@/components/ui/Table';
 import toast from 'react-hot-toast';
 import { Spinner } from '@/components/ui/LoadingState';
-import { ActionMenu } from '@/components/ui/ActionMenu';
+import { DialogActions } from '@/components/ui/DialogActions';
+import { RowActions } from '@/components/common/RowActions';
 
 interface Supplier {
   id: string;
@@ -224,7 +223,13 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
   }, [locationId]);
   const fetchData = () => { if (activeTab === 'suppliers') fetchSuppliers(); else fetchOrders(); };
 
+  // Which pop-up is saving: its main button shows a spinner and cannot be pressed twice.
+  const [saving, setSaving] = useState<'supplier' | 'order' | 'product' | null>(null);
+  const supplierFormId = useId(), newProductFormId = useId();
+
   const handleCreateSupplier = async () => {
+    if (saving) return;
+    setSaving('supplier');
     try {
       const supplierData = {
         ...supplierForm,
@@ -245,7 +250,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
       toast.success(editingSupplier ? 'Supplier updated' : 'Supplier created');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to save supplier');
-    }
+    } finally { setSaving(null); }
   };
 
   // One shared confirm dialog for delete/receive/cancel actions
@@ -274,6 +279,8 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
   const lineTotal = (item: OrderLine) => item.packSize > 1 ? item.packCost * item.packQuantity : item.cost * item.quantity;
 
   const handleCreateOrder = async () => {
+    if (saving) return;
+    setSaving('order');
     try {
       const validItems = orderForm.items.filter(item => item.productId);
       if (validItems.some(item => !(item.packSize > 1 ? item.packQuantity : item.quantity))) {
@@ -309,7 +316,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
       toast.success(editingOrder ? 'Order updated' : 'Order created');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to save order');
-    }
+    } finally { setSaving(null); }
   };
 
   const openReceiving = async (orderId: string) => {
@@ -358,6 +365,8 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
   };
 
   const handleCreateNewProduct = async () => {
+    if (saving) return;
+    setSaving('product');
     try {
       const productData = {
         sku: newProductForm.sku,
@@ -400,8 +409,10 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
       toast.success('Product created');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to create product');
-    }
+    } finally { setSaving(null); }
   };
+
+  const closeOrderDetail = () => { setShowOrderDetailModal(false); setSelectedOrder(null); };
 
   const handleProductSearch = (index: number, value: string) => {
     const newSearches = [...productSearches];
@@ -629,7 +640,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
         ]} /> : undefined}
         actions={<>{canManage && <>
           {activeTab === 'orders' && (
-            <Button variant="secondary" onClick={handleAutoGenerate}>
+            <Button onClick={handleAutoGenerate}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Auto-Generate POs
             </Button>
@@ -679,7 +690,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
               hint={search ? 'Try adjusting your search' : 'Get started by adding your first supplier'}
             />
           ) : (
-            <Table scrollLabel="Suppliers">
+            <Table scrollLabel="Suppliers" stackOnPhone>
               <TableHeader>
                 <TableRow>
                   <TableHead>Supplier</TableHead>
@@ -736,14 +747,10 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        {canManage && <Button variant="ghost" aria-label={`Edit supplier ${supplier.name}`} onClick={() => openEditSupplier(supplier)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>}
-                        {can(role, 'financial.delete') && <Button variant="ghost" aria-label={`Delete supplier ${supplier.name}`} onClick={() => setConfirmState({ title: 'Delete supplier?', message: 'This will remove the supplier. Suppliers with purchase orders cannot be deleted.', destructive: true, confirmLabel: 'Delete', action: () => handleDeleteSupplier(supplier.id) })} className="text-destructive">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>}
-                      </div>
+                      <RowActions name={supplier.name}
+                        primary={canManage && { label: 'Edit', onAction: () => openEditSupplier(supplier) }}
+                        items={[can(role, 'financial.delete') && { id: 'delete', label: 'Delete supplier', icon: <Trash2 size={16} />, destructive: true,
+                          onAction: () => setConfirmState({ title: 'Delete supplier?', message: 'This will remove the supplier. Suppliers with purchase orders cannot be deleted.', destructive: true, confirmLabel: 'Delete', action: () => handleDeleteSupplier(supplier.id) }) }]} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -776,7 +783,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
               hint={search ? 'Try adjusting your search' : 'Create a new purchase order to get started'}
             />
           ) : (
-            <Table scrollLabel="Purchase orders">
+            <Table scrollLabel="Purchase orders" stackOnPhone>
               <TableHeader>
                 <TableRow>
                   <TableHead>Order #</TableHead>
@@ -802,22 +809,17 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                       {formatDate(order.createdAt)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {/* Labeled next step per status; rarer actions live in the menu. */}
-                      <div className="flex justify-end gap-1">
-                        <Button variant="ghost" onClick={() => openOrderDetail(order)} title="View Details">View</Button>
-                        {canManage && order.status === 'PENDING' && (
-                          <Button variant="outline" onClick={() => handleOrderAction(order.id, 'ORDERED')} title="Mark as Ordered"><Truck className="w-4 h-4" />Mark ordered</Button>
-                        )}
-                        {canManage && ['ORDERED', 'PARTIALLY_RECEIVED'].includes(order.status) && (
-                          <Button variant="outline" onClick={() => openReceiving(order.id)} title="Receive Delivery"><CheckCircle className="w-4 h-4" />Receive</Button>
-                        )}
-                        {canManage && (order.status === 'PENDING' || order.status === 'ORDERED') && (
-                          <ActionMenu label={'More actions for ' + order.orderNumber} iconOnly items={[
-                            ...(order.status === 'PENDING' ? [{ id: 'edit', label: 'Edit order', icon: <Edit size={16} />, onAction: () => openEditOrder(order) }] : []),
-                            { id: 'cancel', label: 'Cancel order', icon: <XCircle size={16} />, destructive: true, onAction: () => confirmOrderAction(order.id) },
-                          ]} />
-                        )}
-                      </div>
+                      {/* The next step for the order's status is the visible word; the rest is under "…". */}
+                      {(() => {
+                        const next = !canManage ? null
+                          : order.status === 'PENDING' ? { label: 'Mark ordered', onAction: () => void handleOrderAction(order.id, 'ORDERED') }
+                          : ['ORDERED', 'PARTIALLY_RECEIVED'].includes(order.status) ? { label: 'Receive', onAction: () => void openReceiving(order.id) } : null;
+                        return <RowActions name={order.orderNumber} primary={next || { label: 'View', onAction: () => openOrderDetail(order) }} items={[
+                          next && { id: 'view', label: 'View details', icon: <FileText size={16} />, onAction: () => openOrderDetail(order) },
+                          canManage && order.status === 'PENDING' && { id: 'edit', label: 'Edit order', icon: <Edit size={16} />, onAction: () => openEditOrder(order) },
+                          canManage && (order.status === 'PENDING' || order.status === 'ORDERED') && { id: 'cancel', label: 'Cancel order', icon: <XCircle size={16} />, destructive: true, onAction: () => confirmOrderAction(order.id) },
+                        ]} />;
+                      })()}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -837,75 +839,48 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
         />
       )}
 
-      {/* Supplier Modal */}
+      {/* Supplier Modal: essentials first; terms and notes open when needed. */}
       <Modal
         isOpen={showSupplierModal}
-        onClose={() => { setShowSupplierModal(false); resetSupplierForm(); }}
+        onClose={() => { if (saving) return; setShowSupplierModal(false); resetSupplierForm(); }}
         title={editingSupplier ? 'Edit Supplier' : 'Add Supplier'}
+        description="The name is all you need. Add the rest any time."
         size="lg"
+        footer={<DialogActions form={supplierFormId} confirmLabel={editingSupplier ? 'Update Supplier' : 'Create Supplier'} loading={saving === 'supplier'}
+          onCancel={() => { setShowSupplierModal(false); resetSupplierForm(); }} />}
       >
-        <div className="max-h-[70vh] overflow-y-auto pr-2">
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Basic Information</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <Input label="Supplier Name" type="text" value={supplierForm.name} onChange={(event) => setSupplierForm({ ...supplierForm, name: event.target.value })} placeholder="Enter supplier name" required />
+        <form id={supplierFormId} onSubmit={event => { event.preventDefault(); void handleCreateSupplier(); }}>
+          <FormSection title="Supplier">
+            <Input label="Supplier Name" type="text" value={supplierForm.name} onChange={(event) => setSupplierForm({ ...supplierForm, name: event.target.value })} placeholder="Enter supplier name" required />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input label="Contact Name" type="text" value={supplierForm.contactName} onChange={(e) => setSupplierForm({ ...supplierForm, contactName: e.target.value })} placeholder="Contact person" />
+              <Input label="Phone" type="tel" value={supplierForm.phone} onChange={(e) => setSupplierForm({ ...supplierForm, phone: e.target.value })} placeholder="Phone number" />
             </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Contact Name</label>
-                  <Input type="text" value={supplierForm.contactName} onChange={(e) => setSupplierForm({ ...supplierForm, contactName: e.target.value })} placeholder="Contact person" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Phone</label>
-                  <Input type="tel" value={supplierForm.phone} onChange={(e) => setSupplierForm({ ...supplierForm, phone: e.target.value })} placeholder="Phone number" />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium mb-1">Email</label>
-                  <Input type="email" value={supplierForm.email} onChange={(e) => setSupplierForm({ ...supplierForm, email: e.target.value })} placeholder="supplier@example.com" />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium mb-1">Address</label>
-                  <textarea value={supplierForm.address} onChange={(e) => setSupplierForm({ ...supplierForm, address: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-sm text-foreground" rows={2} placeholder="Full address" />
-                </div>
-              </div>
+            <Input label="Email" type="email" value={supplierForm.email} onChange={(e) => setSupplierForm({ ...supplierForm, email: e.target.value })} placeholder="supplier@example.com" />
+          </FormSection>
+          <FormSection collapsible defaultOpen={!!editingSupplier} title="Ordering terms"
+            summary={[supplierForm.leadTimeDays && `${supplierForm.leadTimeDays}-day lead time`, supplierForm.paymentTerms, supplierForm.deliveryDays.length > 0 && `${supplierForm.deliveryDays.length} delivery day${supplierForm.deliveryDays.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ') || 'Not set'}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <Input label="Lead Time (days)" type="number" value={supplierForm.leadTimeDays} onChange={(e) => setSupplierForm({ ...supplierForm, leadTimeDays: e.target.value })} placeholder="e.g., 7" min="0" />
+              <Input label="Min. Order ($)" type="number" value={supplierForm.minimumOrder} onChange={(e) => setSupplierForm({ ...supplierForm, minimumOrder: e.target.value })} placeholder="e.g., 100" min="0" step="0.01" />
+              <Select label="Payment Terms" value={supplierForm.paymentTerms} onChange={(e) => setSupplierForm({ ...supplierForm, paymentTerms: e.target.value })}>
+                <option value="">Select...</option>
+                <option value="NET15">Net 15</option>
+                <option value="NET30">Net 30</option>
+                <option value="NET60">Net 60</option>
+                <option value="COD">COD</option>
+                <option value="PREPAID">Prepaid</option>
+              </Select>
             </div>
-            <div className="border-t pt-6">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Business Terms</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1"><Clock className="w-3 h-3 inline mr-1" />Lead Time (days)</label>
-                  <Input type="number" value={supplierForm.leadTimeDays} onChange={(e) => setSupplierForm({ ...supplierForm, leadTimeDays: e.target.value })} placeholder="e.g., 7" min="0" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1"><DollarSign className="w-3 h-3 inline mr-1" />Min. Order ($)</label>
-                  <Input type="number" value={supplierForm.minimumOrder} onChange={(e) => setSupplierForm({ ...supplierForm, minimumOrder: e.target.value })} placeholder="e.g., 100" min="0" step="0.01" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Payment Terms</label>
-                  <Select value={supplierForm.paymentTerms} onChange={(e) => setSupplierForm({ ...supplierForm, paymentTerms: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-sm text-foreground">
-                    <option value="">Select...</option>
-                    <option value="NET15">Net 15</option>
-                    <option value="NET30">Net 30</option>
-                    <option value="NET60">Net 60</option>
-                    <option value="COD">COD</option>
-                    <option value="PREPAID">Prepaid</option>
-                  </Select>
-                </div>
-              </div>
-              <DeliveryDaysField className="mt-4" value={supplierForm.deliveryDays} supplierId={editingSupplier?.id}
-                onChange={deliveryDays => setSupplierForm({ ...supplierForm, deliveryDays })} />
-            </div>
-            <div className="border-t pt-6">
-              <label className="block text-sm font-medium mb-1">Notes</label>
-              <textarea value={supplierForm.notes} onChange={(e) => setSupplierForm({ ...supplierForm, notes: e.target.value })} className="w-full px-3 py-2 border border-input rounded-md bg-background text-sm text-foreground" rows={3} placeholder="Additional notes..." />
-            </div>
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
-          <Button variant="outline" onClick={() => { setShowSupplierModal(false); resetSupplierForm(); }}>Cancel</Button>
-          <Button variant="primary" onClick={handleCreateSupplier}>{editingSupplier ? 'Update Supplier' : 'Create Supplier'}</Button>
-        </div>
+            <DeliveryDaysField value={supplierForm.deliveryDays} supplierId={editingSupplier?.id}
+              onChange={deliveryDays => setSupplierForm({ ...supplierForm, deliveryDays })} />
+          </FormSection>
+          <FormSection collapsible defaultOpen={!!(editingSupplier?.address || editingSupplier?.notes)} title="Address & notes"
+            summary={[supplierForm.address && 'Address', supplierForm.notes && 'Notes'].filter(Boolean).join(' · ') || 'Not added'}>
+            <Textarea label="Address" value={supplierForm.address} onChange={(e) => setSupplierForm({ ...supplierForm, address: e.target.value })} rows={2} placeholder="Full address" />
+            <Textarea label="Notes" value={supplierForm.notes} onChange={(e) => setSupplierForm({ ...supplierForm, notes: e.target.value })} rows={3} placeholder="Additional notes..." />
+          </FormSection>
+        </form>
       </Modal>
 
       {/* Order Modal */}
@@ -918,10 +893,8 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
           const lines = orderForm.items.filter(item => item.productId);
           return <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">{lines.length} item{lines.length === 1 ? '' : 's'} · <span className="text-base font-semibold text-foreground tabular-nums">Total {formatCurrency(orderForm.items.reduce((sum, item) => sum + lineTotal(item), 0))}</span></p>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => { setShowOrderModal(false); resetOrderForm(); }}>Cancel</Button>
-              <Button type="button" variant="primary" onClick={handleCreateOrder}>{editingOrder ? 'Update Order' : 'Create Order'}</Button>
-            </div>
+            <DialogActions confirmLabel={editingOrder ? 'Update Order' : 'Create Order'} onConfirm={() => void handleCreateOrder()} loading={saving === 'order'}
+              onCancel={() => { setShowOrderModal(false); resetOrderForm(); }} />
           </div>;
         })()}
       >
@@ -1026,55 +999,37 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
       </Modal>
 
       {/* New Product Modal */}
-      <Modal isOpen={showNewProductModal} onClose={() => setShowNewProductModal(false)} title="Create New Product" size="md">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">SKU <span className="text-destructive">*</span></label>
-              <Input type="text" value={newProductForm.sku} onChange={(e) => setNewProductForm({ ...newProductForm, sku: e.target.value })} placeholder="e.g., PROD-001" required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Barcode</label>
-              <Input type="text" value={newProductForm.barcode} onChange={(e) => setNewProductForm({ ...newProductForm, barcode: e.target.value })} placeholder="Barcode" />
-            </div>
+      <Modal isOpen={showNewProductModal} onClose={() => { if (!saving) setShowNewProductModal(false); }} title="Create New Product" size="md"
+        description="It is added to your products and to this order."
+        footer={<DialogActions form={newProductFormId} confirmLabel="Create Product" loading={saving === 'product'} onCancel={() => setShowNewProductModal(false)} />}>
+        <form id={newProductFormId} className="space-y-4" onSubmit={event => { event.preventDefault(); void handleCreateNewProduct(); }}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input label="SKU" type="text" value={newProductForm.sku} onChange={(e) => setNewProductForm({ ...newProductForm, sku: e.target.value })} placeholder="e.g., PROD-001" required />
+            <Input label="Barcode" type="text" value={newProductForm.barcode} onChange={(e) => setNewProductForm({ ...newProductForm, barcode: e.target.value })} placeholder="Barcode" />
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Product Name <span className="text-destructive">*</span></label>
-            <Input type="text" value={newProductForm.name} onChange={(e) => setNewProductForm({ ...newProductForm, name: e.target.value })} placeholder="Enter product name" required />
+          <Input label="Product Name" type="text" value={newProductForm.name} onChange={(e) => setNewProductForm({ ...newProductForm, name: e.target.value })} placeholder="Enter product name" required />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input label="Cost" type="number" value={newProductForm.cost} onChange={(e) => setNewProductForm({ ...newProductForm, cost: e.target.value })} placeholder="0.00" min="0" step="0.01" required />
+            <Input label="Price" type="number" value={newProductForm.price} onChange={(e) => setNewProductForm({ ...newProductForm, price: e.target.value })} placeholder="0.00" min="0" step="0.01" required />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Cost <span className="text-destructive">*</span></label>
-              <Input type="number" value={newProductForm.cost} onChange={(e) => setNewProductForm({ ...newProductForm, cost: e.target.value })} placeholder="0.00" min="0" step="0.01" required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Price <span className="text-destructive">*</span></label>
-              <Input type="number" value={newProductForm.price} onChange={(e) => setNewProductForm({ ...newProductForm, price: e.target.value })} placeholder="0.00" min="0" step="0.01" required />
-            </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input label="Initial Stock" type="number" value={newProductForm.stockQuantity} onChange={(e) => setNewProductForm({ ...newProductForm, stockQuantity: e.target.value })} min="0" />
+            <Input label="Low Stock Alert" type="number" value={newProductForm.lowStockAlert} onChange={(e) => setNewProductForm({ ...newProductForm, lowStockAlert: e.target.value })} min="0" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Initial Stock</label>
-              <Input type="number" value={newProductForm.stockQuantity} onChange={(e) => setNewProductForm({ ...newProductForm, stockQuantity: e.target.value })} min="0" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Low Stock Alert</label>
-              <Input type="number" value={newProductForm.lowStockAlert} onChange={(e) => setNewProductForm({ ...newProductForm, lowStockAlert: e.target.value })} min="0" />
-            </div>
-          </div>
-          <div className="bg-muted/50 rounded-md p-3 text-sm">
-            <AlertTriangle className="w-4 h-4 inline mr-2 text-warning" />
-            This product will be added to inventory and this order.
-          </div>
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button variant="outline" onClick={() => setShowNewProductModal(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleCreateNewProduct}>Create Product</Button>
-          </div>
-        </div>
+        </form>
       </Modal>
 
-      {/* Order Detail Modal */}
-      <Modal isOpen={showOrderDetailModal} onClose={() => { setShowOrderDetailModal(false); setSelectedOrder(null); }} title={`Order ${selectedOrder?.orderNumber || ''}`} size="lg">
+      {/* Order Detail Modal: the next step is the one filled button; cancelling the order sits apart on the left. */}
+      <Modal isOpen={showOrderDetailModal} onClose={closeOrderDetail} title={`Order ${selectedOrder?.orderNumber || ''}`} size="lg"
+        footer={selectedOrder && <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-base font-semibold tabular-nums">Total {formatCurrency(selectedOrder.totalAmount)}</p>
+          <DialogActions cancelLabel="Close" onCancel={closeOrderDetail}
+            remove={canManage && (selectedOrder.status === 'PENDING' || selectedOrder.status === 'ORDERED') ? { label: 'Cancel order', icon: <XCircle aria-hidden="true" />, onClick: () => confirmOrderAction(selectedOrder.id) } : undefined}
+            {...(canManage && selectedOrder.status === 'PENDING' ? { confirmLabel: <><Truck aria-hidden="true" />Mark as Ordered</>, onConfirm: () => void handleOrderAction(selectedOrder.id, 'ORDERED') }
+              : canManage && ['ORDERED', 'PARTIALLY_RECEIVED'].includes(selectedOrder.status) ? { confirmLabel: <><CheckCircle aria-hidden="true" />Receive Delivery</>, onConfirm: () => void openReceiving(selectedOrder.id) } : {})}>
+            {canManage && selectedOrder.status === 'PENDING' && <Button type="button" onClick={() => { setShowOrderDetailModal(false); openEditOrder(selectedOrder); }}><Edit aria-hidden="true" />Edit</Button>}
+          </DialogActions>
+        </div>}>
         {selectedOrder && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -1115,7 +1070,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
             )}
             <div className="border-t pt-4">
               <h4 className="font-medium mb-2">Items</h4>
-              <Table scrollLabel="Order items">
+              <Table scrollLabel="Order items" stackOnPhone>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Product</TableHead>
@@ -1150,23 +1105,6 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                 {receipt.items.map(line => <p key={line.purchaseOrderItemId}>{selectedOrder.items?.find(item => item.id === line.purchaseOrderItemId)?.productName}: {line.acceptedQty} accepted, {line.damagedQty} damaged, {line.rejectedQty} rejected</p>)}
                 {receipt.notes && <p className="text-muted-foreground">{receipt.notes}</p>}
               </div>)}
-            </div>
-            <div className="flex flex-wrap justify-between items-center gap-3 pt-4 border-t">
-              <div className="text-lg font-bold">Total: {formatCurrency(selectedOrder.totalAmount)}</div>
-              <div className="flex gap-2">
-                {canManage && selectedOrder.status === 'PENDING' && (
-                  <>
-                    <Button variant="outline" onClick={() => { setShowOrderDetailModal(false); openEditOrder(selectedOrder); }}><Edit className="w-4 h-4 mr-2" />Edit</Button>
-                    <Button variant="primary" onClick={() => handleOrderAction(selectedOrder.id, 'ORDERED')}><Truck className="w-4 h-4 mr-2" />Mark as Ordered</Button>
-                  </>
-                )}
-                {canManage && ['ORDERED', 'PARTIALLY_RECEIVED'].includes(selectedOrder.status) && (
-                  <Button variant="primary" onClick={() => openReceiving(selectedOrder.id)}><CheckCircle className="w-4 h-4 mr-2" />Receive Delivery</Button>
-                )}
-                {canManage && (selectedOrder.status === 'PENDING' || selectedOrder.status === 'ORDERED') && (
-                  <Button variant="destructive" onClick={() => confirmOrderAction(selectedOrder.id)}><XCircle className="w-4 h-4 mr-2" />Cancel</Button>
-                )}
-              </div>
             </div>
           </div>
         )}
