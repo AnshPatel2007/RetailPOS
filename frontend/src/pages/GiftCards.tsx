@@ -243,12 +243,11 @@ export const GiftCards: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button variant="outline" size="sm" onClick={() => void openHistory(card)}>History</Button>
+                        <Button variant="outline" onClick={() => void openHistory(card)}>History</Button>
                         {manage && card.isActive && (
                           <>
                             <Button
                               variant="ghost"
-                              size="sm"
                               disabled={operation.blocked || (!!card.expiresAt && new Date(card.expiresAt) <= new Date())} onClick={() => { setFundingMethod('CASH'); setReference(''); setReason(''); setSelectedCard(card); setShowReloadModal(true); }}
                               title="Reload"
                               aria-label={`Reload gift card ${card.code}`}
@@ -257,7 +256,6 @@ export const GiftCards: React.FC = () => {
                             </Button>
                             <Button
                               variant="ghost"
-                              size="sm"
                               onClick={() => setDeactivateTarget(card)}
                               className="text-destructive hover:text-destructive"
                               title="Deactivate"
@@ -350,7 +348,7 @@ export const GiftCards: React.FC = () => {
           <div><p>{formatEnumLabel(tx.type)} {formatCurrency(tx.amount)}</p><p className="text-sm text-muted-foreground">{formatDateTime(tx.createdAt, timezone)}</p>
             {!tx.operation && ['ISSUE', 'RELOAD'].includes(tx.type) && <p className="text-sm text-muted-foreground">Original funding details unavailable</p>}
           </div>
-          {tx.operation && <Button variant="outline" size="sm" onClick={() => operation.showReceipt(tx.operation!, history.card.code)}>Receipt</Button>}
+          {tx.operation && <Button variant="outline" onClick={() => operation.showReceipt(tx.operation!, history.card.code)}>Receipt</Button>}
         </div>)}
         {history?.transactions.length === 0 && <p>No transactions recorded.</p>}
       </Modal>

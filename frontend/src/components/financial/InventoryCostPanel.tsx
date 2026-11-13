@@ -101,7 +101,7 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
     ]} />
     {view === 'balances' && <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="w-full sm:max-w-sm"><Input aria-label="Search inventory costs" placeholder="Search products or SKU" value={search} maxLength={200} onChange={e => setSearch(e.target.value)} /></div>
-        {owner && !readOnly && <Button disabled={operation.blocked} onClick={() => setBulkOpening(true)}>Review opening inventory</Button>}
+        {owner && !readOnly && <Button variant="primary" disabled={operation.blocked} onClick={() => setBulkOpening(true)}>Review opening inventory</Button>}
       </div>
       <p className="text-sm text-muted-foreground">Opening inventory is a one-time setup for existing stock. Balances carry forward automatically each month.</p>
     </div>}
@@ -170,7 +170,7 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
       error={operation.error} pending={!!operation.pending} onClose={() => setBulkOpening(false)} onRetry={operation.retry}
       onSubmit={payload => operation.submit({ label: `Opening inventory: ${payload.items.length} products`, path: endpoint + '/opening', payload })} />}
     <Modal isOpen={!!opening || !!selected} onClose={close} size={preview ? 'xl' : 'lg'} title={opening ? 'Confirm opening inventory' : action === 'return' ? 'Supplier return & credit' : action === 'correction' ? 'Review cost correction' : 'Inventory value record'}
-      footer={<div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={close} disabled={busy || operation.busy}>Close</Button>{(opening || action !== 'details') && <Button onClick={() => void save()} disabled={busy || operation.blocked || !value.trim() || reason.trim().length < 3 || ((!!opening || action === 'return') && !quantity.trim())}>
+      footer={<div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={close} disabled={busy || operation.busy}>Close</Button>{(opening || action !== 'details') && <Button variant="primary" onClick={() => void save()} disabled={busy || operation.blocked || !value.trim() || reason.trim().length < 3 || ((!!opening || action === 'return') && !quantity.trim())}>
         {busy ? 'Saving…' : opening ? 'Confirm opening value' : action === 'return' ? 'Record supplier return' : preview ? 'Confirm correction' : 'Preview correction'}</Button>}</div>}>
       {error && <p role="alert" className="mb-4 text-sm text-destructive">{error}</p>}
       {operation.error && <p role="alert" className="mb-4 text-sm text-destructive">{operation.error}</p>}

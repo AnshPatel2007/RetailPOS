@@ -180,7 +180,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
               <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting || isUploading}>
                 Cancel
               </Button>
-              <Button type="submit" form={formId} disabled={isSubmitting || isUploading}>
+              <Button variant="primary" type="submit" form={formId} disabled={isSubmitting || isUploading}>
                 {isSubmitting ? 'Saving...' : expense ? 'Update Expense' : 'Create Expense'}
               </Button>
             </div>}>

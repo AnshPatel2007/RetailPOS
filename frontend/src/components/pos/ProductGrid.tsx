@@ -224,7 +224,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
             {problem.kind === 'error' && <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />}
             <p className="min-w-0 flex-1 text-sm">{problem.message}</p>
             {problem.actions?.map(action => (
-              <Button key={action.label} variant="outline" size="sm" onClick={action.onClick}>{action.label}</Button>
+              <Button key={action.label} variant="outline" onClick={action.onClick}>{action.label}</Button>
             ))}
             {onDismissScanStatus && (
               <button type="button" onClick={onDismissScanStatus} aria-label="Dismiss scan message" className="pos-cart-tool"><X className="h-4 w-4" /></button>
@@ -265,11 +265,11 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
               {emptyHint || 'Try a different search or category'}
             </p>
             {search ? (
-              <Button variant="outline" size="sm" onClick={() => onSearchChange('')}>
+              <Button variant="outline" onClick={() => onSearchChange('')}>
                 Clear search
               </Button>
             ) : selectedCategoryId ? (
-              <Button variant="outline" size="sm" onClick={() => onSelectCategory(null)}>
+              <Button variant="outline" onClick={() => onSelectCategory(null)}>
                 Show all products
               </Button>
             ) : null}

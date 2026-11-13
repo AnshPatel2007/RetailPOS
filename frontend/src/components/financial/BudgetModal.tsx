@@ -130,7 +130,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button type="submit" form={formId} disabled={isSubmitting}>
+              <Button variant="primary" type="submit" form={formId} disabled={isSubmitting}>
                 {isSubmitting ? 'Saving...' : budget ? 'Update Budget' : 'Create Budget'}
               </Button>
             </div>}>

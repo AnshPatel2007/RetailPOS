@@ -102,7 +102,7 @@ export function CameraScanner({ onCode, disabled = false, label = 'Barcode' }: {
           placeholder="Scan or type a barcode" autoComplete="off" autoCapitalize="off" spellCheck={false} enterKeyHint="enter" />
       </div>
       <Button type="submit" variant="outline" disabled={disabled || !code.trim()}>Add</Button>
-      {supported && <Button type="button" variant={active ? 'secondary' : 'default'} disabled={disabled} onClick={() => { setError(''); setActive(on => !on); }}
+      {supported && <Button type="button" variant={active ? 'secondary' : 'primary'} disabled={disabled} onClick={() => { setError(''); setActive(on => !on); }}
         aria-pressed={active} aria-label={active ? 'Stop the camera' : 'Scan with the camera'}>
         {active ? <CameraOff className="h-4 w-4" aria-hidden="true" /> : <Camera className="h-4 w-4" aria-hidden="true" />}
         <span className="hidden sm:inline">{active ? 'Stop camera' : 'Camera'}</span>

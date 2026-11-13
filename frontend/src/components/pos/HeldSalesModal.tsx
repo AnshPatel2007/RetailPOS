@@ -80,7 +80,6 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
                   <div className="flex gap-2 shrink-0">
                     <Button aria-label="Discard held sale"
                       variant="outline"
-                      size="sm"
                       onClick={async () => {
                         if (await confirm({ title: 'Discard this held sale?', message: `${itemCount} item${itemCount !== 1 ? 's' : ''}, ${formatCurrency(total)}. It can't be recalled afterwards.`, confirmLabel: 'Discard', cancelLabel: 'Keep it', destructive: true })) {
                           onDiscard(held.id);
@@ -93,7 +92,6 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
                     </Button>
                     <Button
                       variant="primary"
-                      size="sm"
                       onClick={() => onRestore(held.id)}
                     >
                       Restore

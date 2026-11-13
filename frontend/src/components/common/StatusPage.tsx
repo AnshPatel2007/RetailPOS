@@ -21,7 +21,7 @@ function StatusPage({ icon, title, message }: { icon: React.ReactNode; title: st
       <h1 className="text-xl font-semibold">{title}</h1>
       <p className="mt-2 text-sm text-muted-foreground">{message}</p>
       <div className="mt-6 flex flex-col items-center gap-3">
-        <Link to="/" className={buttonClassName({})}>Go to Dashboard</Link>
+        <Link to="/" className={buttonClassName({ variant: 'primary' })}>Go to Dashboard</Link>
         <QuickFindHint />
       </div>
     </div>

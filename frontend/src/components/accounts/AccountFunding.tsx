@@ -59,7 +59,7 @@ export function AccountOperationFeedback({ operation }: { operation: ReturnType<
     {createPortal(<Modal isOpen={!!receipt} onClose={operation.closeReceipt} title="Account receipt">
       <dl className="space-y-3">{rows.map(([label, value]) => <div key={label}><dt className="text-sm text-muted-foreground">{label}</dt><dd className="font-medium break-words tabular-nums">{value}</dd></div>)}</dl>
       <p className="text-sm text-muted-foreground my-4">Balances shown at the time of this transaction.</p>
-      <div className="flex justify-end gap-2"><Button variant="outline" onClick={operation.closeReceipt}>Done</Button><Button onClick={print}>Print receipt</Button></div>
+      <div className="flex justify-end gap-2"><Button variant="outline" onClick={operation.closeReceipt}>Done</Button><Button variant="primary" onClick={print}>Print receipt</Button></div>
     </Modal>, document.body)}
   </>;
 }

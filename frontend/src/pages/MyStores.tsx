@@ -124,7 +124,7 @@ export function MyStores() {
               <Figure label="Last drawer closed" value={drawer.value} detail={drawer.detail} tone={drawer.tone} />
             </div>
             <div className="mt-auto flex justify-end">
-              <Button onClick={() => { void open(store); }} disabled={opening !== null} aria-label={`Open ${store.name}`}>
+              <Button variant="primary" onClick={() => { void open(store); }} disabled={opening !== null} aria-label={`Open ${store.name}`}>
                 {opening === store.locationId ? 'Opening…' : store.isCurrent ? 'Go to Dashboard' : 'Open store'}
               </Button>
             </div>

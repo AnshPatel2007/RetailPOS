@@ -77,10 +77,10 @@ const PriceReview: React.FC = () => {
     <ManagementPage>
       <PageHeader title="Price Review" icon={Tags}
         subtitle="Items priced below cost or under their target margin. Prices change only when you apply them."
-        actions={rows && rows.length > 0 && !isReadOnly ? <Button onClick={apply} disabled={applying || selected.size === 0}>Apply {selected.size} price{selected.size === 1 ? '' : 's'}</Button> : undefined} />
+        actions={rows && rows.length > 0 && !isReadOnly ? <Button variant="primary" onClick={apply} disabled={applying || selected.size === 0}>Apply {selected.size} price{selected.size === 1 ? '' : 's'}</Button> : undefined} />
       {applied && <Alert tone="success" title={`New prices for ${applied.length} item${applied.length === 1 ? '' : 's'}`}
-        action={<div className="flex flex-wrap gap-2"><Button size="sm" onClick={() => setPrinting(true)}>Print labels for these items</Button>
-          <Button size="sm" variant="ghost" onClick={() => setApplied(null)}>Later</Button></div>}>
+        action={<div className="flex flex-wrap gap-2"><Button variant="primary" onClick={() => setPrinting(true)}>Print labels for these items</Button>
+          <Button variant="ghost" onClick={() => setApplied(null)}>Later</Button></div>}>
         Their shelf labels still show the old price. They stay under Products &gt; Labels to print until printed.
       </Alert>}
       <ShelfLabelsDialog isOpen={printing && !!applied} only={applied || undefined} onClose={() => { setPrinting(false); setApplied(null); }} />

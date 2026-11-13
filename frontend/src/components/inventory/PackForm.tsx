@@ -226,7 +226,7 @@ export const PackForm: React.FC<{
             title={editingPack.sealedQuantity > 0 ? 'Open or count the unopened packs first' : 'Stop selling this pack'}>Retire pack</Button>}
           {/* A variety pack's contents save on their own, so its form closes rather than cancels. */}
           <Button type="button" variant="outline" disabled={busy} onClick={onClose}>{current?.mode === 'edit-variety' ? 'Close' : 'Cancel'}</Button>
-          <Button type="submit" form={formId} disabled={busy}>{busy ? 'Saving...' : kind === 'PACK' ? (editingPack ? 'Save pack' : 'Add pack') : current?.mode === 'edit-variety' ? 'Save variety pack' : 'Create variety pack'}</Button>
+          <Button variant="primary" type="submit" form={formId} disabled={busy}>{busy ? 'Saving...' : kind === 'PACK' ? (editingPack ? 'Save pack' : 'Add pack') : current?.mode === 'edit-variety' ? 'Save variety pack' : 'Create variety pack'}</Button>
         </div>
       </div> : undefined}>
       {!kind && (
@@ -257,7 +257,7 @@ export const PackForm: React.FC<{
           {error && <p role="alert" className="text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" disabled={busy} onClick={() => setMerge(null)}>Back</Button>
-            <Button type="button" disabled={busy || !merge.preview || merge.preview.problems.length > 0} onClick={confirmMerge}>{busy ? 'Merging...' : 'Merge into this pack'}</Button>
+            <Button variant="primary" type="button" disabled={busy || !merge.preview || merge.preview.problems.length > 0} onClick={confirmMerge}>{busy ? 'Merging...' : 'Merge into this pack'}</Button>
           </div>
         </div>
       )}
@@ -268,7 +268,7 @@ export const PackForm: React.FC<{
             {editingPack || (current?.mode === 'create' && current.baseProductId)
               ? <p className="text-sm">Holds <span className="font-medium">{pack.units || '…'} × {base?.name || '…'}</span>{editingPack ? <span className="text-muted-foreground"> · To change what it holds, retire it and add a new pack.</span> : null}</p>
               : <div className="space-y-2">
-                {base ? <p className="text-sm">Holds <span className="font-medium">{base.name}</span> <Button type="button" size="sm" variant="ghost" onClick={() => { setBase(null); setBaseId(null); }}>Change</Button></p>
+                {base ? <p className="text-sm">Holds <span className="font-medium">{base.name}</span> <Button type="button" variant="ghost" onClick={() => { setBase(null); setBaseId(null); }}>Change</Button></p>
                   : <ProductPicker locationId={locationId || ''} selectedIds={[]} onSelect={picked => { void pickBase(picked.id); }} />}
               </div>}
             <div className="product-field-grid">

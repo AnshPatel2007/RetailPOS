@@ -80,7 +80,7 @@ export function StoreBusiness({ store, onClose, onChanged }: { store: BusinessSt
         </div>
       </div>
       {error && <div role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm"><p>{error}</p>
-        <Button variant="outline" size="sm" className="mt-2" disabled={busy} onClick={() => { void load(); }}>Retry</Button></div>}
+        <Button variant="outline" className="mt-2" disabled={busy} onClick={() => { void load(); }}>Retry</Button></div>}
 
       {current && <section aria-labelledby="business-stores" className="space-y-2">
         <h3 id="business-stores" className="font-medium">Stores in {current.name}</h3>
@@ -93,7 +93,7 @@ export function StoreBusiness({ store, onClose, onChanged }: { store: BusinessSt
         <h3 id="business-owners" className="font-medium">Owners</h3>
         {current.owners.length ? <ul className="space-y-2">{current.owners.map(owner => <li key={owner.userId} className="flex flex-wrap items-center gap-2 rounded-lg border p-3">
           <div className="min-w-0 flex-1"><p className="font-medium break-words">{owner.name}</p><p className="text-xs text-muted-foreground break-all">{owner.email}</p></div>
-          <Button variant="ghost" size="sm" disabled={busy} aria-label={`Remove ${owner.name} as owner`}
+          <Button variant="ghost" disabled={busy} aria-label={`Remove ${owner.name} as owner`}
             onClick={() => { void run(() => organizationAdminService.removeOwner(current.id, owner.userId), `${owner.name} is no longer an owner`); }}>
             <UserMinus className="h-4 w-4 mr-2" />Remove
           </Button>
@@ -117,8 +117,8 @@ export function StoreBusiness({ store, onClose, onChanged }: { store: BusinessSt
         {confirmMove && <div className="rounded-lg bg-destructive/5 p-3">
           <p className="text-sm">Move {store.name}? Owners of {current.name} lose access to it, and access between it and {current.name}&apos;s other stores ends. Its own staff and records stay with the store.</p>
           <div className="mt-3 flex justify-end gap-2">
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmMove(false)}>Keep it here</Button>
-            <Button size="sm" variant="destructive" disabled={busy} onClick={() => { void move(); }}>{busy ? 'Moving…' : 'Move Store'}</Button>
+            <Button variant="ghost" disabled={busy} onClick={() => setConfirmMove(false)}>Keep it here</Button>
+            <Button variant="destructive" disabled={busy} onClick={() => { void move(); }}>{busy ? 'Moving…' : 'Move Store'}</Button>
           </div>
         </div>}
       </section>}

@@ -64,8 +64,7 @@ export const BulkActionsToolbar: React.FC<BulkActionsToolbarProps> = ({
           </span>
           <div className="flex gap-2">
             <Button
-              size="sm"
-              variant="default"
+              variant="primary"
               onClick={handleBulkApprove}
               disabled={isLoading}
               className="bg-success hover:bg-success/90"
@@ -74,7 +73,6 @@ export const BulkActionsToolbar: React.FC<BulkActionsToolbarProps> = ({
               Approve Selected
             </Button>
             <Button
-              size="sm"
               variant="destructive"
               onClick={handleBulkReject}
               disabled={isLoading}
@@ -85,7 +83,6 @@ export const BulkActionsToolbar: React.FC<BulkActionsToolbarProps> = ({
           </div>
         </div>
         <Button
-          size="sm"
           variant="ghost"
           onClick={onClearSelection}
           disabled={isLoading}

@@ -62,7 +62,7 @@ export function DigestDeliveryControls({ userId, storeId }: { userId: string; st
           <p>Retry delivery to {retry.recipientEmail}</p>
           {retry.status === 'REVIEW' && <Checkbox label="I checked the provider's delivery history and confirmed this email was not delivered." checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />}
           <label className="block text-sm">Reason for retry<textarea value={reason} onChange={event => setReason(event.target.value)} maxLength={500} className="block mt-2 w-full rounded-md border border-input bg-background p-3" /></label>
-          <div className="flex gap-2"><Button disabled={busy || reason.trim().length < 8 || (retry.status === 'REVIEW' && !confirmed)} onClick={submitRetry}>Queue retry</Button><Button variant="outline" disabled={busy} onClick={() => setRetry(null)}>Back to history</Button></div>
+          <div className="flex gap-2"><Button variant="primary" disabled={busy || reason.trim().length < 8 || (retry.status === 'REVIEW' && !confirmed)} onClick={submitRetry}>Queue retry</Button><Button variant="outline" disabled={busy} onClick={() => setRetry(null)}>Back to history</Button></div>
         </div> : <>
           {loading && <p role="status" className="text-sm">Refreshing delivery history...</p>}
           {!loading && !error && deliveries.length === 0 && <p>No morning briefs have been queued for this store.</p>}

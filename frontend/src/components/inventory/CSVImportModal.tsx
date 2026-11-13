@@ -18,8 +18,8 @@ export function CSVImportModal({ isOpen, onClose, onImportComplete }: Props) {
   return <Modal isOpen={isOpen} onClose={close} title="Import Products from CSV" size="xl">
     <div className="space-y-4">
       {(fileError || workflow.error) && <p role="alert" className="text-sm text-destructive">{fileError || workflow.error}</p>}
-      {workflow.pending ? <div className="space-y-3"><p>A saved import needs confirmation. Retrying retrieves the original result if it already completed.</p><Button disabled={workflow.busy} onClick={workflow.commit}>Retry saved import</Button></div>
-        : workflow.result ? <div role="status"><p>Import complete: {workflow.result.created} created, {workflow.result.updated} updated.</p><Button className="mt-3" onClick={close}>Done</Button></div>
+      {workflow.pending ? <div className="space-y-3"><p>A saved import needs confirmation. Retrying retrieves the original result if it already completed.</p><Button variant="primary" disabled={workflow.busy} onClick={workflow.commit}>Retry saved import</Button></div>
+        : workflow.result ? <div role="status"><p>Import complete: {workflow.result.created} created, {workflow.result.updated} updated.</p><Button variant="primary" className="mt-3" onClick={close}>Done</Button></div>
         : <>
           <label className="block text-sm font-medium">CSV file (up to 1 MB, 500 products)
             <input aria-label="CSV file" className="mt-2 block w-full" type="file" accept=".csv,text/csv" disabled={workflow.busy} onChange={event => {
@@ -32,7 +32,7 @@ export function CSVImportModal({ isOpen, onClose, onImportComplete }: Props) {
           {workflow.preview && <ImportReview preview={workflow.preview} />}
           <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={workflow.busy} onClick={close}>Cancel</Button>
             <Button variant="outline" disabled={!file || workflow.busy} onClick={review}>{workflow.busy ? 'Working...' : 'Review import'}</Button>
-            {workflow.preview?.id && <Button disabled={workflow.busy} onClick={workflow.commit}>Apply reviewed import</Button>}
+            {workflow.preview?.id && <Button variant="primary" disabled={workflow.busy} onClick={workflow.commit}>Apply reviewed import</Button>}
           </div>
         </>}
     </div>

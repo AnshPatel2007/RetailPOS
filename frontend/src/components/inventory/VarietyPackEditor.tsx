@@ -89,7 +89,7 @@ export const VarietyPackEditor: React.FC<{ product: Product; onChanged?: () => v
           </p>
           <div className="flex flex-wrap items-end gap-2">
             <Input type="number" label="Packs to open" value={openQty} min="1" step="1" onChange={e => setOpenQty(e.target.value)} className="w-28" />
-            <Button type="button" onClick={open} disabled={busy || view.stockQuantity < 1}>Open {openQty || 0} pack{openQty === '1' ? '' : 's'}</Button>
+            <Button variant="primary" type="button" onClick={open} disabled={busy || view.stockQuantity < 1}>Open {openQty || 0} pack{openQty === '1' ? '' : 's'}</Button>
             <span className="text-xs text-muted-foreground">{view.stockQuantity} pack{view.stockQuantity === 1 ? '' : 's'} in stock</span>
           </div>
         </>}
@@ -116,7 +116,7 @@ export const VarietyPackEditor: React.FC<{ product: Product; onChanged?: () => v
         {draftItems > 0 ? `${draftItems} items per pack. ` : ''}The pack's cost splits by count{draftCostPerItem !== null ? `: ${formatCurrency(draftCostPerItem)} per item` : ''}.
       </p>
       <div className="flex gap-2">
-        <Button type="button" onClick={save} disabled={busy}>Save contents</Button>
+        <Button variant="primary" type="button" onClick={save} disabled={busy}>Save contents</Button>
         <Button type="button" variant="outline" onClick={() => { setEditing(false); load(); }} disabled={busy}>Cancel</Button>
       </div>
     </div>

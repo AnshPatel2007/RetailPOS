@@ -49,8 +49,8 @@ export const SupplierCasesEditor: React.FC<{ data: PackagingView | null; onChang
             <span className="text-xs text-muted-foreground">{s.packSize > 1 ? `Case of ${s.packSize}` : `Single ${unit}s`}{s.packCost !== null ? ` · ${formatCurrency(Number(s.packCost))} per case` : ''}
               {s.cost !== null ? ` · ${formatCurrency(Number(s.cost))} per ${unit}` : ''}</span>
             <span className="flex gap-2">
-              <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => setForm({ supplierId: s.supplierId, packSize: String(s.packSize), packCost: s.packCost === null ? '' : String(s.packCost), supplierSku: s.supplierSku || '' })}>Edit</Button>
-              <Button type="button" size="sm" variant="outline" disabled={disabled || busy} aria-label={`Remove ${s.supplierName}`}
+              <Button type="button" variant="outline" disabled={disabled} onClick={() => setForm({ supplierId: s.supplierId, packSize: String(s.packSize), packCost: s.packCost === null ? '' : String(s.packCost), supplierSku: s.supplierSku || '' })}>Edit</Button>
+              <Button type="button" variant="outline" disabled={disabled || busy} aria-label={`Remove ${s.supplierName}`}
                 onClick={() => run(() => supplierService.unlinkProduct(s.supplierId, data.productId), `${s.supplierName} removed`)}>Remove</Button>
             </span>
           </li>))}</ul>}
@@ -63,7 +63,7 @@ export const SupplierCasesEditor: React.FC<{ data: PackagingView | null; onChang
         <Input label="Case cost" type="number" min="0" step="0.01" value={form.packCost} onChange={e => setForm({ ...form, packCost: e.target.value })}
           description={Number(form.packSize) > 0 && form.packCost !== '' ? `${formatCurrency(Number(form.packCost) / Number(form.packSize))} per ${unit}` : undefined} />
         <Input label="Supplier item # (optional)" value={form.supplierSku} onChange={e => setForm({ ...form, supplierSku: e.target.value })} maxLength={100} />
-        <Button type="button" onClick={save} disabled={disabled || busy}>Save case</Button>
+        <Button variant="primary" type="button" onClick={save} disabled={disabled || busy}>Save case</Button>
       </div>
     </div>
   );

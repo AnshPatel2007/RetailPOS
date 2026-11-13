@@ -120,13 +120,13 @@ export function SalesBulkActions({ selectedSales, onClearSelection, onSuccess }:
   return <div className="bg-primary/10 border border-primary/20 rounded-md p-4 mb-4 space-y-3">
     <div className="flex flex-wrap items-center gap-3">
       <span className="text-sm font-medium">{pending ? `${pending.payload.sales.length} saved void(s) need confirmation` : `${selectedSales.length} sale(s) selected`}</span>
-      <Button size="sm" variant="destructive" disabled={busy || !ready || storageError || (!pending && (reversalPending || !selectedSales.length || selectedSales.length > 50 || selectedSales.some(sale => sale.status !== 'COMPLETED')))} onClick={() => { setDraft([...selectedSales]); setError(''); setShowReview(true); }}>
+      <Button variant="destructive" disabled={busy || !ready || storageError || (!pending && (reversalPending || !selectedSales.length || selectedSales.length > 50 || selectedSales.some(sale => sale.status !== 'COMPLETED')))} onClick={() => { setDraft([...selectedSales]); setError(''); setShowReview(true); }}>
         <XCircle className="h-4 w-4 mr-1" />{pending ? 'Review saved bulk void' : 'Void Selected'}
       </Button>
       {selectedSales.length > 0 && <>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={onClearSelection}><X className="h-4 w-4 mr-1" />Deselect All</Button>
+        <Button variant="ghost" disabled={busy} onClick={onClearSelection}><X className="h-4 w-4 mr-1" />Deselect All</Button>
       </>}
-      {storageError && <Button size="sm" variant="outline" disabled={busy} onClick={readSaved}>Retry recovery storage</Button>}
+      {storageError && <Button variant="outline" disabled={busy} onClick={readSaved}>Retry recovery storage</Button>}
     </div>
     {!pending && selectedSales.length > 50 && <p className="text-sm">Select at most 50 sales per batch.</p>}
     {!pending && selectedSales.some(sale => sale.status !== 'COMPLETED') && <p className="text-sm">Only completed sales can be voided. Review returned or already voided sales individually.</p>}

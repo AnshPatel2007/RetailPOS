@@ -137,7 +137,7 @@ export const InventoryExceptions: React.FC = () => {
           : view === 'unmatched' ? 'Stock recorded as received without a supplier invoice (a delivery that was never entered, or a shortfall that was counted back). Enter the real cost when the invoice arrives; the difference is posted once, in the current period.'
           : 'The register never stops a sale because recorded stock ran out. When a sale takes an item below zero, it appears here so the store can find out why.'}
       </p>
-      {error && <Alert tone="error" className="mb-4" title={error} action={<Button variant="outline" size="sm" onClick={() => load()}>Retry</Button>} />}
+      {error && <Alert tone="error" className="mb-4" title={error} action={<Button variant="outline" onClick={() => load()}>Retry</Button>} />}
       {loading && <LoadingState />}
       {empty && <EmptyState icon={ClipboardCheck}
         title={view === 'corrections' ? 'No corrections yet' : view === 'unmatched' ? 'Nothing waiting for an invoice' : view === 'resolved' ? 'No resolved exceptions yet' : 'No inventory exceptions'}
@@ -193,14 +193,14 @@ export const InventoryExceptions: React.FC = () => {
           <TableCell className="text-right tabular-nums">{row.units}</TableCell>
           <TableCell className="text-right tabular-nums">{row.estimatedUnitCost === null ? '—' : `${formatCurrency(Number(row.estimatedUnitCost))} each`}</TableCell>
           <TableCell>{row.match ? <Badge variant="success">{formatCurrency(Number(row.match.actualUnitCost))} each entered</Badge> : <Badge variant="warning">Waiting for invoice</Badge>}</TableCell>
-          <TableCell className="text-right">{!row.match && !isReadOnly && <Button size="sm" variant="outline" onClick={() => { setMatching(row); setActualCost(row.estimatedUnitCost === null ? '' : String(Number(row.estimatedUnitCost))); }}>Enter supplier cost</Button>}</TableCell>
+          <TableCell className="text-right">{!row.match && !isReadOnly && <Button variant="outline" onClick={() => { setMatching(row); setActualCost(row.estimatedUnitCost === null ? '' : String(Number(row.estimatedUnitCost))); }}>Enter supplier cost</Button>}</TableCell>
         </TableRow>)}</TableBody>
       </Table>}
 
       <Modal isOpen={!!detail && !resolving} onClose={() => setDetail(null)} title={detail ? `Inventory discrepancy: ${detail.product.name}` : ''} size="lg"
         footer={detail && detail.status !== 'RESOLVED' && !isReadOnly ? <div className="flex flex-wrap justify-end gap-2">
           <Button variant="outline" onClick={requestRecount} disabled={saving || detail.status === 'RECOUNT_REQUESTED'}>Mark for recount</Button>
-          <Button onClick={() => setResolving(detail)}>Resolve discrepancy</Button>
+          <Button variant="primary" onClick={() => setResolving(detail)}>Resolve discrepancy</Button>
         </div> : undefined}>
         {detail && <div className="space-y-5 text-sm">
           <div className="flex items-start gap-3 rounded-md border border-warning/40 bg-warning/10 p-3">
@@ -246,7 +246,7 @@ export const InventoryExceptions: React.FC = () => {
 
       <Modal isOpen={!!matching} onClose={() => setMatching(null)} title="Enter supplier cost" size="md"
         footer={<div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setMatching(null)} disabled={saving}>Cancel</Button>
-          <Button onClick={saveMatch} disabled={saving}>{saving ? 'Saving…' : 'Save cost'}</Button></div>}>
+          <Button variant="primary" onClick={saveMatch} disabled={saving}>{saving ? 'Saving…' : 'Save cost'}</Button></div>}>
         {matching && <div className="space-y-3 text-sm">
           <p>{matching.product?.name}: {matching.units} unit(s) recorded at an estimated {matching.estimatedUnitCost === null ? 'unknown cost' : `${formatCurrency(Number(matching.estimatedUnitCost))} each`}.</p>
           <Input type="number" label="Actual cost per unit from the invoice" min="0" step="0.01" value={actualCost} onChange={e => setActualCost(e.target.value)} autoFocus />

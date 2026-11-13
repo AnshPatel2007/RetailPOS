@@ -199,7 +199,7 @@ export const StoreCredits: React.FC = () => {
         icon={Wallet}
         actions={
           <>
-            {manage && <Button variant="primary" size="sm" disabled={operation.blocked} onClick={() => setShowAddModal(true)}>
+            {manage && <Button variant="primary" disabled={operation.blocked} onClick={() => setShowAddModal(true)}>
               <Plus className="h-4 w-4 mr-1" />
               Issue Credit
             </Button>}
@@ -261,13 +261,12 @@ export const StoreCredits: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-1 justify-end">
-                      <Button variant="outline" size="sm" onClick={() => openHistory(acc)}>
+                      <Button variant="outline" onClick={() => openHistory(acc)}>
                         <History className="h-3 w-3 mr-1" /> History
                       </Button>
                       {manage && <Button
                         disabled={operation.blocked}
                         variant="primary"
-                        size="sm"
                         onClick={() => {
                           setSelectedCustomerId(acc.customerId);
                           setSelectedCustomerName(`${acc.customer.firstName} ${acc.customer.lastName}`);
@@ -297,7 +296,7 @@ export const StoreCredits: React.FC = () => {
             {selectedCustomerId ? (
               <div className="flex items-center justify-between p-2 border rounded bg-muted/50">
                 <span className="font-medium">{selectedCustomerName}</span>
-                <Button variant="outline" size="sm" onClick={() => { setSelectedCustomerId(''); setSelectedCustomerName(''); setCustomerSearch(''); }}>
+                <Button variant="outline" onClick={() => { setSelectedCustomerId(''); setSelectedCustomerName(''); setCustomerSearch(''); }}>
                   Change
                 </Button>
               </div>
@@ -396,7 +395,7 @@ export const StoreCredits: React.FC = () => {
                       <Badge variant={tx.type === 'CREDIT' ? 'success' : tx.type === 'DEBIT' ? 'destructive' : 'default'}>
                         {tx.type === 'CREDIT' ? 'Credit added' : tx.type === 'DEBIT' ? 'Credit used' : formatEnumLabel(tx.type)}
                       </Badge>
-                      {tx.operation && <Button variant="outline" size="sm" onClick={() => operation.showReceipt(tx.operation!, selectedAccount ? selectedAccount.customer.firstName + ' ' + selectedAccount.customer.lastName : 'Store credit')}>Receipt</Button>}
+                      {tx.operation && <Button variant="outline" onClick={() => operation.showReceipt(tx.operation!, selectedAccount ? selectedAccount.customer.firstName + ' ' + selectedAccount.customer.lastName : 'Store credit')}>Receipt</Button>}
                       {!tx.operation && tx.type === 'CREDIT' && !tx.saleId && <p className="text-xs text-muted-foreground">Original source details unavailable</p>}
                       {tx.notes && <span className="text-xs text-muted-foreground">{tx.notes}</span>}
                     </div>

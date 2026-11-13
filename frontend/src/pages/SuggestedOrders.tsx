@@ -168,7 +168,7 @@ export const SuggestedOrders: React.FC = () => {
       {autoRefresh.notice}
       {onlySupplier && !loading && <div className="flex flex-wrap items-center gap-2 text-sm">
         <span>{shown.length ? `Showing ${shown[0].supplierName} only.` : 'This supplier has nothing to reorder right now.'}</span>
-        <Button size="sm" variant="outline" onClick={() => setSearchParams(params => { const next = new URLSearchParams(params); next.delete('supplier'); return next; }, { replace: true })}>Show all suppliers</Button>
+        <Button variant="outline" onClick={() => setSearchParams(params => { const next = new URLSearchParams(params); next.delete('supplier'); return next; }, { replace: true })}>Show all suppliers</Button>
       </div>}
 
       {loading ? (
@@ -212,7 +212,6 @@ export const SuggestedOrders: React.FC = () => {
                       ) : (
                         <Button
                           variant="primary"
-                          size="sm"
                           onClick={() => handleCreatePO(g)}
                           disabled={creatingFor !== null || activeItems(g).length === 0}
                         >

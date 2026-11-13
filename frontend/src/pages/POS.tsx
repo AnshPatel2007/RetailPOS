@@ -966,7 +966,7 @@ export const POS: React.FC = () => {
       {paymentReadError && <p role="alert" className="p-3 text-destructive">{paymentReadError}</p>}
       {pendingPayment && !showPaymentModal && !terminalAttempts.length && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 border-b border-warning/40 bg-warning/10 p-3">
         <p>{pendingPayment.status === 'SUBMITTED' ? 'Sale confirmation pending. Do not take payment again.' : 'Payment incomplete. ' + formatCurrency(paymentTotal(pendingPayment.payments)) + ' recorded; ' + formatCurrency(Math.max(0, pendingPayment.total - paymentTotal(pendingPayment.payments))) + ' remaining.'}</p>
-        <Button onClick={resumePayment}>Continue payment</Button>
+        <Button variant="primary" onClick={resumePayment}>Continue payment</Button>
       </div>}
       {!isReadOnly && terminalNeedsReview && terminalAttempts[0] && <TerminalRecovery
         key={terminalAttempts[0].key}

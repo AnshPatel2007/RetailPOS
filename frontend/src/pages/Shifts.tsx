@@ -243,7 +243,7 @@ export const Shifts: React.FC = () => {
       {autoRefresh.notice}
       {pendingMovement && <div role="status" className="mb-4 p-3 rounded-lg border border-warning/40 bg-warning/10 space-y-2">
         <p>Saved cash movement: {formatEnumLabel(pendingMovement.label)} {formatCurrency(pendingMovement.amount)}. Retry to confirm the recorded result. Do not move the cash twice.</p>
-        <Button onClick={() => submitCashMovement(pendingMovement)} disabled={movementSubmitting}>Retry saved cash movement</Button>
+        <Button variant="primary" onClick={() => submitCashMovement(pendingMovement)} disabled={movementSubmitting}>Retry saved cash movement</Button>
       </div>}
 
       {/* Shift Content */}
@@ -420,7 +420,6 @@ export const Shifts: React.FC = () => {
                       ) : (
                       <Button
                         variant="ghost"
-                        size="sm"
                         onClick={() => handlePrintZReport(shift.id)}
                         title="Print Z-report"
                       >
@@ -481,7 +480,7 @@ export const Shifts: React.FC = () => {
         description="Count the cash in the drawer and enter the total."
         footer={<div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => setShowClockOutModal(false)}>Cancel</Button>
-          <Button type="submit" form="clock-out-form" disabled={!endingCash.trim()}>Clock Out</Button>
+          <Button variant="primary" type="submit" form="clock-out-form" disabled={!endingCash.trim()}>Clock Out</Button>
         </div>}
       >
         {currentShift && (() => {

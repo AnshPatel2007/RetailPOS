@@ -29,7 +29,7 @@ export function BulkRefundActions({ selectedSales, onSuccess }: { selectedSales:
   const rows = query.data?.map(row => ({ ...row, selection: refundTenderSelection(row.refundTenderOptions || [], row.expectedAmount, edits[row.id] || {}) })) || [];
   const blockedByVoid = (() => { try { return !!localStorage.getItem(`pos-pending-void:${user?.locationId}:${user?.id}`) || !!localStorage.getItem(`pos-pending-bulk-void:${user?.locationId}:${user?.id}`); } catch { return true; } })();
   return <div className="mb-4 space-y-3">
-    {(selectedSales.length > 0 || operation.pending) && <Button size="sm" variant="outline" disabled={operation.busy || operation.storageError || blockedByVoid || (!operation.pending && selectedSales.length > 50)} onClick={() => { setIds(selectedSales.map(sale => sale.id).sort()); setEdits({}); setOpen(true); }}>{operation.pending ? 'Review saved bulk refund' : 'Refund Selected'}</Button>}
+    {(selectedSales.length > 0 || operation.pending) && <Button variant="outline" disabled={operation.busy || operation.storageError || blockedByVoid || (!operation.pending && selectedSales.length > 50)} onClick={() => { setIds(selectedSales.map(sale => sale.id).sort()); setEdits({}); setOpen(true); }}>{operation.pending ? 'Review saved bulk refund' : 'Refund Selected'}</Button>}
     <OperationRecovery operation={operation} />
     <Modal isOpen={open} onClose={() => { if (!operation.busy) setOpen(false); }} title="Refund Selected Sales" size="lg">
       <div className="space-y-4">
@@ -37,12 +37,12 @@ export function BulkRefundActions({ selectedSales, onSuccess }: { selectedSales:
         <p className="text-sm text-muted-foreground">Confirm the payout method for each sale. Complete external card refunds on the terminal first and enter each refund reference. Retrying the saved POS request must not refund the terminal again.</p>
         {operation.pending ? <><p role="status">A saved refund batch needs confirmation. Reason: {String(operation.pending.payload.reason || '')}</p><OperationRecovery operation={operation} /></> : <>
           {query.loading && <p role="status">Loading remaining balances...</p>}
-          {query.error && <div role="alert"><p>{query.error}</p><Button onClick={query.refresh}>Retry balances</Button></div>}
+          {query.error && <div role="alert"><p>{query.error}</p><Button variant="primary" onClick={query.refresh}>Retry balances</Button></div>}
           <fieldset disabled={operation.blocked || query.loading || !!query.error} className="space-y-4 min-w-0">
             {rows.map(row => <div key={row.id} className="rounded border p-3 space-y-2"><p className="font-medium break-all">{row.saleNumber} — {formatCurrency(row.expectedAmount)}</p>{!row.eligible && <p role="alert" className="text-destructive">{row.refundTenderError || 'This sale is not eligible for a bulk return. Review it individually.'}</p>}<RefundTenderEditor options={row.refundTenderOptions || []} amount={row.expectedAmount} hasCustomer={row.hasCustomer} edits={edits[row.id] || {}} onChange={value => setEdits({ ...edits, [row.id]: value })} idPrefix={row.saleNumber + ' '} /></div>)}
             {rows.length > 0 && <p className="font-semibold">Total refund: {formatCurrency(rows.reduce((sum, row) => sum + Math.round(row.expectedAmount * 100), 0) / 100)}</p>}
             <Input label="Refund reason" value={reason} onChange={event => setReason(event.target.value)} maxLength={500} />
-            <Button disabled={!rows.length || !reason.trim() || rows.some(row => !row.eligible || row.selection.invalid)} onClick={() => void operation.submit({ label: `${rows.length} sales, ${formatCurrency(rows.reduce((sum, row) => sum + Math.round(row.expectedAmount * 100), 0) / 100)} refund`, path: '/sales/bulk-refund', payload: { reason: reason.trim(), sales: rows.map(row => ({ id: row.id, expectedAmount: row.expectedAmount, refundTenders: row.selection.tenders })) } })}>Record Bulk Refund</Button>
+            <Button variant="primary" disabled={!rows.length || !reason.trim() || rows.some(row => !row.eligible || row.selection.invalid)} onClick={() => void operation.submit({ label: `${rows.length} sales, ${formatCurrency(rows.reduce((sum, row) => sum + Math.round(row.expectedAmount * 100), 0) / 100)} refund`, path: '/sales/bulk-refund', payload: { reason: reason.trim(), sales: rows.map(row => ({ id: row.id, expectedAmount: row.expectedAmount, refundTenders: row.selection.tenders })) } })}>Record Bulk Refund</Button>
           </fieldset>
           {operation.error && <p role="alert" className="text-destructive">{operation.error}</p>}
         </>}

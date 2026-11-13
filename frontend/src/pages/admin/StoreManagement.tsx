@@ -281,7 +281,7 @@ export const StoreManagement: React.FC = () => {
         title="Store Management"
         subtitle="Manage all store locations"
         actions={
-          <Button onClick={openCreateModal}>
+          <Button variant="primary" onClick={openCreateModal}>
             <Plus className="h-4 w-4 mr-2" />
             Add Store
           </Button>
@@ -314,7 +314,7 @@ export const StoreManagement: React.FC = () => {
             <Store className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-2">No stores yet</h3>
             <p className="text-muted-foreground mb-4">Create your first store to get started</p>
-            <Button onClick={openCreateModal}>
+            <Button variant="primary" onClick={openCreateModal}>
               <Plus className="h-4 w-4 mr-2" />
               Add Store
             </Button>
@@ -376,15 +376,14 @@ export const StoreManagement: React.FC = () => {
                   <TableCell className="text-right">
                     <div className="flex flex-wrap justify-end gap-2">
                       <Button variant="outline" aria-label={`Configure lottery for ${location.name}`} onClick={(e) => { e.stopPropagation(); setLotteryStore(location); }}>Lottery</Button>
-                      <Button variant="outline" size="sm" aria-label={`Business and owners for ${location.name}`} onClick={(e) => { e.stopPropagation(); setBusinessStore(location); }}>
+                      <Button variant="outline" aria-label={`Business and owners for ${location.name}`} onClick={(e) => { e.stopPropagation(); setBusinessStore(location); }}>
                         <Building2 className="h-4 w-4 mr-2" />Business
                       </Button>
-                      <Button variant="outline" size="sm" aria-label={`Manage connections for ${location.name}`} onClick={(e) => { e.stopPropagation(); setConnectionStore(location); }}>
+                      <Button variant="outline" aria-label={`Manage connections for ${location.name}`} onClick={(e) => { e.stopPropagation(); setConnectionStore(location); }}>
                         <Link2 className="h-4 w-4 mr-2" />Connections
                       </Button>
                       <Button
                         variant="ghost"
-                        size="sm"
                         aria-label={`View details for ${location.name}`}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -395,7 +394,6 @@ export const StoreManagement: React.FC = () => {
                       </Button>
                       <Button
                         variant="ghost"
-                        size="sm"
                         aria-label={`Edit store ${location.name}`}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -405,13 +403,12 @@ export const StoreManagement: React.FC = () => {
                         <Edit className="h-4 w-4" />
                       </Button>
                       {!location.isActive && (
-                        <Button variant="outline" size="sm" aria-label={`Reactivate store ${location.name}`}
+                        <Button variant="outline" aria-label={`Reactivate store ${location.name}`}
                           onClick={(e) => { e.stopPropagation(); void handleReactivate(location); }}>Reactivate</Button>
                       )}
                       {location.isActive && (
                         <Button
                           variant="ghost"
-                          size="sm"
                           aria-label={`Deactivate store ${location.name}`}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -560,7 +557,6 @@ export const StoreManagement: React.FC = () => {
                   <Button
                     key={p}
                     variant={detailPeriod === p ? 'primary' : 'outline'}
-                    size="sm"
                     onClick={() => handleDetailPeriodChange(p)}
                   >
                     {p}d
@@ -568,7 +564,6 @@ export const StoreManagement: React.FC = () => {
                 ))}
                 <Button
                   variant="ghost"
-                  size="sm"
                   onClick={closeDetails}
                   aria-label="Close store details"
                 >
@@ -582,7 +577,7 @@ export const StoreManagement: React.FC = () => {
                 <Spinner size="lg" className="mx-auto" />
                 <p className="mt-4 text-muted-foreground">Loading store details...</p>
               </div>
-            ) : detailError ? <div role="alert" className="p-6 space-y-3"><p>{detailError}</p><Button onClick={() => void loadStoreDetails(selectedStore)}>Retry store details</Button></div> : storeDetails ? (
+            ) : detailError ? <div role="alert" className="p-6 space-y-3"><p>{detailError}</p><Button variant="primary" onClick={() => void loadStoreDetails(selectedStore)}>Retry store details</Button></div> : storeDetails ? (
               <div className="p-6 space-y-6">
                 {/* Key Metrics */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

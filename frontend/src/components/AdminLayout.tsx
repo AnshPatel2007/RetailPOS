@@ -70,7 +70,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
           <p className="text-muted-foreground mb-4">
             You don't have permission to access the admin panel.
           </p>
-          <Button onClick={() => navigate('/')}>Go to Dashboard</Button>
+          <Button variant="primary" onClick={() => navigate('/')}>Go to Dashboard</Button>
         </div>
       </div>
     );

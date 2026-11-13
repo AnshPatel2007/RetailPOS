@@ -207,7 +207,7 @@ export const UserManagement: React.FC = () => {
         title="User Management"
         subtitle="Manage users across all stores"
         actions={
-          <Button onClick={openCreateModal}>
+          <Button variant="primary" onClick={openCreateModal}>
             <Plus className="h-4 w-4 mr-2" />
             Add User
           </Button>
@@ -372,7 +372,6 @@ export const UserManagement: React.FC = () => {
                     <div className="flex justify-end gap-2">
                       <Button
                         variant="ghost"
-                        size="sm"
                         onClick={() => openPasswordModal(user)}
                         title="Reset Password"
                         aria-label={`Reset password for ${user.firstName} ${user.lastName}`}
@@ -381,7 +380,6 @@ export const UserManagement: React.FC = () => {
                       </Button>
                       <Button
                         variant="ghost"
-                        size="sm"
                         onClick={() => handleEdit(user)}
                         aria-label={`Edit user ${user.firstName} ${user.lastName}`}
                       >
@@ -390,7 +388,6 @@ export const UserManagement: React.FC = () => {
                       {user.isActive && user.role !== 'SUPER_ADMIN' && (
                         <Button
                           variant="ghost"
-                          size="sm"
                           onClick={() => handleDelete(user.id)}
                           aria-label={`Deactivate user ${user.firstName} ${user.lastName}`}
                           className="text-destructive"

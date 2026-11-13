@@ -169,7 +169,6 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
             {customerPhone.length >= 3 && !linkedCustomer && !isSearching && (
               <Button
                 variant="outline"
-                size="sm"
                 className="w-full"
                 onClick={() => setShowCreateModal(true)}
               >

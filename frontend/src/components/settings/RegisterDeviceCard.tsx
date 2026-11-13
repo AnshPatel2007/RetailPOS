@@ -99,7 +99,7 @@ export const RegisterDeviceCard: React.FC<{ readOnly?: boolean }> = ({ readOnly 
                     <span className="font-medium">{register.name}</span>{register.id === device?.id && <span className="text-muted-foreground"> · this computer</span>}
                     <span className="block text-xs text-muted-foreground">Set up {formatDate(register.createdAt)}{register.createdBy ? ` by ${register.createdBy}` : ''} · {register.lastUsedAt ? `last PIN sign-in ${formatDate(register.lastUsedAt)}` : 'no PIN sign-ins yet'}</span>
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => remove(register, register.id === device?.id)}>Remove</Button>
+                  <Button variant="ghost" onClick={() => remove(register, register.id === device?.id)}>Remove</Button>
                 </li>
               ))}
             </ul>

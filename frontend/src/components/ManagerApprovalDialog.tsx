@@ -47,7 +47,7 @@ export const ManagerApprovalDialog: React.FC = () => {
         <Input label="Manager email" type="email" autoComplete="off" value={email} onChange={e => setEmail(e.target.value)} required />
         <Input label="Manager password" type="password" autoComplete="off" value={password} onChange={e => setPassword(e.target.value)} required />
         <Input label="Authentication code (if enabled)" autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value)} />
-        <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => finish?.(null)}>Cancel</Button><Button type="submit" disabled={busy || !summary}>{busy ? 'Verifying…' : 'Approve this action'}</Button></div>
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => finish?.(null)}>Cancel</Button><Button variant="primary" type="submit" disabled={busy || !summary}>{busy ? 'Verifying…' : 'Approve this action'}</Button></div>
       </form>
     </Modal>
   </div>, document.body);

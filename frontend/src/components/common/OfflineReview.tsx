@@ -63,7 +63,7 @@ export function OfflineReview({ onClose }: { onClose: () => void }) {
             {!record.payload && <p className="text-destructive">Original checkout details are missing. A manager must reconcile the payment with sales history.</p>}
           </li>)}
         </ul>
-        {records.cash.some(record => record.userId === user?.id) && <Button onClick={retry} disabled={busy || offline}>{busy ? 'Retrying…' : 'Retry my cash sales'}</Button>}
+        {records.cash.some(record => record.userId === user?.id) && <Button variant="primary" onClick={retry} disabled={busy || offline}>{busy ? 'Retrying…' : 'Retry my cash sales'}</Button>}
         <h3 className="font-semibold">Terminal payments to confirm ({records.terminal.length})</h3>
         {!records.terminal.length && <p className="text-sm text-muted-foreground">No unconfirmed terminal payments in your scope on this register.</p>}
         <ul className="space-y-3">
@@ -74,7 +74,7 @@ export function OfflineReview({ onClose }: { onClose: () => void }) {
             <p>Do not charge again. {record.userId === user?.id ? 'Open POS to retry saving this payment.' : 'Return with the original cashier to retry saving.'}</p>
           </li>)}
         </ul>
-        {records.terminal.some(record => record.userId === user?.id) && <Button onClick={() => { onClose(); navigate('/pos'); }}>Open POS recovery</Button>}
+        {records.terminal.some(record => record.userId === user?.id) && <Button variant="primary" onClick={() => { onClose(); navigate('/pos'); }}>Open POS recovery</Button>}
         {['ADMIN', 'MANAGER'].includes(user?.role || '') && <OfflineReconciliation cash={records.cash} terminal={records.terminal} />}
       </>}
     </div>

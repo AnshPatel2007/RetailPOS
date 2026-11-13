@@ -48,7 +48,7 @@ export function LotteryBookDialog({ locationId, date, barcodeEnabled, checkpoint
   const invalid = blocked || scanning || (kind !== 'soldout' && !/^\d+$/.test(nextTicket)) || (adding && (!ticketTypeId || !bookNumber || !slot || reason.trim().length < 3)) || ((kind === 'adjust' || resetOpening) && reason.trim().length < 3);
   const remaining = checkpoint ? checkpoint.book.ticketCount - (checkpoint.closingPosition ?? checkpoint.openingPosition) : 0;
   return <Modal isOpen title={title} size={adding ? 'lg' : 'md'} onClose={() => { if (!blocked) onClose(); }} footer={<div className="flex justify-end gap-2">
-    <Button variant="outline" disabled={blocked} onClick={onClose}>Cancel</Button><Button disabled={invalid} onClick={() => void submit()}>{kind === 'replace' ? 'Confirm replacement' : kind === 'soldout' ? 'Confirm sold out' : adding ? 'Add book' : kind === 'adjust' ? 'Save change' : 'Save number'}</Button>
+    <Button variant="outline" disabled={blocked} onClick={onClose}>Cancel</Button><Button variant="primary" disabled={invalid} onClick={() => void submit()}>{kind === 'replace' ? 'Confirm replacement' : kind === 'soldout' ? 'Confirm sold out' : adding ? 'Add book' : kind === 'adjust' ? 'Save change' : 'Save number'}</Button>
   </div>}>
     <div className="space-y-4"><LotteryError error={error || query.error || scanError} />
       {checkpoint && <div className="rounded-md bg-muted/40 p-3 text-sm"><p className="font-medium">Bin {checkpoint.slot} · {checkpoint.book.name}</p><p className="text-xs text-muted-foreground mt-1">Game {checkpoint.book.gameNumber} · Book {checkpoint.book.bookNumber} · Opening {checkpoint.openingTicket ?? 'Sold out'}</p></div>}

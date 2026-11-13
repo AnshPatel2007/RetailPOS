@@ -118,7 +118,6 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             {lastReceipt && hardware.printer.isEnabled() && (
               <Button
                 variant="ghost"
-                size="sm"
                 className="pos-cart-tool"
                 onClick={onPrintReceipt}
                 title="Print last receipt"
@@ -129,7 +128,6 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             {items.length > 0 && (
               <Button
                 variant="ghost"
-                size="sm"
                 onClick={async () => {
                   const count = getItemCount();
                   if (await confirm({ title: `Clear all ${count} item${count > 1 ? 's' : ''}?`, message: 'The sale starts over. Hold the sale instead to keep it for later.', confirmLabel: 'Clear cart', cancelLabel: 'Keep items', destructive: true })) clearCart();

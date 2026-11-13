@@ -439,7 +439,6 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                     <p className="text-sm text-muted-foreground mb-2">No customer found for this number</p>
                     <Button
                       variant="outline"
-                      size="sm"
                       onClick={() => setShowCreateForm(true)}
                     >
                       <Plus className="h-4 w-4 mr-1" />
@@ -472,12 +471,11 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                       onChange={(e) => setNewCustomerData({ ...newCustomerData, email: e.target.value })}
                     />
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setShowCreateForm(false)} className="flex-1">
+                      <Button variant="outline" onClick={() => setShowCreateForm(false)} className="flex-1">
                         Cancel
                       </Button>
                       <Button
                         variant="primary"
-                        size="sm"
                         onClick={handleCreateCustomer}
                         disabled={!newCustomerData.firstName || !newCustomerData.lastName}
                         className="flex-1"
@@ -521,7 +519,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
             {!linkedCustomer && (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed p-2">
                 <span className="flex items-center gap-2 text-sm text-muted-foreground"><User className="h-4 w-4" />No customer on this sale</span>
-                <Button type="button" variant="outline" size="sm" disabled={locked} onClick={() => setStep('customer')}>Add customer</Button>
+                <Button type="button" variant="outline" disabled={locked} onClick={() => setStep('customer')}>Add customer</Button>
               </div>
             )}
             {/* Linked customer indicator */}
@@ -575,7 +573,6 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                   />
                   <Button
                     variant="outline"
-                    size="sm"
                     onClick={() => {
                       if (locked) return;
                       const maxRedeemable = Math.min(
@@ -588,7 +585,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                     Max
                   </Button>
                   {parseInt(pointsToRedeem) > 0 && (
-                    <Button disabled={locked} aria-label="Clear loyalty redemption" variant="ghost" size="sm" onClick={() => setPointsToRedeem('')}>
+                    <Button disabled={locked} aria-label="Clear loyalty redemption" variant="ghost" onClick={() => setPointsToRedeem('')}>
                       <X className="h-4 w-4" />
                     </Button>
                   )}
@@ -627,7 +624,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                   {payment.reference && <p className="break-all text-xs text-muted-foreground">{payment.reference}</p>}
                   {!['CASH', 'CARD'].includes(payment.paymentMethod) && <p className="text-xs text-muted-foreground">Applied when the sale completes</p>}
                 </div>
-                <Button variant="ghost" size="sm" aria-label={'Remove payment ' + (index + 1)} onClick={() => handleRemovePayment(index)}>{payment.paymentMethod === 'CARD' ? 'Reverse' : payment.paymentMethod === 'CASH' ? 'Return cash' : 'Remove'}</Button>
+                <Button variant="ghost" aria-label={'Remove payment ' + (index + 1)} onClick={() => handleRemovePayment(index)}>{payment.paymentMethod === 'CARD' ? 'Reverse' : payment.paymentMethod === 'CASH' ? 'Return cash' : 'Remove'}</Button>
               </div>)}
             </div>}
 
@@ -706,7 +703,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
 
                 <div className="flex gap-2 flex-wrap">
                   {paymentMethod === 'CASH' ? getCashSuggestions(exactAmount).map((amount, index) => (
-                    <Button key={amount} variant="outline" size="sm" onClick={() => handleQuickAmount(amount)} className="flex-1 min-w-[64px] h-10 tabular-nums">{index === 0 ? 'Exact' : formatCurrency(amount)}</Button>
+                    <Button key={amount} variant="outline" onClick={() => handleQuickAmount(amount)} className="flex-1 min-w-[64px] h-10 tabular-nums">{index === 0 ? 'Exact' : formatCurrency(amount)}</Button>
                   )) : <Button variant="outline" onClick={() => handleQuickAmount(exactAmount)}>Remaining ({formatCurrency(exactAmount)})</Button>}
                 </div>
               </>
@@ -718,7 +715,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
       </div>
       </fieldset>
     </Modal>
-    <Modal isOpen={reverseIndex !== null} onClose={() => { if (!saving) { setReverseIndex(null); setReversalReference(''); } }} title="Reverse terminal payment" size="sm" footer={<Button disabled={saving || !reversalReference.trim()} onClick={() => reverseIndex !== null && handleRemovePayment(reverseIndex)}>Confirm reversal</Button>}>
+    <Modal isOpen={reverseIndex !== null} onClose={() => { if (!saving) { setReverseIndex(null); setReversalReference(''); } }} title="Reverse terminal payment" size="sm" footer={<Button variant="primary" disabled={saving || !reversalReference.trim()} onClick={() => reverseIndex !== null && handleRemovePayment(reverseIndex)}>Confirm reversal</Button>}>
       <p className="mb-3 text-sm">Reverse the {reverseIndex !== null ? formatCurrency(payments[reverseIndex]?.amount || 0) : ''} payment on the separate terminal first. Removing this entry does not refund the card.</p>
       <Input label="Terminal reversal reference" value={reversalReference} onChange={event => setReversalReference(event.target.value)} />
     </Modal>

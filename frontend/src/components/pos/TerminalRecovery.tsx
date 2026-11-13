@@ -59,7 +59,7 @@ export function TerminalRecovery({ attempt, persisted, onRecovered }: {
           ? <p className="text-sm text-muted-foreground">This record stays on this browser through reloads and logout; return with the same cashier and store. Do not clear browser storage.</p>
           : <p role="alert" className="text-destructive">Browser storage failed. Keep this page open and copy the terminal and checkout references for your manager. This record cannot survive a reload until storage is restored and Retry saving succeeds.</p>}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        <Button onClick={retry} disabled={busy}>{busy ? 'Checking sale…' : 'Retry saving sale'}</Button>
+        <Button variant="primary" onClick={retry} disabled={busy}>{busy ? 'Checking sale…' : 'Retry saving sale'}</Button>
       </div>
     </Modal>
   </>;

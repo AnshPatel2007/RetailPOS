@@ -115,7 +115,7 @@ export const Developers: React.FC = () => {
         actions={<>
           <Link className="page-action" to="/settings/jobs">Email &amp; Export Jobs</Link>
           <Button variant="outline" onClick={() => { setNewKey(null); setShowKeyModal(true); }}><Plus className="h-4 w-4 mr-2" />New API Key</Button>
-          <Button onClick={() => { setNewSecret(null); setShowHookModal(true); }}><Plus className="h-4 w-4 mr-2" />Add Webhook</Button>
+          <Button variant="primary" onClick={() => { setNewSecret(null); setShowHookModal(true); }}><Plus className="h-4 w-4 mr-2" />Add Webhook</Button>
         </>}
       />
       <AutoRefreshStatus state={query} />
@@ -173,7 +173,6 @@ export const Developers: React.FC = () => {
                           {k.isActive && (
                             <Button
                               variant="outline"
-                              size="sm"
                               className="text-destructive"
                               onClick={() => setRevokeTarget(k)}
                             >
@@ -249,7 +248,7 @@ export const Developers: React.FC = () => {
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge variant={w.isActive ? 'success' : 'secondary'}>{w.isActive ? 'Active' : 'Turned off'}</Badge>
                             {/* A real button, so turning a webhook on or off is never mistaken for a status label. */}
-                            <Button variant="outline" size="sm" aria-label={`${w.isActive ? 'Turn off' : 'Turn on'} webhook ${w.url}`}
+                            <Button variant="outline" aria-label={`${w.isActive ? 'Turn off' : 'Turn on'} webhook ${w.url}`}
                               title={!w.isActive && w.failCount >= 20 ? 'Turned off after repeated failures' : undefined}
                               onClick={async () => {
                                 try {
@@ -261,12 +260,11 @@ export const Developers: React.FC = () => {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex gap-1 justify-end">
-                            <Button variant="outline" size="sm" onClick={() => handleTest(w.id)} title="Send test ping">
+                            <Button variant="outline" onClick={() => handleTest(w.id)} title="Send test ping">
                               <Zap className="h-3 w-3 mr-1" /> Test
                             </Button>
                             <Button
                               variant="outline"
-                              size="sm"
                               className="text-destructive"
                               onClick={() => setDeleteHookTarget(w)}
                               title="Delete"
@@ -300,7 +298,7 @@ export const Developers: React.FC = () => {
             </p>
             <div className="flex gap-2 items-center p-3 bg-muted rounded-lg">
               <code className="text-xs font-mono flex-1 break-all">{newKey}</code>
-              <Button aria-label="Copy API key" variant="outline" size="sm" onClick={() => copyToClipboard(newKey, 'API key')}>
+              <Button aria-label="Copy API key" variant="outline" onClick={() => copyToClipboard(newKey, 'API key')}>
                 <Copy className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -342,7 +340,7 @@ export const Developers: React.FC = () => {
             </p>
             <div className="flex gap-2 items-center p-3 bg-muted rounded-lg">
               <code className="text-xs font-mono flex-1 break-all">{newSecret}</code>
-              <Button aria-label="Copy webhook secret" variant="outline" size="sm" onClick={() => copyToClipboard(newSecret, 'Signing secret')}>
+              <Button aria-label="Copy webhook secret" variant="outline" onClick={() => copyToClipboard(newSecret, 'Signing secret')}>
                 <Copy className="h-3.5 w-3.5" />
               </Button>
             </div>

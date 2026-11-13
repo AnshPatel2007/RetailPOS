@@ -54,14 +54,14 @@ export default function SupplierCredits() {
       <PageHeader title="Credits Owed" icon={Receipt}
         secondaryTabs={<PageTabs secondary label="Credit status" value={view} onChange={value => setView(value as 'open' | 'settled')}
           items={[{ id: 'open', label: 'Owed' }, { id: 'settled', label: 'Settled' }]} />}
-        actions={canManage ? <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4" aria-hidden="true" />Record credit</Button> : undefined} />
+        actions={canManage ? <Button variant="primary" onClick={() => setAdding(true)}><Plus className="h-4 w-4" aria-hidden="true" />Record credit</Button> : undefined} />
       {summary && <SummaryStrip items={[
         { label: 'Owed to you', value: formatCurrency(summary.openAmount), detail: `${summary.openCount} open credit${summary.openCount === 1 ? '' : 's'}` },
         { label: 'Older than 30 days', value: formatCurrency(summary.olderThan30Amount), tone: summary.olderThan30Amount > 0 ? 'warning' : 'default',
           detail: summary.olderThan30Amount > 0 ? 'Ask the supplier for these' : 'Nothing overdue' },
       ]} />}
       <DataPanel>
-        {query.error ? <Alert tone="error" action={<Button size="sm" variant="outline" onClick={query.refresh}>Retry</Button>}>Credits did not load.</Alert>
+        {query.error ? <Alert tone="error" action={<Button variant="outline" onClick={query.refresh}>Retry</Button>}>Credits did not load.</Alert>
           : !query.data ? <div className="flex justify-center py-10"><Spinner size="lg" /></div>
           : !credits.length ? <EmptyState icon={CheckCircle2} title={view === 'open' ? 'No supplier owes you anything' : 'No settled credits yet'}
               hint={view === 'open' ? 'Credits appear here when a delivery has damaged or rejected goods the invoice charged for, when goods go back to a supplier, or when you record one.' : 'Credits marked received or written off are listed here.'} />
@@ -77,8 +77,8 @@ export default function SupplierCredits() {
               <TableCell className="whitespace-nowrap">{formatDate(view === 'open' ? credit.createdAt : credit.settledAt || credit.createdAt)}</TableCell>
               <TableCell className="max-w-xs whitespace-pre-line text-sm text-muted-foreground">{credit.notes || '—'}</TableCell>
               {view === 'open' && canManage && <TableCell className="whitespace-nowrap text-right">
-                <Button size="sm" variant="outline" onClick={() => setSettling({ credit, status: 'RECEIVED' })}>Mark received</Button>{' '}
-                <Button size="sm" variant="ghost" onClick={() => setSettling({ credit, status: 'WRITTEN_OFF' })}>Write off</Button>
+                <Button variant="outline" onClick={() => setSettling({ credit, status: 'RECEIVED' })}>Mark received</Button>{' '}
+                <Button variant="ghost" onClick={() => setSettling({ credit, status: 'WRITTEN_OFF' })}>Write off</Button>
               </TableCell>}
             </TableRow>)}</TableBody>
           </Table>}
@@ -120,7 +120,7 @@ function RecordCredit({ locationId, onClose }: { locationId: string; onClose: ()
       <Textarea label="Notes" value={notes} maxLength={2000} onChange={event => setNotes(event.target.value)} description="For example the invoice number or who at the supplier agreed to it." />
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button>
-        <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Record credit'}</Button>
+        <Button variant="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Record credit'}</Button>
       </div>
     </form>
   </Modal>;
@@ -150,7 +150,7 @@ function SettleCredit({ credit, status, onClose }: { credit: Credit; status: 'RE
       <Input label={received ? 'Credit note or reference (optional)' : 'Reason (optional)'} value={notes} maxLength={500} onChange={event => setNotes(event.target.value)} />
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button>
-        <Button type="submit" variant={received ? 'default' : 'destructive'} disabled={saving}>{saving ? 'Saving…' : received ? 'Mark received' : 'Write off'}</Button>
+        <Button type="submit" variant={received ? 'primary' : 'destructive'} disabled={saving}>{saving ? 'Saving…' : received ? 'Mark received' : 'Write off'}</Button>
       </div>
     </form>
   </Modal>;

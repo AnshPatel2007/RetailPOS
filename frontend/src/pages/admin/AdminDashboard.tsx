@@ -201,7 +201,7 @@ export const AdminDashboard: React.FC = () => {
       <div>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Store Details</h2>
-          <Button variant="outline" size="sm" onClick={() => navigate('/admin/stores')}>
+          <Button variant="outline" onClick={() => navigate('/admin/stores')}>
             Manage Stores <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
         </div>

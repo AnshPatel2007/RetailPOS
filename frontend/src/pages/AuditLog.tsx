@@ -188,7 +188,7 @@ export const AuditLog: React.FC = () => {
               className="pl-9"
             />
           </div>
-          <Button type="submit" variant="primary" size="sm">Search</Button>
+          <Button type="submit" variant="primary">Search</Button>
         </form>
 
 <FilterChips filters={{ action: actionFilter, entity: entityFilter }} onChange={filters => { setActionFilter(filters.action); setEntityFilter(filters.entity); setPage(1); }} count={loadedScope === scopeKey && !error ? total : undefined} itemName="entries" />

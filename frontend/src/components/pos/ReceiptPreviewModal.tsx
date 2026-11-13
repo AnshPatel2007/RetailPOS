@@ -189,13 +189,12 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
             />
             <Button
               variant="primary"
-              size="sm"
               onClick={handleSendEmail}
               disabled={!email || isSendingEmail}
             >
               {isSendingEmail ? 'Sending...' : 'Send'}
             </Button>
-            <Button aria-label="Close email receipt form" variant="ghost" size="sm" onClick={() => setShowEmailInput(false)}>
+            <Button aria-label="Close email receipt form" variant="ghost" onClick={() => setShowEmailInput(false)}>
               <X className="h-4 w-4" />
             </Button>
           </div>

@@ -360,7 +360,7 @@ export const Financial: React.FC = () => {
           {activeTab === 'pnl' && <Button variant="outline" onClick={exportPnl} disabled={exportingPnl || loading || !!loadError || loadedView !== viewKey || !pnlData}><Download className="h-4 w-4 mr-2" />{exportingPnl ? 'Preparing Excel…' : 'Export Excel'}</Button>}
           {activeTab === 'expenses' && filteredExpenses.length > 0 && <Button variant="outline" onClick={() => setShowExportMenu(true)}><Download className="h-4 w-4 mr-2" />Export</Button>}
           {activeTab === 'recurring' && mayManage && <Button onClick={handleGenerateRecurring} variant="outline"><RefreshCw className="h-4 w-4 mr-2" />Generate Due Expenses</Button>}
-          {mayManage && ['expenses','budgets','recurring'].includes(activeTab) && <Button onClick={() => { if(activeTab === 'expenses') setShowExpenseModal(true); else if(activeTab === 'budgets') { setEditingBudget(null); setShowBudgetModal(true); } else { setEditingRecurring(null); setShowRecurringModal(true); } }}><Plus className="h-4 w-4 mr-2" />{activeTab === 'expenses' ? 'Add Expense' : activeTab === 'budgets' ? 'Add Budget' : 'Add Recurring Expense'}</Button>}
+          {mayManage && ['expenses','budgets','recurring'].includes(activeTab) && <Button variant="primary" onClick={() => { if(activeTab === 'expenses') setShowExpenseModal(true); else if(activeTab === 'budgets') { setEditingBudget(null); setShowBudgetModal(true); } else { setEditingRecurring(null); setShowRecurringModal(true); } }}><Plus className="h-4 w-4 mr-2" />{activeTab === 'expenses' ? 'Add Expense' : activeTab === 'budgets' ? 'Add Budget' : 'Add Recurring Expense'}</Button>}
         </>}
         tabs={<PageTabs label="Financial views" value={activeTab} onChange={setActiveTab} items={[
           {id:'expenses',label:'Expenses'},{id:'recurring',label:'Recurring'},{id:'budgets',label:'Budgets'},{id:'pnl',label:'Profit & Loss'},{id:'inventory',label:'Inventory Costs'},
@@ -378,7 +378,7 @@ export const Financial: React.FC = () => {
           <RefreshCw className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
       ) : loadError ? (
-        <div role="alert" className="rounded-lg border border-destructive/30 p-4 space-y-3"><p>{loadError}</p><Button onClick={() => void fetchData()}>Retry</Button></div>
+        <div role="alert" className="rounded-lg border border-destructive/30 p-4 space-y-3"><p>{loadError}</p><Button variant="primary" onClick={() => void fetchData()}>Retry</Button></div>
       ) : (
         <>
           {activeTab === 'inventory' && <InventoryCostPanel locationId={activeLocationId || undefined} owner={role === 'ADMIN'} readOnly={role === 'SUPER_ADMIN'} />}
@@ -399,7 +399,7 @@ export const Financial: React.FC = () => {
                   />
                 </div>
                 <Button
-                  variant={expenseFilters.showCharts ? 'default' : 'outline'}
+                  variant={expenseFilters.showCharts ? 'primary' : 'outline'}
                   onClick={() => setExpenseFilters({ ...expenseFilters, showCharts: !expenseFilters.showCharts })}
                   title="Toggle charts visualization"
                 >
@@ -408,7 +408,7 @@ export const Financial: React.FC = () => {
                 </Button>
                 <div className="relative">
                   <Button
-                    variant={showFilters ? 'default' : 'outline'}
+                    variant={showFilters ? 'primary' : 'outline'}
                     onClick={() => setShowFilters(!showFilters)}
                   >
                     <Filter className="h-4 w-4 mr-2" />
@@ -764,7 +764,6 @@ export const Financial: React.FC = () => {
                           <TableCell>
                             <div className="flex gap-1">
                               {mayManage && <Button aria-label="Edit budget"
-                                size="sm"
                                 variant="ghost"
                                 onClick={() => {
                                   setEditingBudget(budget);
@@ -843,7 +842,6 @@ export const Financial: React.FC = () => {
                           <TableCell>
                             <div className="flex gap-1">
                               {mayManage && <Button aria-label="Edit recurring expense"
-                                size="sm"
                                 variant="ghost"
                                 onClick={() => {
                                   setEditingRecurring(recurring);
@@ -853,7 +851,6 @@ export const Financial: React.FC = () => {
                                 <Edit className="w-4 h-4" />
                               </Button>}
                               {can(role, 'financial.delete') && <Button aria-label="Delete recurring expense"
-                                size="sm"
                                 variant="ghost"
                                 onClick={() => handleDeleteRecurring(recurring.id)}
                               >

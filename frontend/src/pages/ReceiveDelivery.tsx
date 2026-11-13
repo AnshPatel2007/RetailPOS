@@ -285,11 +285,11 @@ export default function ReceiveDelivery() {
 
         {isReadOnly ? null : workflow.pending ? (
           <Alert tone="warning" title="A delivery from this browser was not confirmed"
-            action={<Button size="sm" disabled={workflow.busy} onClick={() => void workflow.commit()}>Finish saving</Button>}>
+            action={<Button variant="primary" disabled={workflow.busy} onClick={() => void workflow.commit()}>Finish saving</Button>}>
             It was sent, but the answer did not come back. Finishing saves it once; it is never added twice.
           </Alert>
         ) : workflow.result ? (
-          <Alert tone="success" title="Delivery saved" action={<Button size="sm" onClick={workflow.clearResult}>Receive another</Button>}>
+          <Alert tone="success" title="Delivery saved" action={<Button variant="primary" onClick={workflow.clearResult}>Receive another</Button>}>
             {plural(workflow.result.total, 'item')} received ({workflow.result.updated} existing, {workflow.result.created} new). Stock and costs are updated.
           </Alert>
         ) : workflow.preview ? (
@@ -298,7 +298,7 @@ export default function ReceiveDelivery() {
             <ImportReview preview={workflow.preview} />
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" disabled={workflow.busy} onClick={workflow.resetPreview}>Back to edit</Button>
-              {workflow.preview.id && <Button disabled={workflow.busy} onClick={() => void workflow.commit()}>{workflow.busy ? 'Saving…' : 'Save delivery'}</Button>}
+              {workflow.preview.id && <Button variant="primary" disabled={workflow.busy} onClick={() => void workflow.commit()}>{workflow.busy ? 'Saving…' : 'Save delivery'}</Button>}
             </div>
           </section>
         ) : <>
@@ -319,11 +319,11 @@ export default function ReceiveDelivery() {
             {lookups > 0 && <p role="status" className="text-sm text-muted-foreground">Looking up…</p>}
             {scanError && <p role="alert" className="text-sm text-destructive">{scanError}</p>}
             <p className="text-sm text-muted-foreground" aria-live="polite">{announcement}</p>
-            {draft.supplier && !findByName && <Button type="button" variant="ghost" size="sm" disabled={locked} onClick={() => { setFindByName(true); setNewItem(null); setChoices(null); }}>
+            {draft.supplier && !findByName && <Button type="button" variant="ghost" disabled={locked} onClick={() => { setFindByName(true); setNewItem(null); setChoices(null); }}>
               <Search className="h-4 w-4" aria-hidden="true" />No barcode? Find the item by name</Button>}
             {findByName && locationId && <div className="space-y-2">
               <ProductPicker locationId={locationId} selectedIds={[]} onSelect={product => void addPicked(product)} />
-              <Button type="button" variant="ghost" size="sm" onClick={() => setFindByName(false)}>Close search</Button>
+              <Button type="button" variant="ghost" onClick={() => setFindByName(false)}>Close search</Button>
             </div>}
 
             {choices && <div className="space-y-2 rounded-lg border p-3">
@@ -333,7 +333,7 @@ export default function ReceiveDelivery() {
                 <span className="font-medium">{match.product.name}</span>
                 <span className="block text-xs text-muted-foreground">{describeMatch(match)}</span>
               </button>)}
-              <Button type="button" variant="ghost" size="sm" onClick={() => setChoices(null)}>Cancel</Button>
+              <Button type="button" variant="ghost" onClick={() => setChoices(null)}>Cancel</Button>
             </div>}
 
             {newItem && <form aria-label="New item" onSubmit={event => { event.preventDefault(); addNewItem(); }} className="space-y-3 rounded-lg border border-info/30 bg-info/5 p-3">
@@ -348,7 +348,7 @@ export default function ReceiveDelivery() {
               </div>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setNewItem(null)}>Cancel</Button>
-                <Button type="submit" disabled={!newItem.name.trim()}>Add item</Button>
+                <Button variant="primary" type="submit" disabled={!newItem.name.trim()}>Add item</Button>
               </div>
             </form>}
           </section>
@@ -356,7 +356,7 @@ export default function ReceiveDelivery() {
           <section aria-labelledby="delivery-items" className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 id="delivery-items" className="text-base font-semibold">Items ({draft.lines.length})</h2>
-              {canFill && <Button type="button" variant="outline" size="sm" disabled={locked} onClick={() => setDraft(current => ({ ...current, lines: fillAsOrdered(current.lines) }))}>Fill the rest as ordered</Button>}
+              {canFill && <Button type="button" variant="outline" disabled={locked} onClick={() => setDraft(current => ({ ...current, lines: fillAsOrdered(current.lines) }))}>Fill the rest as ordered</Button>}
             </div>
             {draft.lines.length === 0
               ? <div className="rounded-lg border bg-card py-8"><EmptyState icon={PackageCheck} title="Nothing scanned yet" hint="Each scan adds one case, pack or item. Scan it again for one more, or type the quantity." /></div>
@@ -382,7 +382,7 @@ export default function ReceiveDelivery() {
                 <p className="font-medium">{plural(receiving.length, 'item')} · {plural(totalUnits, 'unit')}</p>
                 <p className="text-muted-foreground">About {formatCurrency(totalCost)} before invoice charges</p>
               </div>
-              <Button onClick={() => void review()} disabled={locked || !receiving.length}>
+              <Button variant="primary" onClick={() => void review()} disabled={locked || !receiving.length}>
                 {countingShelves ? 'Saving shelf counts…' : workflow.busy ? 'Checking…' : 'Review delivery'}
               </Button>
             </div>

@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { login, TEST_USER } from './utils/auth-helper';
+import { clickHeaderAction } from './utils/header-helper';
 
 test('CSV preview applies once after a lost response and browser reload', async ({ page }) => {
   await login(page, TEST_USER.email); await page.goto('/inventory');
-  await page.getByRole('button', { name: 'Import CSV', exact: true }).click();
+  await clickHeaderAction(page, 'Import CSV');
   const modal = page.getByRole('dialog', { name: 'Import Products from CSV', exact: true });
   await modal.getByLabel('CSV file', { exact: true }).setInputFiles({ name: 'review.csv', mimeType: 'text/csv', buffer: Buffer.from('sku,name,price,cost,stock\nBROWSER-IMPORT,"Coffee, quoted",2.75,1.25,8') });
   await modal.getByRole('button', { name: 'Review import', exact: true }).click();
@@ -15,7 +16,7 @@ test('CSV preview applies once after a lost response and browser reload', async 
   }, { times: 1 });
   await modal.getByRole('button', { name: 'Apply reviewed import', exact: true }).click();
   await expect(modal.getByRole('alert')).toContainText('Result unconfirmed');
-  await page.reload(); await page.getByRole('button', { name: 'Import CSV', exact: true }).click();
+  await page.reload(); await clickHeaderAction(page, 'Import CSV');
   const saved = page.waitForResponse(r => r.url().includes('/imports/') && r.url().endsWith('/apply'));
   await modal.getByRole('button', { name: 'Retry saved import', exact: true }).click();
   expect((await (await saved).json()).data.replayed).toBe(true);
@@ -28,7 +29,7 @@ test('CSV preview applies once after a lost response and browser reload', async 
 
 test('invalid CSV rows remain a review error without an apply control', async ({ page }) => {
   await login(page, TEST_USER.email); await page.goto('/inventory');
-  await page.getByRole('button', { name: 'Import CSV', exact: true }).click();
+  await clickHeaderAction(page, 'Import CSV');
   const modal = page.getByRole('dialog', { name: 'Import Products from CSV', exact: true });
   await modal.getByLabel('CSV file', { exact: true }).setInputFiles({ name: 'invalid.csv', mimeType: 'text/csv', buffer: Buffer.from('sku,name,price,stock\nINVALID-ROW,Invalid,abc,-1') });
   await modal.getByRole('button', { name: 'Review import', exact: true }).click();
@@ -39,7 +40,7 @@ test('invalid CSV rows remain a review error without an apply control', async ({
 test('receipt suggestions require an explicit SKU and price before a reviewed import', async ({ page }) => {
   await login(page, TEST_USER.email); await page.goto('/inventory');
   await page.setViewportSize({ width: 390, height: 844 });
-  const moreActions = page.getByText('More actions', { exact: true });
+  const moreActions = page.getByRole('button', { name: 'More actions', exact: true });
   await moreActions.click();
   await page.keyboard.press('Escape');
   await expect(moreActions).toBeFocused();

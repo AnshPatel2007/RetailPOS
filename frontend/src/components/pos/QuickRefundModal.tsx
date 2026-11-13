@@ -324,11 +324,11 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
       {confirmDialog}
       <div className="space-y-4">
         {operationError && <p role="alert" className="text-sm text-destructive">{operationError}</p>}
-        {storageError && <Button onClick={refreshStorage}>Retry recovery storage</Button>}
+        {storageError && <Button variant="primary" onClick={refreshStorage}>Retry recovery storage</Button>}
         {pending && <div role="status" className="p-3 rounded-lg border border-warning/40 bg-warning/10 space-y-2">
           <p className="text-sm">Saved refund: {formatCurrency(pending.amount)} for {pending.label}. Confirm this request before starting another refund. Do not pay the customer twice.</p>
           {hasExternalRefundEvidence(pending.payload) && <p className="text-sm">External card refund evidence is saved. Retry this exact POS record. A persistent conflict requires owner review; do not refund the terminal again.</p>}
-          <Button onClick={() => submitRefund(pending)} disabled={isProcessing || storageError}>Retry saved refund</Button>
+          <Button variant="primary" onClick={() => submitRefund(pending)} disabled={isProcessing || storageError}>Retry saved refund</Button>
         </div>}
         {isSearching && <p role="status">Loading sale...</p>}
         {/* Sale lookup */}

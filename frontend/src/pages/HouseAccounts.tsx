@@ -210,7 +210,7 @@ export const HouseAccounts: React.FC = () => {
         icon={BookUser}
         actions={
           <>
-            {manage && <Button variant="primary" size="sm" onClick={() => setShowOpenModal(true)}>
+            {manage && <Button variant="primary" onClick={() => setShowOpenModal(true)}>
               <Plus className="h-4 w-4 mr-1" />
               Open Account
             </Button>}
@@ -241,7 +241,7 @@ export const HouseAccounts: React.FC = () => {
             title="No house accounts"
             hint="Open an account to let a trusted customer or business charge purchases"
             action={manage &&
-              <Button variant="primary" size="sm" onClick={() => setShowOpenModal(true)}>
+              <Button variant="primary" onClick={() => setShowOpenModal(true)}>
                 <Plus className="h-4 w-4 mr-1" /> Open Account
               </Button>
             }
@@ -298,12 +298,11 @@ export const HouseAccounts: React.FC = () => {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex gap-1 justify-end">
-                        <Button variant="outline" size="sm" onClick={() => openHistory(acc)} title="History" aria-label="History">
+                        <Button variant="outline" onClick={() => openHistory(acc)} title="History" aria-label="History">
                           <History className="h-3 w-3" />
                         </Button>
                         {manage && <Button
                           variant="outline"
-                          size="sm"
                           onClick={() => handleEmailStatement(acc)}
                           title="Email statement"
                           aria-label="Email statement"
@@ -313,7 +312,6 @@ export const HouseAccounts: React.FC = () => {
                         </Button>}
                         {manage && <Button
                           variant="primary"
-                          size="sm"
                           onClick={() => { setPaymentMethod('CASH'); setReference(''); setPaymentAmount(''); setPaymentNotes(''); setPaymentAccount(acc); }}
                           disabled={acc.balance <= 0 || operation.blocked}
                         >
@@ -339,7 +337,7 @@ export const HouseAccounts: React.FC = () => {
             {selectedCustomer ? (
               <div className="flex items-center justify-between p-2 border rounded bg-muted/50">
                 <span className="font-medium">{selectedCustomer.name}</span>
-                <Button variant="outline" size="sm" onClick={() => { setSelectedCustomer(null); setCustomerSearch(''); }}>
+                <Button variant="outline" onClick={() => { setSelectedCustomer(null); setCustomerSearch(''); }}>
                   Change
                 </Button>
               </div>
@@ -419,7 +417,6 @@ export const HouseAccounts: React.FC = () => {
             <div className="flex gap-2">
               <Button
                 variant="outline"
-                size="sm"
                 onClick={() => setPaymentAmount(paymentAccount.balance.toFixed(2))}
               >
                 Full balance ({formatCurrency(paymentAccount.balance)})
@@ -465,7 +462,7 @@ export const HouseAccounts: React.FC = () => {
                   }`}>
                     {formatEnumLabel(tx.type)}
                   </span>
-                  {tx.operation && <Button variant="outline" size="sm" onClick={() => operation.showReceipt(tx.operation!, historyAccount ? historyAccount.customer.firstName + ' ' + historyAccount.customer.lastName : 'House account')}>Receipt</Button>}
+                  {tx.operation && <Button variant="outline" onClick={() => operation.showReceipt(tx.operation!, historyAccount ? historyAccount.customer.firstName + ' ' + historyAccount.customer.lastName : 'House account')}>Receipt</Button>}
                   {!tx.operation && tx.type === 'PAYMENT' && <p className="text-xs text-muted-foreground">Original payment details unavailable</p>}
                   {tx.notes && <span className="text-xs text-muted-foreground ml-2">{tx.notes}</span>}
                   <div className="text-xs text-muted-foreground mt-0.5">{formatDateTime(tx.createdAt)}</div>

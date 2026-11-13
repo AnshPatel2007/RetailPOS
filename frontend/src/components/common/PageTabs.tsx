@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
@@ -41,8 +40,8 @@ export function PageTabs({ label, items, value, onChange, secondary = false }: {
     if (item.right > rect.right) element.scrollLeft += item.right - rect.right;
   }, [value, scroll.overflow]);
   if (items.length < 2) return null;
-  return <div className={cn('page-tab-scroll-shell', secondary && 'page-tabs-secondary')}>
-    <button type="button" className="tab-scroll-button" data-overflow={scroll.overflow} disabled={!scroll.left} aria-label={'Scroll ' + label.toLowerCase() + ' left'} onClick={() => navigation.current?.scrollBy({ left: -220 })}><ChevronLeft size={16} /></button>
+  // On a phone a long tab row is swiped; a faded edge shows there is more that way.
+  return <div className={cn('page-tab-scroll-shell', secondary && 'page-tabs-secondary')} data-more-left={scroll.left || undefined} data-more-right={scroll.right || undefined}>
     <nav ref={navigation} aria-label={label} className="page-tabs flex min-w-0 items-center gap-2">
     {items.map(item => {
       const active = item.id === value;
@@ -53,5 +52,5 @@ export function PageTabs({ label, items, value, onChange, secondary = false }: {
         ? <Link key={item.id} to={item.href} aria-current={active ? 'page' : undefined} className={className}>{item.label}</Link>
         : <button key={item.id} type="button" disabled={item.disabled} onClick={() => onChange?.(item.id)} aria-current={active ? 'page' : undefined} className={className}>{item.label}</button>;
     })}
-  </nav><button type="button" className="tab-scroll-button" data-overflow={scroll.overflow} disabled={!scroll.right} aria-label={'Scroll ' + label.toLowerCase() + ' right'} onClick={() => navigation.current?.scrollBy({ left: 220 })}><ChevronRight size={16} /></button></div>;
+  </nav></div>;
 }

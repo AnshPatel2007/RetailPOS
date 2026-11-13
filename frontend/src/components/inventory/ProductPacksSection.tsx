@@ -19,7 +19,7 @@ export const ProductPacksSection: React.FC<{
   const [saving, setSaving] = useState(false);
   useEffect(() => { setBaseName(data?.baseUnitName || 'unit'); }, [data?.baseUnitName]);
 
-  if (error) return <p role="alert" className="text-sm text-destructive">{error} <Button type="button" size="sm" variant="outline" onClick={onReload}>Retry</Button></p>;
+  if (error) return <p role="alert" className="text-sm text-destructive">{error} <Button type="button" variant="outline" onClick={onReload}>Retry</Button></p>;
   if (!data) return <p className="text-sm text-muted-foreground">Loading packs…</p>;
   const packs = data.sellingUnits.filter(unit => unit.isActive);
   const unitCost = Number(data.cost);
@@ -42,12 +42,12 @@ export const ProductPacksSection: React.FC<{
             <span className="text-xs text-muted-foreground">
               Price {formatCurrency(Number(unit.price))} · Pack cost {formatCurrency(unitCost * unit.unitsPerPackage)} · {unit.sealedQuantity} unopened
             </span>
-            <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => onEditPack(unit)}>Edit pack</Button>
+            <Button type="button" variant="outline" disabled={disabled} onClick={() => onEditPack(unit)}>Edit pack</Button>
           </li>))}</ul>}
       <Button type="button" variant="outline" disabled={disabled} onClick={onAddPack}>Add a pack of this item</Button>
       <div className="flex flex-wrap items-end gap-2 pt-2" onKeyDown={event => { if (event.key === 'Enter' && event.target instanceof HTMLInputElement) event.preventDefault(); }}>
         <Input label="Each one is called" description="Used in pack counts, e.g. can, bottle, pack" value={baseName} onChange={e => setBaseName(e.target.value)} maxLength={30} className="w-48" />
-        <Button type="button" size="sm" variant="outline" disabled={disabled || saving || !baseName.trim() || baseName === data.baseUnitName} onClick={saveName}>Save name</Button>
+        <Button type="button" variant="outline" disabled={disabled || saving || !baseName.trim() || baseName === data.baseUnitName} onClick={saveName}>Save name</Button>
       </div>
     </div>
   );

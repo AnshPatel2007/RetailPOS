@@ -75,7 +75,7 @@ export const PricingRulesCard: React.FC<{ editable: boolean }> = ({ editable }) 
           <p className="text-xs text-muted-foreground">
             Margin is profit as a share of the price. {example !== null ? `Example: an item costing $1.50 at ${store.target}% is suggested at ${formatCurrency(example)}.` : 'Example: $1.50 at 30% is $2.1428, suggested at $2.15.'}
           </p>
-          <Button type="button" onClick={() => save({ scope: 'STORE', target: store.target, minimum: store.minimum, rounding: store.rounding })}>Save store default</Button>
+          <Button variant="primary" type="button" onClick={() => save({ scope: 'STORE', target: store.target, minimum: store.minimum, rounding: store.rounding })}>Save store default</Button>
         </fieldset>
 
         <fieldset disabled={!editable || busy} className="space-y-3">

@@ -25,7 +25,7 @@ export function TransferHistory({ transfer }: { transfer: Transfer }) {
         {receipt.items.map(line => { const item = transfer.items.find(item => item.id === line.transferItemId); return <p key={line.transferItemId}>{item ? transferProductName(item) : 'Item'}: {line.acceptedQty} accepted, {line.damagedQty} damaged, {line.missingQty} missing{line.sentBackQty ? `, ${line.sentBackQty} sent back` : ''}</p>; })}
         {receipt.notes && <p className="text-muted-foreground">{receipt.notes}</p>}
       </div>)}
-      {pages > 1 && <div className="flex items-center justify-between"><Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(n => n - 1)}>Newer events</Button><span className="text-xs">Page {page} of {pages}</span><Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(n => n + 1)}>Older events</Button></div>}
+      {pages > 1 && <div className="flex items-center justify-between"><Button variant="outline" disabled={page <= 1} onClick={() => setPage(n => n - 1)}>Newer events</Button><span className="text-xs">Page {page} of {pages}</span><Button variant="outline" disabled={page >= pages} onClick={() => setPage(n => n + 1)}>Older events</Button></div>}
     </>}
   </section>;
 }

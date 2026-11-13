@@ -31,7 +31,7 @@ export function AppUpdateNotice() {
         <p className="font-semibold">An update is ready</p>
         <p className="text-muted-foreground">{saleInProgress ? 'Finish the current sale, then update.' : 'It takes a few seconds and keeps you signed in.'}</p>
       </div>
-      <Button size="sm" disabled={saleInProgress || updating} onClick={() => { setUpdating(true); void updateServiceWorker(true); }}>
+      <Button variant="primary" disabled={saleInProgress || updating} onClick={() => { setUpdating(true); void updateServiceWorker(true); }}>
         {updating ? 'Updating…' : 'Update now'}
       </Button>
     </div>

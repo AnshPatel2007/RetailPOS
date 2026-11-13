@@ -371,7 +371,7 @@ export const Promotions: React.FC = () => {
         icon={Tag}
         actions={
           <>
-            {manage && <Button variant="primary" size="sm" onClick={openCreate}>
+            {manage && <Button variant="primary" onClick={openCreate}>
               <Plus className="h-4 w-4 mr-1" />
               New Promotion
             </Button>}
@@ -440,7 +440,7 @@ export const Promotions: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-right">
                     {manage && <div className="flex gap-1 justify-end">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(p)}><Pencil className="h-3 w-3" />Edit</Button>
+                      <Button variant="outline" onClick={() => openEdit(p)}><Pencil className="h-3 w-3" />Edit</Button>
                       <ActionMenu label={'More actions for ' + p.name} iconOnly items={[
                         { id: 'toggle', label: p.isActive ? 'Pause promotion' : 'Turn promotion on', icon: <Power size={16} />, onAction: () => handleToggle(p) },
                         { id: 'delete', label: 'Delete promotion', icon: <Trash2 size={16} />, destructive: true, onAction: () => setDeleteTarget(p) },

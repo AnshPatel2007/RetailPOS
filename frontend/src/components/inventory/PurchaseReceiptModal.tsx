@@ -123,7 +123,7 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
         <label className="block text-sm font-medium">Delivery notes / discrepancy reason<textarea className="mt-1 block min-h-[80px] w-full rounded-md border border-input bg-background p-3 text-sm" value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} /></label>
       </fieldset>
       <p className="text-sm text-muted-foreground">{pending ? 'Retry checks whether this delivery was already recorded.' : !missing || finalDelivery ? 'This delivery will close the order.' : `${missing} units will remain open for a later delivery.`}</p>
-      <div className="flex justify-end gap-2"><Button variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button disabled={saving} onClick={save}>{saving ? 'Recording…' : pending ? 'Retry saved delivery' : 'Record delivery'}</Button></div>
+      <div className="flex justify-end gap-2"><Button variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button variant="primary" disabled={saving} onClick={save}>{saving ? 'Recording…' : pending ? 'Retry saved delivery' : 'Record delivery'}</Button></div>
     </div>
   </Modal>;
 }

@@ -297,7 +297,7 @@ export const Team: React.FC = () => {
             title="No team members yet"
             hint="Add a manager or cashier to get started"
             action={
-              <Button variant="primary" size="sm" onClick={openCreateModal}>
+              <Button variant="primary" onClick={openCreateModal}>
                 <Plus className="h-4 w-4 mr-1" /> Add Team Member
               </Button>
             }
@@ -339,7 +339,7 @@ export const Team: React.FC = () => {
                   <TableCell className="text-right">
                     {isManageable(u) ? (
                       <div className="flex justify-end gap-1">
-                        <Button variant="outline" size="sm" onClick={() => openEditModal(u)}><Edit className="h-4 w-4" />Edit</Button>
+                        <Button variant="outline" onClick={() => openEditModal(u)}><Edit className="h-4 w-4" />Edit</Button>
                         <ActionMenu label={'More actions for ' + [u.firstName, u.lastName].filter(Boolean).join(' ')} iconOnly items={[
                           { id: 'password', label: 'Reset password', icon: <Key size={16} />, onAction: () => { setEditingUser(u); setNewPassword(''); setShowPasswordModal(true); } },
                           ...(u.isActive ? [{ id: 'deactivate', label: 'Deactivate', icon: <Trash2 size={16} />, destructive: true, onAction: () => setDeleteTarget(u) }] : []),
@@ -372,7 +372,7 @@ export const Team: React.FC = () => {
               <TableCell>{storeName(row.locationId)}</TableCell>
               <TableCell>{formatEnumLabel(row.role)}</TableCell>
               <TableCell>{storeName(row.homeLocationId)}</TableCell>
-              <TableCell className="text-right"><Button variant="outline" size="sm" onClick={() => setRemoveGrant(row)} aria-label={`Remove ${row.name} from ${storeName(row.locationId)}`}>Remove</Button></TableCell>
+              <TableCell className="text-right"><Button variant="outline" onClick={() => setRemoveGrant(row)} aria-label={`Remove ${row.name} from ${storeName(row.locationId)}`}>Remove</Button></TableCell>
             </TableRow>)}</TableBody>
           </Table>}
       </Card>}

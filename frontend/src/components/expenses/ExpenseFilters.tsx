@@ -69,7 +69,7 @@ export const ExpenseFilters: React.FC<ExpenseFiltersProps> = ({
       <div className="flex items-center justify-between pb-2 border-b">
         <h3 className="font-medium text-sm">Filters</h3>
         {hasActiveFilters && (
-          <Button variant="outline" size="sm" onClick={onClear}>
+          <Button variant="outline" onClick={onClear}>
             <X className="h-3 w-3 mr-1" />
             <span className="text-xs">Clear All</span>
           </Button>

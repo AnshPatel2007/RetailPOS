@@ -145,7 +145,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button type="submit" form={formId} disabled={isSubmitting}>
+              <Button variant="primary" type="submit" form={formId} disabled={isSubmitting}>
                 {isSubmitting ? 'Saving...' : recurringExpense ? 'Update' : 'Create'}
               </Button>
             </div>}>

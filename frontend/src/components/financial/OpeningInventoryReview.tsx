@@ -65,7 +65,7 @@ export function OpeningInventoryReview({ locationId, search, busy, blocked, erro
     footer={<div className="flex flex-wrap items-center justify-between gap-3">
       <p role="status" className="text-sm tabular-nums">{selected.length} selected · {invalid.length ? `${invalid.length} need attention` : money(selected.reduce((total, row) => total + Number(row.confirmedValue), 0))}</p>
       <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button>
-        <Button disabled={blocked || !verified || !selected.length || !!invalid.length || notes.trim().length < 3} onClick={() => void save()}>
+        <Button variant="primary" disabled={blocked || !verified || !selected.length || !!invalid.length || notes.trim().length < 3} onClick={() => void save()}>
           {busy ? 'Saving…' : `Confirm ${selected.length} products`}
         </Button></div>
     </div>}>

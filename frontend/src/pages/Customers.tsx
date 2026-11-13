@@ -537,7 +537,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
         title={editingCustomer ? 'Edit Customer' : 'Add New Customer'}
         description={editingCustomer ? undefined : 'Name and phone are all you need. Add the rest any time.'}
         size="lg"
-        footer={<div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setShowModal(false); resetForm(); }}>Cancel</Button><Button type="submit" form={customerFormId} disabled={saving}>{saving ? 'Saving…' : editingCustomer ? 'Update Customer' : 'Create Customer'}</Button></div>}
+        footer={<div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setShowModal(false); resetForm(); }}>Cancel</Button><Button variant="primary" type="submit" form={customerFormId} disabled={saving}>{saving ? 'Saving…' : editingCustomer ? 'Update Customer' : 'Create Customer'}</Button></div>}
       >
         <form id={customerFormId} onSubmit={handleSubmit} className="customer-form space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -809,7 +809,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
             </div>
 
             {canEdit && <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => { setShowDetailModal(false); handleEdit(selectedCustomer); }}>
+              <Button variant="outline" onClick={() => { setShowDetailModal(false); handleEdit(selectedCustomer); }}>
                 <Edit className="w-4 h-4 mr-1" /> Edit
               </Button>
             </div>}

@@ -169,7 +169,7 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
   };
 
   useEffect(() => {
-    onActionsChange?.(!isReadOnly && !isAdding ? <Button onClick={handleAdd} disabled={loading || !!error}><Plus className="h-4 w-4 mr-2" />Add Ticket Type</Button> : null);
+    onActionsChange?.(!isReadOnly && !isAdding ? <Button variant="primary" onClick={handleAdd} disabled={loading || !!error}><Plus className="h-4 w-4 mr-2" />Add Ticket Type</Button> : null);
     return () => onActionsChange?.(null);
   }, [onActionsChange, isReadOnly, isAdding, ticketTypes.length, loading, error]);
   const updates = useLegacyPageRefresh((current, signal) => fetchTicketTypes(true, current, signal), { key: locationId || 'all', paused: loading || isAdding || !!editingId });
@@ -253,12 +253,11 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex gap-2 justify-end">
-                    <Button size="sm" onClick={handleSave} className="flex items-center gap-1">
+                    <Button variant="primary" onClick={handleSave} className="flex items-center gap-1">
                       <Save className="h-3 w-3" />
                       Save
                     </Button>
                     <Button
-                      size="sm"
                       variant="outline"
                       onClick={handleCancel}
                       className="flex items-center gap-1"
@@ -328,12 +327,11 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex gap-2 justify-end">
-                        <Button size="sm" onClick={handleSave} className="flex items-center gap-1">
+                        <Button variant="primary" onClick={handleSave} className="flex items-center gap-1">
                           <Save className="h-3 w-3" />
                           Save
                         </Button>
                         <Button
-                          size="sm"
                           variant="outline"
                           onClick={handleCancel}
                           className="flex items-center gap-1"
@@ -367,7 +365,6 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
                       {!isReadOnly && (
                         <div className="flex gap-2 justify-end">
                           <Button
-                            size="sm"
                             variant="outline"
                             onClick={() => handleEdit(ticketType)}
                             className="flex items-center gap-1"
@@ -376,7 +373,6 @@ export const TicketTypeSettings: React.FC<TicketTypeSettingsProps> = ({
                             Edit
                           </Button>
                           <Button
-                            size="sm"
                             variant="outline"
                             onClick={() => handleDelete(ticketType.id)}
                             className="flex items-center gap-1 text-destructive hover:text-destructive"

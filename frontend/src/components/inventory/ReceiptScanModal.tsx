@@ -278,9 +278,9 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
             </div>
           )}
 
-          {workflow.pending && <div className="space-y-3"><p>A saved receipt import needs confirmation.</p><Button disabled={workflow.busy} onClick={workflow.commit}>Retry saved import</Button></div>}
-          {workflow.result && <div role="status"><p>Import complete: {workflow.result.created} created, {workflow.result.updated} updated.</p><Button className="mt-3" onClick={resetAndClose}>Done</Button></div>}
-          {workflow.preview && !workflow.pending && <div className="space-y-4"><ImportReview preview={workflow.preview} /><div className="flex flex-wrap gap-2 justify-end"><Button variant="outline" disabled={workflow.busy} onClick={workflow.resetPreview}>Back to edit</Button>{workflow.preview.id && <Button disabled={workflow.busy} onClick={workflow.commit}>Apply reviewed import</Button>}</div></div>}
+          {workflow.pending && <div className="space-y-3"><p>A saved receipt import needs confirmation.</p><Button variant="primary" disabled={workflow.busy} onClick={workflow.commit}>Retry saved import</Button></div>}
+          {workflow.result && <div role="status"><p>Import complete: {workflow.result.created} created, {workflow.result.updated} updated.</p><Button variant="primary" className="mt-3" onClick={resetAndClose}>Done</Button></div>}
+          {workflow.preview && !workflow.pending && <div className="space-y-4"><ImportReview preview={workflow.preview} /><div className="flex flex-wrap gap-2 justify-end"><Button variant="outline" disabled={workflow.busy} onClick={workflow.resetPreview}>Back to edit</Button>{workflow.preview.id && <Button variant="primary" disabled={workflow.busy} onClick={workflow.commit}>Apply reviewed import</Button>}</div></div>}
           {/* Step 1: Upload */}
           {step === 'upload' && !workflow.pending && !workflow.result && (
             <div className="space-y-6">
@@ -458,7 +458,6 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
 
                       <Button
                         variant="ghost"
-                        size="sm"
                         aria-label={'Remove item ' + (index + 1)}
                         onClick={() => removeItem(index)}
                         className="text-destructive shrink-0"

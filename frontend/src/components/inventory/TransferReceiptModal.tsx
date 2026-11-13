@@ -105,9 +105,9 @@ export function TransferReceiptModal({ transfer, kind, onClose, onSaved }: Props
               <p className="text-sm">Destination product: <strong>{line.createProduct ? 'Create from shipment' : selectedName || (line.destinationProductId ? 'Saved product selection' : 'Choose a match')}</strong></p>
               {!item.destinationProductId && <>
                 {!line.destinationProductId && !line.createProduct && <p className="text-sm text-muted-foreground">Confirm the product identity. Matching a SKU alone may identify a different item.</p>}
-                <div className="flex flex-wrap gap-2">{mapping?.candidates.map(candidate => <Button key={candidate.id} size="sm" className="h-auto min-h-11 py-2 break-words" variant="outline" disabled={!candidate.usable} onClick={() => change(item.id, { destinationProductId: candidate.id, createProduct: false, newSku: undefined })}>Use {candidate.name} ({candidate.sku})</Button>)}
-                  <Button size="sm" className="h-auto min-h-11 py-2" variant="outline" onClick={() => setSearchingItem(searchingItem === item.id ? null : item.id)}>Search destination products</Button>
-                  <Button size="sm" className="h-auto min-h-11 py-2" variant="outline" onClick={() => change(item.id, { createProduct: true, destinationProductId: undefined, newSku: item.productSnapshot?.sku || item.product?.sku })}>Create product here</Button>
+                <div className="flex flex-wrap gap-2">{mapping?.candidates.map(candidate => <Button key={candidate.id} className="h-auto min-h-11 py-2 break-words" variant="outline" disabled={!candidate.usable} onClick={() => change(item.id, { destinationProductId: candidate.id, createProduct: false, newSku: undefined })}>Use {candidate.name} ({candidate.sku})</Button>)}
+                  <Button className="h-auto min-h-11 py-2" variant="outline" onClick={() => setSearchingItem(searchingItem === item.id ? null : item.id)}>Search destination products</Button>
+                  <Button className="h-auto min-h-11 py-2" variant="outline" onClick={() => change(item.id, { createProduct: true, destinationProductId: undefined, newSku: item.productSnapshot?.sku || item.product?.sku })}>Create product here</Button>
                 </div>
                 {line.createProduct && <><Input label="New destination SKU" value={line.newSku || ''} onChange={e => change(item.id, { newSku: e.target.value })} />{item.productSnapshot && <p className="text-xs text-muted-foreground">Shipment price {formatCurrency(item.productSnapshot.price)}, cost {formatCurrency(item.productSnapshot.cost)}. The new product keeps these values.</p>}</>}
                 {searchingItem === item.id && <ProductPicker locationId={transfer.toLocationId} selectedIds={line.destinationProductId ? [line.destinationProductId] : []} onSelect={product => { change(item.id, { destinationProductId: product.id, createProduct: false, newSku: undefined }); setChosenNames(current => ({ ...current, [item.id]: product.name })); setSearchingItem(null); }} />}
@@ -117,7 +117,7 @@ export function TransferReceiptModal({ transfer, kind, onClose, onSaved }: Props
         })}
         <label className="block text-sm font-medium">Reason / notes<textarea value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} className="mt-1 block w-full min-h-[80px] rounded border border-input bg-background p-3" /></label>
       </fieldset>
-      <div className="flex justify-end gap-2"><Button className="min-h-11" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button className="min-h-11" disabled={saving || (!pending && mappingLoading)} onClick={save}>{saving ? 'Saving…' : pending ? 'Retry saved event' : kind === 'REQUEST_RETURN' ? 'Send return request' : 'Record quantities'}</Button></div>
+      <div className="flex justify-end gap-2"><Button className="min-h-11" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button variant="primary" className="min-h-11" disabled={saving || (!pending && mappingLoading)} onClick={save}>{saving ? 'Saving…' : pending ? 'Retry saved event' : kind === 'REQUEST_RETURN' ? 'Send return request' : 'Record quantities'}</Button></div>
     </div>
   </Modal>;
 }

@@ -737,10 +737,10 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        {canManage && <Button variant="ghost" size="sm" aria-label={`Edit supplier ${supplier.name}`} onClick={() => openEditSupplier(supplier)}>
+                        {canManage && <Button variant="ghost" aria-label={`Edit supplier ${supplier.name}`} onClick={() => openEditSupplier(supplier)}>
                           <Edit className="h-4 w-4" />
                         </Button>}
-                        {can(role, 'financial.delete') && <Button variant="ghost" size="sm" aria-label={`Delete supplier ${supplier.name}`} onClick={() => setConfirmState({ title: 'Delete supplier?', message: 'This will remove the supplier. Suppliers with purchase orders cannot be deleted.', destructive: true, confirmLabel: 'Delete', action: () => handleDeleteSupplier(supplier.id) })} className="text-destructive">
+                        {can(role, 'financial.delete') && <Button variant="ghost" aria-label={`Delete supplier ${supplier.name}`} onClick={() => setConfirmState({ title: 'Delete supplier?', message: 'This will remove the supplier. Suppliers with purchase orders cannot be deleted.', destructive: true, confirmLabel: 'Delete', action: () => handleDeleteSupplier(supplier.id) })} className="text-destructive">
                           <Trash2 className="h-4 w-4" />
                         </Button>}
                       </div>
@@ -804,12 +804,12 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                     <TableCell className="text-right">
                       {/* Labeled next step per status; rarer actions live in the menu. */}
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openOrderDetail(order)} title="View Details">View</Button>
+                        <Button variant="ghost" onClick={() => openOrderDetail(order)} title="View Details">View</Button>
                         {canManage && order.status === 'PENDING' && (
-                          <Button variant="outline" size="sm" onClick={() => handleOrderAction(order.id, 'ORDERED')} title="Mark as Ordered"><Truck className="w-4 h-4" />Mark ordered</Button>
+                          <Button variant="outline" onClick={() => handleOrderAction(order.id, 'ORDERED')} title="Mark as Ordered"><Truck className="w-4 h-4" />Mark ordered</Button>
                         )}
                         {canManage && ['ORDERED', 'PARTIALLY_RECEIVED'].includes(order.status) && (
-                          <Button variant="outline" size="sm" onClick={() => openReceiving(order.id)} title="Receive Delivery"><CheckCircle className="w-4 h-4" />Receive</Button>
+                          <Button variant="outline" onClick={() => openReceiving(order.id)} title="Receive Delivery"><CheckCircle className="w-4 h-4" />Receive</Button>
                         )}
                         {canManage && (order.status === 'PENDING' || order.status === 'ORDERED') && (
                           <ActionMenu label={'More actions for ' + order.orderNumber} iconOnly items={[
@@ -1008,13 +1008,13 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                     </p>}
                     <div className="col-span-1 flex justify-center">
                       {orderForm.items.length > 1 && (
-                        <Button variant="ghost" size="sm" aria-label={`Remove order item ${index + 1}`} onClick={() => removeOrderItem(index)} className="text-destructive"><Trash2 className="w-4 h-4" /></Button>
+                        <Button variant="ghost" aria-label={`Remove order item ${index + 1}`} onClick={() => removeOrderItem(index)} className="text-destructive"><Trash2 className="w-4 h-4" /></Button>
                       )}
                     </div>
                   </div>
                 ))}
               </div>
-              <Button variant="ghost" size="sm" onClick={addOrderItem} className="mt-2"><Plus className="w-4 h-4 mr-1" />Add another item</Button>
+              <Button variant="ghost" onClick={addOrderItem} className="mt-2"><Plus className="w-4 h-4 mr-1" />Add another item</Button>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_2fr]">

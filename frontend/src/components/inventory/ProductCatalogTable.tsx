@@ -54,7 +54,7 @@ export function ProductCatalogTable({ products, canManage, onEdit, onAdjustStock
         </TableCell>
         <TableCell className="product-actions-cell text-right">
           {canManage && <div className="product-row-actions">
-            <Button variant="ghost" size="sm" onClick={() => onEdit(product)} aria-label={`Edit ${product.name}`}>Edit</Button>
+            <Button variant="ghost" onClick={() => onEdit(product)} aria-label={`Edit ${product.name}`}>Edit</Button>
             <ActionMenu iconOnly label={`More actions for ${product.name}`} items={[
               { id: 'stock', label: 'Adjust Stock', icon: <RotateCcw size={16} />, onAction: () => onAdjustStock(product) },
               { id: 'delete', label: 'Delete product', icon: <Trash2 size={16} />, destructive: true, onAction: () => onDelete(product) },

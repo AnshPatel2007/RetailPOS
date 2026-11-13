@@ -343,7 +343,7 @@ export const InventoryTransfers: React.FC = () => {
                   onChange={(e) => updateItem(i, 'quantity', Number(e.target.value))}
                   className="w-20"
                 />
-                <Button variant="ghost" size="sm" type="button" aria-label={'Remove ' + products.find(p => p.id === item.productId)?.name} onClick={() => removeItem(i)} className="text-destructive hover:text-destructive">
+                <Button variant="ghost" type="button" aria-label={'Remove ' + products.find(p => p.id === item.productId)?.name} onClick={() => removeItem(i)} className="text-destructive hover:text-destructive">
                   <XCircle className="w-4 h-4" />
                 </Button>
               </div>
@@ -420,7 +420,6 @@ export const InventoryTransfers: React.FC = () => {
                 <>
                   <Button
                     variant="destructive"
-                    size="sm"
                     onClick={() => setConfirmState({
                       title: 'Cancel transfer?',
                       message: 'This transfer has not shipped yet — no stock will change.',
@@ -433,7 +432,6 @@ export const InventoryTransfers: React.FC = () => {
                   </Button>
                   <Button
                     variant="primary"
-                    size="sm"
                     onClick={() => setConfirmState({
                       title: 'Ship transfer?',
                       message: 'Stock will be deducted from the source location.',
@@ -447,9 +445,9 @@ export const InventoryTransfers: React.FC = () => {
               )}
               {canManage && fromLocationId === selectedTransfer.fromLocationId && <>
                 {((['IN_TRANSIT', 'PARTIALLY_RECEIVED'].includes(selectedTransfer.status) && selectedTransfer.items.some(item => outstandingTransfer(item) > 0)) || pendingTransferReceipt(transferRetryKey(selectedTransfer, user?.id, 'REQUEST_RETURN'))) && <Button variant="outline" onClick={() => setReceiptKind('REQUEST_RETURN')}>Request return</Button>}
-                {(selectedTransfer.items.some(item => returningTransfer(item) > 0) || pendingTransferReceipt(transferRetryKey(selectedTransfer, user?.id, 'SOURCE_RETURN'))) && <Button onClick={() => setReceiptKind('SOURCE_RETURN')}>Record returned goods</Button>}
+                {(selectedTransfer.items.some(item => returningTransfer(item) > 0) || pendingTransferReceipt(transferRetryKey(selectedTransfer, user?.id, 'SOURCE_RETURN'))) && <Button variant="primary" onClick={() => setReceiptKind('SOURCE_RETURN')}>Record returned goods</Button>}
               </>}
-              {canManage && fromLocationId === selectedTransfer.toLocationId && ((['IN_TRANSIT', 'PARTIALLY_RECEIVED'].includes(selectedTransfer.status) && selectedTransfer.items.some(item => outstandingTransfer(item) > 0)) || pendingTransferReceipt(transferRetryKey(selectedTransfer, user?.id, 'RECEIVE'))) && <Button onClick={() => setReceiptKind('RECEIVE')}>Receive or resolve delivery</Button>}
+              {canManage && fromLocationId === selectedTransfer.toLocationId && ((['IN_TRANSIT', 'PARTIALLY_RECEIVED'].includes(selectedTransfer.status) && selectedTransfer.items.some(item => outstandingTransfer(item) > 0)) || pendingTransferReceipt(transferRetryKey(selectedTransfer, user?.id, 'RECEIVE'))) && <Button variant="primary" onClick={() => setReceiptKind('RECEIVE')}>Receive or resolve delivery</Button>}
 
             </div>
           </div>

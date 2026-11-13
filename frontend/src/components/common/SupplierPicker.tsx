@@ -31,14 +31,14 @@ export function SupplierPicker({ locationId, selected, onSelect }: { locationId?
       <p className="truncate text-sm font-medium" role="status"><span className="sr-only">Selected supplier: </span>{selected.name}</p>
       {selected.minimumOrder ? <p className="text-xs text-muted-foreground">Minimum order {formatCurrency(selected.minimumOrder)}</p> : null}
     </div>
-    <Button type="button" variant="outline" size="sm" onClick={() => setChanging(true)}>Change</Button>
+    <Button type="button" variant="outline" onClick={() => setChanging(true)}>Change</Button>
   </div>;
 
   return <div className="space-y-2">
     <Input label="Supplier" autoFocus={changing} value={search} onChange={event => setSearch(event.target.value)} placeholder="Type a name, contact or email" />
     <div className="max-h-56 overflow-auto rounded-md border" aria-busy={loading}>
       {loading ? <div role="status" className="flex items-center gap-2 p-3 text-sm text-muted-foreground"><Spinner size="sm" />Finding suppliers…</div>
-        : query.error ? <div role="alert" className="flex items-center justify-between gap-2 p-3 text-sm">Suppliers didn't load.<Button type="button" size="sm" variant="outline" onClick={query.refresh}>Retry</Button></div>
+        : query.error ? <div role="alert" className="flex items-center justify-between gap-2 p-3 text-sm">Suppliers didn't load.<Button type="button" variant="outline" onClick={query.refresh}>Retry</Button></div>
         : <>
           {rows.map(supplier => <button type="button" key={supplier.id} aria-pressed={selected?.id === supplier.id}
             className="block min-h-11 w-full border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent aria-pressed:bg-primary/10"
@@ -50,6 +50,6 @@ export function SupplierPicker({ locationId, selected, onSelect }: { locationId?
           {more && <p className="px-3 py-2 text-xs text-muted-foreground">Showing the first {SHOWN}. Keep typing to narrow the list.</p>}
         </>}
     </div>
-    {changing && selected && <Button type="button" variant="ghost" size="sm" onClick={() => { setChanging(false); setSearch(''); }}>Keep {selected.name}</Button>}
+    {changing && selected && <Button type="button" variant="ghost" onClick={() => { setChanging(false); setSearch(''); }}>Keep {selected.name}</Button>}
   </div>;
 }

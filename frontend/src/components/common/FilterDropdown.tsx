@@ -23,7 +23,7 @@ export function FilterDropdown({ isOpen, onClose, children, title = 'Filters' }:
   ])));
   const body = child ? React.cloneElement(child, { filters: { ...child.props.filters, ...draft }, onFilterChange: setDraft, onClear: clear }) : children;
   const apply = () => { child?.props.onFilterChange(draft); onClose(); };
-  const footer = <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="button" onClick={apply}>Apply filters</Button></div>;
+  const footer = <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button variant="primary" type="button" onClick={apply}>Apply filters</Button></div>;
   return <><span ref={marker} hidden />{small ? <Modal isOpen={isOpen} onClose={onClose} title={title} size="sm" footer={footer}>{body}</Modal> :
     <ControlPopover triggerRef={anchor} isOpen={isOpen} onOpenChange={open => { if (!open) onClose(); }} placement="bottom end" className="filter-popover">
       <Dialog aria-label={title} className="filter-dialog outline-none"><div className="filter-body p-4">{body}</div><div className="border-t p-3">{footer}</div></Dialog>

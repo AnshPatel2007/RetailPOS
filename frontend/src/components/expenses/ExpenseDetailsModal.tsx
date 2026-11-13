@@ -219,7 +219,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
             {canApprove && (
               <>
                 <Button
-                  variant="default"
+                  variant="primary"
                   onClick={handleApprove}
                   disabled={isLoading}
                   className="bg-success hover:bg-success/90"

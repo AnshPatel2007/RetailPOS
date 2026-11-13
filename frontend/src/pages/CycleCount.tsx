@@ -334,7 +334,7 @@ export const CycleCount: React.FC = () => {
           </Button>
         </CardHeader>
         <CardContent>
-          {suggestions.error ? <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">Suggestions did not load.<Button size="sm" variant="outline" onClick={suggestions.refresh}>Retry</Button></div>
+          {suggestions.error ? <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">Suggestions did not load.<Button variant="outline" onClick={suggestions.refresh}>Retry</Button></div>
             : !suggestions.data ? <div className="flex justify-center py-4"><Spinner /></div>
             : !suggestions.data.length ? <p className="text-sm text-muted-foreground">Nothing to suggest: every tracked item is already on an open count or has a stock exception to resolve first.</p>
             : <>
@@ -448,7 +448,7 @@ export const CycleCount: React.FC = () => {
             </div>
           )}
           {createType === 'PARTIAL' && createLocationId && <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">{selectedProducts.map(product => <Button key={product.id} type="button" variant="outline" size="sm" onClick={() => setSelectedProducts(current => current.filter(p => p.id !== product.id))}>{product.name} ×</Button>)}</div>
+            <div className="flex flex-wrap gap-2">{selectedProducts.map(product => <Button key={product.id} type="button" variant="outline" onClick={() => setSelectedProducts(current => current.filter(p => p.id !== product.id))}>{product.name} ×</Button>)}</div>
             <ProductPicker locationId={createLocationId} selectedIds={selectedProducts.map(p => p.id)} onSelect={product => setSelectedProducts(current => [...current, product])} />
           </div>}
           <div>
@@ -554,7 +554,6 @@ export const CycleCount: React.FC = () => {
                 <>
                   <Button
                     variant="destructive"
-                    size="sm"
                     onClick={() => setConfirmState({
                       title: 'Cancel cycle count?',
                       message: 'Entered counts will be discarded and no inventory will be adjusted.',
@@ -565,12 +564,11 @@ export const CycleCount: React.FC = () => {
                   >
                     <XCircle className="w-4 h-4 mr-1" /> Cancel
                   </Button>
-                  <Button variant="outline" size="sm" onClick={handleSaveItems} disabled={busy || !unsavedItems.length}>
+                  <Button variant="outline" onClick={handleSaveItems} disabled={busy || !unsavedItems.length}>
                     <Eye className="w-4 h-4 mr-1" /> Save Progress
                   </Button>
                   <Button
                     variant="primary"
-                    size="sm"
                     disabled={busy || uncountedItems > 0}
                     title={uncountedItems > 0 ? `${uncountedItems} item${uncountedItems === 1 ? '' : 's'} still need a count` : undefined}
                     onClick={() => setConfirmState({
@@ -588,7 +586,6 @@ export const CycleCount: React.FC = () => {
                 <>
                   <Button
                     variant="destructive"
-                    size="sm"
                     onClick={() => setConfirmState({
                       title: 'Reject cycle count?',
                       message: 'The count will be cancelled and no inventory will be adjusted.',
@@ -601,7 +598,6 @@ export const CycleCount: React.FC = () => {
                   </Button>
                   <Button
                     variant="primary"
-                    size="sm"
                     onClick={() => setConfirmState({
                       title: 'Approve cycle count?',
                       message: `${selectedCount.items.filter(i => i.discrepancy && i.discrepancy !== 0).length} item(s) with discrepancies will have their inventory adjusted.`,

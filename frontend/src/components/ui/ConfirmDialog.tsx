@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { AlertTriangle, HelpCircle } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
-import { Spinner } from '@/components/ui/LoadingState';
+import { DialogActions } from '@/components/ui/DialogActions';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -41,7 +40,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     } else onClose();
   };
   return (
-    <Modal isOpen={isOpen} onClose={() => { if (!busy) onClose(); }} size="sm" label={title}>
+    <Modal isOpen={isOpen} onClose={() => { if (!busy) onClose(); }} size="sm" label={title}
+      footer={<DialogActions confirmLabel={confirmLabel} onConfirm={() => void confirm()} loading={busy} tone={destructive ? 'destructive' : 'primary'} onCancel={onClose} cancelLabel={cancelLabel} />}>
       <div className="flex items-start gap-4">
         <div className={destructive ? 'p-2 rounded-full bg-destructive/10 text-destructive shrink-0' : 'p-2 rounded-full bg-primary/10 text-primary shrink-0'}>
           {destructive ? <AlertTriangle className="h-5 w-5" /> : <HelpCircle className="h-5 w-5" />}
@@ -50,14 +50,6 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           <h2 className="text-lg font-semibold mb-1">{title}</h2>
           <div className="text-sm text-muted-foreground">{message}</div>
         </div>
-      </div>
-      <div className="flex justify-end gap-2 mt-6">
-        <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-          {cancelLabel}
-        </Button>
-        <Button type="button" variant={destructive ? 'destructive' : 'primary'} onClick={() => void confirm()} disabled={busy}>
-          {busy && <Spinner size="sm" className="border-current border-t-transparent" />}{confirmLabel}
-        </Button>
       </div>
     </Modal>
   );

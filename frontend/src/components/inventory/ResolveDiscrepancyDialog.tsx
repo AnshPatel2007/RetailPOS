@@ -109,7 +109,7 @@ export const ResolveDiscrepancyDialog: React.FC<{ detail: DiscrepancyDetail | nu
   return (
     <Modal isOpen={!!detail} onClose={onClose} title={`Resolve discrepancy: ${detail.product.name}`} size="lg"
       footer={<div className="flex justify-end gap-2"><Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button onClick={save} disabled={saving || lossTooHigh || (cause !== 'no_change' && !request)}>{saving ? 'Saving…' : 'Save'}</Button></div>}>
+        <Button variant="primary" onClick={save} disabled={saving || lossTooHigh || (cause !== 'no_change' && !request)}>{saving ? 'Saving…' : 'Save'}</Button></div>}>
       <div className="space-y-4 text-sm">
         <fieldset className="space-y-2">
           <legend className="mb-1 font-semibold">What happened?</legend>
@@ -124,9 +124,9 @@ export const ResolveDiscrepancyDialog: React.FC<{ detail: DiscrepancyDetail | nu
         {isReclass && <section className="space-y-3">
           <p className="font-medium">{cause === 'sold_as_other' ? 'Which product did the customer actually take?' : 'Which product was the delivery entered under?'}</p>
           {other ? <div className="flex items-center justify-between rounded-md border border-primary p-3"><span className="font-medium">{other.name}</span>
-            <Button size="sm" variant="outline" onClick={() => setOther(null)}>Change</Button></div> : <>
+            <Button variant="outline" onClick={() => setOther(null)}>Change</Button></div> : <>
             {detail.relatedProducts.length > 0 && <div className="flex flex-wrap gap-2">
-              {detail.relatedProducts.slice(0, 6).map(p => <Button key={p.id} size="sm" variant="outline" onClick={() => setOther({ id: p.id, name: p.name })} title={p.reasons.join(' · ')}>{p.name}</Button>)}
+              {detail.relatedProducts.slice(0, 6).map(p => <Button key={p.id} variant="outline" onClick={() => setOther({ id: p.id, name: p.name })} title={p.reasons.join(' · ')}>{p.name}</Button>)}
             </div>}
             <ProductPicker locationId={locationId} selectedIds={[detail.product.id]} onSelect={p => setOther({ id: p.id, name: p.name })} />
           </>}

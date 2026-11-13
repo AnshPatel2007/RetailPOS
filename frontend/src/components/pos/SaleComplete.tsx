@@ -68,7 +68,7 @@ export const SaleComplete: React.FC<SaleCompleteProps> = ({ sale, onPrint, onVie
           <span className="font-semibold">{label} </span>
           <span className="text-lg font-bold tabular-nums">{formatCurrency(amount)}</span>
         </p>
-        {onViewReceipt && <Button variant="outline" size="sm" onClick={onViewReceipt}>Receipt</Button>}
+        {onViewReceipt && <Button variant="outline" onClick={onViewReceipt}>Receipt</Button>}
         <button type="button" onClick={onDismiss} aria-label="Start a new sale" className="pos-cart-tool"><X className="h-4 w-4" /></button>
       </section>
     );
@@ -99,22 +99,22 @@ export const SaleComplete: React.FC<SaleCompleteProps> = ({ sale, onPrint, onVie
 
       {(sale.receipt || onEmail) && (
         <div className="flex flex-wrap gap-2">
-          {sale.receipt && onPrint && <Button variant="outline" size="sm" onClick={onPrint}><Printer className="h-4 w-4 mr-1.5" />Print receipt</Button>}
-          {onEmail && sale.saleId && !emailOpen && <Button variant="outline" size="sm" onClick={() => setEmailOpen(true)}><Mail className="h-4 w-4 mr-1.5" />Email</Button>}
-          {sale.receipt && onViewReceipt && <Button variant="ghost" size="sm" onClick={onViewReceipt}><ReceiptIcon className="h-4 w-4 mr-1.5" />View receipt</Button>}
+          {sale.receipt && onPrint && <Button variant="outline" onClick={onPrint}><Printer className="h-4 w-4 mr-1.5" />Print receipt</Button>}
+          {onEmail && sale.saleId && !emailOpen && <Button variant="outline" onClick={() => setEmailOpen(true)}><Mail className="h-4 w-4 mr-1.5" />Email</Button>}
+          {sale.receipt && onViewReceipt && <Button variant="ghost" onClick={onViewReceipt}><ReceiptIcon className="h-4 w-4 mr-1.5" />View receipt</Button>}
         </div>
       )}
       {emailOpen && (
         <form onSubmit={sendEmail} className="flex gap-2">
           <Input type="email" aria-label="Customer email" placeholder="customer@email.com" value={email} onChange={e => setEmail(e.target.value)} autoFocus required />
-          <Button type="submit" variant="primary" size="sm" disabled={!email.trim() || sending}>{sending ? 'Sending…' : 'Send'}</Button>
-          <Button type="button" variant="ghost" size="sm" aria-label="Close email receipt form" onClick={() => setEmailOpen(false)}><X className="h-4 w-4" /></Button>
+          <Button type="submit" variant="primary" disabled={!email.trim() || sending}>{sending ? 'Sending…' : 'Send'}</Button>
+          <Button type="button" variant="ghost" aria-label="Close email receipt form" onClick={() => setEmailOpen(false)}><X className="h-4 w-4" /></Button>
         </form>
       )}
 
       <div className="flex items-center justify-between gap-2 border-t pt-3">
         <p className="text-sm text-muted-foreground">Scan or tap the next item to start a new sale.</p>
-        <Button variant="ghost" size="sm" onClick={onDismiss}>New sale</Button>
+        <Button variant="ghost" onClick={onDismiss}>New sale</Button>
       </div>
     </section>
   );

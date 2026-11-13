@@ -116,9 +116,9 @@ export const PackCatalog: React.FC<{ locationId?: string | null; canManage: bool
                     : <div>{row.stockQuantity} in stock</div>}</TableCell>
                   {canManage && <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="outline" onClick={() => setConfirmOpen({ row, key: crypto.randomUUID() })} disabled={!canOpen(row) || openingId !== null}
+                      <Button variant="outline" onClick={() => setConfirmOpen({ row, key: crypto.randomUUID() })} disabled={!canOpen(row) || openingId !== null}
                         aria-label={`Open one ${row.name}`} title={openReason(row)}><PackageOpen size={14} />{openingId === row.id ? 'Opening…' : 'Open'}</Button>
-                      <Button size="sm" variant="outline" onClick={() => onEdit(row)} aria-label={`Edit ${row.name}`}>Edit</Button>
+                      <Button variant="outline" onClick={() => onEdit(row)} aria-label={`Edit ${row.name}`}>Edit</Button>
                     </div>
                   </TableCell>}
                 </TableRow>))}</TableBody>

@@ -26,9 +26,9 @@ export function ProductPicker({ locationId, selectedIds, onSelect, inStockOnly =
         {!products.length && <p className="p-3 text-sm text-muted-foreground">{inStockOnly ? 'No stocked products match this search.' : 'No tracked products match this search.'}</p>}
       </div>}
     <div className="flex justify-between items-center text-xs">
-      <Button type="button" size="sm" variant="outline" disabled={loading || page <= 1} onClick={() => setPage(n => n - 1)}>Previous</Button>
+      <Button type="button" variant="outline" disabled={loading || page <= 1} onClick={() => setPage(n => n - 1)}>Previous</Button>
       <span>Page {page} of {pages}</span>
-      <Button type="button" size="sm" variant="outline" disabled={loading || page >= pages} onClick={() => setPage(n => n + 1)}>Next</Button>
+      <Button type="button" variant="outline" disabled={loading || page >= pages} onClick={() => setPage(n => n + 1)}>Next</Button>
     </div>
   </div>;
 }

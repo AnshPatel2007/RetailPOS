@@ -63,7 +63,7 @@ export function LotteryDailyWorkbench({ locationId, date, onDateChange, readOnly
   }, [day, selectedView, setView, onNavigationChange]);
   useEffect(() => {
     onActionsChange(day?.id && !closed && manager && !readOnly && manualLottery(day.configuration) && selectedView === 'scratch'
-      ? <Button disabled={countsBlocked} onClick={() => setDialog({ kind: 'new' })}><Plus />Add book</Button>
+      ? <Button variant="primary" disabled={countsBlocked} onClick={() => setDialog({ kind: 'new' })}><Plus />Add book</Button>
       : closed && owner && !readOnly ? <ActionMenu label="Day actions" items={[
         ...(day?.canReopen ? [{ id: 'reopen', label: 'Reopen counts', onAction: () => { setReason(''); setConfirm('reopen'); } }] : []),
         { id: 'correct', label: 'Record correction', onAction: () => setConfirm('correction') },
@@ -102,7 +102,7 @@ export function LotteryDailyWorkbench({ locationId, date, onDateChange, readOnly
   return <div className="space-y-4">
     <div className="flex flex-wrap items-end justify-between gap-3"><div className="w-60 max-w-full"><Input label="Business date" type="date" value={date} onChange={e => { if (e.target.value) onDateChange(e.target.value); }} /></div>
       {day?.configured && day.configuration.mode !== 'DISABLED' && <div className="flex flex-wrap items-center gap-2 text-sm pb-1"><span className="rounded-md border px-2 py-1">{closed ? 'Closed' : day.id ? 'In progress' : 'Not started'}</span><span className="text-muted-foreground">{day.configuration.cashMode === 'SHARED' ? 'Shared checkout cash' : 'Separate lottery cash'}</span>{day.id && <span className="text-xs text-muted-foreground">{draft ? 'Unsaved changes retained' : 'Changes saved'}</span>}
-        {!day.id && !readOnly && <Button disabled={operation.blocked || !!storageError} onClick={() => void mutate('open')}>Start daily entry</Button>}
+        {!day.id && !readOnly && <Button variant="primary" disabled={operation.blocked || !!storageError} onClick={() => void mutate('open')}>Start daily entry</Button>}
       </div>}
     </div>
     <LotteryError error={query.error} retry={() => void query.refresh()} /><LotteryError error={storageError} /><LotteryRecovery operation={operation} />
@@ -132,8 +132,8 @@ export function LotteryDailyWorkbench({ locationId, date, onDateChange, readOnly
           <Button variant="outline" disabled={index === 0 || operation.busy} onClick={() => setView(stages[index - 1].id)}>Back</Button>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" disabled={!draft || operation.blocked || conflict || !!storageError} onClick={() => void saveReport()}>Save draft</Button>
-            {index < stages.length - 1 || draft ? <Button disabled={operation.blocked || conflict || !!storageError} onClick={() => void continueStage()}>{index === 2 ? 'Save & review' : 'Save & continue'}<ChevronRight /></Button>
-              : manager ? <Button disabled={countsBlocked || !day.readiness?.canClose} onClick={() => setConfirm('close')}><LockKeyhole />Close day</Button>
+            {index < stages.length - 1 || draft ? <Button variant="primary" disabled={operation.blocked || conflict || !!storageError} onClick={() => void continueStage()}>{index === 2 ? 'Save & review' : 'Save & continue'}<ChevronRight /></Button>
+              : manager ? <Button variant="primary" disabled={countsBlocked || !day.readiness?.canClose} onClick={() => setConfirm('close')}><LockKeyhole />Close day</Button>
               : <span className="self-center text-sm text-muted-foreground">A manager closes the day.</span>}
           </div>
         </div>}
@@ -142,7 +142,7 @@ export function LotteryDailyWorkbench({ locationId, date, onDateChange, readOnly
     {dialog && <LotteryBookDialog locationId={locationId} date={date} barcodeEnabled={!!day?.configuration.barcodeProfile} {...dialog} owner={owner} blocked={operation.blocked} error={operation.error}
       onClose={() => setDialog(null)} onSubmit={mutate} />}
     {reviewConflict && draft && day && <Modal isOpen title="Review changed report" size="xl" onClose={() => setReviewConflict(false)} footer={<div className="flex justify-end gap-2">
-      <Button variant="outline" onClick={() => setReviewConflict(false)}>Cancel</Button><Button onClick={() => { editor.rebase(); setReviewConflict(false); }}>Keep my reviewed draft</Button>
+      <Button variant="outline" onClick={() => setReviewConflict(false)}>Cancel</Button><Button variant="primary" onClick={() => { editor.rebase(); setReviewConflict(false); }}>Keep my reviewed draft</Button>
     </div>}><p className="text-sm text-muted-foreground mb-4">Compare saved figures with your draft before saving. Book counts stay unchanged.</p>
       <div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>Field</TableHead><TableHead>Saved report</TableHead><TableHead>Your draft</TableHead></TableRow></TableHeader><TableBody>
         {Object.keys(draft.report).filter(key => JSON.stringify(draft.report[key as keyof typeof draft.report]) !== JSON.stringify(day.report[key as keyof typeof day.report])).map(key =>
@@ -150,7 +150,7 @@ export function LotteryDailyWorkbench({ locationId, date, onDateChange, readOnly
       </TableBody></Table></div>
     </Modal>}
     {confirm && <Modal isOpen title={confirm === 'close' ? 'Close lottery day' : confirm === 'reopen' ? 'Reopen lottery counts' : 'Correct a closed lottery day'} size={confirm === 'correction' ? 'lg' : 'md'} onClose={() => { if (!operation.busy) setConfirm(null); }}
-      footer={<div className="flex justify-end gap-2"><Button variant="outline" disabled={operation.busy} onClick={() => setConfirm(null)}>Cancel</Button><Button disabled={operation.blocked || (confirm === 'reopen' && reason.trim().length < 3)} onClick={() => void mutate(confirm, confirm === 'reopen' ? { reason } : confirm === 'correction' ? { correction } : {})}>Confirm {confirm === 'close' ? 'close' : confirm === 'reopen' ? 'reopening' : 'correction'}</Button></div>}>
+      footer={<div className="flex justify-end gap-2"><Button variant="outline" disabled={operation.busy} onClick={() => setConfirm(null)}>Cancel</Button><Button variant="primary" disabled={operation.blocked || (confirm === 'reopen' && reason.trim().length < 3)} onClick={() => void mutate(confirm, confirm === 'reopen' ? { reason } : confirm === 'correction' ? { correction } : {})}>Confirm {confirm === 'close' ? 'close' : confirm === 'reopen' ? 'reopening' : 'correction'}</Button></div>}>
       <div className="space-y-4"><LotteryRecovery operation={operation} />
         {confirm === 'close' && <><p className="text-sm">Close {friendlyDate(date)} with the saved book counts and report totals.</p><dl className="space-y-2 text-sm">{[['Scratch sales', totals?.scratchSales], ['Online sales', totals?.onlineSales], ['Prizes paid', totals?.payouts], ['Net collections', totals?.netCollections], ['Lottery earnings', totals?.earnings]].map(([label, value]) => <div className="flex justify-between gap-3" key={label}><dt>{label}</dt><dd className="font-medium tabular-nums">{lotteryMoney(value)}</dd></div>)}</dl>{!totals?.earningsComplete && <p className="text-sm text-muted-foreground">Earnings remain pending. Net income stays incomplete until the missing information is confirmed.</p>}</>}
         {confirm === 'reopen' && <><p className="text-sm">Reverses this day’s earnings and restores opening numbers for review. The original close remains in history.</p><Input label="Reopening reason" value={reason} maxLength={2000} onChange={e => setReason(e.target.value)} /></>}

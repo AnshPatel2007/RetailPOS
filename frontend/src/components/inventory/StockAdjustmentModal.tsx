@@ -311,7 +311,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                 {cost.trim() !== '' && <Input label="Bought from" description="Optional supplier name" value={boughtFrom} onChange={e => setBoughtFrom(e.target.value)} maxLength={250} />}
                 {receipt.pending && (
                   <p role="status" className="text-sm">An earlier delivery is waiting for confirmation.{' '}
-                    <Button type="button" size="sm" variant="outline" onClick={() => void receipt.commit()} disabled={receipt.busy}>Retry it</Button></p>
+                    <Button type="button" variant="outline" onClick={() => void receipt.commit()} disabled={receipt.busy}>Retry it</Button></p>
                 )}
                 {receipt.error && <p role="alert" className="text-sm text-destructive">{receipt.error}</p>}
               </div>
@@ -333,7 +333,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting || receipt.busy || (isDelivery && !!receipt.pending)}>
+              <Button variant="primary" type="submit" disabled={isSubmitting || receipt.busy || (isDelivery && !!receipt.pending)}>
                 {isSubmitting || receipt.busy ? 'Saving...' : isDelivery ? 'Receive' : 'Adjust Stock'}
               </Button>
             </div>

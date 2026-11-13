@@ -54,7 +54,7 @@ export function LotterySimpleDaily({ locationId, date, onDateChange, readOnly, o
           : "Lottery isn't set up for this store yet. Ask the platform administrator to turn it on when you're ready to sell tickets."}</p></LotterySection>}
     {day?.configured && day.configuration.mode !== 'DISABLED' && report && <>
       {!closed && !started && <LotterySection title="Daily entry"><p className="text-sm text-muted-foreground">Opening numbers come from the previous entry, or the starting number in Ticket Setup.</p>
-        {!readOnly && <Button disabled={operation.blocked || !!storageError} onClick={() => void mutate('entry')}>Start daily entry</Button>}
+        {!readOnly && <Button variant="primary" disabled={operation.blocked || !!storageError} onClick={() => void mutate('entry')}>Start daily entry</Button>}
       </LotterySection>}
       {conflict && <div role="alert" className="rounded-lg border p-3 flex flex-wrap gap-3 items-center text-sm"><span>This entry changed in another session. Your draft is retained.</span><Button variant="outline" onClick={() => setCompare(true)}>Review updated report</Button><Button variant="ghost" onClick={editor.discard}>Use saved entry</Button></div>}
       {(started || closed) && <>{selected === 'scratch' ? <div className="space-y-4">
@@ -84,8 +84,8 @@ export function LotterySimpleDaily({ locationId, date, onDateChange, readOnly, o
       </div>}
       {!closed && !readOnly && <div className="border-t bg-background pt-3 pb-16 sm:pb-3 pr-16 flex flex-wrap justify-end gap-2">
         <Button variant="outline" disabled={!draft || operation.blocked || conflict || !!storageError} onClick={() => void saveReport()}>Save draft</Button>
-        {selected === 'scratch' ? <Button disabled={operation.blocked || conflict || !!storageError} onClick={async () => { if (await saveReport()) setView('online'); }}>Save & online sales</Button>
-          : manager && <Button disabled={operation.blocked || conflict || !!draft || !day.readiness?.canClose} onClick={async () => {
+        {selected === 'scratch' ? <Button variant="primary" disabled={operation.blocked || conflict || !!storageError} onClick={async () => { if (await saveReport()) setView('online'); }}>Save & online sales</Button>
+          : manager && <Button variant="primary" disabled={operation.blocked || conflict || !!draft || !day.readiness?.canClose} onClick={async () => {
             if (await confirmDay({ title: `Close the lottery day for ${friendlyDate(date)}?`, message: 'The entry is locked and its totals count in reports. Only the owner can reopen it.', confirmLabel: 'Close day' })) void mutate('close');
           }}>Close day</Button>}
           {!manager && selected !== 'scratch' && <p className="w-full text-right text-sm text-muted-foreground">A manager closes the day once everything is entered.</p>}
@@ -93,7 +93,7 @@ export function LotterySimpleDaily({ locationId, date, onDateChange, readOnly, o
       {closed && (manager || readOnly) && <LotteryDayHistory locationId={locationId} date={date} version={day.version} />}
       </>}
     </>}
-    {compare && day && draft && <Modal isOpen title="Review changed report" size="lg" onClose={() => setCompare(false)} footer={<div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setCompare(false)}>Cancel</Button><Button onClick={() => { editor.rebase(); setCompare(false); }}>Keep my reviewed draft</Button></div>}>
+    {compare && day && draft && <Modal isOpen title="Review changed report" size="lg" onClose={() => setCompare(false)} footer={<div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setCompare(false)}>Cancel</Button><Button variant="primary" onClick={() => { editor.rebase(); setCompare(false); }}>Keep my reviewed draft</Button></div>}>
       <p className="text-sm mb-4">Compare the saved amounts with your draft before replacing them.</p>
       <table className="w-full text-sm"><thead><tr><th className="text-left">Field</th><th>Saved</th><th>Your draft</th></tr></thead><tbody>
         {Object.entries(draft.report).filter(([key, value]) => !Array.isArray(value) && value !== day.report[key as keyof typeof day.report]).map(([key, value]) => <tr key={key}><td className="py-2">{formatEnumLabel(key.replace(/([a-z])([A-Z])/g, '$1_$2'))}</td><td className="text-center">{String(day.report[key as keyof typeof day.report] ?? 'Not entered')}</td><td className="text-center">{String(value ?? 'Not entered')}</td></tr>)}
@@ -103,7 +103,7 @@ export function LotterySimpleDaily({ locationId, date, onDateChange, readOnly, o
     {confirmDayDialog}
     <Modal isOpen={reopening} onClose={() => setReopening(false)} title="Reopen this lottery day?" size="sm"
       footer={<div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setReopening(false)}>Cancel</Button>
-        <Button disabled={reopenReason.trim().length < 3 || operation.blocked} onClick={() => { setReopening(false); void mutate('reopen', { reason: reopenReason.trim() }); }}>Reopen day</Button></div>}>
+        <Button variant="primary" disabled={reopenReason.trim().length < 3 || operation.blocked} onClick={() => { setReopening(false); void mutate('reopen', { reason: reopenReason.trim() }); }}>Reopen day</Button></div>}>
       <p className="mb-3 text-sm text-muted-foreground">Its totals leave reports until the day is closed again. The reason is kept in the day's history.</p>
       <Input label="Reason for reopening" value={reopenReason} maxLength={300} onChange={e => setReopenReason(e.target.value)} autoFocus />
     </Modal>

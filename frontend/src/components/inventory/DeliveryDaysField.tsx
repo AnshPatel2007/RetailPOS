@@ -29,7 +29,7 @@ export function DeliveryDaysField({ value, onChange, supplierId, className }: { 
     <p className="field-description">Reorder suggestions then cover until the delivery after next. Leave all off to plan two weeks ahead.</p>
     {differs && <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
       <span>Deliveries usually arrived on {list(suggested)} over the last {suggestion.data!.weeks} weeks.</span>
-      <Button type="button" size="sm" variant="outline" onClick={() => onChange(suggested)}>Use these days</Button>
+      <Button type="button" variant="outline" onClick={() => onChange(suggested)}>Use these days</Button>
     </div>}
   </fieldset>;
 }
