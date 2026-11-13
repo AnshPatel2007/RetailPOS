@@ -1,13 +1,15 @@
 import { test, expect, Page } from '@playwright/test';
 import { login } from './utils/auth-helper';
-import { openMenuSection } from './utils/menu-helper';
+import { expectStockExceptionNote, openMenuSection } from './utils/menu-helper';
 import { saleComplete } from './utils/sale-complete';
+import { NEW_LOOK } from './utils/look';
 
 const auth = async (page: Page) => ({ Authorization: 'Bearer ' + await page.evaluate(() => localStorage.getItem('token')) });
 const exceptionBadge = (page: Page) => page.locator('.page-tab-badge');
 const badgeCount = async (page: Page) => (await exceptionBadge(page).count()) ? Number(await exceptionBadge(page).textContent()) : 0;
 
 test('the menu folds into sections, one open at a time, and opens where you are', async ({ page }, info) => {
+  test.skip(NEW_LOOK, 'The New look has a top bar instead of a folding side menu: see top-bar.spec.ts');
   await login(page, 'owner@example.test');
   const menu = page.getByRole('navigation', { name: 'Main' }).filter({ visible: true });
   const heading = (title: string) => menu.getByRole('button', { name: title, exact: true });
@@ -60,8 +62,8 @@ test('the stock exception count changes as soon as a sale oversells and as soon 
   await expect.poll(() => badgeCount(page), { timeout: 10000 }).toBe(before + 1);
   await expect(exceptionBadge(page)).toHaveCSS('position', 'absolute');
   expect(Math.round((await exceptionsTab.boundingBox())!.height)).toBe(Math.round((await countsTab.boundingBox())!.height));
-  const stock = page.getByRole('link', { name: 'Stock Control', exact: true }).filter({ visible: true });
-  await expect(stock).toHaveAttribute('aria-description', new RegExp('^' + (before + 1) + ' inventory exceptions? needs? review$'));
+  const sentence = new RegExp('^' + (before + 1) + ' inventory exceptions? needs? review$');
+  await expectStockExceptionNote(page, sentence);
 
   // Resolving it brings the count straight back down.
   await page.reload();
@@ -75,7 +77,7 @@ test('the stock exception count changes as soon as a sale oversells and as soon 
   await expect.poll(() => badgeCount(page), { timeout: 10000 }).toBe(before);
 
   // A closed Products section still shows that something needs review.
-  if (before > 0) {
+  if (before > 0 && !NEW_LOOK) {
     await page.goto('/dashboard');
     const products = page.getByRole('navigation', { name: 'Main' }).filter({ visible: true }).getByRole('button', { name: 'Products', exact: true });
     if (await products.getAttribute('aria-expanded') === 'true') await products.click();

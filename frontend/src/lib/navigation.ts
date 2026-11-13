@@ -23,6 +23,11 @@ export interface NavSection { title?: string; items: NavLink[] }
 
 export const STOCK_CONTROL = '/inventory/stock-control';
 
+/** What each role is called on screen. */
+export const ROLE_NAMES: Record<string, string> = { ADMIN: 'Owner', MANAGER: 'Manager', CASHIER: 'Cashier', SUPER_ADMIN: 'Platform administrator' };
+/** Shorter section names for the top bar, where every word costs width. */
+export const SHORT_SECTION: Record<string, string> = { 'Money & reports': 'Money' };
+
 /**
  * The main menu, grouped by the job being done: selling first, then the
  * catalogue, customers, money, and store administration last.

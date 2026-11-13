@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { NEW_LOOK } from './utils/look';
 import { login } from './utils/auth-helper';
 import { openReceipt } from './utils/sale-complete';
 import { confirmInApp } from './utils/confirm-helper';
@@ -9,8 +10,14 @@ test('photo catalog and text-only cart keep six item rows visible on a laptop', 
   const status = page.getByRole('button', { name: 'Register recovery and connection status', exact: true }).filter({ visible: true });
   expect((await status.boundingBox())!.height).toBe(24);
   const store = page.locator('[data-sidebar-store-name]').filter({ visible: true });
-  const brand = page.getByText('POS System', { exact: true }).filter({ visible: true });
-  expect((await store.boundingBox())!.y - (await brand.boundingBox())!.y).toBeLessThan(36);
+  if (NEW_LOOK) {
+    // The top bar shows the store's name beside the mark.
+    await expect(store).toHaveText('Store A');
+    expect((await store.boundingBox())!.y).toBeLessThan(56);
+  } else {
+    const brand = page.getByText('POS System', { exact: true }).filter({ visible: true });
+    expect((await store.boundingBox())!.y - (await brand.boundingBox())!.y).toBeLessThan(36);
+  }
   await page.screenshot({ path: info.outputPath('compact-sidebar.png'), animations: 'disabled' });
   const headers = { Authorization: 'Bearer ' + await page.evaluate(() => localStorage.getItem('token')) };
   for (let index = 1; index <= 6; index++) expect((await page.request.post('/api/products', { headers, data: {

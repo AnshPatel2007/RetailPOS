@@ -9,7 +9,8 @@ import { useLayoutStore } from '@/store/layoutStore';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { useQuickFindStore } from '@/store/quickFindStore';
 import { cn } from '@/lib/utils';
-import { runsSeveralStores, sidebarSections, STOCK_CONTROL, type NavLink } from '@/lib/navigation';
+import { runsSeveralStores, sidebarSections, SHORT_SECTION, STOCK_CONTROL, type NavLink } from '@/lib/navigation';
+import { TopBar, type TopBarEntry, type TopBarLink } from './common/TopBar';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useInventoryExceptionCount } from '@/hooks/useInventoryExceptionCount';
 import { AdminViewBanner } from './AdminViewBanner';
@@ -43,8 +44,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { user, logout } = useAuthStore();
   const registerDevice = useRegisterStore(state => state.device);
   const lockRegister = useRegisterStore(state => state.lock);
-  const { theme, toggleTheme } = useThemeStore();
-  const { isSidebarCollapsed, isMobileMenuOpen, toggleSidebar, setMobileMenuOpen, openSection, setOpenSection } = useLayoutStore();
+  const { theme, toggleTheme, look } = useThemeStore();
+  const { isSidebarCollapsed: sidebarCollapsed, isMobileMenuOpen, toggleSidebar, setMobileMenuOpen, openSection, setOpenSection } = useLayoutStore();
+  // The New look has a top bar instead of a side menu; its phone drawer always shows names.
+  const topBar = look === 'new';
+  const isSidebarCollapsed = sidebarCollapsed && !topBar;
   const quickFind = useQuickFindStore();
   // Show which store you're operating — mirrors the POS top bar
   const settingsStoreName = useStoreSettingsStore((s) => s.storeInfo.storeName);
@@ -227,27 +231,15 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     </>
   );
 
-  return (
-    <div className="flex h-screen bg-background">
-      {/* Mobile menu button */}
-      <button
-        onClick={() => setMobileMenuOpen(true)}
-        className="lg:hidden fixed top-3 left-3 z-50 p-2 rounded-md bg-card border border-border shadow-sm hover:bg-accent transition-colors"
-        title="Open menu"
-        aria-label="Open menu"
-      >
-        <Menu className="h-5 w-5" />
-      </button>
-
-      {/* Mobile overlay */}
+  // Phone and tablet: the menu is a drawer in both looks.
+  const drawer = (
+    <>
       {isMobileMenuOpen && (
         <div
           className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
-
-      {/* Sidebar — mobile drawer */}
       <aside
         ref={mobileMenuRef}
         role={isMobileMenuOpen ? 'dialog' : undefined}
@@ -268,6 +260,55 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         </button>
         {sidebarContent('mobile')}
       </aside>
+    </>
+  );
+
+  // New look: the menu is a bar across the top and pages use the full width.
+  if (topBar) {
+    const link = (item: NavLink): TopBarLink => ({
+      name: item.name, href: item.href, icon: item.icon, active: isPathActive(location.pathname, item.href),
+      badge: item.href === STOCK_CONTROL && exceptionCount > 0 ? exceptionCount : undefined,
+      badgeLabel: item.href === STOCK_CONTROL ? exceptionLabel : undefined,
+    });
+    // Short menus (cashiers) stay a plain row; longer ones group their sections into drop-downs.
+    const entries: TopBarEntry[] = sections.flatMap<TopBarEntry>(section => showTitles && section.title
+      ? [{ title: SHORT_SECTION[section.title] || section.title, items: section.items.map(link) }]
+      : section.items.map(link));
+    return (
+      <div className="app-shell-top flex h-screen flex-col bg-background">
+        <TopBar label="Main" entries={entries}
+          brand={(user?.role === 'SUPER_ADMIN' ? isAdminViewing : (user?.stores?.length ?? 0) > 1)
+            ? <StoreSwitcher className="w-44" />
+            : <p className="app-topbar-store" data-sidebar-store-name>{storeName || 'POS System'}</p>}
+          tools={<OfflineIndicator variant="badge" compact showDetails />}
+          user={{ name: [user?.firstName, user?.lastName].filter(Boolean).join(' '), role: user?.role || '' }}
+          theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout}
+          onLock={user && canLockRegister(user, registerDevice) ? () => lockRegister(user.id) : undefined}
+          onFind={quickFind.open} findShortcut={quickFindShortcut}
+          onOpenMenu={() => setMobileMenuOpen(true)} menuLabel="Open menu" />
+        {drawer}
+        <main className="management-content flex-1 min-w-0 overflow-auto">
+          {isAdminViewing && <AdminViewBanner storeName={previewStoreName || 'Selected store'} />}
+          {children}
+        </main>
+        <QuickFind isOpen={quickFind.isOpen} onClose={quickFind.close} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen bg-background">
+      {/* Mobile menu button */}
+      <button
+        onClick={() => setMobileMenuOpen(true)}
+        className="lg:hidden fixed top-3 left-3 z-50 p-2 rounded-md bg-card border border-border shadow-sm hover:bg-accent transition-colors"
+        title="Open menu"
+        aria-label="Open menu"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+
+      {drawer}
 
       {/* Sidebar — desktop */}
       <aside

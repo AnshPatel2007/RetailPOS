@@ -1,161 +1,283 @@
 /*
- * The "New" look: modern and clean. One switchable layer over the same screens.
- * Everything here sits under :root[data-look="new"] (set from store/themeStore.ts),
- * so the Classic look is untouched. Blue stays the action color, dark mode stays
- * pure black, and control sizes stay as they are (the register fits 1366x768).
- * Whichever look the owner does not choose is deleted.
+ * The "New" look. A redesign, not a recolor (the owner rejected a first version
+ * that only restyled the Classic screens):
+ *   - the menu is a bar across the top (components/common/TopBar.tsx) and pages
+ *     use the full width;
+ *   - black is the action color, with one bright orange for what needs attention
+ *     and for taking money;
+ *   - big, heavy titles and numbers in Archivo; tight, sharp rows of data;
+ *   - the register has a category list down the left, tiles colored by
+ *     category, and a dark sale panel with an orange Charge button.
+ * Everything is under :root[data-look="new"] (store/themeStore.ts), so the
+ * Classic look is untouched. Whichever look the owner does not choose is deleted.
  */
 
 /* ---- Tokens ------------------------------------------------------------ */
 :root[data-look="new"] {
-  --radius: 0.625rem;
-  --canvas: 220 18% 95.5%;
-  --surface-subtle: 220 20% 97.5%;
-  --border: 220 16% 90.5%;
-  /* The soft grey fill of supporting buttons, and its hover and pressed steps. */
-  --control: 220 14% 92%;
-  --control-hover: 220 14% 87.5%;
-  --control-active: 220 13% 83%;
-  /* Filled blue surfaces that carry white text (main buttons, the menu pill). */
-  --primary-fill: 221.2 83.2% 53.3%;
-  --primary-hover: 221 83% 47%;
-  --primary-active: 221 83% 41%;
-  --ink: 222 30% 11%;
-  --elevation: 0 1px 2px rgb(16 24 40 / .06), 0 2px 8px rgb(16 24 40 / .05);
-  --elevation-raised: 0 2px 4px rgb(16 24 40 / .06), 0 8px 20px rgb(16 24 40 / .09);
+  --radius: 0.375rem;
+  --background: 0 0% 100%;
+  --foreground: 0 0% 7%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 7%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 7%;
+  --primary: 0 0% 7%;
+  --primary-foreground: 0 0% 100%;
+  --primary-text: 0 0% 7%;
+  --primary-hover: 0 0% 24%;
+  --secondary: 40 9% 93%;
+  --secondary-foreground: 0 0% 7%;
+  --muted: 40 9% 93%;
+  --muted-foreground: 30 4% 34%;
+  --accent: 40 9% 91%;
+  --accent-foreground: 0 0% 7%;
+  --border: 40 7% 86%;
+  --input: 40 5% 72%;
+  --ring: 0 0% 7%;
+  --canvas: 40 14% 95.5%;
+  --surface-subtle: 40 12% 96.5%;
+  /* The one bright color. It carries black text; --brand-text is its readable form on a light page. */
+  --brand: 24 95% 53%;
+  --brand-hover: 24 95% 47%;
+  --brand-foreground: 0 0% 7%;
+  --brand-text: 21 90% 34%;
+  --ink: 0 0% 7%;
+  --ink-foreground: 0 0% 100%;
+  --elevation: none;
+  --display: 'Archivo Variable', 'Inter Variable', Inter, system-ui, sans-serif;
 }
 :root[data-look="new"].dark {
+  --background: 0 0% 0%;
+  --foreground: 0 0% 98%;
+  --card: 0 0% 6.7%;
+  --card-foreground: 0 0% 98%;
+  --popover: 0 0% 6.7%;
+  --popover-foreground: 0 0% 98%;
+  /* Dark mode inverts the action color: white buttons with black words. */
+  --primary: 0 0% 98%;
+  --primary-foreground: 0 0% 7%;
+  --primary-text: 0 0% 98%;
+  --primary-hover: 0 0% 80%;
+  --secondary: 0 0% 13%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 0 0% 13%;
+  --muted-foreground: 0 0% 69%;
+  --accent: 0 0% 15%;
+  --accent-foreground: 0 0% 98%;
+  --border: 0 0% 17%;
+  --input: 0 0% 28%;
+  --ring: 24 95% 58%;
   --canvas: 0 0% 0%;
   --surface-subtle: 0 0% 9%;
-  --border: 0 0% 16.5%;
-  --control: 0 0% 15%;
-  --control-hover: 0 0% 19.5%;
-  --control-active: 0 0% 24%;
-  /* Dark mode's brighter blue is for text and outlines; white text needs this deeper fill (5:1). */
-  --primary-fill: 217 91% 50%;
-  --primary-hover: 217 91% 45%;
-  --primary-active: 217 91% 40%;
-  --ink: 0 0% 14%;
-  --elevation: none;
-  --elevation-raised: none;
+  --brand: 24 95% 55%;
+  --brand-hover: 24 95% 62%;
+  --brand-text: 28 95% 62%;
+  --ink: 0 0% 98%;
+  --ink-foreground: 0 0% 7%;
 }
 
-/* ---- Side menu: dark ink in the light theme; the dark theme keeps its black menu ---- */
-:root[data-look="new"]:not(.dark) .app-sidebar {
+/* Black surfaces in the light theme (top bar, phone drawer, register bar, sale panel) read their contents in dark-theme colors. */
+:root[data-look="new"]:not(.dark) .app-topbar,
+:root[data-look="new"]:not(.dark) .app-sidebar,
+:root[data-look="new"]:not(.dark) .pos-topbar,
+:root[data-look="new"]:not(.dark) .pos-cart {
   color-scheme: dark;
-  --background: 222 30% 11%;
-  --card: 222 30% 11%;
-  --foreground: 220 30% 96%;
-  --muted: 222 24% 18%;
-  --muted-foreground: 220 15% 72%;
-  --accent: 222 24% 18%;
+  --background: 0 0% 7%;
+  --card: 0 0% 7%;
+  --foreground: 0 0% 98%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 72%;
+  --accent: 0 0% 17%;
   --accent-foreground: 0 0% 100%;
-  --border: 222 22% 19%;
-  --input: 222 18% 28%;
+  --border: 0 0% 21%;
+  --input: 0 0% 32%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 0 0% 7%;
   --primary-text: 0 0% 100%;
+  --primary-hover: 0 0% 80%;
+  --ring: 24 95% 58%;
+  --brand-text: 28 95% 62%;
   --success-text: 142 65% 64%;
   --warning-text: 40 95% 64%;
   --destructive-text: 0 90% 74%;
   --info-text: 199 89% 64%;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  border-right-color: transparent;
 }
-:root[data-look="new"] .sidebar-link { border-radius: 8px; }
-/* The current page is a bright pill. */
-:root[data-look="new"] .sidebar-link[aria-current="page"] { background: hsl(var(--primary-fill)); color: #fff; font-weight: 600; }
 
-/* ---- Buttons ----------------------------------------------------------- */
-:root[data-look="new"] .app-button { transition: background-color .12s, box-shadow .12s; }
-/* The main action: solid blue, semi-bold, a light shadow. */
-:root[data-look="new"] .app-button[data-variant="primary"] { background: hsl(var(--primary-fill)); color: #fff; font-weight: 600; box-shadow: 0 1px 2px rgb(16 24 40 / .2), inset 0 1px 0 rgb(255 255 255 / .14); }
+/* ---- Top bar ----------------------------------------------------------- */
+.app-topbar { position: relative; z-index: 30; display: flex; flex-shrink: 0; align-items: center; gap: 8px; height: 56px; padding: 0 16px; }
+:root[data-look="new"].dark .app-topbar { background: hsl(0 0% 4%); border-bottom: 1px solid hsl(var(--border)); }
+.app-topbar-icon { flex-shrink: 0; width: 36px; height: 36px; align-items: center; justify-content: center; border-radius: 6px; color: hsl(var(--foreground) / .8); outline: none; }
+.app-topbar-icon:hover, .app-topbar-icon[data-hovered] { background: hsl(var(--foreground) / .12); color: hsl(var(--foreground)); }
+.app-topbar-brand { display: flex; min-width: 0; align-items: center; gap: 10px; margin-right: 12px; }
+.app-topbar-mark { display: flex; flex-shrink: 0; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 6px; background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); font: 800 16px/1 var(--display); }
+/* The store's name shows in full: it wraps onto a second line rather than being cut with dots. */
+.app-topbar-store { display: -webkit-box; max-width: 44vw; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; font: 700 14px/17px var(--display); letter-spacing: -.005em; }
+@media (min-width: 1280px) { .app-topbar-store { max-width: clamp(96px, calc(100vw - 1180px), 220px); } }
+/* If the menu ever outgrows the bar (a long store name, a zoomed screen) it scrolls instead of running under the tools. */
+.app-topbar-nav { display: none; flex: 1; min-width: 0; align-items: stretch; align-self: stretch; overflow-x: auto; scrollbar-width: none; }
+.app-topbar-nav::-webkit-scrollbar { display: none; }
+.app-topbar-link { position: relative; display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; padding: 0 12px; color: hsl(var(--foreground) / .7); font-size: 14px; font-weight: 600; white-space: nowrap; outline: none; cursor: default; }
+a.app-topbar-link { cursor: pointer; }
+.app-topbar-link:hover, .app-topbar-link[data-hovered], .app-topbar-link[data-pressed], .app-topbar-link[aria-expanded="true"] { background: hsl(var(--foreground) / .09); color: hsl(var(--foreground)); }
+.app-topbar-link[aria-current="page"], .app-topbar-link[data-current] { color: hsl(var(--foreground)); }
+/* The page you are on: an orange bar under its name. */
+.app-topbar-link[aria-current="page"]::after, .app-topbar-link[data-current]::after { content: ''; position: absolute; right: 12px; bottom: 0; left: 12px; height: 3px; border-radius: 3px 3px 0 0; background: hsl(var(--brand)); }
+.app-topbar-link:focus-visible, .app-topbar-link[data-focus-visible], .app-topbar-icon:focus-visible, .app-topbar-icon[data-focus-visible], .app-topbar-find[data-focus-visible] { outline: 2px solid hsl(var(--brand)); outline-offset: -2px; }
+.app-topbar-link-icon { display: none; }
+.app-topbar-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.app-topbar-tools { display: flex; flex-shrink: 0; align-items: center; gap: 8px; margin-left: auto; }
+.app-topbar-find { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border: 1px solid hsl(var(--foreground) / .22); border-radius: 6px; color: hsl(var(--foreground) / .8); font-size: 14px; outline: none; }
+.app-topbar-find:hover, .app-topbar-find[data-hovered] { background: hsl(var(--foreground) / .1); color: hsl(var(--foreground)); }
+.app-topbar-user { align-items: center; gap: 8px; height: 40px; padding: 0 4px; }
+.app-topbar-avatar { display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 999px; background: hsl(var(--foreground) / .16); font-size: 12px; font-weight: 700; }
+.app-topbar-menu { min-width: 230px; }
+.app-topbar-menu .control-option { min-height: 40px; font-weight: 500; }
+.app-topbar-menu .control-option[data-current] { font-weight: 700; box-shadow: inset 3px 0 0 hsl(var(--brand)); }
+.app-topbar .look-switch-bar { height: 36px; }
+.app-topbar .look-switch-bar .look-switch-label { display: none; }
+/* A small laptop (or a 1366px one at 125% zoom): the store's name and the word "Online" give way to the menu. */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .app-topbar-store { display: none; }
+  .app-topbar-brand { margin-right: 4px; }
+  .app-topbar-link { padding: 0 9px; }
+  .app-topbar-tools [aria-label="Register recovery and connection status"] > span { display: none; }
+}
+@media (min-width: 1024px) { .app-topbar-nav { display: flex; } }
+@media (min-width: 1500px) { .app-topbar-link-icon { display: block; opacity: .7; } .app-topbar-link { padding: 0 14px; } }
+@media (any-pointer: coarse), (max-width: 639px) { .app-topbar-icon { width: 44px; height: 44px; } .app-topbar-find { height: 44px; min-width: 44px; justify-content: center; } }
+/* The phone drawer's current page. */
+:root[data-look="new"] .sidebar-link[aria-current="page"] { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); font-weight: 700; }
+:root[data-look="new"] .look-switch button[aria-pressed="true"] { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); }
+
+/* ---- Type: heavy titles and numbers, in the display face --------------- */
+:root[data-look="new"] .management-content .page-header h1 { font-family: var(--display); font-size: 24px; line-height: 30px; font-weight: 800; font-stretch: 106%; letter-spacing: -.012em; }
+@media (min-width: 640px) {
+  :root[data-look="new"] .management-content .page-header h1 { font-size: 30px; line-height: 36px; }
+  /* The top bar already frames the page: less air above the title and under the header. */
+  :root[data-look="new"] .management-page, :root[data-look="new"] .management-content > div:has(> .page-header) { padding-top: 20px; }
+  :root[data-look="new"] .page-header { margin-bottom: 16px; }
+}
+:root[data-look="new"] .management-content h2, :root[data-look="new"] .management-content h3, :root[data-look="new"] .app-dialog h2, :root[data-look="new"] .app-dialog h3 { font-family: var(--display); font-weight: 700; letter-spacing: -.005em; }
+:root[data-look="new"] .summary-value, :root[data-look="new"] .metric-grid .metric-value { font-family: var(--display); font-weight: 800; letter-spacing: -.02em; }
+/* A link is black with an orange underline. */
+:root[data-look="new"] a.text-primary:not(.page-tab):not(.sidebar-link) { text-decoration: underline; text-decoration-color: hsl(var(--brand)); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+
+/* ---- Buttons and fields: solid black, crisp edges ---------------------- */
+:root[data-look="new"] .app-button { font-weight: 600; transition: background-color .12s, border-color .12s, color .12s; }
 :root[data-look="new"] .app-button[data-variant="primary"]:hover { background: hsl(var(--primary-hover)); }
-:root[data-look="new"] .app-button[data-variant="primary"]:active { background: hsl(var(--primary-active)); box-shadow: inset 0 1px 2px rgb(0 0 0 / .22); }
-:root[data-look="new"] .app-button[data-variant="destructive"] { font-weight: 600; box-shadow: 0 1px 2px rgb(16 24 40 / .2), inset 0 1px 0 rgb(255 255 255 / .12); }
-:root[data-look="new"] .app-button[data-variant="destructive"]:active { box-shadow: inset 0 1px 2px rgb(0 0 0 / .22); }
-/* Supporting actions: a soft grey fill, no outline. */
 :root[data-look="new"] .app-button[data-variant="outline"],
-:root[data-look="new"] .app-button[data-variant="secondary"],
-:root[data-look="new"] .page-action { border-color: transparent; background: hsl(var(--control)); }
-:root[data-look="new"] .app-button[data-variant="secondary"] { color: hsl(var(--foreground)); }
+:root[data-look="new"] .page-action { border-color: hsl(var(--foreground) / .24); background: hsl(var(--card)); }
 :root[data-look="new"] .app-button[data-variant="outline"]:hover,
-:root[data-look="new"] .app-button[data-variant="secondary"]:hover,
-:root[data-look="new"] .page-action:hover { background: hsl(var(--control-hover)); }
-:root[data-look="new"] .app-button[data-variant="outline"]:active,
-:root[data-look="new"] .app-button[data-variant="secondary"]:active,
-:root[data-look="new"] .page-action:active { background: hsl(var(--control-active)); }
-/* Minor actions are text only, with a clear hover and pressed state. */
-:root[data-look="new"] .app-button[data-variant="ghost"]:hover { background: hsl(var(--control)); }
-:root[data-look="new"] .app-button[data-variant="ghost"]:active { background: hsl(var(--control-hover)); }
-:root[data-look="new"] .page-action { border-radius: 8px; }
-/* Folded header actions stay a plain menu. */
+:root[data-look="new"] .page-action:hover { border-color: hsl(var(--foreground) / .6); background: hsl(var(--accent)); }
+:root[data-look="new"] .app-button[data-variant="secondary"] { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+:root[data-look="new"] .page-action { border-radius: 4px; font-weight: 600; }
 :root[data-look="new"] .header-more-menu > .app-button,
-:root[data-look="new"] .header-more-menu > .page-action { background: transparent; box-shadow: none; font-weight: 400; }
+:root[data-look="new"] .header-more-menu > .page-action { border-color: transparent; background: transparent; font-weight: 500; }
 :root[data-look="new"] .header-more-menu > .app-button:hover,
 :root[data-look="new"] .header-more-menu > .page-action:hover { background: hsl(var(--accent)); }
+:root[data-look="new"] .selection-control, :root[data-look="new"] .date-control { border-radius: 4px; }
 
-/* ---- Cards and panels: soft shadows, not thin borders; 12px corners ---- */
-:root[data-look="new"] .app-card,
-:root[data-look="new"] .data-panel,
-:root[data-look="new"] .summary-strip { border-radius: 12px; box-shadow: var(--elevation); }
-/* A card that sets its own border (a warning tint, a dashed drop zone) keeps it. */
-:root[data-look="new"]:not(.dark) .app-card:not([class*="border-"]),
-:root[data-look="new"]:not(.dark) .data-panel,
-:root[data-look="new"]:not(.dark) .summary-strip { border-color: transparent; }
-/* A card inside a card, panel or pop-up is a section, not a second layer. */
-:root[data-look="new"] .app-card .app-card:not([class*="border-"]),
-:root[data-look="new"] .data-panel .app-card:not([class*="border-"]),
-:root[data-look="new"] .app-dialog .app-card:not([class*="border-"]) { border-color: hsl(var(--border)); box-shadow: none; }
-:root[data-look="new"] .data-panel .table-scroll tbody tr:last-child td:first-child { border-bottom-left-radius: 12px; }
-:root[data-look="new"] .summary-strip-emphasis .summary-item:last-child { border-radius: 0 12px 12px 0; }
-:root[data-look="new"] .data-panel-summary .summary-strip { border-color: hsl(var(--border)); border-radius: 12px 12px 0 0; box-shadow: none; }
-:root[data-look="new"] .control-popover { border-radius: 12px; box-shadow: 0 12px 32px rgb(16 24 40 / .14), 0 2px 6px rgb(16 24 40 / .06); }
-:root[data-look="new"] .selection-control, :root[data-look="new"] .date-control { border-radius: 8px; }
+/* ---- Panels: flat, with a crisp border --------------------------------- */
+:root[data-look="new"] .app-card, :root[data-look="new"] .data-panel { border-radius: 8px; box-shadow: none; }
+:root[data-look="new"] .data-panel .table-scroll tbody tr:last-child td:first-child { border-bottom-left-radius: 8px; }
+:root[data-look="new"] .control-popover { border-radius: 8px; border-color: hsl(var(--foreground) / .16); }
+:root[data-look="new"] .app-dialog .dialog-footer { background: hsl(var(--surface-subtle)); }
 @media (min-width: 640px) {
-  :root[data-look="new"] .app-dialog { border-radius: 16px; box-shadow: 0 24px 60px rgb(16 24 40 / .22), 0 4px 12px rgb(16 24 40 / .08); }
-  :root[data-look="new"]:not(.dark) .app-dialog { border-color: transparent; }
-  :root[data-look="new"] .app-dialog .dialog-footer { border-radius: 0 0 16px 16px; }
+  :root[data-look="new"] .app-dialog { border-radius: 10px; border-color: hsl(var(--foreground) / .16); box-shadow: 0 24px 64px rgb(0 0 0 / .28); }
+  :root[data-look="new"] .app-dialog .dialog-footer { border-radius: 0 0 10px 10px; }
+  :root[data-look="new"] .app-dialog h2 { font-size: 20px; }
 }
 
-/* ---- Tabs: page tabs are underlined text; sub-tabs are a segmented control ---- */
-:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] > .page-tabs { gap: 4px; border-bottom: 1px solid hsl(var(--border)); padding-bottom: 0; }
-:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] .page-tab { margin-bottom: -1px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: hsl(var(--muted-foreground)); }
-:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] .page-tab:hover { color: hsl(var(--foreground)); border-bottom-color: hsl(var(--border)); }
-:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] .page-tab[aria-current="page"] { border-bottom-color: hsl(var(--primary)); color: hsl(var(--primary-text)); font-weight: 600; }
-:root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] > .page-tabs { flex: 0 1 auto; gap: 2px; padding: 3px; border-radius: 10px; background: hsl(var(--control)); }
-:root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab { border: 0; border-radius: 7px; background: transparent; color: hsl(var(--muted-foreground)); }
+/* ---- Numbers: separate tiles, the first one inverted ------------------- */
+:root[data-look="new"] .summary-strip { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+:root[data-look="new"] .summary-strip .summary-item { padding: 14px 16px; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--card)); }
+:root[data-look="new"] .summary-strip .summary-value { margin-top: 4px; font-size: 26px; line-height: 32px; }
+:root[data-look="new"] .summary-strip .summary-item:first-child[data-tone="default"] { border-color: hsl(var(--ink)); background: hsl(var(--ink)); color: hsl(var(--ink-foreground)); }
+:root[data-look="new"] .summary-strip .summary-item:first-child[data-tone="default"] dt,
+:root[data-look="new"] .summary-strip .summary-item:first-child[data-tone="default"] .summary-detail { color: hsl(var(--ink-foreground) / .72); }
+:root[data-look="new"] .summary-strip .summary-item:first-child[data-tone="default"] a { color: inherit; }
+:root[data-look="new"] .summary-strip .summary-item-linked:hover { border-color: hsl(var(--foreground) / .6); background: hsl(var(--card)); }
+:root[data-look="new"] .summary-strip .summary-item-linked:first-child[data-tone="default"]:hover { background: hsl(var(--ink) / .86); }
+:root[data-look="new"] .summary-strip-emphasis .summary-item:last-child { border-radius: 8px; }
+/* Inside a list's panel the tiles sit in the panel's top band, a little tighter so the list starts sooner. */
+:root[data-look="new"] .data-panel-summary { padding: 10px; border-bottom: 1px solid hsl(var(--border)); }
+:root[data-look="new"] .data-panel-summary .summary-strip .summary-item { padding: 10px 14px; }
+:root[data-look="new"] .data-panel-summary .summary-strip .summary-value { margin-top: 2px; font-size: 24px; line-height: 30px; }
+:root[data-look="new"] .data-panel-summary .summary-strip { border: 0; border-radius: 0; }
+@media (max-width: 639px) {
+  :root[data-look="new"] .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  :root[data-look="new"] .summary-strip .summary-item { padding: 12px; }
+  :root[data-look="new"] .summary-strip .summary-value { font-size: 22px; line-height: 28px; }
+}
+
+/* ---- Tabs: an orange bar under the page tab; a black pill for sub-tabs -- */
+:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] > .page-tabs { gap: 0; padding-bottom: 0; border-bottom: 1px solid hsl(var(--border)); }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] .page-tab { margin-bottom: -1px; padding: 0 14px; border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: hsl(var(--muted-foreground)); font-weight: 600; }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] .page-tab:hover { color: hsl(var(--foreground)); }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="primary"] .page-tab[aria-current="page"] { border-bottom-color: hsl(var(--brand)); color: hsl(var(--foreground)); font-weight: 700; }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] > .page-tabs { flex: 0 1 auto; gap: 2px; padding: 3px; border-radius: 6px; background: hsl(var(--accent)); }
+:root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab { border: 0; border-radius: 4px; background: transparent; color: hsl(var(--muted-foreground)); font-weight: 600; }
 :root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab:hover { color: hsl(var(--foreground)); }
-:root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab[aria-current="page"] { background: hsl(var(--card)); color: hsl(var(--foreground)); font-weight: 600; box-shadow: 0 1px 2px rgb(16 24 40 / .14); }
-:root[data-look="new"].dark .page-tab-scroll-shell[data-level="secondary"] .page-tab[aria-current="page"] { background: hsl(var(--control-active)); box-shadow: none; }
-/* The underline already separates the levels. */
+:root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab[aria-current="page"] { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
 :root[data-look="new"] .page-secondary-row, :root[data-look="new"] .page-tabs-secondary { border-top: 0; padding-top: 0; }
+:root[data-look="new"] .page-tab-badge { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); font-weight: 700; }
 
-/* ---- Tables: taller rows, a tinted heading row, a hover highlight ------ */
-:root[data-look="new"] .table-scroll th { height: 44px; background: hsl(var(--surface-subtle)); font-weight: 600; }
-:root[data-look="new"] .table-scroll tbody tr:hover { background: hsl(var(--primary) / .045); }
+/* ---- Tables: tight rows under small capital headings ------------------- */
+:root[data-look="new"] .table-scroll th { height: 36px; background: hsl(var(--surface-subtle)); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+:root[data-look="new"] .table-scroll tbody tr:hover { background: hsl(var(--accent) / .55); }
 @media (min-width: 640px) {
-  :root[data-look="new"] .table-scroll tbody td { height: 48px; }
+  :root[data-look="new"] .table-scroll tbody td { height: 40px; padding-top: 6px; padding-bottom: 6px; }
 }
-/* Statuses are tinted pills with a dot. */
-:root[data-look="new"] .app-badge { gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; }
+:root[data-look="new"] .app-badge { gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; font-weight: 600; }
 :root[data-look="new"] .app-badge:not(:has(svg))::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-
-/* ---- Titles ------------------------------------------------------------ */
-@media (min-width: 640px) {
-  :root[data-look="new"] .management-content .page-header h1 { font-size: 28px; line-height: 36px; font-weight: 700; letter-spacing: -.02em; }
-}
 
 /* ---- Register ---------------------------------------------------------- */
 :root[data-look="new"] .pos-workspace { background: hsl(var(--canvas)); }
-:root[data-look="new"]:not(.dark) .pos-topbar { border-bottom-color: transparent; box-shadow: 0 1px 0 hsl(var(--border)), 0 2px 6px rgb(16 24 40 / .04); }
-:root[data-look="new"] .pos-category { border-color: transparent; border-radius: 999px; background: hsl(var(--control)); }
-:root[data-look="new"] .pos-category:hover { background: hsl(var(--control-hover)); }
-:root[data-look="new"] .pos-category.is-selected { background: hsl(var(--primary-fill)); border-color: transparent; color: #fff; font-weight: 600; }
-:root[data-look="new"] .pos-product-button { border-radius: 12px; box-shadow: var(--elevation); transition: box-shadow .12s, background-color .12s; }
-:root[data-look="new"]:not(.dark) .pos-product-button { border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; }
-:root[data-look="new"]:not(.dark) .pos-product-tile:not(.is-text) .pos-product-button { border-left-color: transparent; }
-:root[data-look="new"] .pos-product-button:hover { box-shadow: var(--elevation-raised); }
-:root[data-look="new"]:not(.dark) .pos-desktop-cart { border-left-color: transparent; box-shadow: -1px 0 0 hsl(var(--border)), -8px 0 24px rgb(16 24 40 / .05); }
-/* The Total sits on a dark bar in larger type. */
-:root[data-look="new"] .pos-cart-total { align-items: center; margin-top: 8px; padding: 8px 14px; border-top: 0; border-radius: 10px; background: hsl(var(--ink)); color: #fff; font-size: 26px; line-height: 32px; font-weight: 700; }
-:root[data-look="new"] .pos-cart-total > span:first-child { font-size: 14px; line-height: 20px; font-weight: 600; opacity: .82; }
+:root[data-look="new"] .pos-topbar { border-bottom-color: transparent; }
+:root[data-look="new"].dark .pos-topbar { background: hsl(0 0% 4%); border-bottom-color: hsl(var(--border)); }
+:root[data-look="new"] .pos-product-search input { height: 48px; border-color: hsl(var(--foreground) / .24); font-size: 16px; }
+/* Categories: a row of chips on a phone, a list down the left from tablet width. */
+:root[data-look="new"] .pos-category { gap: 8px; border-color: hsl(var(--border)); border-radius: 6px; background: hsl(var(--card)); color: hsl(var(--foreground)); font-weight: 600; }
+:root[data-look="new"] .pos-category:hover { border-color: hsl(var(--foreground) / .6); background: hsl(var(--card)); }
+:root[data-look="new"] .pos-category.is-selected { border-color: hsl(var(--primary)); background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+:root[data-look="new"] .pos-category-dot:not([data-own-color]) { display: block; }
+:root[data-look="new"] .pos-category-dot { width: 10px; height: 10px; border-radius: 3px; }
+@media (min-width: 900px) {
+  :root[data-look="new"] .pos-catalog { display: grid; grid-template-columns: 188px minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
+  :root[data-look="new"] .pos-catalog > * { grid-column: 1 / -1; grid-row: 1; }
+  :root[data-look="new"] .pos-catalog > .pos-product-search { grid-row: 2; padding: 14px 16px 12px; }
+  :root[data-look="new"] .pos-catalog > .pos-category-bar { grid-column: 1; grid-row: 3; min-height: 0; overflow-y: auto; padding: 0 0 16px 16px; }
+  :root[data-look="new"] .pos-catalog > .pos-catalog-scroll { grid-column: 2; grid-row: 3; padding: 0 16px 24px 12px; }
+  :root[data-look="new"] .pos-catalog:not(:has(> .pos-category-bar)) > .pos-catalog-scroll { grid-column: 1 / -1; padding-left: 16px; }
+  :root[data-look="new"] .pos-category-list { flex-direction: column; gap: 6px; overflow: visible; padding-right: 0; }
+  :root[data-look="new"] .pos-category-fade { display: none; }
+  :root[data-look="new"] .pos-category { width: 100%; height: 44px; justify-content: flex-start; padding: 0 12px; }
+}
+/* Tiles: bigger, with the category's color across the top and as a light wash. */
+:root[data-look="new"] .pos-product-grid.is-text { grid-template-columns: repeat(auto-fill, minmax(164px, 1fr)); gap: 10px; }
+:root[data-look="new"] .pos-product-button,
+:root[data-look="new"] .pos-product-tile.is-text .pos-product-button { border: 1px solid hsl(var(--border)); border-top: 4px solid var(--tile-tint, hsl(var(--border))); border-radius: 8px; background: color-mix(in srgb, var(--tile-tint, hsl(var(--card))) 8%, hsl(var(--card))); }
+:root[data-look="new"] .pos-product-tile.is-text .pos-product-button { min-height: 104px; padding: 10px 12px 12px; }
+:root[data-look="new"] .pos-product-button:hover { border-color: hsl(var(--foreground)); border-top-color: var(--tile-tint, hsl(var(--foreground))); background: color-mix(in srgb, var(--tile-tint, hsl(var(--card))) 16%, hsl(var(--card))); }
+:root[data-look="new"] .pos-product-name { font-weight: 600; }
+:root[data-look="new"] .pos-product-price, :root[data-look="new"] .pos-product-tile.is-text .pos-product-price { font-family: var(--display); font-size: 20px; line-height: 26px; font-weight: 800; letter-spacing: -.02em; }
+:root[data-look="new"] .pos-product-favorite { background: transparent; }
+:root[data-look="new"] .pos-product-qty { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); }
+/* The sale panel: dark, with the Total large and Charge in orange. */
+:root[data-look="new"] .pos-desktop-cart { border-left-color: transparent; }
+:root[data-look="new"].dark .pos-desktop-cart { border-left-color: hsl(var(--border)); }
+:root[data-look="new"] .pos-cart-header h2 { font-family: var(--display); font-size: 18px; font-weight: 800; }
+:root[data-look="new"] .pos-cart-total { align-items: baseline; font-family: var(--display); font-size: 30px; line-height: 36px; font-weight: 800; }
+:root[data-look="new"] .pos-cart-total > span:first-child { font-family: inherit; font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: hsl(var(--muted-foreground)); }
+/* Taking money is the orange button, here and in Payment. */
+:root[data-look="new"] .pos-cart-footer .app-button[data-variant="primary"],
+:root[data-look="new"] .pos-payment-dialog .dialog-footer .app-button[data-variant="primary"],
+:root[data-look="new"] .pos-mobile-cart-button { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); font-family: var(--display); font-weight: 800; }
+:root[data-look="new"] .pos-cart-footer .app-button[data-variant="primary"]:hover,
+:root[data-look="new"] .pos-payment-dialog .dialog-footer .app-button[data-variant="primary"]:hover,
+:root[data-look="new"] .pos-mobile-cart-button:hover { background: hsl(var(--brand-hover)); }
+:root[data-look="new"] .pos-cart-footer .app-button[data-variant="primary"] { font-size: 18px; }
+:root[data-look="new"] .pos-cart-footer .app-button[data-variant="outline"] { border-color: hsl(var(--foreground) / .3); background: transparent; }
+:root[data-look="new"] .pos-cart-footer .app-button[data-variant="outline"]:hover { border-color: hsl(var(--foreground) / .7); background: hsl(var(--accent)); }

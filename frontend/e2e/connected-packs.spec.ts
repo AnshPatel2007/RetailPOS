@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { login } from './utils/auth-helper';
+import { expectStockExceptionNote } from './utils/menu-helper';
 
 const auth = async (page: Page) => ({ Authorization: 'Bearer ' + await page.evaluate(() => localStorage.getItem('token')) });
 
@@ -56,5 +57,5 @@ test('items under the target margin are listed with a rounded-up price, and exce
   await page.goto('/inventory/stock-control/exceptions');
   await expect(page.getByLabel(/\d+ need review/)).toBeVisible();
   // The count describes the Stock Control link; its name stays "Stock Control".
-  await expect(page.getByRole('link', { name: 'Stock Control', exact: true }).filter({ visible: true })).toHaveAttribute('aria-description', /^\d+ inventory exceptions? needs? review$/);
+  await expectStockExceptionNote(page, /^\d+ inventory exceptions? needs? review$/);
 });

@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import '@fontsource-variable/inter';
+// The New look's display face for titles and numbers; the files load only when a page uses it.
+import '@fontsource-variable/archivo/wdth.css';
 import App from './App';
 import './index.css';
 import './styles/controls.css';

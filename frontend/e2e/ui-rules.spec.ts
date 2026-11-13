@@ -135,7 +135,9 @@ test('register tools are words, and Payment keeps its buttons in the footer', as
   await page.setViewportSize({ width: 1366, height: 768 });
   await login(page, 'owner@example.test');
   await page.goto('/pos');
-  await page.locator('.pos-product-button').filter({ visible: true }).first().click();
+  // A known plain item: other specs add age-restricted ones that would ask for an ID first.
+  await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).fill('Fixture Coffee');
+  await page.getByRole('button', { name: /^Fixture Coffee/ }).first().click();
   const cart = page.locator('[data-sale-cart]').filter({ visible: true });
   // Held, Refund, Clear (and Reprint after a sale): each is a word, never only an icon.
   const tools = cart.locator('.pos-cart-tools button');

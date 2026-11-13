@@ -2,8 +2,8 @@ import { Lock, LogOut, Moon, Sun } from 'lucide-react';
 import { Button } from 'react-aria-components';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { LookSwitch } from './LookSwitch';
+import { ROLE_NAMES as roles } from '@/lib/navigation';
 
-const roles: Record<string, string> = { ADMIN: 'Owner', MANAGER: 'Manager', CASHIER: 'Cashier', SUPER_ADMIN: 'Platform administrator' };
 const iconButton = 'app-button inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&>svg]:h-4 [&>svg]:w-4';
 
 export function SidebarUserFooter({ name, role, theme, onToggleTheme, onLogout, onLock, collapsed = false, themeLabel = 'Toggle theme' }: {

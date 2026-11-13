@@ -5,5 +5,5 @@
  */
 export const NEW_LOOK = process.env.E2E_LOOK === 'new';
 
-/** Page titles: 24px in Classic; the New look uses 28px from tablet width up. */
-export const titleSize = (width: number) => NEW_LOOK && width >= 640 ? '28px' : '24px';
+/** Page titles: 24px in Classic; the New look uses 30px from tablet width up. */
+export const titleSize = (width: number) => NEW_LOOK && width >= 640 ? '30px' : '24px';

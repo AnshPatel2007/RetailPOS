@@ -4,6 +4,7 @@ import { formatCurrency } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CategoryTabs } from '@/components/pos/CategoryTabs';
+import { categoryTint } from '@/lib/categoryColor';
 import { Search, Scan, Star, PackageSearch, Package, CheckCircle2, AlertTriangle, Loader2, X } from 'lucide-react';
 import { hardware } from '@/services/hardware';
 
@@ -96,6 +97,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
     />
   ) : null;
   const accent = accentColor(product);
+  const tint = accent || categoryTint(product.category);
 
   return (
     <div className={`pos-product-tile relative group${layout === 'text' ? ' is-text' : ''}`}>
@@ -104,7 +106,8 @@ const ProductCard: React.FC<ProductCardProps> = ({
         disabled={saleBlocked}
         type="button"
         title={product.name}
-        style={accent ? { '--tile-accent': accent } as React.CSSProperties : undefined}
+        // --tile-accent is the store's own category color; --tile-tint always has one (the New look colors every tile by category).
+        style={{ ...(accent ? { '--tile-accent': accent } : {}), ...(tint ? { '--tile-tint': tint } : {}) } as React.CSSProperties}
         className={`pos-product-button w-full text-left border border-border rounded-lg bg-card transition-colors ${
           saleBlocked
             ? 'opacity-50 cursor-not-allowed'
