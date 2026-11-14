@@ -2,7 +2,7 @@ import { formatCurrency } from '@/lib/utils';
 import React, { useState } from 'react';
 import JsBarcode from 'jsbarcode';
 import { Modal } from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Product } from '@/types';
 import { Printer, Minus, Plus } from 'lucide-react';
@@ -185,23 +185,24 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
   };
 
   if (printed && onPrinted) return (
-    <Modal isOpen={isOpen} onClose={() => { if (!marking) onClose(); }} title="Did the labels print?" size="sm">
+    <Modal isOpen={isOpen} onClose={() => { if (!marking) onClose(); }} title="Did the labels print?" size="sm"
+      footer={<DialogActions onCancel={() => setPrinted(null)} cancelLabel="Not yet" confirmLabel="Yes, mark printed" onConfirm={() => void confirmPrinted()} loading={marking} />}>
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
           Mark {printed.length === 1 ? 'this item' : `these ${printed.length} items`} printed once the new labels are on the shelf.
           {' '}They leave Labels to print until their price changes again.
         </p>
         {problem && <p role="alert" className="text-sm text-destructive">{problem}</p>}
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="outline" disabled={marking} onClick={() => setPrinted(null)}>Not yet</Button>
-          <Button variant="primary" disabled={marking} onClick={() => void confirmPrinted()}>{marking ? 'Saving…' : 'Yes, mark printed'}</Button>
-        </div>
       </div>
     </Modal>
   );
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Print Barcode Labels" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title="Print Barcode Labels" size="lg"
+      footer={<div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-sm text-muted-foreground">{totalLabels} label{totalLabels !== 1 ? 's' : ''} to print</span>
+        <DialogActions onCancel={onClose} confirmLabel={<><Printer aria-hidden="true" />Print Labels</>} onConfirm={handlePrint} disabled={totalLabels === 0} />
+      </div>}>
       <div className="space-y-4">
         {/* Label size selector */}
         <div>
@@ -255,18 +256,6 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
         </div>
 
         {problem && <p role="alert" className="text-sm text-destructive">{problem}</p>}
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-sm text-muted-foreground">
-            {totalLabels} label{totalLabels !== 1 ? 's' : ''} to print
-          </span>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button variant="primary" onClick={handlePrint} disabled={totalLabels === 0}>
-              <Printer className="h-4 w-4 mr-2" />
-              Print Labels
-            </Button>
-          </div>
-        </div>
       </div>
     </Modal>
   );

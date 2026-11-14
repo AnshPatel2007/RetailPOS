@@ -5,6 +5,7 @@ import { Upload, Camera, Loader2, Check, AlertTriangle, Trash2 } from 'lucide-re
 import { productService, purchaseOrderService } from '@/services/api';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { sessionGeneration } from '@/services/sessionGeneration';
@@ -269,8 +270,27 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
 
   if (!isOpen) return null;
 
+  // The footer follows the steps: choose a photo and scan it, check the suggested lines, apply the reviewed import.
+  const footer = workflow.pending
+    ? <DialogActions onCancel={resetAndClose} confirmLabel="Retry saved import" onConfirm={() => void workflow.commit()} loading={workflow.busy} />
+    : workflow.result
+      ? <DialogActions confirmLabel="Done" onConfirm={resetAndClose} />
+      : workflow.preview
+        ? <DialogActions onCancel={resetAndClose} loading={workflow.busy}
+          {...(workflow.preview.id ? { confirmLabel: 'Apply reviewed import', onConfirm: () => void workflow.commit() } : {})}>
+          <Button disabled={workflow.busy} onClick={workflow.resetPreview}>Back to edit</Button>
+        </DialogActions>
+        : step === 'upload'
+          ? <DialogActions onCancel={resetAndClose} confirmLabel={<><Camera aria-hidden="true" />Scan Receipt</>} onConfirm={() => void handleScan()} disabled={!selectedFile} />
+          : step === 'review'
+            ? <DialogActions onCancel={resetAndClose} loading={isApplying} disabled={items.length === 0} onConfirm={() => void handleApply()}
+              confirmLabel={<><Check aria-hidden="true" />Review import ({items.length} item{items.length !== 1 ? 's' : ''})</>}>
+              <Button onClick={() => { setStep('upload'); setItems([]); }}>Re-scan</Button>
+            </DialogActions>
+            : undefined;
+
   return (
-    <Modal isOpen={isOpen} onClose={resetAndClose} size="xl" title={step === 'review' ? 'Review Scanned Items' : step === 'scanning' ? 'Analyzing Receipt...' : 'Scan Supplier Receipt'}>
+    <Modal isOpen={isOpen} onClose={resetAndClose} size="xl" title={step === 'review' ? 'Review Scanned Items' : step === 'scanning' ? 'Analyzing Receipt...' : 'Scan Supplier Receipt'} footer={footer}>
           {(error || workflow.error) && (
             <div role="alert" className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm mb-4 flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -278,9 +298,9 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
             </div>
           )}
 
-          {workflow.pending && <div className="space-y-3"><p>A saved receipt import needs confirmation.</p><Button variant="primary" disabled={workflow.busy} onClick={workflow.commit}>Retry saved import</Button></div>}
-          {workflow.result && <div role="status"><p>Import complete: {workflow.result.created} created, {workflow.result.updated} updated.</p><Button variant="primary" className="mt-3" onClick={resetAndClose}>Done</Button></div>}
-          {workflow.preview && !workflow.pending && <div className="space-y-4"><ImportReview preview={workflow.preview} /><div className="flex flex-wrap gap-2 justify-end"><Button variant="outline" disabled={workflow.busy} onClick={workflow.resetPreview}>Back to edit</Button>{workflow.preview.id && <Button variant="primary" disabled={workflow.busy} onClick={workflow.commit}>Apply reviewed import</Button>}</div></div>}
+          {workflow.pending && <p>A saved receipt import needs confirmation.</p>}
+          {workflow.result && <p role="status">Import complete: {workflow.result.created} created, {workflow.result.updated} updated.</p>}
+          {workflow.preview && !workflow.pending && <ImportReview preview={workflow.preview} />}
           {/* Step 1: Upload */}
           {step === 'upload' && !workflow.pending && !workflow.result && (
             <div className="space-y-6">
@@ -322,20 +342,6 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                   onChange={handleFileSelect}
                   className="hidden"
                 />
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={resetAndClose}>
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={handleScan}
-                  disabled={!selectedFile}
-                >
-                  <Camera className="h-4 w-4 mr-2" />
-                  Scan Receipt
-                </Button>
               </div>
             </div>
           )}
@@ -559,34 +565,6 @@ export const ReceiptScanModal: React.FC<ReceiptScanModalProps> = ({
                 </div>
               )}
 
-              {/* Actions */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t">
-                <Button variant="outline" onClick={() => { setStep('upload'); setItems([]); }}>
-                  Re-scan
-                </Button>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={resetAndClose}>
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="primary"
-                    onClick={handleApply}
-                    disabled={isApplying || items.length === 0}
-                  >
-                    {isApplying ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Reviewing...
-                      </>
-                    ) : (
-                      <>
-                        <Check className="h-4 w-4 mr-2" />
-                        Review import ({items.length} item{items.length !== 1 ? 's' : ''})
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
             </div>
           )}
     </Modal>

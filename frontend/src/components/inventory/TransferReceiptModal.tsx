@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { ProductPicker } from '@/components/common/ProductPicker';
 import { inventoryTransferService } from '@/services/api';
@@ -81,7 +82,9 @@ export function TransferReceiptModal({ transfer, kind, onClose, onSaved }: Props
     } finally { submitting.current = false; setSaving(false); }
   };
   const title = kind === 'RECEIVE' ? 'Receive transfer' : kind === 'SOURCE_RETURN' ? 'Record returned goods' : 'Request a return';
-  return <Modal isOpen onClose={() => { if (!saving) onClose(); }} title={title} size="xl">
+  return <Modal isOpen onClose={() => { if (!saving) onClose(); }} title={title} size="xl"
+    footer={<DialogActions onCancel={onClose} loading={saving} disabled={!pending && mappingLoading} onConfirm={() => void save()}
+      confirmLabel={pending ? 'Retry saved event' : kind === 'REQUEST_RETURN' ? 'Send return request' : 'Record quantities'} />}>
     <div className="space-y-4">
       <p className="text-sm font-medium break-all">{transfer.transferNumber}</p>
       <p className="text-sm text-muted-foreground">{kind === 'REQUEST_RETURN' ? 'This request asks the destination to send unreceived goods back. Source stock changes only when returned goods physically arrive and are recorded.' : kind === 'SOURCE_RETURN' ? 'Record goods physically returned to the source. Only accepted units become available stock.' : 'Accepted units enter destination stock. Record Send back only when those units are dispatched back to the source. Goods still expected should remain unresolved.'}</p>
@@ -117,7 +120,6 @@ export function TransferReceiptModal({ transfer, kind, onClose, onSaved }: Props
         })}
         <label className="block text-sm font-medium">Reason / notes<textarea value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} className="mt-1 block w-full min-h-[80px] rounded border border-input bg-background p-3" /></label>
       </fieldset>
-      <div className="flex justify-end gap-2"><Button className="min-h-11" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button variant="primary" className="min-h-11" disabled={saving || (!pending && mappingLoading)} onClick={save}>{saving ? 'Saving…' : pending ? 'Retry saved event' : kind === 'REQUEST_RETURN' ? 'Send return request' : 'Record quantities'}</Button></div>
     </div>
   </Modal>;
 }

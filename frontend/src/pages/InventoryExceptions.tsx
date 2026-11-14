@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { ResolveDiscrepancyDialog, DiscrepancyDetail } from '@/components/inventory/ResolveDiscrepancyDialog';
@@ -198,10 +199,9 @@ export const InventoryExceptions: React.FC = () => {
       </Table>}
 
       <Modal isOpen={!!detail && !resolving} onClose={() => setDetail(null)} title={detail ? `Inventory discrepancy: ${detail.product.name}` : ''} size="lg"
-        footer={detail && detail.status !== 'RESOLVED' && !isReadOnly ? <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="outline" onClick={requestRecount} disabled={saving || detail.status === 'RECOUNT_REQUESTED'}>Mark for recount</Button>
-          <Button variant="primary" onClick={() => setResolving(detail)}>Resolve discrepancy</Button>
-        </div> : undefined}>
+        footer={detail && detail.status !== 'RESOLVED' && !isReadOnly ? <DialogActions confirmLabel="Resolve discrepancy" onConfirm={() => setResolving(detail)}>
+          <Button onClick={() => void requestRecount()} disabled={saving || detail.status === 'RECOUNT_REQUESTED'}>Mark for recount</Button>
+        </DialogActions> : undefined}>
         {detail && <div className="space-y-5 text-sm">
           <div className="flex items-start gap-3 rounded-md border border-warning/40 bg-warning/10 p-3">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
@@ -245,8 +245,7 @@ export const InventoryExceptions: React.FC = () => {
         onDone={() => { setResolving(null); setDetail(null); load(); }} />
 
       <Modal isOpen={!!matching} onClose={() => setMatching(null)} title="Enter supplier cost" size="md"
-        footer={<div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setMatching(null)} disabled={saving}>Cancel</Button>
-          <Button variant="primary" onClick={saveMatch} disabled={saving}>{saving ? 'Saving…' : 'Save cost'}</Button></div>}>
+        footer={<DialogActions onCancel={() => setMatching(null)} confirmLabel="Save cost" onConfirm={() => void saveMatch()} loading={saving} />}>
         {matching && <div className="space-y-3 text-sm">
           <p>{matching.product?.name}: {matching.units} unit(s) recorded at an estimated {matching.estimatedUnitCost === null ? 'unknown cost' : `${formatCurrency(Number(matching.estimatedUnitCost))} each`}.</p>
           <Input type="number" label="Actual cost per unit from the invoice" min="0" step="0.01" value={actualCost} onChange={e => setActualCost(e.target.value)} autoFocus />

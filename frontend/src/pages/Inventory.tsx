@@ -574,7 +574,7 @@ export const Inventory: React.FC = () => {
                   {suggestedCategory && !formData.categoryId && !categoriesLoading && !categoriesError && <Button type="button" variant="outline" className="max-w-full whitespace-normal text-left" onClick={() => { setNewCategoryName(suggestedCategory); setShowNewCategoryInput(true); }}>Add suggested category: {suggestedCategory}</Button>}
                 </div> : <div className="space-y-2">
                   <Input label="New category name" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} autoFocus />
-                  <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => { setShowNewCategoryInput(false); setNewCategoryName(''); }}>Cancel</Button><Button variant="primary" type="button" onClick={handleCreateCategory} disabled={isCreatingCategory || !newCategoryName.trim()}>{isCreatingCategory ? 'Creating...' : 'Add category'}</Button></div>
+                  <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => { setShowNewCategoryInput(false); setNewCategoryName(''); }}>Cancel</Button><Button type="button" onClick={handleCreateCategory} disabled={!newCategoryName.trim()} loading={isCreatingCategory}>Add category</Button></div>
                 </div>}
                 <div className="product-field-grid">
                   <Input type="number" label="Retail Price" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} step="0.01" min="0.01" required />

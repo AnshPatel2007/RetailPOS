@@ -10,6 +10,7 @@ import { api, promotionService, productService, categoryService } from '@/servic
 import { useAuthStore } from '@/store/authStore';
 import { can } from '@/lib/capabilities';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -463,12 +464,7 @@ export const Promotions: React.FC = () => {
         title={editingId ? 'Edit Promotion' : 'New Promotion'}
         description="Deals apply by themselves at the register when the cart qualifies."
         size="lg"
-        footer={<div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => setShowFormModal(false)}>Cancel</Button>
-          <Button type="button" variant="primary" onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? 'Saving...' : editingId ? 'Save Changes' : 'Create Promotion'}
-          </Button>
-        </div>}
+        footer={<DialogActions onCancel={() => setShowFormModal(false)} confirmLabel={editingId ? 'Save Changes' : 'Create Promotion'} onConfirm={() => void handleSubmit()} loading={isSubmitting} />}
       >
         <div className="space-y-4">
           <FormSection title="The deal">

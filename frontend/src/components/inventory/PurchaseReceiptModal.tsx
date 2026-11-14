@@ -1,7 +1,7 @@
 import { Checkbox } from '@/components/ui/Checkbox';
 import { useRef, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { purchaseOrderService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
@@ -87,7 +87,8 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
     } finally { submitting.current = false; setSaving(false); }
   };
 
-  return <Modal isOpen onClose={() => { if (!saving) onClose(); }} title={`Receive delivery · ${order.orderNumber}`} size="xl">
+  return <Modal isOpen onClose={() => { if (!saving) onClose(); }} title={`Receive delivery · ${order.orderNumber}`} size="xl"
+    footer={<DialogActions onCancel={onClose} confirmLabel={pending ? 'Retry saved delivery' : 'Record delivery'} onConfirm={() => void save()} loading={saving} />}>
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">Only accepted units increase available stock. Damaged and rejected units count toward the delivery but are kept out of inventory. Record replacement units on a new order.</p>
       {pending && <p role="status" className="rounded-lg border p-3 text-sm">A delivery is awaiting confirmation. Retry the saved quantities before starting another delivery.</p>}
@@ -123,7 +124,6 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
         <label className="block text-sm font-medium">Delivery notes / discrepancy reason<textarea className="mt-1 block min-h-[80px] w-full rounded-md border border-input bg-background p-3 text-sm" value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} /></label>
       </fieldset>
       <p className="text-sm text-muted-foreground">{pending ? 'Retry checks whether this delivery was already recorded.' : !missing || finalDelivery ? 'This delivery will close the order.' : `${missing} units will remain open for a later delivery.`}</p>
-      <div className="flex justify-end gap-2"><Button variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button variant="primary" disabled={saving} onClick={save}>{saving ? 'Recording…' : pending ? 'Retry saved delivery' : 'Record delivery'}</Button></div>
     </div>
   </Modal>;
 }

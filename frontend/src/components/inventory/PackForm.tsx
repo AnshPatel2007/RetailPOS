@@ -1,7 +1,8 @@
 import { Checkbox } from '@/components/ui/Checkbox';
 import React, { useCallback, useEffect, useId, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Boxes, PackageOpen } from 'lucide-react';
+import { Archive, Boxes, PackageOpen } from 'lucide-react';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -219,16 +220,17 @@ export const PackForm: React.FC<{
 
   return (
     <Modal isOpen onClose={() => { if (!busy) onClose(); }} title={title} size="lg"
-      footer={kind && !merge ? <div className="space-y-3">
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        <div className="flex flex-wrap justify-end gap-2">
-          {editingPack && <Button type="button" variant="outline" className="mr-auto" disabled={busy || editingPack.sealedQuantity > 0} onClick={retire}
-            title={editingPack.sealedQuantity > 0 ? 'Open or count the unopened packs first' : 'Stop selling this pack'}>Retire pack</Button>}
+      footer={kind === 'PACK' && merge
+        ? <DialogActions onCancel={() => setMerge(null)} cancelLabel="Back" confirmLabel="Merge into this pack" onConfirm={() => void confirmMerge()}
+          loading={busy} disabled={!merge.preview || merge.preview.problems.length > 0} />
+        : kind ? <div className="space-y-3">
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           {/* A variety pack's contents save on their own, so its form closes rather than cancels. */}
-          <Button type="button" variant="outline" disabled={busy} onClick={onClose}>{current?.mode === 'edit-variety' ? 'Close' : 'Cancel'}</Button>
-          <Button variant="primary" type="submit" form={formId} disabled={busy}>{busy ? 'Saving...' : kind === 'PACK' ? (editingPack ? 'Save pack' : 'Add pack') : current?.mode === 'edit-variety' ? 'Save variety pack' : 'Create variety pack'}</Button>
-        </div>
-      </div> : undefined}>
+          <DialogActions form={formId} loading={busy} onCancel={onClose} cancelLabel={current?.mode === 'edit-variety' ? 'Close' : 'Cancel'}
+            confirmLabel={kind === 'PACK' ? (editingPack ? 'Save pack' : 'Add pack') : current?.mode === 'edit-variety' ? 'Save variety pack' : 'Create variety pack'}
+            remove={editingPack ? { label: 'Retire pack', onClick: () => void retire(), disabled: editingPack.sealedQuantity > 0, icon: <Archive aria-hidden="true" />,
+              title: editingPack.sealedQuantity > 0 ? 'Open or count the unopened packs first' : 'Stop selling this pack' } : undefined} />
+        </div> : undefined}>
       {!kind && (
         <div className="grid gap-3 sm:grid-cols-2">
           <button type="button" className="rounded-lg border border-border p-4 text-left hover:bg-accent" onClick={() => setKind('PACK')}>
@@ -255,10 +257,6 @@ export const PackForm: React.FC<{
             </ul>
           )}
           {error && <p role="alert" className="text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" disabled={busy} onClick={() => setMerge(null)}>Back</Button>
-            <Button variant="primary" type="button" disabled={busy || !merge.preview || merge.preview.problems.length > 0} onClick={confirmMerge}>{busy ? 'Merging...' : 'Merge into this pack'}</Button>
-          </div>
         </div>
       )}
 

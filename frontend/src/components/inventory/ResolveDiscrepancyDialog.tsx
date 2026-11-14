@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ProductPicker } from '@/components/common/ProductPicker';
@@ -108,8 +109,7 @@ export const ResolveDiscrepancyDialog: React.FC<{ detail: DiscrepancyDetail | nu
   const cogs = num(preview?.cogsChange), unmatched = num(preview?.unmatchedValue), price = num(preview?.priceDifference);
   return (
     <Modal isOpen={!!detail} onClose={onClose} title={`Resolve discrepancy: ${detail.product.name}`} size="lg"
-      footer={<div className="flex justify-end gap-2"><Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button variant="primary" onClick={save} disabled={saving || lossTooHigh || (cause !== 'no_change' && !request)}>{saving ? 'Saving…' : 'Save'}</Button></div>}>
+      footer={<DialogActions onCancel={onClose} confirmLabel="Save" onConfirm={() => void save()} loading={saving} disabled={lossTooHigh || (cause !== 'no_change' && !request)} />}>
       <div className="space-y-4 text-sm">
         <fieldset className="space-y-2">
           <legend className="mb-1 font-semibold">What happened?</legend>

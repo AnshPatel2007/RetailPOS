@@ -2,6 +2,7 @@ import { Select } from '@/components/ui/Select';
 import React, { useEffect, useRef, useState } from 'react';
 import { productService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Product } from '@/types';
@@ -186,9 +187,11 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
   const newQuantity = getNewQuantity();
 
   return (
-    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting) onClose(); }} title="Adjust Stock" size="sm">
+    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting) onClose(); }} title="Adjust Stock" size="sm"
+      footer={product && <DialogActions form="stock-adjustment-form" onCancel={onClose} confirmLabel={isDelivery ? 'Receive' : 'Adjust Stock'}
+        loading={isSubmitting || receipt.busy} disabled={isDelivery && !!receipt.pending} />}>
       <div className="space-y-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form id="stock-adjustment-form" onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
                 {error}
@@ -328,15 +331,6 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
               />
             </div>
 
-            {/* Actions */}
-            <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button variant="primary" type="submit" disabled={isSubmitting || receipt.busy || (isDelivery && !!receipt.pending)}>
-                {isSubmitting || receipt.busy ? 'Saving...' : isDelivery ? 'Receive' : 'Adjust Stock'}
-              </Button>
-            </div>
           </form>
               </div>
     </Modal>

@@ -57,6 +57,6 @@ export function ShelfLabelsDialog({ isOpen, onClose, only }: { isOpen: boolean; 
   return <Modal isOpen onClose={onClose} title="Labels to print" size="sm">
     {error ? <div role="alert" className="space-y-3"><p className="text-sm">{error}</p><Button variant="outline" onClick={() => setAttempt(n => n + 1)}>Retry</Button></div>
       : !items ? <div className="flex justify-center py-6"><Spinner /></div>
-      : <div className="space-y-3"><p className="text-sm text-muted-foreground">Every shelf label shows the current price.</p><div className="flex justify-end"><Button variant="primary" onClick={onClose}>Close</Button></div></div>}
+      : <p className="text-sm text-muted-foreground">Every shelf label shows the current price.</p>}
   </Modal>;
 }

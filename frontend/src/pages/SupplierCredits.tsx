@@ -3,6 +3,8 @@ import { CheckCircle2, Plus } from 'lucide-react';
 import { DataPanel, ManagementPage, SummaryStrip } from '@/components/common/Workspace';
 import { PageHeader } from '@/components/common/PageHeader';
 import { PageTabs } from '@/components/common/PageTabs';
+import { DialogActions } from '@/components/ui/DialogActions';
+import { RowActions } from '@/components/common/RowActions';
 import { EmptyState } from '@/components/common/EmptyState';
 import { PickableSupplier, SupplierPicker } from '@/components/common/SupplierPicker';
 import { Alert } from '@/components/ui/Alert';
@@ -77,8 +79,8 @@ export default function SupplierCredits() {
               <TableCell className="whitespace-nowrap">{formatDate(view === 'open' ? credit.createdAt : credit.settledAt || credit.createdAt)}</TableCell>
               <TableCell className="max-w-xs whitespace-pre-line text-sm text-muted-foreground">{credit.notes || '—'}</TableCell>
               {view === 'open' && canManage && <TableCell className="whitespace-nowrap text-right">
-                <Button variant="outline" onClick={() => setSettling({ credit, status: 'RECEIVED' })}>Mark received</Button>{' '}
-                <Button variant="ghost" onClick={() => setSettling({ credit, status: 'WRITTEN_OFF' })}>Write off</Button>
+                <RowActions name={credit.supplier.name} primary={{ label: 'Mark received', onAction: () => setSettling({ credit, status: 'RECEIVED' }) }}
+                  items={[{ id: 'write-off', label: 'Write off', destructive: true, onAction: () => setSettling({ credit, status: 'WRITTEN_OFF' }) }]} />
               </TableCell>}
             </TableRow>)}</TableBody>
           </Table>}
@@ -109,8 +111,9 @@ function RecordCredit({ locationId, onClose }: { locationId: string; onClose: ()
     } catch (failure) { setError(errorText(failure, 'The credit was not saved. Try again.')); }
     finally { setSaving(false); }
   };
-  return <Modal isOpen onClose={() => { if (!saving) onClose(); }} title="Record a credit owed" description="Money a supplier owes you, for example for a short delivery or a price they agreed to correct." size="md">
-    <form onSubmit={save} className="space-y-4">
+  return <Modal isOpen onClose={() => { if (!saving) onClose(); }} title="Record a credit owed" description="Money a supplier owes you, for example for a short delivery or a price they agreed to correct." size="md"
+    footer={<DialogActions form="record-credit-form" confirmLabel="Record credit" loading={saving} onCancel={onClose} />}>
+    <form id="record-credit-form" onSubmit={save} className="space-y-4">
       {error && <Alert tone="error">{error}</Alert>}
       <SupplierPicker locationId={locationId} selected={supplier} onSelect={setSupplier} />
       <Select label="Why" value={reason} onChange={event => setReason(event.target.value as keyof typeof REASONS)}>
@@ -118,10 +121,6 @@ function RecordCredit({ locationId, onClose }: { locationId: string; onClose: ()
       </Select>
       <Input label="Amount owed" type="number" inputMode="decimal" min="0.01" step="0.01" value={amount} onChange={event => setAmount(event.target.value)} />
       <Textarea label="Notes" value={notes} maxLength={2000} onChange={event => setNotes(event.target.value)} description="For example the invoice number or who at the supplier agreed to it." />
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button>
-        <Button variant="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Record credit'}</Button>
-      </div>
     </form>
   </Modal>;
 }
@@ -141,17 +140,14 @@ function SettleCredit({ credit, status, onClose }: { credit: Credit; status: 'RE
     finally { setSaving(false); }
   };
   return <Modal isOpen onClose={() => { if (!saving) onClose(); }} size="sm" title={received ? 'Mark credit received' : 'Write off credit'}
-    description={`${credit.supplier.name} · ${REASONS[credit.reason] || credit.reason} · ${formatCurrency(credit.amount)}`}>
-    <form onSubmit={save} className="space-y-4">
+    description={`${credit.supplier.name} · ${REASONS[credit.reason] || credit.reason} · ${formatCurrency(credit.amount)}`}
+    footer={<DialogActions form="settle-credit-form" confirmLabel={received ? 'Mark received' : 'Write off'} tone={received ? 'primary' : 'destructive'} loading={saving} onCancel={onClose} />}>
+    <form id="settle-credit-form" onSubmit={save} className="space-y-4">
       {error && <Alert tone="error">{error}</Alert>}
       <p className="text-sm text-muted-foreground">{received
         ? 'The supplier paid or credited this amount. It leaves the list of credits owed.'
         : 'You no longer expect this money. It leaves the list of credits owed and stays on record as written off.'}</p>
       <Input label={received ? 'Credit note or reference (optional)' : 'Reason (optional)'} value={notes} maxLength={500} onChange={event => setNotes(event.target.value)} />
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button>
-        <Button type="submit" variant={received ? 'primary' : 'destructive'} disabled={saving}>{saving ? 'Saving…' : received ? 'Mark received' : 'Write off'}</Button>
-      </div>
     </form>
   </Modal>;
 }

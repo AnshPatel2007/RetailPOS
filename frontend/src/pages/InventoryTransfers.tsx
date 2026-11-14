@@ -6,6 +6,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ArrowLeftRight, Plus, Truck, XCircle } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
@@ -294,8 +295,10 @@ export const InventoryTransfers: React.FC = () => {
       </Card>
 
       {/* Create Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => { if (!saving) { setShowCreateModal(false); resetCreateForm(); } }} title="New Inventory Transfer" size="lg">
-        <form onSubmit={handleCreate} className="space-y-4">
+      <Modal isOpen={showCreateModal} onClose={() => { if (!saving) { setShowCreateModal(false); resetCreateForm(); } }} title="New Inventory Transfer" size="lg"
+        footer={<DialogActions form="new-transfer-form" confirmLabel="Create Transfer" loading={saving} disabled={!locations.length || !transferItems.length}
+          confirmDescribedBy={!transferItems.length ? 'transfer-items-hint' : undefined} onCancel={() => { setShowCreateModal(false); resetCreateForm(); }} />}>
+        <form id="new-transfer-form" onSubmit={handleCreate} className="space-y-4">
           <fieldset disabled={saving} className="space-y-4">
           <p className="text-sm text-muted-foreground">A draft does not reserve stock. Available quantities are checked again when you ship.</p>
           <div className="grid grid-cols-2 gap-4">
@@ -360,16 +363,30 @@ export const InventoryTransfers: React.FC = () => {
             />
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" type="button" disabled={saving} onClick={() => { setShowCreateModal(false); resetCreateForm(); }}>Cancel</Button>
-            <Button variant="primary" type="submit" aria-describedby={!transferItems.length ? 'transfer-items-hint' : undefined} disabled={saving || !locations.length || !transferItems.length}>{saving ? 'Creating...' : 'Create Transfer'}</Button>
-          </div>
           </fieldset>
         </form>
       </Modal>
 
-      {/* Detail Modal */}
-      <Modal isOpen={showDetailModal} onClose={() => { setRecordId(''); setSelectedTransfer(null); }} title="Transfer details" size="lg">
+      {/* Detail Modal: the next step for this store is the main button; cancelling a transfer that has not shipped sits apart on the left. */}
+      {(() => {
+        const transfer = selectedTransfer;
+        const source = !!transfer && canManage && fromLocationId === transfer.fromLocationId;
+        const destination = !!transfer && canManage && fromLocationId === transfer.toLocationId;
+        const unresolved = !!transfer && ['IN_TRANSIT', 'PARTIALLY_RECEIVED'].includes(transfer.status) && transfer.items.some(item => outstandingTransfer(item) > 0);
+        const toShip = source && transfer?.status === 'PENDING';
+        const canRequestReturn = source && (unresolved || pendingTransferReceipt(transferRetryKey(transfer!, user?.id, 'REQUEST_RETURN')));
+        const canRecordReturn = source && (transfer!.items.some(item => returningTransfer(item) > 0) || pendingTransferReceipt(transferRetryKey(transfer!, user?.id, 'SOURCE_RETURN')));
+        const canReceive = destination && (unresolved || pendingTransferReceipt(transferRetryKey(transfer!, user?.id, 'RECEIVE')));
+        const main = !transfer ? null
+          : toShip ? { confirmLabel: <><Truck aria-hidden="true" />Ship</>, onConfirm: () => setConfirmState({ title: 'Ship transfer?', message: 'Stock will be deducted from the source location.', confirmLabel: 'Ship', action: () => handleShip(transfer.id) }) }
+          : canReceive ? { confirmLabel: 'Receive or resolve delivery', onConfirm: () => setReceiptKind('RECEIVE') }
+          : canRecordReturn ? { confirmLabel: 'Record returned goods', onConfirm: () => setReceiptKind('SOURCE_RETURN') }
+          : null;
+        const footer = transfer && (main || canRequestReturn) ? <DialogActions {...(main || {})}
+          remove={toShip ? { label: 'Cancel transfer', icon: <XCircle aria-hidden="true" />, onClick: () => setConfirmState({ title: 'Cancel transfer?', message: 'This transfer has not shipped yet — no stock will change.', destructive: true, confirmLabel: 'Cancel Transfer', action: () => handleCancel(transfer.id) }) } : undefined}>
+          {canRequestReturn && <Button onClick={() => setReceiptKind('REQUEST_RETURN')}>Request return</Button>}
+        </DialogActions> : undefined;
+        return <Modal isOpen={showDetailModal} onClose={() => { setRecordId(''); setSelectedTransfer(null); }} title="Transfer details" size="lg" footer={footer}>
         {!selectedTransfer && (detailError ? <div role="alert"><p>{detailError}</p><Button variant="outline" onClick={() => setDetailRefresh(value => value + 1)}>Retry</Button></div> : <p role="status">Loading details...</p>)}
         {selectedTransfer && (
           <div className="space-y-4">
@@ -415,44 +432,10 @@ export const InventoryTransfers: React.FC = () => {
             </div>
 
             <TransferHistory key={selectedTransfer.id} transfer={selectedTransfer} />
-            <div className="flex flex-wrap justify-end gap-2 pt-2">
-              {selectedTransfer.status === 'PENDING' && canManage && fromLocationId === selectedTransfer.fromLocationId && (
-                <>
-                  <Button
-                    variant="destructive"
-                    onClick={() => setConfirmState({
-                      title: 'Cancel transfer?',
-                      message: 'This transfer has not shipped yet — no stock will change.',
-                      destructive: true,
-                      confirmLabel: 'Cancel Transfer',
-                      action: () => handleCancel(selectedTransfer.id),
-                    })}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="primary"
-                    onClick={() => setConfirmState({
-                      title: 'Ship transfer?',
-                      message: 'Stock will be deducted from the source location.',
-                      confirmLabel: 'Ship',
-                      action: () => handleShip(selectedTransfer.id),
-                    })}
-                  >
-                    <Truck className="w-4 h-4 mr-1" /> Ship
-                  </Button>
-                </>
-              )}
-              {canManage && fromLocationId === selectedTransfer.fromLocationId && <>
-                {((['IN_TRANSIT', 'PARTIALLY_RECEIVED'].includes(selectedTransfer.status) && selectedTransfer.items.some(item => outstandingTransfer(item) > 0)) || pendingTransferReceipt(transferRetryKey(selectedTransfer, user?.id, 'REQUEST_RETURN'))) && <Button variant="outline" onClick={() => setReceiptKind('REQUEST_RETURN')}>Request return</Button>}
-                {(selectedTransfer.items.some(item => returningTransfer(item) > 0) || pendingTransferReceipt(transferRetryKey(selectedTransfer, user?.id, 'SOURCE_RETURN'))) && <Button variant="primary" onClick={() => setReceiptKind('SOURCE_RETURN')}>Record returned goods</Button>}
-              </>}
-              {canManage && fromLocationId === selectedTransfer.toLocationId && ((['IN_TRANSIT', 'PARTIALLY_RECEIVED'].includes(selectedTransfer.status) && selectedTransfer.items.some(item => outstandingTransfer(item) > 0)) || pendingTransferReceipt(transferRetryKey(selectedTransfer, user?.id, 'RECEIVE'))) && <Button variant="primary" onClick={() => setReceiptKind('RECEIVE')}>Receive or resolve delivery</Button>}
-
-            </div>
           </div>
         )}
-      </Modal>
+      </Modal>;
+      })()}
 
       {receiptKind && selectedTransfer && <TransferReceiptModal key={selectedTransfer.id + receiptKind} transfer={selectedTransfer} kind={receiptKind} onClose={() => setReceiptKind(null)} onSaved={() => {
         setReceiptKind(null); fetchTransfers(); viewDetail(selectedTransfer); toast.success('Transfer updated');

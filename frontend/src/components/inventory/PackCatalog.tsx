@@ -9,6 +9,7 @@ import { DataPanel } from '@/components/common/Workspace';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { RowActions } from '@/components/common/RowActions';
 import { productService } from '@/services/api';
 import { formatCurrency } from '@/lib/utils';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -115,11 +116,11 @@ export const PackCatalog: React.FC<{ locationId?: string | null; canManage: bool
                     ? <><div>{row.available} available</div><div className="text-xs text-muted-foreground">{row.sealedQuantity} unopened</div></>
                     : <div>{row.stockQuantity} in stock</div>}</TableCell>
                   {canManage && <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" onClick={() => setConfirmOpen({ row, key: crypto.randomUUID() })} disabled={!canOpen(row) || openingId !== null}
-                        aria-label={`Open one ${row.name}`} title={openReason(row)}><PackageOpen size={14} />{openingId === row.id ? 'Opening…' : 'Open'}</Button>
-                      <Button variant="outline" onClick={() => onEdit(row)} aria-label={`Edit ${row.name}`}>Edit</Button>
-                    </div>
+                    {/* Edit is the everyday action; opening one pack onto the shelf is in the menu, with why it is unavailable. */}
+                    <RowActions name={row.name} primary={{ label: 'Edit', onAction: () => onEdit(row) }} items={[{
+                      id: 'open', icon: <PackageOpen size={16} />, disabled: !canOpen(row) || openingId !== null, onAction: () => setConfirmOpen({ row, key: crypto.randomUUID() }),
+                      label: openingId === row.id ? 'Opening…' : canOpen(row) ? 'Open one' : `Open one: ${openReason(row).toLowerCase()}`,
+                    }]} />
                   </TableCell>}
                 </TableRow>))}</TableBody>
             </Table>}

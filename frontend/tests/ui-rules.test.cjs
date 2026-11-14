@@ -18,17 +18,14 @@ const PENDING = new Set([
   'components/StoreConnections.tsx', 'components/accounts/AccountFunding.tsx', 'components/admin/StoreBusiness.tsx',
   'components/expenses/ExpenseDetailsModal.tsx', 'components/expenses/ExpenseModal.tsx', 'components/financial/BudgetModal.tsx',
   'components/financial/InventoryCostPanel.tsx', 'components/financial/OpeningInventoryReview.tsx', 'components/financial/RecurringExpenseModal.tsx',
-  'components/inventory/BarcodeLabelPrint.tsx', 'components/inventory/CSVImportModal.tsx', 'components/inventory/PackForm.tsx',
-  'components/inventory/PurchaseReceiptModal.tsx', 'components/inventory/ReceiptScanModal.tsx', 'components/inventory/ResolveDiscrepancyDialog.tsx',
-  'components/inventory/ShelfLabelsDialog.tsx', 'components/inventory/StockAdjustmentModal.tsx', 'components/inventory/TransferReceiptModal.tsx',
   'components/lottery/LotteryBookDialog.tsx', 'components/lottery/LotteryBookRegister.tsx', 'components/lottery/LotteryConfiguration.tsx',
   'components/lottery/LotteryDailyWorkbench.tsx', 'components/lottery/LotteryGameSetup.tsx', 'components/lottery/LotterySettlementDialog.tsx',
   'components/lottery/LotterySimpleDaily.tsx', 'components/reports/BulkRefundActions.tsx', 'components/reports/DigestDeliveryControls.tsx',
   'components/reports/ExportPreviewModal.tsx', 'components/reports/SaleDetailsModal.tsx', 'components/reports/SaleVoidDialog.tsx',
-  'components/reports/SalesBulkActions.tsx', 'pages/BackgroundJobs.tsx', 'pages/Customers.tsx', 'pages/CycleCount.tsx', 'pages/Developers.tsx',
-  'pages/GiftCards.tsx', 'pages/HouseAccounts.tsx', 'pages/Inventory.tsx', 'pages/InventoryExceptions.tsx', 'pages/InventoryTransfers.tsx',
-  'pages/Payroll.tsx', 'pages/Promotions.tsx', 'pages/Reconciliation.tsx', 'pages/Reports.tsx', 'pages/Shifts.tsx', 'pages/StoreCredits.tsx',
-  'pages/SupplierCredits.tsx', 'pages/Team.tsx', 'pages/admin/StoreManagement.tsx', 'pages/admin/UserManagement.tsx',
+  'components/reports/SalesBulkActions.tsx', 'pages/BackgroundJobs.tsx', 'pages/Customers.tsx', 'pages/Developers.tsx',
+  'pages/GiftCards.tsx', 'pages/HouseAccounts.tsx', 
+  'pages/Payroll.tsx', 'pages/Reconciliation.tsx', 'pages/Reports.tsx', 'pages/Shifts.tsx', 'pages/StoreCredits.tsx',
+  'pages/Team.tsx', 'pages/admin/StoreManagement.tsx', 'pages/admin/UserManagement.tsx',
 ]);
 
 function walk(dir, out = []) {
@@ -45,7 +42,9 @@ function attribute(node, name) {
   const found = opening(node)?.attributes.properties.find(item => ts.isJsxAttribute(item) && item.name.getText() === name);
   if (!found) return undefined;
   if (!found.initializer) return 'true';
-  return ts.isStringLiteral(found.initializer) ? found.initializer.text : found.initializer.getText();
+  if (ts.isStringLiteral(found.initializer)) return found.initializer.text;
+  // {expression}: the expression itself, without its braces.
+  return ts.isJsxExpression(found.initializer) && found.initializer.expression ? found.initializer.expression.getText() : found.initializer.getText();
 }
 /** Every element inside `node`, not entering a nested pop-up. */
 function elementsWithin(node, visit) {
@@ -77,10 +76,22 @@ for (const file of walk(SRC)) {
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const where = node => `${rel}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
   const visit = node => {
-    if (nameOf(node) === 'Modal') modals.push({ node, where: where(node), rel });
+    if (nameOf(node) === 'Modal') modals.push({ node, where: where(node), rel, source });
     ts.forEachChild(node, visit);
   };
   visit(source);
+}
+
+/** The text a footer stands for: written in place, or held in a variable declared in the same file. */
+function footerText(footer, source) {
+  if (!/^[A-Za-z_$][\w$]*$/.test(footer)) return footer;
+  let found = footer;
+  const visit = node => {
+    if (ts.isVariableDeclaration(node) && node.name.getText() === footer && node.initializer) found = node.initializer.getText();
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
 }
 
 /** Pop-ups whose main button sits in the scrolling body. */
@@ -91,9 +102,9 @@ function bodyProblems({ node, where }) {
   return inBody.length ? [`${where}: ${inBody.join(' | ')}`] : [];
 }
 /** Pop-up footers not laid out by DialogActions (FilterDropdown passes its caller's footer through). */
-function footerProblems({ node, where, rel }) {
+function footerProblems({ node, where, rel, source }) {
   const footer = attribute(node, 'footer');
-  return footer && !/DialogActions/.test(footer) && !rel.endsWith('FilterDropdown.tsx') ? [where] : [];
+  return footer && !/DialogActions/.test(footerText(footer, source)) && !rel.endsWith('FilterDropdown.tsx') ? [where] : [];
 }
 const checked = modals.filter(modal => !PENDING.has(modal.rel));
 

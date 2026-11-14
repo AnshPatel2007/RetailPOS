@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ClipboardCheck, Plus, CheckCircle, XCircle, Eye, Send, ListChecks } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
@@ -403,8 +404,10 @@ export const CycleCount: React.FC = () => {
       </Card>
 
       {/* Create Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Start Cycle Count">
-        <form onSubmit={handleCreate} className="space-y-4">
+      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Start Cycle Count"
+        footer={<DialogActions form="new-count-form" confirmLabel="Start Count" onCancel={() => setShowCreateModal(false)} disabled={createType === 'PARTIAL' && !selectedProducts.length}
+          confirmDescribedBy={createType === 'PARTIAL' && !selectedProducts.length ? 'count-products-hint' : undefined} />}>
+        <form id="new-count-form" onSubmit={handleCreate} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Location *</label>
             <Select
@@ -456,10 +459,6 @@ export const CycleCount: React.FC = () => {
             <Textarea aria-label="Count notes" value={createNotes} onChange={(e) => setCreateNotes(e.target.value)} rows={2} />
           </div>
           {createType === 'PARTIAL' && !selectedProducts.length && <p id="count-products-hint" className="text-xs text-muted-foreground">Select at least one product for a partial count.</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" type="button" onClick={() => setShowCreateModal(false)}>Cancel</Button>
-            <Button variant="primary" type="submit" aria-describedby={createType === 'PARTIAL' && !selectedProducts.length ? 'count-products-hint' : undefined} disabled={createType === 'PARTIAL' && !selectedProducts.length}>Start Count</Button>
-          </div>
         </form>
       </Modal>
 
@@ -468,6 +467,39 @@ export const CycleCount: React.FC = () => {
         isOpen={showDetailModal}
         onClose={() => { setRecordId(''); setSelectedCount(null); }}
         title={`Cycle Count ${selectedCount?.countNumber || ''}`}
+        footer={selectedCount?.status === 'IN_PROGRESS' && canManage
+          ? <DialogActions confirmLabel={<><Send aria-hidden="true" />Submit for Review</>} disabled={busy || uncountedItems > 0} confirmDescribedBy="count-progress"
+            onConfirm={() => setConfirmState({
+              title: 'Submit for review?',
+              message: unsavedItems.length ? 'Your entered counts will be saved, then the count goes to review.' : 'The count goes to review; counts can no longer be changed.',
+              confirmLabel: 'Submit',
+              action: handleSubmit,
+            })}
+            remove={{ label: 'Cancel count', icon: <XCircle aria-hidden="true" />, onClick: () => setConfirmState({
+              title: 'Cancel cycle count?',
+              message: 'Entered counts will be discarded and no inventory will be adjusted.',
+              destructive: true,
+              confirmLabel: 'Cancel Count',
+              action: handleCancel,
+            }) }}>
+            <Button onClick={() => void handleSaveItems()} disabled={busy || !unsavedItems.length}><Eye aria-hidden="true" />Save Progress</Button>
+          </DialogActions>
+          : selectedCount?.status === 'REVIEW' && isAdmin && !isReadOnly
+            ? <DialogActions confirmLabel={<><CheckCircle aria-hidden="true" />Approve & Adjust</>}
+              onConfirm={() => setConfirmState({
+                title: 'Approve cycle count?',
+                message: `${selectedCount.items.filter(i => i.discrepancy && i.discrepancy !== 0).length} item(s) with discrepancies will have their inventory adjusted.`,
+                confirmLabel: 'Approve & Adjust',
+                action: handleApprove,
+              })}
+              remove={{ label: 'Reject', icon: <XCircle aria-hidden="true" />, onClick: () => setConfirmState({
+                title: 'Reject cycle count?',
+                message: 'The count will be cancelled and no inventory will be adjusted.',
+                destructive: true,
+                confirmLabel: 'Reject',
+                action: handleCancel,
+              }) }} />
+            : undefined}
       >
         {!selectedCount && (detailError ? <Alert tone="error" title={detailError} action={<Button variant="outline" onClick={() => setDetailRefresh(value => value + 1)}>Retry</Button>} /> : <LoadingState label="Loading details…" />)}
         {selectedCount && (
@@ -496,7 +528,7 @@ export const CycleCount: React.FC = () => {
               <h4 className="text-sm font-medium mb-2">
                 Items ({selectedCount.items.length})
                 {selectedCount.status === 'IN_PROGRESS' && (
-                  <span className="text-muted-foreground font-normal ml-2">
+                  <span id="count-progress" className="text-muted-foreground font-normal ml-2">
                     {uncountedItems ? `${uncountedItems} still to count` : 'All items counted'}{unsavedItems.length ? ` · ${unsavedItems.length} not saved yet` : ''}
                   </span>
                 )}
@@ -549,67 +581,6 @@ export const CycleCount: React.FC = () => {
               </div>
             )}
 
-            <div className="flex flex-wrap justify-end gap-2 pt-2">
-              {selectedCount.status === 'IN_PROGRESS' && canManage && (
-                <>
-                  <Button
-                    variant="destructive"
-                    onClick={() => setConfirmState({
-                      title: 'Cancel cycle count?',
-                      message: 'Entered counts will be discarded and no inventory will be adjusted.',
-                      destructive: true,
-                      confirmLabel: 'Cancel Count',
-                      action: handleCancel,
-                    })}
-                  >
-                    <XCircle className="w-4 h-4 mr-1" /> Cancel
-                  </Button>
-                  <Button variant="outline" onClick={handleSaveItems} disabled={busy || !unsavedItems.length}>
-                    <Eye className="w-4 h-4 mr-1" /> Save Progress
-                  </Button>
-                  <Button
-                    variant="primary"
-                    disabled={busy || uncountedItems > 0}
-                    title={uncountedItems > 0 ? `${uncountedItems} item${uncountedItems === 1 ? '' : 's'} still need a count` : undefined}
-                    onClick={() => setConfirmState({
-                      title: 'Submit for review?',
-                      message: unsavedItems.length ? 'Your entered counts will be saved, then the count goes to review.' : 'The count goes to review; counts can no longer be changed.',
-                      confirmLabel: 'Submit',
-                      action: handleSubmit,
-                    })}
-                  >
-                    <Send className="w-4 h-4 mr-1" /> Submit for Review
-                  </Button>
-                </>
-              )}
-              {selectedCount.status === 'REVIEW' && isAdmin && !isReadOnly && (
-                <>
-                  <Button
-                    variant="destructive"
-                    onClick={() => setConfirmState({
-                      title: 'Reject cycle count?',
-                      message: 'The count will be cancelled and no inventory will be adjusted.',
-                      destructive: true,
-                      confirmLabel: 'Reject',
-                      action: handleCancel,
-                    })}
-                  >
-                    Reject
-                  </Button>
-                  <Button
-                    variant="primary"
-                    onClick={() => setConfirmState({
-                      title: 'Approve cycle count?',
-                      message: `${selectedCount.items.filter(i => i.discrepancy && i.discrepancy !== 0).length} item(s) with discrepancies will have their inventory adjusted.`,
-                      confirmLabel: 'Approve & Adjust',
-                      action: handleApprove,
-                    })}
-                  >
-                    <CheckCircle className="w-4 h-4 mr-1" /> Approve & Adjust
-                  </Button>
-                </>
-              )}
-            </div>
           </div>
         )}
       </Modal>

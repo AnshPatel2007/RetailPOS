@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { ImportReview } from './ImportReview';
 import { useInventoryImport } from '@/hooks/useInventoryImport';
 
@@ -15,11 +16,22 @@ export function CSVImportModal({ isOpen, onClose, onImportComplete }: Props) {
     try { await workflow.review({ csv: await file.text() }); }
     catch { setFileError('This file could not be read. Select it again.'); }
   };
-  return <Modal isOpen={isOpen} onClose={close} title="Import Products from CSV" size="xl">
+  // The footer's main button follows the steps: review the file, then apply the reviewed import.
+  const footer = workflow.pending
+    ? <DialogActions onCancel={close} confirmLabel="Retry saved import" onConfirm={() => void workflow.commit()} loading={workflow.busy} />
+    : workflow.result
+      ? <DialogActions confirmLabel="Done" onConfirm={close} />
+      : <DialogActions onCancel={close} loading={workflow.busy}
+        {...(workflow.preview?.id
+          ? { confirmLabel: 'Apply reviewed import', onConfirm: () => void workflow.commit() }
+          : { confirmLabel: 'Review import', onConfirm: () => void review(), disabled: !file })}>
+        {workflow.preview?.id && <Button disabled={!file || workflow.busy} onClick={() => void review()}>Review import</Button>}
+      </DialogActions>;
+  return <Modal isOpen={isOpen} onClose={close} title="Import Products from CSV" size="xl" footer={footer}>
     <div className="space-y-4">
       {(fileError || workflow.error) && <p role="alert" className="text-sm text-destructive">{fileError || workflow.error}</p>}
-      {workflow.pending ? <div className="space-y-3"><p>A saved import needs confirmation. Retrying retrieves the original result if it already completed.</p><Button variant="primary" disabled={workflow.busy} onClick={workflow.commit}>Retry saved import</Button></div>
-        : workflow.result ? <div role="status"><p>Import complete: {workflow.result.created} created, {workflow.result.updated} updated.</p><Button variant="primary" className="mt-3" onClick={close}>Done</Button></div>
+      {workflow.pending ? <p>A saved import needs confirmation. Retrying retrieves the original result if it already completed.</p>
+        : workflow.result ? <p role="status">Import complete: {workflow.result.created} created, {workflow.result.updated} updated.</p>
         : <>
           <label className="block text-sm font-medium">CSV file (up to 1 MB, 500 products)
             <input aria-label="CSV file" className="mt-2 block w-full" type="file" accept=".csv,text/csv" disabled={workflow.busy} onChange={event => {
@@ -30,10 +42,6 @@ export function CSVImportModal({ isOpen, onClose, onImportComplete }: Props) {
           </label>
           <p className="text-sm text-muted-foreground">Match products by exact SKU within this store. New products require name and price. Optional columns: barcode, cost, stock, lowstockalert, categoryid, active, trackinventory, istaxable. Use true/false for switches.</p>
           {workflow.preview && <ImportReview preview={workflow.preview} />}
-          <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={workflow.busy} onClick={close}>Cancel</Button>
-            <Button variant="outline" disabled={!file || workflow.busy} onClick={review}>{workflow.busy ? 'Working...' : 'Review import'}</Button>
-            {workflow.preview?.id && <Button variant="primary" disabled={workflow.busy} onClick={workflow.commit}>Apply reviewed import</Button>}
-          </div>
         </>}
     </div>
   </Modal>;

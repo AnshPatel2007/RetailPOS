@@ -112,19 +112,24 @@ test('packs open straight from the Packs list, only after confirming', async ({ 
   await expect(cartonRow).toContainText('2 unopened');
 
   // A mistaken click changes nothing.
-  await cartonRow.getByRole('button', { name: 'Open one Carton', exact: true }).click();
+  // Opening a pack onto the shelf is in the row's "…" menu.
+  const openOne = async (row: typeof cartonRow, name: string) => {
+    await row.getByRole('button', { name: `More actions for ${name}`, exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Open one', exact: true }).click();
+  };
+  await openOne(cartonRow, 'Carton');
   const confirm = page.getByRole('dialog').filter({ hasText: 'Open one Carton?' });
   await expect(confirm).toContainText(`One unopened Carton becomes 10 loose Open Single ${stamp} on the shelf`);
   await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(cartonRow).toContainText('2 unopened');
 
-  await cartonRow.getByRole('button', { name: 'Open one Carton', exact: true }).click();
+  await openOne(cartonRow, 'Carton');
   await confirm.getByRole('button', { name: 'Open one pack', exact: true }).click();
   await expect(cartonRow).toContainText('1 unopened');
   expect((await getProduct(page, single.id)).stockQuantity).toBe(20);
 
   const varietyRow = page.getByRole('row').filter({ hasText: `Open Variety ${stamp}` });
-  await varietyRow.getByRole('button', { name: `Open one Open Variety ${stamp}`, exact: true }).click();
+  await openOne(varietyRow, `Open Variety ${stamp}`);
   const confirmVariety = page.getByRole('dialog').filter({ hasText: `Open one Open Variety ${stamp}?` });
   await expect(confirmVariety).toContainText(`its 24 items are added: 12 Open Red ${stamp}, 12 Open Blue ${stamp}`);
   await confirmVariety.getByRole('button', { name: 'Open one pack', exact: true }).click();
