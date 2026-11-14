@@ -63,7 +63,7 @@ function labelCells(table: HTMLTableElement) {
   }
 }
 
-export const Table: React.FC<TableProps> = ({ children, className, scrollLabel, stackOnPhone = false, ...props }) => {
+export const Table: React.FC<TableProps> = ({ children, className, scrollLabel, stackOnPhone = true, ...props }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const hintId = useId();

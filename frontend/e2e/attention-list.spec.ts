@@ -4,12 +4,17 @@ import { login } from './utils/auth-helper';
 const auth = async (page: Page) => ({ Authorization: 'Bearer ' + await page.evaluate(() => localStorage.getItem('token')) });
 
 // attention@example.test owns a store no other spec uses, so it starts with nothing to report.
-test('the owner dashboard opens with what needs attention, each with a link to fix it', async ({ page }) => {
+test('alerts: the Dashboard shows only new ones, the bell keeps the rest, and dismissing hides one', async ({ page }) => {
   await login(page, 'attention@example.test');
   await page.goto('/dashboard');
-  const list = page.locator('.attention-list');
-  await expect(list.getByRole('heading', { name: 'Needs Attention', exact: true })).toBeVisible();
-  await expect(list.getByText('Nothing needs attention right now.', { exact: true })).toBeVisible();
+  const bell = page.getByRole('button', { name: /^Alerts/ }).filter({ visible: true });
+  const panel = page.getByRole('dialog', { name: 'Alerts', exact: true });
+  // Nothing to report: no notice on the Dashboard, and the bell says so.
+  await expect(bell).toHaveAccessibleName('Alerts');
+  await expect(page.locator('.attention-notice')).toHaveCount(0);
+  await bell.click();
+  await expect(panel.getByText('Nothing needs attention right now.', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
   // Owners see money tiles in place of the customer and product counts.
   const tile = (label: string) => page.locator('.summary-item').filter({ has: page.getByText(label, { exact: true }) });
   await expect(tile('Profit yesterday')).toContainText('$0.00'); await expect(tile('Profit yesterday')).toContainText('No sales yesterday');
@@ -28,27 +33,57 @@ test('the owner dashboard opens with what needs attention, each with a link to f
   await api('/sales', { items: [{ productId: soda.id, quantity: 1, price: 2.5 }], paymentMethod: 'CASH', amountPaid: 5, idempotencyKey: crypto.randomUUID() });
 
   await page.reload();
-  const items = list.getByRole('list', { name: 'Needs attention' }).getByRole('listitem');
+  const notice = page.locator('.attention-notice');
+  await expect(notice.getByRole('heading', { name: '2 new alerts', exact: true })).toBeVisible();
+  await expect(bell).toHaveAccessibleName('Alerts, 2 new');
+  const items = notice.getByRole('list', { name: 'New alerts' }).getByRole('listitem');
   await expect(items).toHaveCount(2);
   // Most urgent first: losing money on every sale outranks a fresh stock exception.
   await expect(items.nth(0)).toContainText('1 item is priced below what it costs.');
   await expect(items.nth(1)).toContainText(new RegExp(`Attention soda ${stamp} sold more than recorded stock and is waiting for a count \\(since [A-Z][a-z]{2} \\d{1,2}\\)\\.`));
-  await expect(list.getByText('2 items', { exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/attention-list.png', fullPage: true, animations: 'disabled' });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.setViewportSize({ width: 1280, height: 720 });
 
+  // Each alert links to the page that fixes it; following the link reads that alert.
   await items.nth(1).getByRole('link', { name: 'Count items', exact: true }).click();
   await expect(page).toHaveURL(/\/inventory\/stock-control\/exceptions$/);
   await page.goBack();
-  await items.nth(0).getByRole('link', { name: 'Review prices', exact: true }).click();
+  await expect(notice.getByRole('heading', { name: '1 new alert', exact: true })).toBeVisible();
+  await expect(bell).toHaveAccessibleName('Alerts, 1 new');
+
+  // "Mark all read" closes the notice; the alerts stay under the bell.
+  await notice.getByRole('button', { name: 'Mark all read', exact: true }).click();
+  await expect(notice).toHaveCount(0);
+  await expect(bell).toHaveAccessibleName('Alerts');
+  await bell.click();
+  const open = panel.getByRole('list', { name: 'Alerts' }).getByRole('listitem');
+  await expect(open).toHaveCount(2);
+  await open.filter({ hasText: 'priced below what it costs' }).getByRole('link', { name: 'Review prices', exact: true }).click();
   await expect(page).toHaveURL(/\/inventory\/price-review$/);
+  await expect(panel).toHaveCount(0);
+  await page.goBack();
+  await bell.click();
+  // Dismissing hides one until it changes; it can be shown again.
+  await open.filter({ hasText: 'priced below what it costs' }).getByRole('button', { name: /^Dismiss: / }).click();
+  await expect(open).toHaveCount(1);
+  await panel.getByRole('button', { name: 'Show 1 dismissed', exact: true }).click();
+  await expect(open).toHaveCount(2);
+  await open.filter({ hasText: 'priced below what it costs' }).getByRole('button', { name: /^Dismiss: / }).click();
+  await page.keyboard.press('Escape');
+  // Marks survive a reload on this computer: nothing new, one alert still open.
+  await page.reload();
+  await expect(page.locator('.attention-notice')).toHaveCount(0);
+  await bell.click();
+  await expect(open).toHaveCount(1);
+  await expect(open.first()).toContainText(`Attention soda ${stamp}`);
 });
 
-test('cashiers do not get the attention list', async ({ page }) => {
+test('cashiers do not get alerts', async ({ page }) => {
   await login(page, 'cashier@example.test'); await page.goto('/dashboard');
   await expect(page.getByText(/Showing your own sales/)).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Needs Attention', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Alerts/ })).toHaveCount(0);
+  await expect(page.locator('.attention-notice')).toHaveCount(0);
   await expect(page.getByText('Profit yesterday', { exact: true })).toHaveCount(0);
 });

@@ -15,6 +15,7 @@ import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useInventoryExceptionCount } from '@/hooks/useInventoryExceptionCount';
 import { AdminViewBanner } from './AdminViewBanner';
 import { OfflineIndicator } from './common/OfflineIndicator';
+import { AttentionBell } from './common/AttentionAlerts';
 import { QuickFind, quickFindShortcut, useQuickFindShortcut } from './common/QuickFind';
 import { StoreSwitcher } from './common/StoreSwitcher';
 import { Kbd } from './ui/Kbd';
@@ -226,7 +227,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         })}
       </nav>
 
-      <SidebarUserFooter name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} role={user?.role || ''} theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout} collapsed={isSidebarCollapsed}
+      <SidebarUserFooter name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} role={user?.role || ''} theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout} collapsed={isSidebarCollapsed} tools={<AttentionBell />}
         onLock={user && canLockRegister(user, registerDevice) ? () => lockRegister(user.id) : undefined} />
     </>
   );
@@ -280,7 +281,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           brand={(user?.role === 'SUPER_ADMIN' ? isAdminViewing : (user?.stores?.length ?? 0) > 1)
             ? <StoreSwitcher className="w-44" />
             : <p className="app-topbar-store" data-sidebar-store-name>{storeName || 'POS System'}</p>}
-          tools={<OfflineIndicator variant="badge" compact showDetails />}
+          tools={<><OfflineIndicator variant="badge" compact showDetails /><AttentionBell /></>}
           user={{ name: [user?.firstName, user?.lastName].filter(Boolean).join(' '), role: user?.role || '' }}
           theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout}
           onLock={user && canLockRegister(user, registerDevice) ? () => lockRegister(user.id) : undefined}

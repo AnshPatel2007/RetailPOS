@@ -70,10 +70,12 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
           aria-label="Register recovery and connection status"
           className={`${compact ? 'h-6' : 'min-h-11'} flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer
             ${isOffline
-              ? 'bg-destructive/10 text-destructive'
-              : pendingSalesCount > 0
+              // Offline is the one state that must be seen: solid red.
+              ? 'bg-destructive text-destructive-foreground'
+              : pendingSalesCount > 0 || lastError
                 ? 'bg-warning/10 text-warning'
-                : 'bg-success/10 text-success'
+                // Online is the normal state: the plain word, no colored badge.
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           onClick={() => { setShowTooltip(false); setShowReview(true); }}
         >
@@ -93,10 +95,10 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
               <span>{pendingSalesCount} pending</span>
             </>
           ) : (
-            <>
-              <Cloud className="w-3 h-3" />
-              <span>{lastError ? 'Review needed' : 'Online'}</span>
-            </>
+            lastError ? <>
+              <AlertCircle className="w-3 h-3" />
+              <span>Review needed</span>
+            </> : <span>Online</span>
           )}
         </button>
 

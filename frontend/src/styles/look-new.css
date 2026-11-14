@@ -76,8 +76,9 @@
   --ink-foreground: 0 0% 7%;
 }
 
-/* Black surfaces in the light theme (top bar, phone drawer, register bar, sale panel) read their contents in dark-theme colors. */
+/* Black surfaces in the light theme (top bar, page band, phone drawer, register bar, sale panel) read their contents in dark-theme colors. */
 :root[data-look="new"]:not(.dark) .app-topbar,
+:root[data-look="new"]:not(.dark) .management-content .page-header > .page-band,
 :root[data-look="new"]:not(.dark) .app-sidebar,
 :root[data-look="new"]:not(.dark) .pos-topbar,
 :root[data-look="new"]:not(.dark) .pos-cart {
@@ -128,6 +129,14 @@ a.app-topbar-link { cursor: pointer; }
 .app-topbar-link-icon { display: none; }
 .app-topbar-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 .app-topbar-tools { display: flex; flex-shrink: 0; align-items: center; gap: 8px; margin-left: auto; }
+/* Alerts: the bell sits with the other top bar tools; new alerts are counted in orange. */
+.app-topbar .attention-bell { color: hsl(var(--foreground) / .8); }
+.app-topbar .attention-bell[data-hovered], .app-topbar .attention-bell[data-pressed] { background: hsl(var(--foreground) / .12); color: hsl(var(--foreground)); }
+.app-topbar .attention-bell[data-focus-visible] { outline: 2px solid hsl(var(--brand)); outline-offset: -2px; }
+:root[data-look="new"] .attention-bell-count { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); box-shadow: 0 0 0 2px hsl(var(--background)); }
+:root[data-look="new"] .attention-notice { border-left-color: hsl(var(--brand)); border-radius: 6px; }
+:root[data-look="new"] .attention-notice-head h2, :root[data-look="new"] .attention-panel-head h2 { font-family: var(--display); font-weight: 800; }
+:root[data-look="new"] .attention-new { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); }
 .app-topbar-find { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border: 1px solid hsl(var(--foreground) / .22); border-radius: 6px; color: hsl(var(--foreground) / .8); font-size: 14px; outline: none; }
 .app-topbar-find:hover, .app-topbar-find[data-hovered] { background: hsl(var(--foreground) / .1); color: hsl(var(--foreground)); }
 .app-topbar-user { align-items: center; gap: 8px; height: 40px; padding: 0 4px; }
@@ -151,13 +160,36 @@ a.app-topbar-link { cursor: pointer; }
 :root[data-look="new"] .sidebar-link[aria-current="page"] { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); font-weight: 700; }
 :root[data-look="new"] .look-switch button[aria-pressed="true"] { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); }
 
+/* ---- Pages: a black band under the top bar ----------------------------- */
+/* Every back-office page opens on a black band that continues the top bar: the
+   title and the page's buttons on it, its own tabs along its bottom edge
+   (PageHeader marks those rows .page-band). The band reaches both edges of the
+   page through border-image outset, which only paints and never adds a
+   scrollbar, so pages keep their padding and the band's words line up with the
+   content below. Sub-tabs, filters and notes stay under the band, on the page. */
+:root[data-look="new"] { --band: 0 0% 7%; }
+:root[data-look="new"].dark { --band: 0 0% 9%; }
+:root[data-look="new"] .management-content .page-header > .page-band {
+  border-image: linear-gradient(hsl(var(--band)), hsl(var(--band))) fill 0 / / 0 100vmax;
+  background: hsl(var(--band));
+  color: hsl(var(--foreground));
+}
+:root[data-look="new"] .management-content .page-header { margin-bottom: 20px; }
+:root[data-look="new"] .management-content .page-header > .page-title-row { padding-block: 22px 24px; }
+:root[data-look="new"] .management-content .page-header > .page-title-row:has(+ .page-band-tabs > .page-tab-scroll-shell) { padding-bottom: 8px; }
+:root[data-look="new"] .management-content .page-header > .page-band-tabs { margin-top: 0; }
+:root[data-look="new"] .management-content .page-header > .page-band-tabs:empty { display: none; }
+/* The band starts right under the top bar, when nothing visible comes before the header
+   (a closed pop-up leaves only a hidden placeholder there). */
+:root[data-look="new"] .management-page:has(> .page-header):not(:has(> :not([hidden], .page-header) ~ .page-header)),
+:root[data-look="new"] .management-content > div:has(> .page-header):not(:has(> :not([hidden], .page-header) ~ .page-header)) { padding-top: 0; }
+/* A faint line where the top bar's menu ends and the page's band begins. */
+:root[data-look="new"]:not(.dark) .app-topbar { box-shadow: inset 0 -1px hsl(0 0% 100% / .09); }
+
 /* ---- Type: heavy titles and numbers, in the display face --------------- */
-:root[data-look="new"] .management-content .page-header h1 { font-family: var(--display); font-size: 24px; line-height: 30px; font-weight: 800; font-stretch: 106%; letter-spacing: -.012em; }
+:root[data-look="new"] .management-content .page-header h1 { font-family: var(--display); font-size: 26px; line-height: 32px; font-weight: 800; font-stretch: 106%; letter-spacing: -.015em; }
 @media (min-width: 640px) {
-  :root[data-look="new"] .management-content .page-header h1 { font-size: 30px; line-height: 36px; }
-  /* The top bar already frames the page: less air above the title and under the header. */
-  :root[data-look="new"] .management-page, :root[data-look="new"] .management-content > div:has(> .page-header) { padding-top: 20px; }
-  :root[data-look="new"] .page-header { margin-bottom: 16px; }
+  :root[data-look="new"] .management-content .page-header h1 { font-size: 34px; line-height: 40px; }
 }
 :root[data-look="new"] .management-content h2, :root[data-look="new"] .management-content h3, :root[data-look="new"] .app-dialog h2, :root[data-look="new"] .app-dialog h3 { font-family: var(--display); font-weight: 700; letter-spacing: -.005em; }
 :root[data-look="new"] .summary-value, :root[data-look="new"] .metric-grid .metric-value { font-family: var(--display); font-weight: 800; letter-spacing: -.02em; }
@@ -190,26 +222,29 @@ a.app-topbar-link { cursor: pointer; }
   :root[data-look="new"] .app-dialog h2 { font-size: 20px; }
 }
 
-/* ---- Numbers: separate tiles, the first one inverted ------------------- */
-:root[data-look="new"] .summary-strip { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-:root[data-look="new"] .summary-strip .summary-item { padding: 14px 16px; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--card)); }
-:root[data-look="new"] .summary-strip .summary-value { margin-top: 4px; font-size: 26px; line-height: 32px; }
-:root[data-look="new"] .summary-strip .summary-item:first-child[data-tone="default"] { border-color: hsl(var(--ink)); background: hsl(var(--ink)); color: hsl(var(--ink-foreground)); }
-:root[data-look="new"] .summary-strip .summary-item:first-child[data-tone="default"] dt,
-:root[data-look="new"] .summary-strip .summary-item:first-child[data-tone="default"] .summary-detail { color: hsl(var(--ink-foreground) / .72); }
-:root[data-look="new"] .summary-strip .summary-item:first-child[data-tone="default"] a { color: inherit; }
-:root[data-look="new"] .summary-strip .summary-item-linked:hover { border-color: hsl(var(--foreground) / .6); background: hsl(var(--card)); }
-:root[data-look="new"] .summary-strip .summary-item-linked:first-child[data-tone="default"]:hover { background: hsl(var(--ink) / .86); }
-:root[data-look="new"] .summary-strip-emphasis .summary-item:last-child { border-radius: 8px; }
-/* Inside a list's panel the tiles sit in the panel's top band, a little tighter so the list starts sooner. */
-:root[data-look="new"] .data-panel-summary { padding: 10px; border-bottom: 1px solid hsl(var(--border)); }
-:root[data-look="new"] .data-panel-summary .summary-strip .summary-item { padding: 10px 14px; }
-:root[data-look="new"] .data-panel-summary .summary-strip .summary-value { margin-top: 2px; font-size: 24px; line-height: 30px; }
+/* ---- Numbers: one compact bar under a black rule ----------------------- */
+/* The owner found separate tall tiles too big: one long figure ("Needs costs"
+   and its note) made the others look empty. One bar, divided by hairlines
+   (each figure draws its left and top line; the bar clips the outer ones),
+   keeps every figure tight, however the figures wrap. */
+:root[data-look="new"] .summary-strip { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; border: 1px solid hsl(var(--border)); border-top: 3px solid hsl(var(--ink)); border-radius: 6px; background: hsl(var(--card)); box-shadow: none; overflow: hidden; }
+:root[data-look="new"] .summary-strip .summary-item { padding: 10px 18px 12px; border: 0; border-radius: 0; background: transparent; box-shadow: -1px 0 hsl(var(--border)), 0 -1px hsl(var(--border)); }
+:root[data-look="new"] .summary-strip dt { font-size: 11px; line-height: 16px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: hsl(var(--muted-foreground)); }
+:root[data-look="new"] .summary-strip .summary-value { margin-top: 2px; font-size: 22px; line-height: 28px; }
+/* A figure's note and its link share one small line. */
+:root[data-look="new"] .summary-strip .summary-detail, :root[data-look="new"] .summary-strip .summary-action { display: inline; margin: 0; font-size: 12px; line-height: 18px; }
+:root[data-look="new"] .summary-strip .summary-detail + .summary-action::before { content: '\00a0·\00a0'; color: hsl(var(--muted-foreground)); }
+:root[data-look="new"] .summary-strip .summary-item-linked:hover { background: hsl(var(--accent)); }
+/* The Dashboard's money figures are the page's headline: larger. */
+:root[data-look="new"] .summary-strip-emphasis .summary-value { font-size: 28px; line-height: 34px; }
+/* Inside a list's panel the bar is the panel's top band. */
+:root[data-look="new"] .data-panel-summary { padding: 0; border-bottom: 1px solid hsl(var(--border)); }
 :root[data-look="new"] .data-panel-summary .summary-strip { border: 0; border-radius: 0; }
 @media (max-width: 639px) {
-  :root[data-look="new"] .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  :root[data-look="new"] .summary-strip .summary-item { padding: 12px; }
-  :root[data-look="new"] .summary-strip .summary-value { font-size: 22px; line-height: 28px; }
+  :root[data-look="new"] .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :root[data-look="new"] .summary-strip .summary-item { padding: 8px 12px 10px; }
+  :root[data-look="new"] .summary-strip .summary-value { font-size: 20px; line-height: 26px; }
+  :root[data-look="new"] .summary-strip-emphasis .summary-value { font-size: 22px; line-height: 28px; }
 }
 
 /* ---- Tabs: an orange bar under the page tab; a black pill for sub-tabs -- */
@@ -222,10 +257,14 @@ a.app-topbar-link { cursor: pointer; }
 :root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab:hover { color: hsl(var(--foreground)); }
 :root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab[aria-current="page"] { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
 :root[data-look="new"] .page-secondary-row, :root[data-look="new"] .page-tabs-secondary { border-top: 0; padding-top: 0; }
+/* On the band: the tabs' orange bar sits on the band's bottom edge, the first word lined up with the title.
+   Tabs keep the header buttons' height (36px, 44px on a phone). */
+:root[data-look="new"] .page-band-tabs .page-tab-scroll-shell[data-level="primary"] > .page-tabs { margin-left: -14px; padding-bottom: 0; border-bottom: 0; }
 :root[data-look="new"] .page-tab-badge { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); font-weight: 700; }
 
 /* ---- Tables: tight rows under small capital headings ------------------- */
 :root[data-look="new"] .table-scroll th { height: 36px; background: hsl(var(--surface-subtle)); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+:root[data-look="new"] .table-scroll thead tr { border-bottom-color: hsl(var(--foreground) / .3); }
 :root[data-look="new"] .table-scroll tbody tr:hover { background: hsl(var(--accent) / .55); }
 @media (min-width: 640px) {
   :root[data-look="new"] .table-scroll tbody td { height: 40px; padding-top: 6px; padding-bottom: 6px; }

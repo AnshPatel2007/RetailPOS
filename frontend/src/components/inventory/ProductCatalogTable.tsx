@@ -5,7 +5,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ActionMenu } from '@/components/ui/ActionMenu';
-import { ProductImage } from './ProductImage';
 
 export function ProductCatalogTable({ products, canManage, onEdit, onAdjustStock, onDelete }: {
   products: Product[];
@@ -14,7 +13,7 @@ export function ProductCatalogTable({ products, canManage, onEdit, onAdjustStock
   onAdjustStock: (product: Product) => void;
   onDelete: (product: Product) => void;
 }) {
-  return <div className="products-table"><Table aria-label="Products">
+  return <div className="products-table"><Table aria-label="Products" stackOnPhone={false}>
     <TableHeader><TableRow>
       <TableHead>Product Name</TableHead>
       <TableHead className="text-right">Price</TableHead>
@@ -29,7 +28,6 @@ export function ProductCatalogTable({ products, canManage, onEdit, onAdjustStock
       return <TableRow key={product.id}>
         <TableCell className="product-identity-cell">
           <div className="product-identity">
-            <ProductImage src={product.image} name={product.name} />
             <div className="min-w-0">
               <p className="product-name">{product.name}</p>
               <p className="product-reference"><span>{product.sku}</span>{product.category && <><span aria-hidden="true"> · </span><span>{product.category.name}</span></>}</p>

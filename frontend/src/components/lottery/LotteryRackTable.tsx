@@ -48,7 +48,7 @@ export function LotteryRackTable({ rows, disabled, profile, onChange }: { rows: 
   const counted = rows.filter(row => rackSold(row) !== null).length;
   return <section className="space-y-3">
     <div className="lottery-rack-instructions"><p>{disabled ? 'Saved counts' : 'Scan or type the next unsold ticket. Moves to the next row automatically.'}</p><span className="lottery-count-progress">{counted} of {rows.length} counted</span></div>
-    <div className="lottery-rack-table"><Table aria-label="Scratch ticket counts"><TableHeader><TableRow>
+    <div className="lottery-rack-table"><Table aria-label="Scratch ticket counts" stackOnPhone={false}><TableHeader><TableRow>
       <TableHead>Bin</TableHead><TableHead>Lottery</TableHead><TableHead>Opening number</TableHead><TableHead>Closing number</TableHead><TableHead className="text-right">Tickets sold</TableHead><TableHead className="text-right">Ticket price</TableHead><TableHead className="text-right">Total sales</TableHead>
     </TableRow></TableHeader><TableBody>{ordered.map((row, index) => {
       const sold = rackSold(row);

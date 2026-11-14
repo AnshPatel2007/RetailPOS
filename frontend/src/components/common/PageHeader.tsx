@@ -44,14 +44,15 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   const nestedTabs = workflow?.secondaryTabs;
   const additionalTabs = workflow?.tabs && tabs;
   return (
+    // The title row and the page's own tabs are the header's "band" (the New look paints it black).
     <header className="page-header mb-6 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+      <div className="page-band page-title-row flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <h1 className="min-w-0 text-2xl font-semibold leading-8 tracking-tight break-words">{workflow?.title || title}</h1>
         {hasContent(actions) && (
           <HeaderActions>{actions}</HeaderActions>
         )}
       </div>
-      {(workflow?.tabs || tabs) && <PageTabStyleContext.Provider value="primary"><div>{workflow?.tabs || tabs}</div></PageTabStyleContext.Provider>}
+      {(workflow?.tabs || tabs) && <PageTabStyleContext.Provider value="primary"><div className="page-band page-band-tabs">{workflow?.tabs || tabs}</div></PageTabStyleContext.Provider>}
       {nestedTabs && <PageTabStyleContext.Provider value="subtle"><div className="page-secondary-row">{nestedTabs}</div></PageTabStyleContext.Provider>}
       {secondaryTabs && <PageTabStyleContext.Provider value="subtle"><div className="page-secondary-row">{secondaryTabs}</div></PageTabStyleContext.Provider>}
       {additionalTabs && <PageTabStyleContext.Provider value="subtle"><div className="page-secondary-row">{additionalTabs}</div></PageTabStyleContext.Provider>}

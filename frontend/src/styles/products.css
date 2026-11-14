@@ -18,8 +18,6 @@
 .products-table td { padding-top: 10px; padding-bottom: 10px; }
 .products-table .product-price-cell, .products-table .product-cost-cell, .products-table .product-stock-cell { white-space: normal; overflow-wrap: anywhere; }
 .product-identity { display: flex; align-items: center; gap: 12px; }
-.product-image { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 6px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: hsl(var(--muted) / .7); color: hsl(var(--muted-foreground)); }
-.product-image img { width: 100%; height: 100%; object-fit: contain; }
 .product-name { font-weight: 500; line-height: 20px; overflow-wrap: anywhere; }
 .product-reference { font-size: 12px; line-height: 18px; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
 .product-stock-threshold { display: block; margin-top: 2px; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 16px; white-space: nowrap; }
@@ -41,15 +39,6 @@
 .product-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; }
 .product-choice-grid label { display: flex; min-height: 36px; gap: 10px; align-items: center; }
 .product-choice-grid input { flex: 0 0 auto; width: 16px; height: 16px; }
-.product-image-field { display: flex; gap: 16px; align-items: center; }
-.product-image-field > div:last-child { flex: 1; min-width: 0; }
-.product-image-preview { width: 72px; height: 72px; flex-basis: 72px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); }
-.product-photo-choices summary { cursor: pointer; font-size: 14px; }
-.product-photo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-top: 12px; }
-.product-photo-option { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px; border: 1px solid hsl(var(--border)); border-radius: 6px; font-size: 12px; overflow-wrap: anywhere; }
-.product-photo-option[aria-pressed="true"] { border-color: hsl(var(--primary)); background: hsl(var(--primary) / .06); }
-.product-photo-option:focus-visible, .product-photo-choices summary:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
-.product-photo-option .product-image { background: white; }
 /* A small laptop (about 1024px with the menu) keeps the table, a little tighter; only narrow screens switch to cards. */
 @container product-catalog (min-width: 601px) and (max-width: 860px) {
   .products-table th, .products-table td { padding-left: 8px; padding-right: 8px; }
@@ -81,6 +70,4 @@
 }
 @media (max-width: 639px) {
   .product-form .product-field-grid, .product-form .product-price-grid, .product-choice-grid { grid-template-columns: minmax(0, 1fr); }
-  .product-image-field { align-items: start; }
-  .product-image-preview { width: 56px; height: 56px; flex-basis: 56px; }
 }

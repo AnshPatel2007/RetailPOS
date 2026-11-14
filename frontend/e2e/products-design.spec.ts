@@ -26,7 +26,8 @@ test('product workspace keeps the catalog prominent and groups all product field
   for (const title of ['Pricing help', 'Packs of this item', 'How you buy it', 'Brand, size & description', 'Advanced']) {
     await expect(dialog.locator('summary', { hasText: title })).toHaveCount(1);
   }
-  await expect(dialog.getByLabel('Image URL', { exact: true })).toBeHidden();
+  // Products carry no pictures (the owner's choice), so the form has no picture field.
+  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveCount(0);
   for (const name of ['SKU', 'Product Name', 'Cost Price', 'Retail Price', 'Stock Quantity', 'Low Stock Alert']) {
     await expect(dialog.getByLabel(name, { exact: true })).toHaveAttribute('required', '');
   }

@@ -61,7 +61,7 @@ function deferredLookup() {
   };
 }
 
-test('a new product barcode fills catalog identity and image without changing store pricing or sale settings', async ({ page }) => {
+test('a new product barcode fills catalog identity, never a picture, without changing store pricing or sale settings', async ({ page }) => {
   const mutations = await prepare(page);
   const payloads: unknown[] = [];
   await page.route('**/api/products/identify', async route => {
@@ -78,9 +78,10 @@ test('a new product barcode fills catalog identity and image without changing st
   await expect(dialog.getByLabel('Product Name', { exact: true })).toHaveValue('Catalog Coffee 12 oz');
   await expect(dialog.getByLabel('SKU', { exact: true })).toHaveValue(firstBarcode);
   await expect(dialog.getByLabel('Description', { exact: true })).toHaveValue('Roasted coffee, 12 oz');
-  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveValue(productImage);
   await expect(selectField(dialog, 'Category').getByRole('button')).toHaveText('Beverages');
-  await expect(dialog.getByRole('img', { name: 'Catalog Coffee 12 oz preview', exact: true })).toHaveAttribute('src', productImage);
+  // Products carry no pictures: no picture field, and the catalog's photo is not shown or kept.
+  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveCount(0);
+  await expect(dialog.locator('img')).toHaveCount(0);
   for (const [label, value] of [['Cost Price', '4.25'], ['Retail Price', '6.75'], ['Stock Quantity', '12'], ['Low Stock Alert', '3']]) {
     await expect(dialog.getByLabel(label, { exact: true })).toHaveValue(value);
   }
@@ -108,7 +109,7 @@ test('scanner Enter looks up once and never submits a completed product form', a
   await barcode.fill(firstBarcode);
   await barcode.press('Enter');
   await expect.poll(() => calls).toBe(1);
-  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveValue(productImage);
+  await expect(dialog.getByLabel('Description', { exact: true })).toHaveValue('Roasted coffee, 12 oz');
   // Let the automatic debounce expire: Enter must cancel it instead of duplicating lookup.
   await page.waitForTimeout(900);
   expect(calls).toBe(1);
@@ -130,7 +131,6 @@ test('lookup preserves manually entered identity and edits made while the catalo
   await dialog.getByLabel('SKU', { exact: true }).fill('MY-SKU');
   await dialog.locator('summary', { hasText: 'Brand, size & description' }).click();
   await dialog.getByLabel('Description', { exact: true }).fill('Owner description');
-  await dialog.getByLabel('Image URL', { exact: true }).fill('/my-product.png');
   await chooseOption(selectField(dialog, 'Category'), 'Candy');
   await dialog.getByLabel('Barcode', { exact: true }).fill(firstBarcode);
   await expect.poll(() => calls).toBe(1);
@@ -140,7 +140,6 @@ test('lookup preserves manually entered identity and edits made while the catalo
   await expect(dialog.getByLabel('Product Name', { exact: true })).toHaveValue('Owner corrected name');
   await expect(dialog.getByLabel('SKU', { exact: true })).toHaveValue('MY-SKU');
   await expect(dialog.getByLabel('Description', { exact: true })).toHaveValue('Owner description');
-  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveValue('/my-product.png');
   await expect(selectField(dialog, 'Category').getByRole('button')).toHaveText('Candy');
   expect(mutations.categoryCreates()).toBe(0);
   expect(mutations.creates()).toBe(0);
@@ -193,7 +192,7 @@ test('closing the dialog discards pending results and editing an existing produc
   await page.waitForTimeout(200);
   await expect(reopened.getByLabel('Product Name', { exact: true })).toHaveValue('');
   await expect(reopened.getByLabel('Barcode', { exact: true })).toHaveValue('');
-  await expect(reopened.getByLabel('Image URL', { exact: true })).toHaveValue('');
+  await expect(reopened.getByLabel('Description', { exact: true })).toHaveValue('');
   await page.keyboard.press('Escape');
   await page.getByRole('row').filter({ hasText: 'Fixture Coffee' }).getByRole('button', { name: 'Edit Fixture Coffee', exact: true }).click();
   const edit = page.getByRole('dialog', { name: 'Edit Product', exact: true });
@@ -203,7 +202,7 @@ test('closing the dialog discards pending results and editing an existing produc
   await expect(edit.getByLabel('Product Name', { exact: true })).toHaveValue('Fixture Coffee');
   await edit.getByRole('button', { name: 'Auto-fill', exact: true }).click();
   await expect.poll(() => calls).toBe(2);
-  await expect(edit.getByLabel('Image URL', { exact: true })).toHaveValue(productImage);
+  await expect(edit.getByRole('status')).toContainText(/found|review/i);
   await expect(edit.getByLabel('Product Name', { exact: true })).toHaveValue('Fixture Coffee');
 });
 
@@ -223,7 +222,7 @@ test('an unavailable or missing catalog item keeps manual entry available and lo
   await expect(dialog.getByRole('status')).toContainText(/not found|no.*match|manual|not recognized/i);
   await dialog.getByLabel('Product Name', { exact: true }).fill('Manually identified product');
   await dialog.getByRole('button', { name: /^(Retry lookup|Auto-fill)$/ }).click();
-  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveValue(productImage);
+  await expect(dialog.getByLabel('Description', { exact: true })).toHaveValue('Roasted coffee, 12 oz');
   await expect(dialog.getByLabel('Product Name', { exact: true })).toHaveValue('Manually identified product');
   expect(calls).toBe(3);
   expect(mutations.creates()).toBe(0);
@@ -249,7 +248,7 @@ test('a barcode already in this store opens the existing product instead of crea
   expect(mutations.creates()).toBe(0);
 });
 
-test('Coca-Cola catalog hierarchy selects the store beverage category and fills description and photo', async ({ page }, info) => {
+test('Coca-Cola catalog hierarchy selects the store beverage category and fills the description', async ({ page }, info) => {
   await prepare(page);
   await page.route('**/api/products/identify', route => route.fulfill({ json: identified({
     name: 'Coca-Cola 20 fl oz', description: 'Coca-Cola bottled cola, 20 fl oz.', category: 'Sweetened beverages',
@@ -260,8 +259,7 @@ test('Coca-Cola catalog hierarchy selects the store beverage category and fills 
   await expect(dialog.getByLabel('Product Name', { exact: true })).toHaveValue('Coca-Cola 20 fl oz');
   await expect(selectField(dialog, 'Category').getByRole('button')).toHaveText('Beverages');
   await expect(dialog.getByLabel('Description', { exact: true })).toHaveValue('Coca-Cola bottled cola, 20 fl oz.');
-  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveValue(productImage);
-  await expect.poll(() => dialog.getByRole('img', { name: 'Catalog match preview', exact: true }).evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+  await expect(dialog.locator('img')).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('cola-details.png') });
 });
 
@@ -274,10 +272,11 @@ test('a name-only match explains missing fields and retry can fill them without 
   const dialog = await addProduct(page);
   await dialog.getByLabel('Barcode', { exact: true }).fill(firstBarcode);
   await expect(dialog.getByRole('status')).toContainText('Some catalog details could not be retrieved');
-  await expect(dialog.getByRole('status')).toContainText('Not supplied by the catalog: description, category, photo');
+  // A missing photo is not mentioned: products carry no pictures.
+  await expect(dialog.getByRole('status')).toContainText('Not supplied by the catalog: description, category.');
   await dialog.getByLabel('Product Name', { exact: true }).fill('My shelf label');
   await dialog.getByRole('button', { name: 'Auto-fill', exact: true }).click();
-  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveValue(productImage);
+  await expect(dialog.getByLabel('Description', { exact: true })).toHaveValue('Roasted coffee, 12 oz');
   await expect(dialog.getByLabel('Product Name', { exact: true })).toHaveValue('My shelf label');
   await expect(dialog.getByRole('status')).not.toContainText('Not supplied');
 });
@@ -361,44 +360,29 @@ test('age suggestions preserve an owner choice made while lookup is pending and 
   await expect(selectField(dialog, 'Age restriction').getByRole('button')).toHaveText('18+ (lottery)');
 });
 
-test('catalog photo choices can replace an existing draft image without saving or resubmitting the product', async ({ page }, info) => {
-  const mutations = await prepare(page);
-  const alternate = 'https://catalog.example.test/alternate.png';
-  await page.route(alternate, route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="white"/><rect x="10" y="3" width="12" height="28" fill="red"/></svg>' }));
-  await page.route('**/api/products/identify', route => route.fulfill({ json: identified({
-    imageStatus: 'catalog', imageCandidates: [
-      { url: productImage, source: 'UPCitemdb', kind: 'catalog' },
-      { url: alternate, source: 'Coca-Cola', kind: 'catalog' },
-      { url: 'https://catalog.example.test/community.png', source: 'Open Food Facts', kind: 'community' },
-    ],
-  }) }));
-  const dialog = await addProduct(page);
-  await dialog.getByLabel('Barcode', { exact: true }).fill(firstBarcode);
-  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveValue(productImage);
-  // The lookup opened "Brand, size & description" to show the photo it found.
-  await dialog.locator('summary').filter({ hasText: 'Catalog photos (2)' }).click();
-  const choices = dialog.getByRole('group', { name: 'Catalog product photos' });
-  await expect(choices.getByRole('button')).toHaveCount(2);
-  await choices.getByRole('button', { name: 'Use product photo 2 from Coca-Cola', exact: true }).click();
-  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveValue(alternate);
-  await dialog.getByLabel('Barcode', { exact: true }).scrollIntoViewIfNeeded();
-  await dialog.getByRole('button', { name: 'Auto-fill', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Auto-fill', exact: true })).toBeEnabled();
-  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveValue(alternate);
-  await choices.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: info.outputPath('catalog-photo-options.png') });
-  expect(mutations.creates()).toBe(0);
-});
-
-test('community snapshots do not automatically populate the product image', async ({ page }) => {
+test('a catalog match never adds a picture to the product', async ({ page }) => {
   await prepare(page);
+  const saved: Record<string, unknown>[] = [];
+  // Registered after prepare(), so this one answers: it keeps the payload and still saves nothing.
+  await page.route(/\/api\/products(?:\?.*)?$/, async route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    saved.push(route.request().postDataJSON());
+    await route.fulfill({ status: 409, json: { success: false, error: 'Lookup test: nothing is saved' } });
+  });
   await page.route('**/api/products/identify', route => route.fulfill({ json: identified({
-    image: null, imageStatus: 'community_only', missingFields: ['image'],
-    imageCandidates: [{ url: productImage, source: 'Open Food Facts', kind: 'community' }],
+    imageStatus: 'catalog', imageCandidates: [{ url: productImage, source: 'UPCitemdb', kind: 'catalog' }],
   }) }));
   const dialog = await addProduct(page);
+  await expect(dialog.getByRole('button', { name: 'Photo', exact: true })).toHaveCount(0);
   await dialog.getByLabel('Barcode', { exact: true }).fill(firstBarcode);
-  await expect(dialog.getByRole('status')).toContainText('Only community snapshots are available');
-  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveValue('');
-  await expect(dialog.getByRole('img', { name: 'Catalog match preview', exact: true })).toHaveCount(0);
+  await expect(dialog.getByLabel('Product Name', { exact: true })).toHaveValue('Catalog Coffee 12 oz');
+  await expect(dialog.getByLabel('Image URL', { exact: true })).toHaveCount(0);
+  await expect(dialog.locator('img')).toHaveCount(0);
+  for (const [label, value] of [['Cost Price', '4'], ['Retail Price', '6'], ['Stock Quantity', '12'], ['Low Stock Alert', '3']]) {
+    await dialog.getByLabel(label, { exact: true }).fill(value);
+  }
+  await dialog.getByRole('button', { name: 'Create Product', exact: true }).click();
+  await expect.poll(() => saved.length).toBe(1);
+  expect(saved[0].name).toBe('Catalog Coffee 12 oz');
+  expect(saved[0].image ?? '').toBe('');
 });

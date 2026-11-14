@@ -120,12 +120,13 @@ export function useProductIdentification<T extends IdentityDraft>({ open, enable
       const info: Identification = response.data.data;
       if (!info.found) {
         const kind = info.status === 'unavailable' ? 'unavailable' : info.status === 'invalid' ? 'invalid' : 'not_found';
-        setState({ kind, message: kind === 'unavailable' ? 'Product lookup is temporarily unavailable. Retry or enter the details manually.' : kind === 'invalid' ? 'This barcode cannot be looked up. Check the code or enter the details manually.' : 'No catalog match. Enter the details manually or try a label photo.' });
+        setState({ kind, message: kind === 'unavailable' ? 'Product lookup is temporarily unavailable. Retry or enter the details manually.' : kind === 'invalid' ? 'This barcode cannot be looked up. Check the code or enter the details manually.' : 'No catalog match. Enter the details manually.' });
         return;
       }
       const category = matchCatalogCategory(live.current.categories, [...(info.categoryCandidates || []), ...(info.category ? [info.category] : [])]);
       const suggestions: Partial<Record<IdentityField, string>> = {
-        name: info.name || undefined, description: info.description || undefined, categoryId: category?.id, image: info.image || undefined,
+        // Products carry no pictures (the owner's choice): a catalog photo is never added.
+        name: info.name || undefined, description: info.description || undefined, categoryId: category?.id,
         minimumAge: info.ageRestriction?.status === 'restricted' && info.ageRestriction.minimumAge === 21 ? '21' : undefined,
       };
       setDraft(previous => {

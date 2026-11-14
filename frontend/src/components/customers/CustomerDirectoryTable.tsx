@@ -14,7 +14,7 @@ export function CustomerDirectoryTable({ customers, canDelete, canEdit = true, o
   onEdit: (customer: Customer) => void;
   onDelete: (customer: Customer) => void;
 }) {
-  return <div className="customer-directory-table"><Table aria-label="Customers">
+  return <div className="customer-directory-table"><Table aria-label="Customers" stackOnPhone={false}>
     <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Contact</TableHead><TableHead>Loyalty</TableHead><TableHead className="text-right">Total Spent</TableHead><TableHead className="text-right">Visits</TableHead><TableHead>Last Visit</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
     <TableBody>{customers.map(customer => {
       const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ');

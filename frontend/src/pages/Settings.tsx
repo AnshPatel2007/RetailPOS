@@ -278,7 +278,7 @@ export const Settings: React.FC = () => {
               onChange={(e) => setStoreSettings({ ...storeSettings, phone: e.target.value })}
             />
             <p className="text-sm text-muted-foreground">Tax applies to taxable products after discounts. The owner sets this store’s rate.</p>
-            <Button variant="primary" onClick={saveStoreSettings} disabled={!editable}>Save Changes</Button>
+            <Button variant="primary" className="settings-save" onClick={saveStoreSettings} disabled={!editable}>Save Changes</Button>
           </CardContent>
         </Card>
 
@@ -306,13 +306,13 @@ export const Settings: React.FC = () => {
             />
             <Checkbox label="Show store address on receipt" checked={receiptSettings.showAddress} onChange={(e) => setReceiptSettings({ ...receiptSettings, showAddress: e.target.checked })} />
             <Checkbox label="Show tax breakdown" checked={receiptSettings.showTaxBreakdown} onChange={(e) => setReceiptSettings({ ...receiptSettings, showTaxBreakdown: e.target.checked })} />
-            <Button variant="primary" onClick={saveReceiptSettings} disabled={!editable}>Save Changes</Button>
+            <Button variant="primary" className="settings-save" onClick={saveReceiptSettings} disabled={!editable}>Save Changes</Button>
           </CardContent>
         </Card>
 
         </fieldset>)}
 
-        {selected === 'payments' && <Card><CardHeader><CardTitle>Store Tax</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm text-muted-foreground">The store owner maintains this location's rate. Checkout applies it automatically to taxable products and preserves the rate on completed sales.</p><Input label="Store sales tax (%)" type="number" min="0" max="100" step="0.0001" value={taxInput ?? String(storeSettings.taxRate ?? '')} disabled={!editable || !canFinance} onChange={e => { setTaxInput(e.target.value); if (e.target.value.trim() !== '' && Number.isFinite(Number(e.target.value))) setStoreSettings({ ...storeSettings, taxRate: Number(e.target.value) }); }} /><Button variant="primary" onClick={saveTaxSettings} disabled={!editable || !canFinance}>Save tax rate</Button></CardContent></Card>}
+        {selected === 'payments' && <Card><CardHeader><CardTitle>Store Tax</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm text-muted-foreground">The store owner maintains this location's rate. Checkout applies it automatically to taxable products and preserves the rate on completed sales.</p><Input label="Store sales tax (%)" type="number" min="0" max="100" step="0.0001" value={taxInput ?? String(storeSettings.taxRate ?? '')} disabled={!editable || !canFinance} onChange={e => { setTaxInput(e.target.value); if (e.target.value.trim() !== '' && Number.isFinite(Number(e.target.value))) setStoreSettings({ ...storeSettings, taxRate: Number(e.target.value) }); }} /><Button variant="primary" className="settings-save" onClick={saveTaxSettings} disabled={!editable || !canFinance}>Save tax rate</Button></CardContent></Card>}
         {selected === 'payments' && (<fieldset disabled={!editable} className="contents">
         {/* Payment Settings */}
         <Card>
@@ -329,7 +329,7 @@ export const Settings: React.FC = () => {
               <Checkbox label="Gift Card" checked={paymentMethods.giftCard} onChange={(e) => setPaymentMethods({ ...paymentMethods, giftCard: e.target.checked })} />
               <Checkbox label="Store Credit" checked={paymentMethods.storeCredit} onChange={(e) => setPaymentMethods({ ...paymentMethods, storeCredit: e.target.checked })} />
             </div>
-            <Button variant="primary" onClick={savePaymentMethods} disabled={!editable}>Save Changes</Button>
+            <Button variant="primary" className="settings-save" onClick={savePaymentMethods} disabled={!editable}>Save Changes</Button>
           </CardContent>
         </Card>
 
@@ -346,7 +346,7 @@ export const Settings: React.FC = () => {
               description="A cashier closing their drawer enters what they counted first; the expected amount and any difference show afterwards. Managers and owners always see the expected amount."
               checked={cashControl.blindClose} disabled={!canFinance}
               onChange={(e) => { dirty.current.cash = true; setCashControl({ blindClose: e.target.checked }); }} />
-            <Button variant="primary" onClick={saveCashControl} disabled={!editable || !canFinance}>Save Changes</Button>
+            <Button variant="primary" className="settings-save" onClick={saveCashControl} disabled={!editable || !canFinance}>Save Changes</Button>
           </CardContent>
         </Card>
 
@@ -374,7 +374,7 @@ export const Settings: React.FC = () => {
               onChange={(e) => setNotificationSettings({ ...notificationSettings, notificationEmail: e.target.value })}
               disabled={!notificationSettings.emailNotifications}
             />
-            <Button variant="primary" onClick={saveNotificationSettings} disabled={!editable}>Save Changes</Button>
+            <Button variant="primary" className="settings-save" onClick={saveNotificationSettings} disabled={!editable}>Save Changes</Button>
           </CardContent>
         </Card>
 
@@ -492,7 +492,7 @@ export const Settings: React.FC = () => {
                   Save all hardware configuration changes
                 </p>
               </div>
-              <Button variant="primary" onClick={saveHardwareSettings}>
+              <Button variant="primary" className="settings-save" onClick={saveHardwareSettings}>
                 <Save className="h-4 w-4 mr-2" />
                 Save Hardware Settings
               </Button>
@@ -557,7 +557,7 @@ export const Settings: React.FC = () => {
                 onChange={(e) => setProfileSettings({ ...profileSettings, confirmPassword: e.target.value })}
               />
             </div>
-            <Button variant="primary" onClick={saveUserProfile}>Update Profile</Button>
+            <Button variant="primary" className="settings-save" onClick={saveUserProfile}>Update Profile</Button>
           </CardContent>
         </Card>
 

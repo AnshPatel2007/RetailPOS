@@ -117,7 +117,7 @@ export function MyStores() {
                   {profit.note && <p>{profit.note}</p>}
                 </>} />
               <Figure label="Needs attention" value={store.attentionCount}
-                detail={store.attentionIncomplete ? 'Some checks could not run' : store.attentionCount ? 'On the store\'s Dashboard' : 'Nothing right now'}
+                detail={store.attentionIncomplete ? 'Some checks could not run' : store.attentionCount ? 'Under Alerts in that store' : 'Nothing right now'}
                 tone={store.attentionCount ? 'warning' : undefined} />
               <Figure label="Stock problems" value={store.openStockExceptions}
                 detail={store.openStockExceptions ? 'Sold beyond recorded stock' : 'None open'} tone={store.openStockExceptions ? 'warning' : undefined} />

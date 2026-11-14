@@ -30,9 +30,8 @@ import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
 import { DataPanel, FormSection, ManagementPage, SummaryStrip } from '@/components/common/Workspace';
 import { ProductCatalogTable } from '@/components/inventory/ProductCatalogTable';
-import { ProductImage } from '@/components/inventory/ProductImage';
 import toast from 'react-hot-toast';
-import { Plus, Search, AlertTriangle, Package, FolderPlus, Camera, Tag, Upload, X } from 'lucide-react';
+import { Plus, Search, AlertTriangle, Package, FolderPlus, Tag, Upload, X } from 'lucide-react';
 import { StockAdjustmentModal } from '@/components/inventory/StockAdjustmentModal';
 import { DialogActions } from '@/components/ui/DialogActions';
 import { BarcodeLabelPrint } from '@/components/inventory/BarcodeLabelPrint';
@@ -63,7 +62,6 @@ export const Inventory: React.FC = () => {
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const productFormId = useId();
-  const labelPhotoInput = useRef<HTMLInputElement>(null);
   const savingProduct = useRef(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -438,7 +436,7 @@ export const Inventory: React.FC = () => {
   const casesSummary = packaging.data ? ((packaging.data.suppliers || []).map(link => link.supplierName).join(', ') || 'None') : undefined;
   const detailsSummary = [formData.brand.trim(), formData.size.trim()].filter(Boolean).join(' · ') || (formData.description ? 'Has a description' : undefined);
   // A barcode lookup that brings a photo or description opens that section so the clerk sees what was filled in.
-  const lookupFilledDetails = lookup.state.kind !== 'idle' && !!(lookup.state.info?.image || lookup.state.info?.imageCandidates?.length || formData.description);
+  const lookupFilledDetails = lookup.state.kind !== 'idle' && !!formData.description;
   const advancedSummary = [!formData.trackInventory && 'Stock not tracked', formData.saleBlockedReason.trim() && 'On sale hold'].filter(Boolean).join(' · ') || undefined;
 
   const hasFilters = !!(search || filterCategory || filterStatus);
@@ -540,14 +538,11 @@ export const Inventory: React.FC = () => {
                 <div className="product-lookup">
                   <p id={`${productFormId}-identify-hint`} className="product-lookup-hint">Review catalog details and age requirements, then enter your prices and stock.</p>
                   <Button type="button" variant="outline" onClick={() => { void lookup.identify(undefined, true); }} disabled={lookup.identifying || !formData.barcode.trim()} aria-describedby={`${productFormId}-identify-hint`} title="Look the barcode up in the product database">{lookup.identifying ? 'Looking up...' : lookup.state.kind === 'unavailable' ? 'Retry lookup' : 'Auto-fill'}</Button>
-                  <Button type="button" variant="outline" disabled={lookup.identifying} onClick={() => labelPhotoInput.current?.click()}><Camera size={16} />Photo</Button>
-                  <input ref={labelPhotoInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const file = e.target.files?.[0]; if (file) void lookup.identify(file); e.target.value = ''; }} />
                   {lookup.state.kind !== 'idle' && <div className="product-lookup-result" role={lookup.state.kind === 'unavailable' ? 'alert' : 'status'}>
-                    {lookup.state.info?.image && <ProductImage src={lookup.state.info.image} name="Catalog match" preview />}
                     <div className="min-w-0 flex-1">
                       <p>{lookup.state.message}</p>
-                      {!!lookup.state.info?.missingFields?.length && <p className="text-xs text-muted-foreground mt-1">Not supplied by the catalog: {lookup.state.info.missingFields.map(field => field === 'image' ? 'photo' : field).join(', ')}.</p>}
-                      {lookup.state.info?.imageStatus === 'community_only' && <p className="text-xs text-muted-foreground mt-1">Only community snapshots are available. Add a product photo below.</p>}
+                      {/* Products carry no pictures, so a missing catalog photo is not worth mentioning. */}
+                      {!!lookup.state.info?.missingFields?.some(field => field !== 'image') && <p className="text-xs text-muted-foreground mt-1">Not supplied by the catalog: {lookup.state.info.missingFields.filter(field => field !== 'image').join(', ')}.</p>}
                       {lookup.state.info?.ageRestriction?.status === 'restricted' && <p className="text-xs mt-1">{formData.minimumAge === '21' ? '21+ age check selected' : '21+ age check recommended'}: {lookup.state.info.ageRestriction.reason}</p>}
                       {lookup.state.info?.ageRestriction?.status === 'review' && <p className="text-xs text-warning mt-1">Check age restriction: {lookup.state.info.ageRestriction.reason}</p>}
                       {suggestedCategory && !formData.categoryId && <p className="text-xs text-muted-foreground mt-1">Suggested category: {suggestedCategory}. Choose or add it below.</p>}
@@ -639,20 +634,6 @@ export const Inventory: React.FC = () => {
                   <Input label="Size" description="Optional" value={formData.size} onChange={e => setFormData({ ...formData, size: e.target.value })} maxLength={40} placeholder="e.g. 20 oz" />
                 </div>
                 <Input label="Description" value={formData.description} onChange={e => lookup.editIdentity('description', e.target.value)} />
-                <div className="product-image-field">
-                  <ProductImage src={formData.image} name={formData.name} preview />
-                  <Input label="Image URL" value={formData.image} onChange={e => lookup.editIdentity('image', e.target.value)} placeholder="https://example.com/image.jpg" />
-                </div>
-                {!!lookup.state.info?.imageCandidates?.some(photo => photo.kind === 'catalog') && <details className="product-photo-choices">
-                  <summary>Catalog photos ({lookup.state.info.imageCandidates.filter(photo => photo.kind === 'catalog').length})</summary>
-                  <p className="text-xs text-muted-foreground mt-2">Check the size and pack count before choosing a photo.</p>
-                  <div className="product-photo-grid" role="group" aria-label="Catalog product photos">
-                    {lookup.state.info.imageCandidates.filter(photo => photo.kind === 'catalog').map((photo, index) => <button key={photo.url} type="button" className="product-photo-option" aria-label={`Use product photo ${index + 1} from ${photo.source}`} aria-pressed={formData.image === photo.url} onClick={() => lookup.editIdentity('image', photo.url)}>
-                      <ProductImage src={photo.url} name={`Catalog photo ${index + 1}`} preview />
-                      <span>{photo.source}</span>
-                    </button>)}
-                  </div>
-                </details>}
               </div>
             </FormSection>
 
