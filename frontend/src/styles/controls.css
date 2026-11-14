@@ -164,7 +164,8 @@
   .table-stack thead { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
   .table-stack tbody tr { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; padding: 12px 16px; }
   .table-stack tbody td { display: flow-root; flex: 0 0 100%; min-width: 0; padding: 3px 0; text-align: right; white-space: normal; overflow-wrap: anywhere; }
-  .table-stack tbody td[data-label]::before { content: attr(data-label); float: left; max-width: 45%; margin-right: 16px; color: hsl(var(--muted-foreground)); font-size: 12px; font-weight: 400; line-height: 20px; text-align: left; }
+  /* The label is for the eye only ("/ ''"): screen readers already announce the column heading, and a cell keeps its own name. */
+  .table-stack tbody td[data-label]::before { content: attr(data-label); content: attr(data-label) / ''; float: left; max-width: 45%; margin-right: 16px; color: hsl(var(--muted-foreground)); font-size: 12px; font-weight: 400; line-height: 20px; text-align: left; }
   /* A cell whose content is its own row (an icon beside a number) lines up on the right like plain text. */
   .table-stack tbody td[data-stack="field"] > div { justify-content: flex-end; }
   .table-stack tbody td[data-stack="title"] { padding-bottom: 6px; font-size: 15px; font-weight: 600; text-align: left; }
