@@ -8,6 +8,7 @@ import { customerService, analyticsService } from '@/services/api';
 import { Customer } from '@/types';
 import { formatEnumLabel, formatCurrency, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
@@ -537,7 +538,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
         title={editingCustomer ? 'Edit Customer' : 'Add New Customer'}
         description={editingCustomer ? undefined : 'Name and phone are all you need. Add the rest any time.'}
         size="lg"
-        footer={<div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setShowModal(false); resetForm(); }}>Cancel</Button><Button variant="primary" type="submit" form={customerFormId} disabled={saving}>{saving ? 'Saving…' : editingCustomer ? 'Update Customer' : 'Create Customer'}</Button></div>}
+        footer={<DialogActions form={customerFormId} confirmLabel={editingCustomer ? 'Update Customer' : 'Create Customer'} loading={saving} onCancel={() => { setShowModal(false); resetForm(); }} />}
       >
         <form id={customerFormId} onSubmit={handleSubmit} className="customer-form space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -645,6 +646,9 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
         onClose={() => setShowCampaignModal(false)}
         title="Email Campaign"
         size="md"
+        footer={<DialogActions onCancel={() => setShowCampaignModal(false)} onConfirm={() => void handleSendCampaign()} loading={campaignSending}
+          confirmLabel={<><Megaphone aria-hidden="true" />Queue{campaignReach ? ` to ${campaignReach}` : ''}</>}
+          disabled={campaignOperation.blocked || !campaignSubject.trim() || !campaignMessage.trim() || campaignReach === 0 || (campaignSegment === 'tag' && !campaignTag.trim())} />}
       >
         <div className="space-y-4">
           <div>
@@ -696,28 +700,6 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
             </p>
           </div>
 
-          <div className="flex gap-3 pt-2 border-t">
-            <Button variant="outline" className="flex-1" onClick={() => setShowCampaignModal(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              className="flex-1"
-              onClick={handleSendCampaign}
-              disabled={
-                campaignOperation.blocked ||
-                !campaignSubject.trim() ||
-                !campaignMessage.trim() ||
-                campaignReach === 0 ||
-                (campaignSegment === 'tag' && !campaignTag.trim())
-              }
-            >
-              <Megaphone className="h-4 w-4 mr-2" />
-              {campaignSending
-                ? 'Queuing...'
-                : `Queue${campaignReach ? ` to ${campaignReach}` : ''}`}
-            </Button>
-          </div>
         </div>
       </Modal>
 
@@ -728,6 +710,8 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
         onClose={() => { setShowDetailModal(false); setSelectedCustomer(null); }}
         title={selectedCustomer ? `${selectedCustomer.firstName} ${selectedCustomer.lastName}` : 'Customer Details'}
         size="lg"
+        footer={canEdit && selectedCustomer && <DialogActions confirmLabel={<><Edit aria-hidden="true" />Edit customer</>}
+          onConfirm={() => { setShowDetailModal(false); handleEdit(selectedCustomer); }} />}
       >
         {selectedCustomer && (
           <div className="space-y-4">
@@ -808,11 +792,6 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
               )}
             </div>
 
-            {canEdit && <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => { setShowDetailModal(false); handleEdit(selectedCustomer); }}>
-                <Edit className="w-4 h-4 mr-1" /> Edit
-              </Button>
-            </div>}
           </div>
         )}
       </Modal>

@@ -6,6 +6,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Gift, Plus, Search, RefreshCw, Ban } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
+import { RowActions } from '@/components/common/RowActions';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
@@ -242,30 +244,11 @@ export const GiftCards: React.FC = () => {
                       {formatDate(card.createdAt, timezone)}
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="outline" onClick={() => void openHistory(card)}>History</Button>
-                        {manage && card.isActive && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              disabled={operation.blocked || (!!card.expiresAt && new Date(card.expiresAt) <= new Date())} onClick={() => { setFundingMethod('CASH'); setReference(''); setReason(''); setSelectedCard(card); setShowReloadModal(true); }}
-                              title="Reload"
-                              aria-label={`Reload gift card ${card.code}`}
-                            >
-                              <RefreshCw className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              onClick={() => setDeactivateTarget(card)}
-                              className="text-destructive hover:text-destructive"
-                              title="Deactivate"
-                              aria-label={`Deactivate gift card ${card.code}`}
-                            >
-                              <Ban className="w-4 h-4" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
+                      <RowActions name={card.code} primary={{ label: 'History', onAction: () => void openHistory(card) }} items={manage && card.isActive ? [
+                        { id: 'reload', label: 'Reload', icon: <RefreshCw size={16} />, disabled: operation.blocked || (!!card.expiresAt && new Date(card.expiresAt) <= new Date()),
+                          onAction: () => { setFundingMethod('CASH'); setReference(''); setReason(''); setSelectedCard(card); setShowReloadModal(true); } },
+                        { id: 'deactivate', label: 'Deactivate', icon: <Ban size={16} />, destructive: true, onAction: () => setDeactivateTarget(card) },
+                      ] : []} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -278,8 +261,9 @@ export const GiftCards: React.FC = () => {
       </Card>
 
       {/* Issue Modal */}
-      <Modal isOpen={showIssueModal} onClose={() => { if (!operation.busy) setShowIssueModal(false); }} title="Issue Gift Card">
-        <form onSubmit={handleIssue} className="space-y-4">
+      <Modal isOpen={showIssueModal} onClose={() => { if (!operation.busy) setShowIssueModal(false); }} title="Issue Gift Card"
+        footer={<DialogActions form="issue-gift-card-form" confirmLabel="Issue Card" loading={operation.busy} disabled={operation.blocked} onCancel={() => setShowIssueModal(false)} />}>
+        <form id="issue-gift-card-form" onSubmit={handleIssue} className="space-y-4">
           <div>
             <Input label="Amount"
               type="number"
@@ -300,20 +284,13 @@ export const GiftCards: React.FC = () => {
             />
           </div>
           <FundingFields method={fundingMethod} setMethod={setFundingMethod} reference={reference} setReference={setReference} reason={reason} setReason={setReason} allowGrant={can(role, 'account.grant')} />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" type="button" disabled={operation.busy} onClick={() => setShowIssueModal(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" type="submit" disabled={operation.blocked}>
-              Issue Card
-            </Button>
-          </div>
         </form>
       </Modal>
 
       {/* Reload Modal */}
-      <Modal isOpen={showReloadModal} onClose={() => { if (!operation.busy) { setShowReloadModal(false); setSelectedCard(null); } }} title="Reload Gift Card">
-        <form onSubmit={handleReload} className="space-y-4">
+      <Modal isOpen={showReloadModal} onClose={() => { if (!operation.busy) { setShowReloadModal(false); setSelectedCard(null); } }} title="Reload Gift Card"
+        footer={<DialogActions form="reload-gift-card-form" confirmLabel="Reload" loading={operation.busy} disabled={operation.blocked} onCancel={() => { setShowReloadModal(false); setSelectedCard(null); }} />}>
+        <form id="reload-gift-card-form" onSubmit={handleReload} className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Card: <span className="font-mono font-medium text-foreground">{selectedCard?.code}</span>
             <br />
@@ -330,14 +307,6 @@ export const GiftCards: React.FC = () => {
             />
           </div>
           <FundingFields method={fundingMethod} setMethod={setFundingMethod} reference={reference} setReference={setReference} reason={reason} setReason={setReason} allowGrant={can(role, 'account.grant')} />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" type="button" disabled={operation.busy} onClick={() => { setShowReloadModal(false); setSelectedCard(null); }}>
-              Cancel
-            </Button>
-            <Button variant="primary" type="submit" disabled={operation.blocked}>
-              Reload
-            </Button>
-          </div>
         </form>
       </Modal>
 

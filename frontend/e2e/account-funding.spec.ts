@@ -30,8 +30,9 @@ test('gift cash funding recovers once after a lost response and a reload', async
   await expect(receipt.getByText('Gift card issued', { exact: true })).toBeVisible();
   await expect(receipt.getByText('Cash', { exact: true })).toBeVisible();
   await receipt.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'History', exact: true })).toHaveCount(1);
-  await page.getByRole('button', { name: 'History', exact: true }).click();
+  // A row's visible word is named after its row: "History GC-…".
+  await expect(page.getByRole('button', { name: /^History / })).toHaveCount(1);
+  await page.getByRole('button', { name: /^History / }).click();
   const history = page.getByRole('dialog', { name: 'Gift card history', exact: true });
   await expect(history.getByRole('button', { name: 'Receipt', exact: true })).toHaveCount(1);
   await history.getByRole('button', { name: 'Receipt', exact: true }).click();
@@ -49,14 +50,14 @@ test('gift cash funding recovers once after a lost response and a reload', async
 test('house repayments record the tender, reduce debt and reconcile cash', async ({ page }) => {
   await login(page, 'accounts@example.test'); await page.goto('/house-accounts');
   const row = page.getByRole('row').filter({ hasText: 'Account Fixture' });
-  await row.getByRole('button', { name: 'Payment', exact: true }).click();
+  await row.getByRole('button', { name: /^Payment / }).click();
   const form = page.getByRole('dialog', { name: /Payment/ });
   await form.getByLabel('Amount received ($)', { exact: true }).fill('15');
   await form.getByRole('button', { name: 'Record Payment', exact: true }).click();
   const receipt = page.getByRole('dialog', { name: 'Account receipt', exact: true });
   await expect(receipt.getByText('$65.00', { exact: true })).toBeVisible();
   await receipt.getByRole('button', { name: 'Done', exact: true }).click();
-  await row.getByRole('button', { name: 'Payment', exact: true }).click();
+  await row.getByRole('button', { name: /^Payment / }).click();
   await form.getByLabel('Amount received ($)', { exact: true }).fill('10');
   await chooseOption(selectField(form, 'Payment method'), 'External card terminal');
   await expect(form.getByRole('button', { name: 'Record Payment', exact: true })).toBeDisabled();
@@ -87,7 +88,7 @@ test('store credit requires a reason and preserves a reprintable source record',
   await expect(receipt.getByText('Goodwill', { exact: true })).toBeVisible();
   await expect(receipt.getByText('Customer service goodwill', { exact: true })).toBeVisible();
   await receipt.getByRole('button', { name: 'Done', exact: true }).click();
-  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await page.getByRole('button', { name: /^History / }).click();
   await page.getByRole('button', { name: 'Receipt', exact: true }).click();
   await expect(receipt.getByText('Store credit issued', { exact: true })).toBeVisible();
 });

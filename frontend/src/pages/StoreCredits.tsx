@@ -5,6 +5,8 @@ import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { storeCreditService, customerService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
+import { RowActions } from '@/components/common/RowActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import {
@@ -23,7 +25,6 @@ import {
   Search,
   Plus,
   Wallet,
-  History,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
@@ -260,23 +261,13 @@ export const StoreCredits: React.FC = () => {
                     {formatDate(acc.updatedAt)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex gap-1 justify-end">
-                      <Button variant="outline" onClick={() => openHistory(acc)}>
-                        <History className="h-3 w-3 mr-1" /> History
-                      </Button>
-                      {manage && <Button
-                        disabled={operation.blocked}
-                        variant="primary"
-                        onClick={() => {
-                          setSelectedCustomerId(acc.customerId);
-                          setSelectedCustomerName(`${acc.customer.firstName} ${acc.customer.lastName}`);
-                          setCustomerSearch(`${acc.customer.firstName} ${acc.customer.lastName}`);
-                          setShowAddModal(true);
-                        }}
-                      >
-                        <Plus className="h-3 w-3 mr-1" /> Add
-                      </Button>}
-                    </div>
+                    <RowActions name={`${acc.customer.firstName} ${acc.customer.lastName}`} primary={{ label: 'History', onAction: () => void openHistory(acc) }}
+                      items={[manage && { id: 'add', label: 'Add credit', icon: <Plus size={16} />, disabled: operation.blocked, onAction: () => {
+                        setSelectedCustomerId(acc.customerId);
+                        setSelectedCustomerName(`${acc.customer.firstName} ${acc.customer.lastName}`);
+                        setCustomerSearch(`${acc.customer.firstName} ${acc.customer.lastName}`);
+                        setShowAddModal(true);
+                      } }]} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -288,7 +279,9 @@ export const StoreCredits: React.FC = () => {
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
 
       {/* Add Credit Modal */}
-      <Modal isOpen={showAddModal} onClose={() => { if (!operation.busy) { setShowAddModal(false); resetAddForm(); } }} title="Issue Store Credit" size="md">
+      <Modal isOpen={showAddModal} onClose={() => { if (!operation.busy) { setShowAddModal(false); resetAddForm(); } }} title="Issue Store Credit" size="md"
+        footer={<DialogActions onCancel={() => { setShowAddModal(false); resetAddForm(); }} confirmLabel="Issue Credit" onConfirm={() => void handleAddCredit()} loading={operation.busy}
+          disabled={!selectedCustomerId || !creditAmount || creditNotes.trim().length < 3 || operation.blocked} />}>
         <div className="space-y-4">
           {/* Customer search */}
           <div>
@@ -350,17 +343,6 @@ export const StoreCredits: React.FC = () => {
               value={creditNotes}
               onChange={(e) => setCreditNotes(e.target.value)}
             />
-          </div>
-
-          <div className="flex gap-2 justify-end pt-2">
-            <Button variant="outline" disabled={operation.busy} onClick={() => { setShowAddModal(false); resetAddForm(); }}>Cancel</Button>
-            <Button
-              variant="primary"
-              onClick={handleAddCredit}
-              disabled={!selectedCustomerId || !creditAmount || creditNotes.trim().length < 3 || operation.blocked}
-            >
-              {operation.busy ? 'Processing...' : 'Issue Credit'}
-            </Button>
           </div>
         </div>
       </Modal>

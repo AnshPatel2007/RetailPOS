@@ -15,16 +15,15 @@ const SRC = path.join(__dirname, '../src');
  * says so), so the list only shrinks.
  */
 const PENDING = new Set([
-  'components/StoreConnections.tsx', 'components/accounts/AccountFunding.tsx', 'components/admin/StoreBusiness.tsx',
+  'components/StoreConnections.tsx', 'components/admin/StoreBusiness.tsx',
   'components/expenses/ExpenseDetailsModal.tsx', 'components/expenses/ExpenseModal.tsx', 'components/financial/BudgetModal.tsx',
   'components/financial/InventoryCostPanel.tsx', 'components/financial/OpeningInventoryReview.tsx', 'components/financial/RecurringExpenseModal.tsx',
   'components/lottery/LotteryBookDialog.tsx', 'components/lottery/LotteryBookRegister.tsx', 'components/lottery/LotteryConfiguration.tsx',
   'components/lottery/LotteryDailyWorkbench.tsx', 'components/lottery/LotteryGameSetup.tsx', 'components/lottery/LotterySettlementDialog.tsx',
   'components/lottery/LotterySimpleDaily.tsx', 'components/reports/BulkRefundActions.tsx', 'components/reports/DigestDeliveryControls.tsx',
   'components/reports/ExportPreviewModal.tsx', 'components/reports/SaleDetailsModal.tsx', 'components/reports/SaleVoidDialog.tsx',
-  'components/reports/SalesBulkActions.tsx', 'pages/BackgroundJobs.tsx', 'pages/Customers.tsx', 'pages/Developers.tsx',
-  'pages/GiftCards.tsx', 'pages/HouseAccounts.tsx', 
-  'pages/Payroll.tsx', 'pages/Reconciliation.tsx', 'pages/Reports.tsx', 'pages/Shifts.tsx', 'pages/StoreCredits.tsx',
+  'components/reports/SalesBulkActions.tsx', 'pages/BackgroundJobs.tsx', 'pages/Developers.tsx',
+  'pages/Payroll.tsx', 'pages/Reconciliation.tsx', 'pages/Reports.tsx', 'pages/Shifts.tsx', 
   'pages/Team.tsx', 'pages/admin/StoreManagement.tsx', 'pages/admin/UserManagement.tsx',
 ]);
 

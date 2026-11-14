@@ -4,6 +4,8 @@ import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { houseAccountService, customerService, apiErrorMessage } from '@/services/api';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
+import { RowActions } from '@/components/common/RowActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import {
@@ -18,7 +20,7 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
 import { formatCurrency, formatDateTime, formatEnumLabel } from '@/lib/utils';
-import { Search, Plus, BookUser, History, Mail, DollarSign } from 'lucide-react';
+import { Search, Plus, BookUser, History, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
 import { useUrlFilter, useUrlPage } from '@/hooks/useUrlFilter';
@@ -297,27 +299,14 @@ export const HouseAccounts: React.FC = () => {
                       </button>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex gap-1 justify-end">
-                        <Button variant="outline" onClick={() => openHistory(acc)} title="History" aria-label="History">
-                          <History className="h-3 w-3" />
-                        </Button>
-                        {manage && <Button
-                          variant="outline"
-                          onClick={() => handleEmailStatement(acc)}
-                          title="Email statement"
-                          aria-label="Email statement"
-                          disabled={!acc.customer.email}
-                        >
-                          <Mail className="h-3 w-3" />
-                        </Button>}
-                        {manage && <Button
-                          variant="primary"
-                          onClick={() => { setPaymentMethod('CASH'); setReference(''); setPaymentAmount(''); setPaymentNotes(''); setPaymentAccount(acc); }}
-                          disabled={acc.balance <= 0 || operation.blocked}
-                        >
-                          <DollarSign className="h-3 w-3 mr-1" /> Payment
-                        </Button>}
-                      </div>
+                      {/* Taking a payment is the everyday action; history and statements are in the menu. */}
+                      <RowActions name={`${acc.customer.firstName} ${acc.customer.lastName}`}
+                        primary={manage && { label: 'Payment', disabled: acc.balance <= 0 || operation.blocked,
+                          onAction: () => { setPaymentMethod('CASH'); setReference(''); setPaymentAmount(''); setPaymentNotes(''); setPaymentAccount(acc); } }}
+                        items={[
+                          { id: 'history', label: 'History', icon: <History size={16} />, onAction: () => void openHistory(acc) },
+                          manage && { id: 'statement', label: acc.customer.email ? 'Email statement' : 'Email statement (no email on file)', icon: <Mail size={16} />, disabled: !acc.customer.email, onAction: () => void handleEmailStatement(acc) },
+                        ]} />
                     </TableCell>
                   </TableRow>
                 );
@@ -330,7 +319,8 @@ export const HouseAccounts: React.FC = () => {
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
 
       {/* Open Account Modal */}
-      <Modal isOpen={showOpenModal} onClose={() => setShowOpenModal(false)} title="Open House Account" size="md">
+      <Modal isOpen={showOpenModal} onClose={() => setShowOpenModal(false)} title="Open House Account" size="md"
+        footer={<DialogActions onCancel={() => setShowOpenModal(false)} confirmLabel="Open Account" onConfirm={() => void handleOpenAccount()} loading={submitting} disabled={!selectedCustomer || !creditLimitInput} />}>
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Customer</label>
@@ -378,17 +368,6 @@ export const HouseAccounts: React.FC = () => {
             value={creditLimitInput}
             onChange={(e) => setCreditLimitInput(e.target.value)}
           />
-
-          <div className="flex gap-2 justify-end pt-2">
-            <Button variant="outline" onClick={() => setShowOpenModal(false)}>Cancel</Button>
-            <Button
-              variant="primary"
-              onClick={handleOpenAccount}
-              disabled={!selectedCustomer || !creditLimitInput || submitting}
-            >
-              {submitting ? 'Opening...' : 'Open Account'}
-            </Button>
-          </div>
         </div>
       </Modal>
 
@@ -398,6 +377,8 @@ export const HouseAccounts: React.FC = () => {
         onClose={() => { if (!operation.busy) setPaymentAccount(null); }}
         title={paymentAccount ? `Payment — ${paymentAccount.customer.firstName} ${paymentAccount.customer.lastName}` : 'Payment'}
         size="sm"
+        footer={paymentAccount && <DialogActions onCancel={() => setPaymentAccount(null)} confirmLabel="Record Payment" onConfirm={() => void handleRecordPayment()} loading={operation.busy}
+          disabled={!paymentAmount || operation.blocked || (paymentMethod === 'CARD' && !reference.trim())} />}
       >
         {paymentAccount && (
           <div className="space-y-4">
@@ -429,12 +410,6 @@ export const HouseAccounts: React.FC = () => {
               value={paymentNotes}
               onChange={(e) => setPaymentNotes(e.target.value)}
             />
-            <div className="flex gap-2 justify-end pt-2">
-              <Button variant="outline" disabled={operation.busy} onClick={() => setPaymentAccount(null)}>Cancel</Button>
-              <Button variant="primary" onClick={handleRecordPayment} disabled={!paymentAmount || operation.blocked || (paymentMethod === 'CARD' && !reference.trim())}>
-                {operation.busy ? 'Saving...' : 'Record Payment'}
-              </Button>
-            </div>
           </div>
         )}
       </Modal>

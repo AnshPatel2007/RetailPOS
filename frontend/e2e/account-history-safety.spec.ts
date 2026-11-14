@@ -26,7 +26,13 @@ for (const family of ['house', 'credit'] as const) {
       } finally { if (isAlpha && delayAlpha) finished(); }
     });
     await page.goto('/customers/accounts/' + (family === 'house' ? 'house-accounts' : 'store-credits'));
-    const open = async (name: string) => page.getByRole('row').filter({ hasText: 'History ' + name }).getByRole('button', { name: 'History', exact: true }).click();
+    // Store credits show History on the row; house accounts keep it in the row's "…" menu (Payment is the visible word).
+    const open = async (name: string) => {
+      const row = page.getByRole('row').filter({ hasText: 'History ' + name });
+      if (family === 'credit') return row.getByRole('button', { name: /^History / }).click();
+      await row.getByRole('button', { name: /^More actions for / }).click();
+      await page.getByRole('menuitem', { name: 'History', exact: true }).click();
+    };
     const dialog = page.getByRole('dialog');
     await open('Alpha'); await expect(dialog).toContainText('Alpha ledger evidence'); await page.keyboard.press('Escape');
     await open('Beta');

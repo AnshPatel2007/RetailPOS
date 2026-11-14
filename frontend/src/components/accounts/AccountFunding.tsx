@@ -2,6 +2,7 @@ import { Select } from '@/components/ui/Select';
 import { useId } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDateTime, formatEnumLabel } from '@/lib/utils';
@@ -56,10 +57,10 @@ export function AccountOperationFeedback({ operation }: { operation: ReturnType<
       <p className="text-sm">Retry the saved operation to recover its receipt. Do not collect payment again.</p>
       <Button variant="outline" onClick={() => void operation.retry()} disabled={operation.busy}>Retry saved operation</Button>
     </div>}
-    {createPortal(<Modal isOpen={!!receipt} onClose={operation.closeReceipt} title="Account receipt">
+    {createPortal(<Modal isOpen={!!receipt} onClose={operation.closeReceipt} title="Account receipt"
+      footer={<DialogActions onCancel={operation.closeReceipt} cancelLabel="Done" confirmLabel="Print receipt" onConfirm={print} />}>
       <dl className="space-y-3">{rows.map(([label, value]) => <div key={label}><dt className="text-sm text-muted-foreground">{label}</dt><dd className="font-medium break-words tabular-nums">{value}</dd></div>)}</dl>
-      <p className="text-sm text-muted-foreground my-4">Balances shown at the time of this transaction.</p>
-      <div className="flex justify-end gap-2"><Button variant="outline" onClick={operation.closeReceipt}>Done</Button><Button variant="primary" onClick={print}>Print receipt</Button></div>
+      <p className="text-sm text-muted-foreground mt-4">Balances shown at the time of this transaction.</p>
     </Modal>, document.body)}
   </>;
 }
