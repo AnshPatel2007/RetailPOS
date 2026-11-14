@@ -194,6 +194,24 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   DateControl/DateRangePicker) and `components/common` (PageHeader, PageTabs,
   WorkflowNavigation, Workspace's `ManagementPage`/`DataPanel`/`SummaryStrip`/`FormSection`,
   AboutNumbers, EmptyState). No `window.confirm/alert/prompt`.
+- **Buttons and layout** (the Nov 2026 UI pass; checked by `frontend/tests/ui-rules.test.cjs`
+  in `test:unit` for every `<Modal>`, and by `e2e/ui-rules.spec.ts` in the browser):
+  one filled (primary/destructive) button per page header, pop-up footer or card, the
+  others outline or ghost. A page header shows at most 3 buttons (2 on a phone), the main
+  one last; `HeaderActions` folds the rest under "More". A pop-up's buttons sit in its
+  fixed footer, built with `DialogActions` (Cancel, then the main button; a delete or void
+  as `remove`, apart on the left; a form submits through its `form` id). A footer never
+  says "Close" (the header X is "Close"); a pop-up that only shows information has no
+  footer. A table row shows one word plus a "…" menu (`RowActions`); delete lives only in
+  that menu, red, and asks first (`useConfirm`). Tables stack into cards on a phone
+  (`Table` `stackOnPhone`, on by default; a table with its own phone layout passes
+  `stackOnPhone={false}`), and pop-ups become bottom sheets.
+- **Alerts**: the attention rules reach owners and managers through the Alerts bell
+  (`components/common/AttentionAlerts.tsx`); the Dashboard shows only alerts not yet read.
+  Read and dismissed marks are kept per person and store in the browser (a dismissed alert
+  returns when its wording changes).
+- **Products carry no pictures** (the owner's choice, Nov 2026): no image field, catalog
+  photo or picture before a product's name.
 - **Words**: plain store language ("Sales today", "Sales after refunds", "Balance
   Corrections"). Put method notes behind an "About these numbers" disclosure. Tab labels
   use Title Case.
