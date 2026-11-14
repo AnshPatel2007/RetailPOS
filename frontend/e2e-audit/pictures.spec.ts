@@ -117,6 +117,24 @@ test('register with a sale', async ({ browser }) => {
   }
 });
 
+/** The Dashboard's new-alerts notice, then the bell's list open over the page. */
+test('alerts', async ({ browser }) => {
+  for (const viewport of ['laptop', 'phone'] as const) {
+    const { context, page } = await roleContext(browser, OWNER);
+    const size = VIEWPORTS[viewport];
+    try {
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await open(page, '/dashboard');
+      await page.screenshot({ path: path.join(SHOTS, `alerts__notice__${size.name}.png`), animations: 'disabled' });
+      await page.getByRole('button', { name: /^Alerts/ }).filter({ visible: true }).first().click();
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: path.join(SHOTS, `alerts__bell__${size.name}.png`), animations: 'disabled' });
+      record('pictures.jsonl', { role: 'owner', route: '/dashboard (alerts)', viewport });
+    } catch (error) { record('pictures.jsonl', { role: 'owner', route: '/dashboard (alerts)', viewport, error: String(error).slice(0, 300) }); }
+    await closeAll(context);
+  }
+});
+
 test('pop-ups from main buttons', async ({ browser }) => {
   for (const viewport of ['laptop', 'phone'] as const) {
     const { context, page } = await roleContext(browser, OWNER);
