@@ -227,7 +227,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         })}
       </nav>
 
-      <SidebarUserFooter name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} role={user?.role || ''} theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout} collapsed={isSidebarCollapsed} tools={<AttentionBell />}
+      <SidebarUserFooter name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} role={user?.role || ''} theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout} collapsed={isSidebarCollapsed} tools={topBar ? undefined : <AttentionBell />}
         onLock={user && canLockRegister(user, registerDevice) ? () => lockRegister(user.id) : undefined} />
     </>
   );

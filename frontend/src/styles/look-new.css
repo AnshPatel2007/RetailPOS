@@ -56,11 +56,12 @@
   --card-foreground: 0 0% 98%;
   --popover: 0 0% 6.7%;
   --popover-foreground: 0 0% 98%;
-  /* Dark mode inverts the action color: white buttons with black words. */
-  --primary: 0 0% 98%;
+  /* Dark mode acts in orange: white-filled buttons and selections glared at night (the owner,
+     Nov 14), so main buttons, chosen filters and ticks are orange with black words. Words stay white. */
+  --primary: 24 95% 55%;
   --primary-foreground: 0 0% 7%;
   --primary-text: 0 0% 98%;
-  --primary-hover: 0 0% 80%;
+  --primary-hover: 24 95% 62%;
   --secondary: 0 0% 13%;
   --secondary-foreground: 0 0% 98%;
   --muted: 0 0% 13%;
@@ -138,8 +139,8 @@ a.app-topbar-link { cursor: pointer; }
 .app-topbar .attention-bell[data-hovered], .app-topbar .attention-bell[data-pressed] { background: hsl(var(--foreground) / .12); color: hsl(var(--foreground)); }
 .app-topbar .attention-bell[data-focus-visible] { outline: 2px solid hsl(var(--brand)); outline-offset: -2px; }
 :root[data-look="new"] .attention-bell-count { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); box-shadow: 0 0 0 2px hsl(var(--background)); }
-:root[data-look="new"] .attention-notice { border-left-color: hsl(var(--brand)); border-radius: 6px; }
-:root[data-look="new"] .attention-notice-head h2, :root[data-look="new"] .attention-panel-head h2 { font-family: var(--display); font-weight: 800; }
+:root[data-look="new"] .attention-toast { border-left-color: hsl(var(--brand)); border-radius: 6px; }
+:root[data-look="new"] .attention-panel-head h2, :root[data-look="new"] .attention-toast-title { font-family: var(--display); font-weight: 800; }
 :root[data-look="new"] .attention-new { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); }
 .app-topbar-find { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border: 1px solid hsl(var(--foreground) / .22); border-radius: 6px; color: hsl(var(--foreground) / .8); font-size: 14px; outline: none; }
 .app-topbar-find:hover, .app-topbar-find[data-hovered] { background: hsl(var(--foreground) / .1); color: hsl(var(--foreground)); }
@@ -383,3 +384,16 @@ a.app-topbar-link { cursor: pointer; }
 :root[data-look="new"] .pos-cart-footer .app-button[data-variant="primary"] { font-size: 18px; }
 :root[data-look="new"] .pos-cart-footer .app-button[data-variant="outline"] { border-color: hsl(var(--foreground) / .3); background: transparent; }
 :root[data-look="new"] .pos-cart-footer .app-button[data-variant="outline"]:hover { border-color: hsl(var(--foreground) / .7); background: hsl(var(--accent)); }
+
+/* ---- Dark mode: no white fills ----------------------------------------- */
+/* Actions are orange (tokens above). Choosing where to look (a category on the
+   register, a sub-tab) is calmer: a raised grey with an orange mark. White lines
+   and outlines soften to grey. */
+:root[data-look="new"].dark .pos-category.is-selected { border-color: hsl(0 0% 30%); background: hsl(0 0% 20%); color: hsl(0 0% 98%); box-shadow: inset 3px 0 hsl(var(--brand)); }
+:root[data-look="new"].dark .page-tab-scroll-shell[data-level="secondary"] .page-tab[aria-current="page"] { background: hsl(0 0% 22%); color: hsl(0 0% 98%); box-shadow: inset 0 -2px hsl(var(--brand)); }
+:root[data-look="new"].dark .app-card, :root[data-look="new"].dark .summary-strip { border-top-color: hsl(0 0% 30%); }
+:root[data-look="new"].dark .app-button[data-variant="outline"], :root[data-look="new"].dark .page-action { border-color: hsl(var(--foreground) / .36); }
+:root[data-look="new"].dark .app-button[data-variant="outline"]:hover, :root[data-look="new"].dark .page-action:hover { border-color: hsl(var(--foreground) / .7); }
+:root[data-look="new"].dark .form-section-heading h3::after { background: hsl(0 0% 30%); }
+/* (:where keeps this below the hover and typing states, which still brighten the line.) */
+:root[data-look="new"].dark :where(.app-input, .app-textarea, .app-dialog textarea, .management-content textarea, .selection-control, .date-control) { border-bottom-color: hsl(0 0% 45%); }

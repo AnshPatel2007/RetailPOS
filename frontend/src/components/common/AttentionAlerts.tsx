@@ -1,7 +1,8 @@
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Button as AriaButton, Dialog, DialogTrigger } from 'react-aria-components';
-import { Bell, CheckCircle2 } from 'lucide-react';
+import { Bell, CheckCircle2, X } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { ControlPopover } from '@/components/ui/Overlay';
 import { Button } from '@/components/ui/Button';
 import { useAuthStore } from '@/store/authStore';
@@ -81,8 +82,8 @@ export function useAttentionAlerts() {
   const user = useAuthStore(state => state.user);
   const enabled = user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const scope = `${user?.id ?? ''}:${user?.locationId ?? ''}`;
-  // The same read as the Dashboard's figures; a slow cadence, since it is on every page.
-  const query = useScopedQuery<AttentionReport>(['attention'], async signal => (await reportService.getAttention(signal)).data.data, enabled, 300000, { refreshInterval: 300000 });
+  // The same read as the Dashboard's figures, every two minutes: new alerts arrive without a reload.
+  const query = useScopedQuery<AttentionReport>(['attention'], async signal => (await reportService.getAttention(signal)).data.data, enabled, 120000, { refreshInterval: 120000 });
   const raw = useSyncExternalStore(subscribe, () => readMarks(scope));
   const marks = useMemo(() => parse(raw), [raw]);
   const report = query.data;
@@ -102,7 +103,7 @@ export function useAttentionAlerts() {
     writeMarks(scope, next);
   };
   return {
-    enabled, report: report ?? null, error: query.error, loading: query.loading, refresh: query.refresh,
+    enabled, scope, report: report ?? null, error: query.error, loading: query.loading, refresh: query.refresh,
     shown, fresh: shown.filter(item => item.isNew), hidden: items.length - shown.length,
     markRead: (ids: string[] = shown.map(item => item.id)) => update(current => ({ ...current, seen: union(current.seen, ids) })),
     dismiss: (id: string) => update(current => ({ seen: union(current.seen, [id]), dismissed: union(current.dismissed, [id]) })),
@@ -125,25 +126,88 @@ function AlertRow({ item, isNew, onFollow, onDismiss }: { item: AttentionAlert; 
   </li>;
 }
 
+/** The bell's list opens when a slide-in message asks for it ("View alerts"). */
+const OPEN_ALERTS = 'pos:open-alerts';
 /**
- * The alerts button (top bar, or the Classic menu's header). Its number counts the
- * alerts this person has not read yet; opening the list marks them read.
+ * Alerts already known in this visit, per person and store. The first look after
+ * signing in fills it silently (the bell just shows its number); an alert that
+ * turns up later slides in for a few seconds.
+ */
+const knownThisVisit = new Map<string, Set<string>>();
+
+/** A new alert, sliding in at the top right; it leaves after about 4 seconds, or with ×. */
+function AlertToast({ visible, item, count, onOpen, onClose }: { visible: boolean; item: AttentionAlert; count: number; onOpen: () => void; onClose: () => void }) {
+  return <div className={cn('attention-toast', visible ? 'is-in' : 'is-out')} role="status" aria-live="polite">
+    <span className={cn('attention-dot', dot[item.severity])} aria-hidden="true" />
+    <div className="attention-toast-body">
+      <p className="attention-toast-title">{count === 1 ? 'New alert' : `${count} new alerts`}</p>
+      <p className="attention-toast-text">{item.sentence}</p>
+      <button type="button" className="attention-toast-open" onClick={onOpen}>View alerts</button>
+    </div>
+    <button type="button" className="attention-toast-close" aria-label="Close this notification" onClick={onClose}><X size={16} aria-hidden="true" /></button>
+  </div>;
+}
+
+/**
+ * The alerts button (top bar, or the bottom of the Classic menu). Its number counts
+ * the alerts this person has not read yet; opening the list marks them read. Alerts
+ * found at sign-in only set the number; one that arrives later also slides in.
  */
 export function AttentionBell({ className }: { className?: string }) {
   const alerts = useAttentionAlerts();
   const [open, setOpen] = useState(false);
   // Which alerts were new when the list was opened: they keep their "New" tag while it is open.
   const [newWhenOpened, setNewWhenOpened] = useState<Set<string>>(new Set());
-  if (!alerts.enabled) return null;
+  const [bump, setBump] = useState(false);
   const count = alerts.fresh.length;
+  const latest = useRef({ alerts, count });
+  latest.current = { alerts, count };
   const openChange = (next: boolean) => {
-    if (next) { setNewWhenOpened(new Set(alerts.fresh.map(item => item.id))); if (count) alerts.markRead(); }
+    const current = latest.current;
+    if (next) { setNewWhenOpened(new Set(current.alerts.fresh.map(item => item.id))); if (current.count) current.alerts.markRead(); }
     setOpen(next);
   };
+  const openRef = useRef(openChange);
+  openRef.current = openChange;
+
+  // Announce alerts that arrive after the first look of this visit (once, however many bells are mounted).
+  const { report, scope, enabled } = alerts;
+  useEffect(() => {
+    if (!enabled || !report) return;
+    const current = latest.current.alerts;
+    const known = knownThisVisit.get(scope);
+    if (!known) { knownThisVisit.set(scope, new Set(current.shown.map(item => item.id))); return; }
+    const arrived = current.fresh.filter(item => !known.has(item.id));
+    current.shown.forEach(item => known.add(item.id));
+    if (!arrived.length) return;
+    toast.custom(t => <AlertToast visible={t.visible} item={arrived[0]} count={arrived.length}
+      onOpen={() => { toast.dismiss(t.id); window.dispatchEvent(new Event(OPEN_ALERTS)); }}
+      onClose={() => toast.dismiss(t.id)} />, { id: 'attention:' + arrived[0].id, duration: 4000 });
+  }, [report, scope, enabled]);
+  // The number pops when it goes up after the first look (+1), not at sign-in.
+  const previousCount = useRef<number | null>(null);
+  useEffect(() => {
+    if (!report) return;
+    if (previousCount.current !== null && count > previousCount.current) setBump(true);
+    previousCount.current = count;
+  }, [report, count]);
+  useEffect(() => { if (!bump) return; const timer = setTimeout(() => setBump(false), 900); return () => clearTimeout(timer); }, [bump]);
+  // "View alerts" opens the list of the bell that is on screen (a closed menu drawer may hold another).
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const show = () => {
+      const box = trigger.current?.getBoundingClientRect();
+      if (box && box.width > 0 && box.right > 0 && box.left < innerWidth && box.bottom > 0 && box.top < innerHeight) openRef.current(true);
+    };
+    window.addEventListener(OPEN_ALERTS, show);
+    return () => window.removeEventListener(OPEN_ALERTS, show);
+  }, []);
+
+  if (!enabled) return null;
   return <DialogTrigger isOpen={open} onOpenChange={openChange}>
-    <AriaButton className={cn('attention-bell', className)} aria-label={count ? `Alerts, ${count} new` : 'Alerts'}>
+    <AriaButton ref={trigger} className={cn('attention-bell', className)} aria-label={count ? `Alerts, ${count} new` : 'Alerts'}>
       <Bell size={18} aria-hidden="true" />
-      {count > 0 && <span className="attention-bell-count" aria-hidden="true">{count > 9 ? '9+' : count}</span>}
+      {count > 0 && <span className="attention-bell-count" data-bump={bump || undefined} aria-hidden="true">{count > 9 ? '9+' : count}</span>}
     </AriaButton>
     <ControlPopover placement="bottom end">
       <Dialog aria-label="Alerts" className="attention-panel">
@@ -166,23 +230,4 @@ export function AttentionBell({ className }: { className?: string }) {
       </Dialog>
     </ControlPopover>
   </DialogTrigger>;
-}
-
-/**
- * The Dashboard's notice: only the alerts this person has not read yet. "Mark all
- * read" (or reading them from the bell) clears it; the alerts stay in the bell.
- */
-export function AttentionNotice() {
-  const alerts = useAttentionAlerts();
-  if (!alerts.enabled || alerts.fresh.length === 0) return null;
-  const count = alerts.fresh.length;
-  return <section className="attention-notice" aria-labelledby="attention-notice-title">
-    <div className="attention-notice-head">
-      <h2 id="attention-notice-title">{count} new {count === 1 ? 'alert' : 'alerts'}</h2>
-      <Button variant="ghost" onClick={() => alerts.markRead(alerts.fresh.map(item => item.id))}>Mark all read</Button>
-    </div>
-    <ul aria-label="New alerts" className="attention-list">
-      {alerts.fresh.map(item => <AlertRow key={item.id} item={item} isNew={false} onFollow={() => alerts.markRead([item.id])} onDismiss={() => alerts.dismiss(item.id)} />)}
-    </ul>
-  </section>;
 }

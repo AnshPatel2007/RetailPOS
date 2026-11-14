@@ -114,10 +114,30 @@
 .attention-amount { font-size: 14px; line-height: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .attention-row-actions { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
 .attention-new { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 4px; background: hsl(var(--warning) / .15); color: hsl(var(--warning-text)); font-size: 11px; font-weight: 700; line-height: 18px; letter-spacing: .04em; text-transform: uppercase; vertical-align: 1px; }
-/* The Dashboard's notice: only what is new, closed with "Mark all read". */
-.attention-notice { margin-bottom: 24px; border: 1px solid hsl(var(--border)); border-left: 4px solid hsl(var(--warning)); border-radius: 8px; background: hsl(var(--card)); }
-.attention-notice-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 8px 0 16px; }
-.attention-notice-head h2 { font-size: 16px; line-height: 24px; font-weight: 600; }
+/* The number pops when an alert arrives (+1). */
+.attention-bell-count[data-bump] { animation: attention-bump .9s ease-out; }
+@keyframes attention-bump { 0% { transform: scale(1); } 25% { transform: scale(1.45); } 55% { transform: scale(.92); } 100% { transform: scale(1); } }
+/* Messages start under the top bar, never over its buttons. */
+.app-notifications { top: 68px !important; }
+/* The alert slide-in has × and "View alerts", so it takes the pointer, unlike other messages
+   (index.css). It only shows on back-office pages; the register has no bell. */
+.app-notifications .attention-toast,
+.app-notifications .attention-toast * { pointer-events: auto !important; }
+/* A new alert slides in at the top right for about 4 seconds; × closes it sooner. */
+.attention-toast { display: flex; width: min(380px, calc(100vw - 32px)); align-items: flex-start; gap: 12px; padding: 12px 8px 12px 14px; border: 1px solid hsl(var(--border)); border-left: 4px solid hsl(var(--warning)); border-radius: 8px; background: hsl(var(--card)); color: hsl(var(--card-foreground)); box-shadow: 0 12px 32px rgb(0 0 0 / .2); }
+.attention-toast.is-in { animation: attention-toast-in .25s ease-out; }
+.attention-toast.is-out { animation: attention-toast-out .2s ease-in forwards; }
+@keyframes attention-toast-in { from { transform: translateX(110%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes attention-toast-out { to { transform: translateX(110%); opacity: 0; } }
+.attention-toast .attention-dot { margin-top: 6px; flex: none; }
+.attention-toast-body { min-width: 0; flex: 1; }
+.attention-toast-title { font-size: 13px; line-height: 18px; font-weight: 700; }
+.attention-toast-text { display: -webkit-box; margin-top: 2px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 13px; line-height: 18px; color: hsl(var(--muted-foreground)); }
+.attention-toast-open { margin-top: 6px; font-size: 13px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.attention-toast-close { display: inline-flex; width: 32px; height: 32px; flex: none; align-items: center; justify-content: center; border-radius: 6px; color: hsl(var(--muted-foreground)); }
+.attention-toast-close:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.attention-toast-open:focus-visible, .attention-toast-close:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .attention-toast.is-in, .attention-toast.is-out, .attention-bell-count[data-bump] { animation: none; } }
 @media (any-pointer: coarse), (max-width: 639px) { .attention-bell { width: 44px; height: 44px; } }
 
 /* On a phone a long Settings card keeps its Save in reach: the button rides along the

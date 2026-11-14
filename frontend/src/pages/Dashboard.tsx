@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/Button';
 import { can } from '@/lib/capabilities';
 import { formatCurrency, formatDate, formatDateTime, formatEnumLabel, formatChartCurrency } from '@/lib/utils';
 import { useInventoryExceptionCount } from '@/hooks/useInventoryExceptionCount';
-import { AttentionNotice, type AttentionReport } from '@/components/common/AttentionAlerts';
+import type { AttentionReport } from '@/components/common/AttentionAlerts';
 import {
   BarChart,
   Bar,
@@ -139,8 +139,6 @@ const DashboardContent: React.FC = () => {
         <p>Sales include tax. Refunds and voids come off on the day they happen, so a refund today lowers today&apos;s sales even when the sale was earlier.</p>
         <p>Average sale uses today&apos;s sales before any refunds.</p>
       </AboutNumbers>
-      {/* New alerts only; every open alert is under the bell in the top bar. */}
-      {canReports && <AttentionNotice />}
       {metrics.historyWarning && <p role="status" className="mb-4 text-sm text-warning">{metrics.historyWarning}</p>}
       {metrics.todayVoidCount > 0 && <p className="mb-4 text-sm text-muted-foreground">{metrics.todayVoidCount} {metrics.todayVoidCount === 1 ? 'sale was' : 'sales were'} voided today ({formatCurrency(metrics.todayVoids)}), already taken out of these totals.</p>}
       <SummaryStrip className="mb-6" items={[
