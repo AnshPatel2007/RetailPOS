@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { saleService } from '@/services/api';
@@ -314,21 +315,31 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
     setTenderEdits({});
   };
 
+  const close = () => { if (!isProcessing) { handleReset(); onClose(); } };
+  // The footer's main button: retry a saved refund first (a new one waits for it), otherwise refund the chosen sale.
+  const refundable = !!sale && !(sale.status === 'REFUNDED' || sale.status === 'VOIDED' || (!sale.pricingVersion && getRefundableAmount() <= 0));
+  const main = pending
+    ? { confirmLabel: 'Retry saved refund', onConfirm: () => void submitRefund(pending), disabled: storageError }
+    : refundable && sale
+      ? { confirmLabel: <><RotateCcw aria-hidden="true" />Refund {formatCurrency(effectiveAmount)}</>, onConfirm: handleRefund,
+        disabled: storageError || !!sale.refundTenderError || tenderSelection.invalid || (mode === 'items' ? !hasSelectedItems : !refundAmount) }
+      : null;
+
   return (
     <Modal
       isOpen={isOpen}
-      onClose={() => { if (!isProcessing) { handleReset(); onClose(); } }}
+      onClose={close}
       title="Quick Refund"
       size="md"
+      footer={main && <DialogActions onCancel={close} loading={isProcessing} {...main} />}
     >
       {confirmDialog}
       <div className="space-y-4">
         {operationError && <p role="alert" className="text-sm text-destructive">{operationError}</p>}
-        {storageError && <Button variant="primary" onClick={refreshStorage}>Retry recovery storage</Button>}
+        {storageError && <Button onClick={refreshStorage}>Retry recovery storage</Button>}
         {pending && <div role="status" className="p-3 rounded-lg border border-warning/40 bg-warning/10 space-y-2">
           <p className="text-sm">Saved refund: {formatCurrency(pending.amount)} for {pending.label}. Confirm this request before starting another refund. Do not pay the customer twice.</p>
           {hasExternalRefundEvidence(pending.payload) && <p className="text-sm">External card refund evidence is saved. Retry this exact POS record. A persistent conflict requires owner review; do not refund the terminal again.</p>}
-          <Button variant="primary" onClick={() => submitRefund(pending)} disabled={isProcessing || storageError}>Retry saved refund</Button>
         </div>}
         {isSearching && <p role="status">Loading sale...</p>}
         {/* Sale lookup */}
@@ -517,15 +528,6 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
                   value={refundReason}
                   onChange={(e) => setRefundReason(e.target.value)}
                 />
-                <Button
-                  variant="primary"
-                  className="w-full h-11"
-                  onClick={handleRefund}
-                  disabled={isProcessing || !!pending || storageError || !!sale.refundTenderError || tenderSelection.invalid || (mode === 'items' ? !hasSelectedItems : !refundAmount)}
-                >
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  {isProcessing ? 'Processing...' : `Refund ${formatCurrency(effectiveAmount)}`}
-                </Button>
               </div>
             )}
           </>

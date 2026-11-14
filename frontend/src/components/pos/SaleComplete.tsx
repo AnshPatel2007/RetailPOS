@@ -69,7 +69,7 @@ export const SaleComplete: React.FC<SaleCompleteProps> = ({ sale, onPrint, onVie
           <span className="text-lg font-bold tabular-nums">{formatCurrency(amount)}</span>
         </p>
         {onViewReceipt && <Button variant="outline" onClick={onViewReceipt}>Receipt</Button>}
-        <button type="button" onClick={onDismiss} aria-label="Start a new sale" className="pos-cart-tool"><X className="h-4 w-4" /></button>
+        <Button variant="ghost" onClick={onDismiss} aria-label="Start a new sale">New sale</Button>
       </section>
     );
   }

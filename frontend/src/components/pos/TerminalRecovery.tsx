@@ -3,6 +3,7 @@ import { TerminalCheckout, db } from '@/services/offlineDb';
 import { saleService } from '@/services/api';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { finishPaymentSession } from '@/services/paymentSession';
@@ -45,8 +46,9 @@ export function TerminalRecovery({ attempt, persisted, onRecovered }: {
       <span>Card payment requires reconciliation. Do not charge the customer again.</span>
       <Button variant="outline" onClick={() => setOpen(true)}>Review payment</Button>
     </div>
-    <Modal isOpen={open} onClose={() => { if (!busy) setOpen(false); }} title="Payment requires reconciliation">
-      <div className="space-y-4 p-4">
+    <Modal isOpen={open} onClose={() => { if (!busy) setOpen(false); }} title="Payment requires reconciliation"
+      footer={<DialogActions confirmLabel="Retry saving sale" onConfirm={() => void retry()} loading={busy} onCancel={() => setOpen(false)} />}>
+      <div className="space-y-4">
         <p>The separate terminal payment was submitted to the POS, but saving the sale has not been confirmed. Do not charge the customer again.</p>
         <dl className="space-y-2 break-words text-sm">
           <div><dt className="text-muted-foreground">Sale total</dt><dd>{formatCurrency(attempt.total)}</dd></div>
@@ -59,7 +61,7 @@ export function TerminalRecovery({ attempt, persisted, onRecovered }: {
           ? <p className="text-sm text-muted-foreground">This record stays on this browser through reloads and logout; return with the same cashier and store. Do not clear browser storage.</p>
           : <p role="alert" className="text-destructive">Browser storage failed. Keep this page open and copy the terminal and checkout references for your manager. This record cannot survive a reload until storage is restored and Retry saving succeeds.</p>}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        <Button variant="primary" onClick={retry} disabled={busy}>{busy ? 'Checking sale…' : 'Retry saving sale'}</Button>
+        {busy && <p role="status" className="text-sm text-muted-foreground">Checking sale…</p>}
       </div>
     </Modal>
   </>;

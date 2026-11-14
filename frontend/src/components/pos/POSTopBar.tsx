@@ -55,11 +55,12 @@ export const POSTopBar: React.FC = () => {
       <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1 basis-full sm:basis-64">
         <button
           onClick={() => navigate('/dashboard')}
-          className="h-11 w-11 shrink-0 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
+          className="h-11 min-w-11 shrink-0 flex items-center justify-center gap-1.5 px-2 sm:px-3 rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
           title="Back to Dashboard"
           aria-label="Back to Dashboard"
         >
-          <ArrowLeft className="h-[18px] w-[18px]" />
+          <ArrowLeft className="h-[18px] w-[18px]" aria-hidden="true" />
+          <span className="hidden sm:inline text-sm font-medium">Dashboard</span>
         </button>
 
         <span className="font-semibold text-sm break-words min-w-0 max-w-48">{storeName || 'POS System'}</span>
@@ -114,11 +115,12 @@ export const POSTopBar: React.FC = () => {
 
         <button
           onClick={() => window.open('/customer-display', 'customerDisplay', 'width=1024,height=768')}
-          className="h-11 w-11 shrink-0 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
+          className="h-11 min-w-11 shrink-0 flex items-center justify-center gap-1.5 px-2 rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
           aria-label="Open customer display"
           title="Open customer display (drag to the second monitor)"
         >
-          <MonitorSmartphone className="h-4 w-4" />
+          <MonitorSmartphone className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden xl:inline text-sm font-medium">Display</span>
         </button>
 
         {user && canLockRegister(user, registerDevice) && (

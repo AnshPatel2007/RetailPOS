@@ -4,7 +4,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
-import { X, PauseCircle, Clock } from 'lucide-react';
+import { PauseCircle, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { CartItem, Customer } from '@/types';
 import { useConfirm } from '@/components/ui/useConfirm';
@@ -79,19 +79,18 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
                   </div>
                   <div className="flex gap-2 shrink-0">
                     <Button aria-label="Discard held sale"
-                      variant="outline"
+                      variant="ghost"
                       onClick={async () => {
                         if (await confirm({ title: 'Discard this held sale?', message: `${itemCount} item${itemCount !== 1 ? 's' : ''}, ${formatCurrency(total)}. It can't be recalled afterwards.`, confirmLabel: 'Discard', cancelLabel: 'Keep it', destructive: true })) {
                           onDiscard(held.id);
                           toast.success('Held sale discarded');
                         }
                       }}
-                      className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                      className="text-destructive"
                     >
-                      <X className="h-3.5 w-3.5" />
+                      Discard
                     </Button>
                     <Button
-                      variant="primary"
                       onClick={() => onRestore(held.id)}
                     >
                       Restore

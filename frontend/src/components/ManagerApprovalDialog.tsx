@@ -4,7 +4,7 @@ import { useApprovalStore } from '@/store/approvalStore';
 import { api } from '@/services/api';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { formatCurrency } from '@/lib/utils';
 
 export const ManagerApprovalDialog: React.FC = () => {
@@ -35,8 +35,9 @@ export const ManagerApprovalDialog: React.FC = () => {
     } finally { setBusy(false); setPassword(''); setCode(''); }
   };
   return createPortal(<div className="relative z-[100]">
-    <Modal isOpen priority="approval" onClose={() => { if (!busy) finish?.(null); }} title="Manager approval">
-      <form onSubmit={submit} className="space-y-4">
+    <Modal isOpen priority="approval" onClose={() => { if (!busy) finish?.(null); }} title="Manager approval"
+      footer={<DialogActions form="manager-approval-form" confirmLabel="Approve this action" loading={busy} disabled={!summary} onCancel={() => finish?.(null)} />}>
+      <form id="manager-approval-form" onSubmit={submit} className="space-y-4">
         <p className="text-sm text-muted-foreground">A manager at this store must approve this action. Your cashier session stays signed in.</p>
         {summary ? <div className="rounded border p-3 space-y-2">
           <p className="font-semibold">{summary.action} · {formatCurrency(summary.amount)}</p>
@@ -47,7 +48,6 @@ export const ManagerApprovalDialog: React.FC = () => {
         <Input label="Manager email" type="email" autoComplete="off" value={email} onChange={e => setEmail(e.target.value)} required />
         <Input label="Manager password" type="password" autoComplete="off" value={password} onChange={e => setPassword(e.target.value)} required />
         <Input label="Authentication code (if enabled)" autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value)} />
-        <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => finish?.(null)}>Cancel</Button><Button variant="primary" type="submit" disabled={busy || !summary}>{busy ? 'Verifying…' : 'Approve this action'}</Button></div>
       </form>
     </Modal>
   </div>, document.body);

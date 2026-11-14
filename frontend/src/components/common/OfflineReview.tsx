@@ -8,6 +8,7 @@ import { syncService } from '@/services/syncService';
 import { useAuthStore } from '@/store/authStore';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { OfflineReconciliation } from './OfflineReconciliation';
 
@@ -45,8 +46,17 @@ export function OfflineReview({ onClose }: { onClose: () => void }) {
     catch (cause: unknown) { setError(cause instanceof Error ? cause.message : 'Sync failed'); }
     finally { setBusy(false); }
   };
-  return <Modal isOpen onClose={() => { if (!busy) onClose(); }} title="Register recovery" size="lg">
-    <div className="space-y-4 p-4">
+  // The footer's main button: retry my cash sales, or else open the register to retry a card payment.
+  const myCash = !!records?.cash.some(record => record.userId === user?.id);
+  const myTerminal = !!records?.terminal.some(record => record.userId === user?.id);
+  const openRegister = () => { onClose(); navigate('/pos'); };
+  return <Modal isOpen onClose={() => { if (!busy) onClose(); }} title="Register recovery" size="lg"
+    footer={(myCash || myTerminal) && <DialogActions onCancel={onClose} loading={busy}
+      {...(myCash ? { confirmLabel: 'Retry my cash sales', onConfirm: () => void retry(), disabled: offline }
+        : { confirmLabel: 'Open POS recovery', onConfirm: openRegister })}>
+      {myCash && myTerminal && <Button onClick={openRegister}>Open POS recovery</Button>}
+    </DialogActions>}>
+    <div className="space-y-4">
       <p className="text-sm">Offline checkout supports cash only, for the cashier and drawer this register already knows. A register restarted without a connection keeps its signed-in cashier and saved product list. Gift cards, account payments and loyalty require a connection.</p>
       <p className="text-sm text-muted-foreground">Product cache: {records?.cachedAt ? formatDateTime(records.cachedAt) : 'Not available for this cashier and store'}.</p>
       <p className="text-sm text-muted-foreground">These records are stored on this browser. Keep them until the sale is confirmed. Managers and owners can review their store’s records here; only the original cashier can retry saving them.</p>
@@ -63,7 +73,6 @@ export function OfflineReview({ onClose }: { onClose: () => void }) {
             {!record.payload && <p className="text-destructive">Original checkout details are missing. A manager must reconcile the payment with sales history.</p>}
           </li>)}
         </ul>
-        {records.cash.some(record => record.userId === user?.id) && <Button variant="primary" onClick={retry} disabled={busy || offline}>{busy ? 'Retrying…' : 'Retry my cash sales'}</Button>}
         <h3 className="font-semibold">Terminal payments to confirm ({records.terminal.length})</h3>
         {!records.terminal.length && <p className="text-sm text-muted-foreground">No unconfirmed terminal payments in your scope on this register.</p>}
         <ul className="space-y-3">
@@ -74,7 +83,6 @@ export function OfflineReview({ onClose }: { onClose: () => void }) {
             <p>Do not charge again. {record.userId === user?.id ? 'Open POS to retry saving this payment.' : 'Return with the original cashier to retry saving.'}</p>
           </li>)}
         </ul>
-        {records.terminal.some(record => record.userId === user?.id) && <Button variant="primary" onClick={() => { onClose(); navigate('/pos'); }}>Open POS recovery</Button>}
         {['ADMIN', 'MANAGER'].includes(user?.role || '') && <OfflineReconciliation cash={records.cash} terminal={records.terminal} />}
       </>}
     </div>

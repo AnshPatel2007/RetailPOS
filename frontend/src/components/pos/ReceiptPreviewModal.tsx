@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Receipt, hardware } from '@/services/hardware';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { Printer, Mail, X, Check } from 'lucide-react';
@@ -65,7 +66,11 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Receipt" size="sm">
+    <Modal isOpen={isOpen} onClose={onClose} title="Receipt" size="sm"
+      footer={<DialogActions confirmLabel={<><Check aria-hidden="true" />Done</>} onConfirm={onClose}>
+        <Button onClick={handlePrint}><Printer aria-hidden="true" />Print</Button>
+        {onEmailReceipt && saleId && !showEmailInput && <Button onClick={() => setShowEmailInput(true)}><Mail aria-hidden="true" />Email</Button>}
+      </DialogActions>}>
       <div className="space-y-4">
         {/* Receipt Preview - styled like actual thermal receipt */}
         <div className="mx-auto bg-white text-black rounded shadow-md max-h-[60vh] overflow-auto font-mono text-xs leading-relaxed" style={{ width: '280px', padding: '16px 12px' }}>
@@ -188,35 +193,17 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
               autoFocus
             />
             <Button
-              variant="primary"
               onClick={handleSendEmail}
-              disabled={!email || isSendingEmail}
+              disabled={!email}
+              loading={isSendingEmail}
             >
-              {isSendingEmail ? 'Sending...' : 'Send'}
+              Send
             </Button>
             <Button aria-label="Close email receipt form" variant="ghost" onClick={() => setShowEmailInput(false)}>
               <X className="h-4 w-4" />
             </Button>
           </div>
         )}
-
-        {/* Action buttons */}
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handlePrint} className="flex-1">
-            <Printer className="h-4 w-4 mr-2" />
-            Print
-          </Button>
-          {onEmailReceipt && saleId && !showEmailInput && (
-            <Button variant="outline" onClick={() => setShowEmailInput(true)} className="flex-1">
-              <Mail className="h-4 w-4 mr-2" />
-              Email
-            </Button>
-          )}
-          <Button variant="primary" onClick={onClose} className="flex-1">
-            <Check className="h-4 w-4 mr-2" />
-            Done
-          </Button>
-        </div>
       </div>
     </Modal>
   );

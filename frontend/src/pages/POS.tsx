@@ -17,6 +17,7 @@ import { recallOpenShift } from '@/services/openShift';
 import { useOffline } from '@/hooks/useOffline';
 import { TerminalRecovery } from '@/components/pos/TerminalRecovery';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { useCartStore } from '@/store/cartStore';
@@ -1146,7 +1147,9 @@ export const POS: React.FC = () => {
       )}
 
       {/* Misc Item Modal (F7) */}
-      <Modal isOpen={showMiscModal} onClose={() => setShowMiscModal(false)} title="Add Misc Item" size="sm">
+      <Modal isOpen={showMiscModal} onClose={() => setShowMiscModal(false)} title="Add Misc Item" size="sm"
+        footer={<DialogActions confirmLabel={<><DollarSign aria-hidden="true" />Add to Cart</>} onConfirm={handleAddMisc}
+          disabled={!miscPrice || parseFloat(miscPrice) <= 0} onCancel={() => setShowMiscModal(false)} />}>
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Add an item not in the system. Enter a price and optional name.
@@ -1169,15 +1172,6 @@ export const POS: React.FC = () => {
             onChange={(e) => setMiscName(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleAddMisc(); }}
           />
-          <div className="flex gap-3 pt-2">
-            <Button variant="outline" className="flex-1" onClick={() => setShowMiscModal(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" className="flex-1" onClick={handleAddMisc} disabled={!miscPrice || parseFloat(miscPrice) <= 0}>
-              <DollarSign className="h-4 w-4 mr-1" />
-              Add to Cart
-            </Button>
-          </div>
         </div>
       </Modal>
 

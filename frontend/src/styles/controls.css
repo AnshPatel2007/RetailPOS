@@ -102,6 +102,9 @@
 /* Pop-up buttons (DialogActions): Cancel then the main button on the right; delete apart on the left. */
 .dialog-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .dialog-actions-remove { margin-right: auto; }
+/* The register's pop-ups: large buttons that share the width evenly. */
+.dialog-actions[data-size="lg"] { flex-wrap: nowrap; gap: 12px; }
+.dialog-actions[data-size="lg"] > .app-button { flex: 1 1 0; min-width: 0; }
 /* Table rows (RowActions): one visible word and a "…" menu. */
 .row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
 /* Temporary Classic | New look switch (components/common/LookSwitch.tsx). */

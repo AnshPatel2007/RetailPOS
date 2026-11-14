@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { ShieldAlert, ScanLine, Calendar, Eye, CheckCircle2, XCircle } from 'lucide-react';
 
 export interface AgeVerificationResult {
@@ -124,8 +125,17 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
   const cutoff = new Date();
   cutoff.setFullYear(cutoffYear);
 
+  // One Approve, in the footer: from the scanned ID when it shows the customer is old enough, otherwise from the typed date.
+  const scanOk = scannedDob !== null && scannedAge !== null && scannedAge >= requiredAge;
+  const manualOk = manualDob !== null && manualAge !== null && manualAge >= requiredAge;
+  const approve = () => {
+    if (scanOk) onConfirm({ method: 'ID_SCAN', birthDate: toIsoDate(scannedDob), verifiedForAge: requiredAge });
+    else if (manualOk) onConfirm({ method: 'MANUAL_DOB', birthDate: toIsoDate(manualDob), verifiedForAge: requiredAge });
+  };
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Age Verification Required" size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title="Age Verification Required" size="md"
+      footer={<DialogActions confirmLabel="Approve" onConfirm={approve} disabled={!scanOk && !manualOk} onCancel={onClose} />}>
       <div className="space-y-4">
         {/* Requirement banner */}
         <div className="flex items-start gap-3 p-3 rounded-lg bg-warning/10 border border-warning/30">
@@ -166,18 +176,9 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
                 DOB {formatDate(scannedDob)}
               </p>
             </div>
-            {scannedAge >= requiredAge ? (
-              <Button
-                variant="primary"
-                onClick={() =>
-                  onConfirm({ method: 'ID_SCAN', birthDate: toIsoDate(scannedDob), verifiedForAge: requiredAge })
-                }
-              >
-                Approve
-              </Button>
-            ) : (
-              <span className="text-sm font-bold text-destructive">DO NOT SELL</span>
-            )}
+            {scannedAge >= requiredAge
+              ? <span className="text-sm font-bold text-success">OK to sell</span>
+              : <span className="text-sm font-bold text-destructive">DO NOT SELL</span>}
           </div>
         )}
 
@@ -196,26 +197,12 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
             <Calendar className="h-4 w-4 text-muted-foreground" />
             Or enter date of birth
           </label>
-          <div className="flex gap-2">
-            <Input
-              type="date"
-              value={dobInput}
-              onChange={(e) => setDobInput(e.target.value)}
-              className="flex-1"
-              max={toIsoDate(new Date())}
-            />
-            <Button
-              variant="primary"
-              disabled={manualAge === null || manualAge < requiredAge}
-              onClick={() => {
-                if (manualDob && manualAge !== null && manualAge >= requiredAge) {
-                  onConfirm({ method: 'MANUAL_DOB', birthDate: toIsoDate(manualDob), verifiedForAge: requiredAge });
-                }
-              }}
-            >
-              Approve
-            </Button>
-          </div>
+          <Input
+            type="date"
+            value={dobInput}
+            onChange={(e) => setDobInput(e.target.value)}
+            max={toIsoDate(new Date())}
+          />
           {manualAge !== null && (
             <p className={`text-xs mt-1 font-medium ${manualAge >= requiredAge ? 'text-success' : 'text-destructive'}`}>
               {manualAge >= requiredAge
@@ -225,7 +212,7 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
           )}
         </div>
 
-        {/* Visual confirmation */}
+        {/* Visual confirmation: the other way to approve, without an ID */}
         <div className="pt-2 border-t">
           <Button
             variant="outline"

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import {
   X,
   Plus,
@@ -186,6 +187,9 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
         onClose={() => setShowCreateModal(false)}
         title="Create New Customer"
         size="md"
+        footer={<DialogActions confirmLabel="Create Customer" onConfirm={handleCreate}
+          disabled={!newCustomerData.firstName || !newCustomerData.lastName}
+          onCancel={() => { setShowCreateModal(false); setNewCustomerData({ firstName: '', lastName: '', email: '' }); }} />}
       >
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
@@ -215,26 +219,6 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
             value={newCustomerData.email}
             onChange={(e) => setNewCustomerData({ ...newCustomerData, email: e.target.value })}
           />
-          <div className="flex gap-3 pt-4">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowCreateModal(false);
-                setNewCustomerData({ firstName: '', lastName: '', email: '' });
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              className="flex-1"
-              onClick={handleCreate}
-              disabled={!newCustomerData.firstName || !newCustomerData.lastName}
-            >
-              Create Customer
-            </Button>
-          </div>
         </div>
       </Modal>
     </>

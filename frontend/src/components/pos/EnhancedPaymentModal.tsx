@@ -3,6 +3,7 @@ import { publishDisplayPayment } from '@/lib/customerDisplay';
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { formatCurrency, formatEnumLabel } from '@/lib/utils';
 import { customerService } from '@/services/api';
@@ -347,13 +348,14 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
         </div>
         {getChange() > 0 && <p className="font-semibold">Change: {formatCurrency(getChange())}</p>}
         {locked && <p className="text-xs text-muted-foreground">Saved on this register. Resume with the same cashier and store.</p>}
-        <div className="flex gap-3">
-          <Button variant="outline" className="flex-1 h-12" onClick={requestClose} disabled={isProcessing || saving}>{locked ? 'Save & close' : 'Cancel'}</Button>
-          <Button variant="primary" className="flex-1 h-12 text-base font-semibold" onClick={handleSubmit} disabled={!canSubmit || isProcessing || saving || changedElsewhere}>
-            {isProcessing || saving ? 'Saving…' : session?.status === 'SUBMITTED' ? 'Retry saving sale' : covered ? 'Complete sale' : <><Check className="h-4 w-4" />{paymentMethod === 'CARD' ? 'Save payment' : 'Charge'} {formatCurrency(dueTotal === 0 ? 0 : Number.isFinite(enteredAmount) ? enteredAmount : 0)}</>}
-          </Button>
-        </div>
-      </div>) : undefined}>
+        <DialogActions size="lg" onCancel={requestClose} cancelLabel={locked ? 'Save & close' : 'Cancel'} loading={isProcessing || saving}
+          onConfirm={handleSubmit} disabled={!canSubmit || changedElsewhere}
+          confirmLabel={isProcessing || saving ? 'Saving…' : session?.status === 'SUBMITTED' ? 'Retry saving sale' : covered ? 'Complete sale' : <><Check className="h-4 w-4" />{paymentMethod === 'CARD' ? 'Save payment' : 'Charge'} {formatCurrency(dueTotal === 0 ? 0 : Number.isFinite(enteredAmount) ? enteredAmount : 0)}</>} />
+      </div>) : (
+      // Linking a customer: back to the payment, or continue with the customer chosen.
+      <DialogActions size="lg" onCancel={() => setStep('payment')} cancelLabel={<><ArrowLeft className="h-4 w-4" aria-hidden="true" />Back to payment</>}
+        confirmRef={continueRef} onConfirm={handleContinueWithCustomer} disabled={!linkedCustomer}
+        confirmLabel={<>Continue<ArrowRight className="h-4 w-4" aria-hidden="true" /></>} />)}>
       {confirmDialog}
       {paymentError && <p role="alert" className="mb-3 text-sm text-destructive">{paymentError}</p>}
       {changedElsewhere && !saving && <p role="alert" className="mb-3 text-sm text-warning">Payment changed in another window. Close and reopen Payment before continuing.</p>}
@@ -471,11 +473,10 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                       onChange={(e) => setNewCustomerData({ ...newCustomerData, email: e.target.value })}
                     />
                     <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => setShowCreateForm(false)} className="flex-1">
+                      <Button variant="ghost" onClick={() => setShowCreateForm(false)} className="flex-1">
                         Cancel
                       </Button>
                       <Button
-                        variant="primary"
                         onClick={handleCreateCustomer}
                         disabled={!newCustomerData.firstName || !newCustomerData.lastName}
                         className="flex-1"
@@ -488,24 +489,6 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
               </>
             )}
 
-            {/* Customer step actions */}
-            <div className="flex gap-3 pt-4 border-t">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setStep('payment')}>
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to payment
-              </Button>
-              <Button
-                ref={continueRef}
-                type="button"
-                variant="primary"
-                className="flex-1"
-                onClick={handleContinueWithCustomer}
-                disabled={!linkedCustomer}
-              >
-                Continue
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            </div>
           </>
         ) : (
           /* ─── Payment Step ─── */
@@ -715,7 +698,9 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
       </div>
       </fieldset>
     </Modal>
-    <Modal isOpen={reverseIndex !== null} onClose={() => { if (!saving) { setReverseIndex(null); setReversalReference(''); } }} title="Reverse terminal payment" size="sm" footer={<Button variant="primary" disabled={saving || !reversalReference.trim()} onClick={() => reverseIndex !== null && handleRemovePayment(reverseIndex)}>Confirm reversal</Button>}>
+    <Modal isOpen={reverseIndex !== null} onClose={() => { if (!saving) { setReverseIndex(null); setReversalReference(''); } }} title="Reverse terminal payment" size="sm"
+      footer={<DialogActions confirmLabel="Confirm reversal" loading={saving} disabled={!reversalReference.trim()} onConfirm={() => { if (reverseIndex !== null) void handleRemovePayment(reverseIndex); }}
+        onCancel={() => { setReverseIndex(null); setReversalReference(''); }} />}>
       <p className="mb-3 text-sm">Reverse the {reverseIndex !== null ? formatCurrency(payments[reverseIndex]?.amount || 0) : ''} payment on the separate terminal first. Removing this entry does not refund the card.</p>
       <Input label="Terminal reversal reference" value={reversalReference} onChange={event => setReversalReference(event.target.value)} />
     </Modal>
