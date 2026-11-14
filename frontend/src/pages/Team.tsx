@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Badge } from '@/components/ui/Badge';
 import {
@@ -377,8 +378,8 @@ export const Team: React.FC = () => {
           </Table>}
       </Card>}
 
-      <Modal isOpen={grantOpen} onClose={() => setGrantOpen(false)} title="Give access to another store">
-        <form onSubmit={handleGrant} className="space-y-4">
+      <Modal isOpen={grantOpen} onClose={() => setGrantOpen(false)} title="Give access to another store" footer={<DialogActions form="give-access-form" confirmLabel="Give Access" loading={submitting} disabled={!grantForm.email || !grantForm.locationId} onCancel={() => setGrantOpen(false)} />}>
+        <form id="give-access-form" onSubmit={handleGrant} className="space-y-4">
           <Select label="Team member" value={grantForm.email} onChange={(e) => setGrantForm({ ...grantForm, email: e.target.value })} required>
             {grantPeople.map(u => <option key={u.id} value={u.email}>{u.firstName} {u.lastName}</option>)}
           </Select>
@@ -390,12 +391,6 @@ export const Team: React.FC = () => {
             <option value="MANAGER">Manager</option>
           </Select>
           <p className="text-xs text-muted-foreground">They keep this store as their home and switch to the other store from the menu. Giving the same person access again changes their role there.</p>
-          <div className="flex gap-3 pt-2">
-            <Button type="button" variant="outline" className="flex-1" onClick={() => setGrantOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="primary" className="flex-1" disabled={submitting || !grantForm.email || !grantForm.locationId}>
-              {submitting ? 'Saving...' : 'Give Access'}
-            </Button>
-          </div>
         </form>
       </Modal>
 
@@ -410,8 +405,8 @@ export const Team: React.FC = () => {
       />
 
       {/* Add Team Member */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Add Team Member">
-        <form onSubmit={handleCreate} className="space-y-4">
+      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Add Team Member" footer={<DialogActions form="add-team-member-form" confirmLabel="Add Team Member" loading={submitting} onCancel={() => setShowCreateModal(false)} />}>
+        <form id="add-team-member-form" onSubmit={handleCreate} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Input label="First Name" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required />
             <Input label="Last Name" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required />
@@ -439,18 +434,12 @@ export const Team: React.FC = () => {
           <p className="text-xs text-muted-foreground">
             They'll be assigned to your store automatically.
           </p>
-          <div className="flex gap-3 pt-2">
-            <Button type="button" variant="outline" className="flex-1" onClick={() => setShowCreateModal(false)}>Cancel</Button>
-            <Button type="submit" variant="primary" className="flex-1" disabled={submitting}>
-              {submitting ? 'Adding...' : 'Add Team Member'}
-            </Button>
-          </div>
         </form>
       </Modal>
 
       {/* Edit Team Member */}
-      <Modal isOpen={showEditModal} onClose={() => { setShowEditModal(false); setEditingUser(null); }} title="Edit Team Member">
-        <form onSubmit={handleSaveEdit} className="space-y-4">
+      <Modal isOpen={showEditModal} onClose={() => { setShowEditModal(false); setEditingUser(null); }} title="Edit Team Member" footer={<DialogActions form="edit-team-member-form" confirmLabel="Save Changes" loading={submitting} onCancel={() => { setShowEditModal(false); setEditingUser(null); }} />}>
+        <form id="edit-team-member-form" onSubmit={handleSaveEdit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Input label="First Name" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required />
             <Input label="Last Name" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required />
@@ -468,18 +457,12 @@ export const Team: React.FC = () => {
             </Select>
           </div>
           <Checkbox label="Active" checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} />
-          <div className="flex gap-3 pt-2">
-            <Button type="button" variant="outline" className="flex-1" onClick={() => { setShowEditModal(false); setEditingUser(null); }}>Cancel</Button>
-            <Button type="submit" variant="primary" className="flex-1" disabled={submitting}>
-              {submitting ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </div>
         </form>
       </Modal>
 
       {/* Reset Password */}
-      <Modal isOpen={showPasswordModal} onClose={() => { setShowPasswordModal(false); setEditingUser(null); setNewPassword(''); }} title="Reset Password">
-        <form onSubmit={handleResetPassword} className="space-y-4">
+      <Modal isOpen={showPasswordModal} onClose={() => { setShowPasswordModal(false); setEditingUser(null); setNewPassword(''); }} title="Reset Password" footer={<DialogActions form="team-reset-password-form" confirmLabel="Reset Password" loading={submitting} onCancel={() => { setShowPasswordModal(false); setEditingUser(null); }} />}>
+        <form id="team-reset-password-form" onSubmit={handleResetPassword} className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Reset password for {editingUser?.firstName} {editingUser?.lastName}
           </p>
@@ -491,12 +474,6 @@ export const Team: React.FC = () => {
             placeholder="Min. 8 characters, upper/lower/number/symbol"
             required
           />
-          <div className="flex gap-3 pt-2">
-            <Button type="button" variant="outline" className="flex-1" onClick={() => { setShowPasswordModal(false); setEditingUser(null); }}>Cancel</Button>
-            <Button type="submit" variant="primary" className="flex-1" disabled={submitting}>
-              {submitting ? 'Resetting...' : 'Reset Password'}
-            </Button>
-          </div>
         </form>
       </Modal>
 

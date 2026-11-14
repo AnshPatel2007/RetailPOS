@@ -70,13 +70,19 @@ test('failed job detail refresh disables reviewed retry and keyboard skips the d
   await expect(submit).toBeDisabled();
   const close = dialog.getByRole('button', { name: 'Close', exact: true });
   const retryRead = dialog.getByRole('button', { name: 'Retry details', exact: true });
+  // The footer keeps Cancel next to the (unavailable) retry: focus still cycles through every live control.
+  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
   await close.focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(cancel).toBeFocused();
   await page.keyboard.press('Shift+Tab');
   await expect(dialog.locator('summary')).toBeFocused();
   await page.keyboard.press('Shift+Tab');
   await expect(retryRead).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(dialog.locator('summary')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(cancel).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(close).toBeFocused();
   expect(retryRequests).toBe(0);

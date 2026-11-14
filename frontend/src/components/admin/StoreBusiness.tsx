@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Building2, Plus, UserMinus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Modal } from '@/components/ui/Modal';
+import { useConfirm } from '@/components/ui/useConfirm';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -31,7 +32,7 @@ export function StoreBusiness({ store, onClose, onChanged }: { store: BusinessSt
   const [target, setTarget] = useState('');
   const [newName, setNewName] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
-  const [confirmMove, setConfirmMove] = useState(false);
+  const [confirm, confirmDialog] = useConfirm();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,7 +54,7 @@ export function StoreBusiness({ store, onClose, onChanged }: { store: BusinessSt
     try {
       await work();
       toast.success(done);
-      setConfirmMove(false); setTarget(''); setNewName(''); setOwnerEmail('');
+      setTarget(''); setNewName(''); setOwnerEmail('');
       await load();
       onChanged();
     } catch (e) {
@@ -69,8 +70,14 @@ export function StoreBusiness({ store, onClose, onChanged }: { store: BusinessSt
     if (target === OWN_BUSINESS) organizationId = null;
     await locationService.moveToOrganization(store.id, organizationId);
   }, `${store.name} moved`);
+  const confirmAndMove = async () => {
+    if (!current || !await confirm({ title: `Move ${store.name}?`, confirmLabel: 'Move Store', cancelLabel: 'Keep it here', destructive: true,
+      message: `Owners of ${current.name} lose access to it, and access between it and ${current.name}'s other stores ends. Its own staff and records stay with the store.` })) return;
+    await move();
+  };
 
   return <Modal isOpen onClose={() => { if (!busy) onClose(); }} title="Business and owners" size="lg">
+    {confirmDialog}
     <div className="space-y-6">
       <div className="flex items-center gap-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
         <div className="rounded-xl bg-primary/10 p-3"><Building2 className="h-6 w-6 text-primary" /></div>
@@ -107,20 +114,13 @@ export function StoreBusiness({ store, onClose, onChanged }: { store: BusinessSt
 
       {current && <section aria-labelledby="business-move" className="space-y-3">
         <h3 id="business-move" className="font-medium">Move this store</h3>
-        <Select label="Move to" value={target} onChange={event => { setTarget(event.target.value); setConfirmMove(false); }} placeholder="Choose a business…">
+        <Select label="Move to" value={target} onChange={event => setTarget(event.target.value)} placeholder="Choose a business…">
           {others.map(organization => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
           <option value={NEW_BUSINESS}>A new business…</option>
           {current.locations.length > 1 && <option value={OWN_BUSINESS}>A business of its own</option>}
         </Select>
         {target === NEW_BUSINESS && <Input label="New business name" value={newName} onChange={event => setNewName(event.target.value)} required />}
-        {target && !confirmMove && <Button variant="outline" disabled={busy || (target === NEW_BUSINESS && !newName.trim())} onClick={() => setConfirmMove(true)}>Move Store</Button>}
-        {confirmMove && <div className="rounded-lg bg-destructive/5 p-3">
-          <p className="text-sm">Move {store.name}? Owners of {current.name} lose access to it, and access between it and {current.name}&apos;s other stores ends. Its own staff and records stay with the store.</p>
-          <div className="mt-3 flex justify-end gap-2">
-            <Button variant="ghost" disabled={busy} onClick={() => setConfirmMove(false)}>Keep it here</Button>
-            <Button variant="destructive" disabled={busy} onClick={() => { void move(); }}>{busy ? 'Moving…' : 'Move Store'}</Button>
-          </div>
-        </div>}
+        {target && <Button variant="outline" disabled={busy || (target === NEW_BUSINESS && !newName.trim())} onClick={() => void confirmAndMove()}>Move Store</Button>}
       </section>}
     </div>
   </Modal>;

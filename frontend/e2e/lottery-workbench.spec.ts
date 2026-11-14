@@ -57,7 +57,7 @@ test('machine totals have no rack controls and close without settlement or cash 
 test('cashiers cannot close and platform equipment has only rack or machine', async ({ page }, info) => {
   await login(page, 'lottery-cashier@example.test'); await page.goto('/lottery?lotteryView=online');
   await expect(page.getByRole('button', { name: 'Close day', exact: true })).toHaveCount(0); await expect(page.getByRole('button', { name: 'Ticket Setup', exact: true })).toHaveCount(0);
-  await logout(page); await login(page, 'platform@example.test'); await page.goto('/admin/stores'); await page.getByRole('button', { name: 'Configure lottery for Lottery MANUAL', exact: true }).click();
+  await logout(page); await login(page, 'platform@example.test'); await page.goto('/admin/stores'); await page.getByRole('button', { name: 'More actions for Lottery MANUAL', exact: true }).click(); await page.getByRole('menuitem', { name: 'Lottery', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Lottery · Lottery MANUAL' }); await expect(modal.getByRole('button', { name: /Lottery rack/ })).toBeVisible(); await expect(modal.getByRole('button', { name: /Lottery machine/ })).toBeVisible();
   await expect(modal.getByRole('checkbox')).toHaveCount(0); await expect(modal.getByText('Inventory barcode verification')).toHaveCount(0);
   await expect(modal.getByRole('button', { name: 'Save equipment', exact: true })).toBeEnabled(); await page.screenshot({ path: info.outputPath('equipment.png'), animations: 'disabled' });

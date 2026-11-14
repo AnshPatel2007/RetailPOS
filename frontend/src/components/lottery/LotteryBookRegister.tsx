@@ -13,7 +13,7 @@ function BookDetails({ locationId, id, onClose }: { locationId: string; id: stri
   const navigate = useNavigate();
   const query = useScopedQuery<{ book: LotteryBook; counts: (LotteryCheckpoint & { businessDate: string; dayStatus: string })[]; settlements: { id: string; reference: string; periodStart: string; periodEnd: string }[] }>(['lottery-book-detail', locationId, id], signal => lotteryRead('/books/' + id, locationId, signal));
   const book = query.data?.book;
-  return <Modal isOpen title={book ? book.name + ' · Book ' + book.bookNumber : 'Book details'} size="lg" onClose={onClose} footer={<Button variant="outline" onClick={onClose}>Close</Button>}>
+  return <Modal isOpen title={book ? book.name + ' · Book ' + book.bookNumber : 'Book details'} size="lg" onClose={onClose}>
     <div className="space-y-5"><LotteryError error={query.error} retry={() => void query.refresh()} />
       {book && <dl className="grid grid-cols-2 gap-4 text-sm">{[['Game', book.gameNumber], ['Bin', book.slot], ['Status', lotteryBookStatus(book.status)], ['Tickets remaining', book.ticketCount - book.position], ['Full book value', lotteryMoney(book.ticketCount * Number(book.price))], ['Started tracking', book.registeredDate]].map(([label, value]) => <div key={label}><dt className="text-muted-foreground">{label}</dt><dd className="font-medium mt-1">{value}</dd></div>)}</dl>}
       <section className="space-y-3"><h3 className="text-lg font-semibold">Daily counts</h3>{query.loading && !query.data && <p role="status">Loading book history…</p>}

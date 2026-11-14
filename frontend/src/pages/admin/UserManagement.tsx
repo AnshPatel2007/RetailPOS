@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { RowActions } from '@/components/common/RowActions';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Badge } from '@/components/ui/Badge';
 import {
   Table,
@@ -19,7 +21,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Search, Edit, Trash2, Key, Users, UserCheck, UserX, Plus } from 'lucide-react';
+import { Search, Trash2, Key, Users, UserCheck, UserX, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -369,33 +371,10 @@ export const UserManagement: React.FC = () => {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        onClick={() => openPasswordModal(user)}
-                        title="Reset Password"
-                        aria-label={`Reset password for ${user.firstName} ${user.lastName}`}
-                      >
-                        <Key className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => handleEdit(user)}
-                        aria-label={`Edit user ${user.firstName} ${user.lastName}`}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      {user.isActive && user.role !== 'SUPER_ADMIN' && (
-                        <Button
-                          variant="ghost"
-                          onClick={() => handleDelete(user.id)}
-                          aria-label={`Deactivate user ${user.firstName} ${user.lastName}`}
-                          className="text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
+                    <RowActions name={`${user.firstName} ${user.lastName}`} primary={{ label: 'Edit', onAction: () => handleEdit(user) }} items={[
+                      { id: 'password', label: 'Reset password', icon: <Key size={16} />, onAction: () => openPasswordModal(user) },
+                      user.isActive && user.role !== 'SUPER_ADMIN' && { id: 'deactivate', label: 'Deactivate', icon: <Trash2 size={16} />, destructive: true, onAction: () => void handleDelete(user.id) },
+                    ]} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -412,8 +391,9 @@ export const UserManagement: React.FC = () => {
           setEditingUser(null);
         }}
         title="Edit User"
+        footer={<DialogActions form="edit-user-form" confirmLabel="Save Changes" onCancel={() => { setShowEditModal(false); setEditingUser(null); }} />}
       >
-        <form onSubmit={handleSaveUser} className="space-y-4">
+        <form id="edit-user-form" onSubmit={handleSaveUser} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Input
               label="First Name"
@@ -472,23 +452,6 @@ export const UserManagement: React.FC = () => {
           </div>
 
           <Checkbox label="Active" checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} />
-
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowEditModal(false);
-                setEditingUser(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" className="flex-1">
-              Save Changes
-            </Button>
-          </div>
         </form>
       </Modal>
 
@@ -501,8 +464,9 @@ export const UserManagement: React.FC = () => {
           setNewPassword('');
         }}
         title="Reset Password"
+        footer={<DialogActions form="reset-user-password-form" confirmLabel="Reset Password" onCancel={() => { setShowPasswordModal(false); setEditingUser(null); setNewPassword(''); }} />}
       >
-        <form onSubmit={handleResetPassword} className="space-y-4">
+        <form id="reset-user-password-form" onSubmit={handleResetPassword} className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Reset password for {editingUser?.firstName} {editingUser?.lastName}
           </p>
@@ -516,24 +480,6 @@ export const UserManagement: React.FC = () => {
             required
             minLength={8}
           />
-
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowPasswordModal(false);
-                setEditingUser(null);
-                setNewPassword('');
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" className="flex-1">
-              Reset Password
-            </Button>
-          </div>
         </form>
       </Modal>
 
@@ -542,8 +488,9 @@ export const UserManagement: React.FC = () => {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         title="Create New User"
+        footer={<DialogActions form="create-user-form" confirmLabel="Create User" onCancel={() => setShowCreateModal(false)} />}
       >
-        <form onSubmit={handleCreateUser} className="space-y-4">
+        <form id="create-user-form" onSubmit={handleCreateUser} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Input
               label="First Name"
@@ -606,20 +553,6 @@ export const UserManagement: React.FC = () => {
                 ))}
               </Select>
             </div>
-          </div>
-
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => setShowCreateModal(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" className="flex-1">
-              Create User
-            </Button>
           </div>
         </form>
       </Modal>

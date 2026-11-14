@@ -13,6 +13,7 @@ import { Pagination } from '@/components/common/Pagination';
 import { OperationRecovery } from '@/components/common/OperationRecovery';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { formatCurrency, formatDate, formatDateTime, formatEnumLabel } from '@/lib/utils';
@@ -62,7 +63,8 @@ export function Payroll() {
   </ManagementPage>;
   return <ManagementPage className=" space-y-6">
     {confirmDialog}
-    <PageHeader title="Payroll" subtitle="Review gross wages, approve obligations and record completed payments" />
+    <PageHeader title="Payroll" subtitle="Review gross wages, approve obligations and record completed payments"
+      actions={data && <Button variant="primary" disabled={busy || operation.blocked || query.loading || !!query.error} onClick={() => void postPeriods()}>Post completed periods to Expenses</Button>} />
     <OperationRecovery operation={operation} />
     {query.error && <Alert tone="error" title={query.error} action={<Button variant="outline" onClick={query.refresh}>Retry payroll</Button>} />}
     {query.loading && <LoadingState label={data ? 'Updating payroll. Previous results are shown.' : 'Loading payroll…'} />}
@@ -75,10 +77,9 @@ export function Payroll() {
         </div>
         <p className="text-sm text-muted-foreground">Periods use {data.location.timezone}. Rate and schedule changes apply to future clock-ins. Completed periods create pending obligations for owner review.</p>
         <p className="text-sm text-muted-foreground">Straight-time gross wages only. Overtime, leave, deductions, withholding and actual bank transfers require your payroll process. Recording a bank or check payment here does not send money.</p>
-        <Button variant="primary" onClick={() => void postPeriods()}>Post completed periods to Expenses</Button>
       </CardContent></Card>
       <Card><CardHeader><CardTitle>Employee hourly rates</CardTitle></CardHeader><CardContent>
-        {data.staff.map((staff: any) => <div key={staff.id} className="payroll-rate-row"><div className="flex-1 min-w-40"><p className="font-medium">{staff.firstName} {staff.lastName}{!staff.isActive && ' (inactive)'}</p><p className="text-sm text-muted-foreground">{staff.email}</p></div><Input label="Hourly rate" aria-label={`Hourly rate for ${staff.firstName} ${staff.lastName}`} type="number" min="0" max="10000" step="0.01" placeholder="Not set" value={rates[staff.id] ?? (staff.hourlyRate === null ? '' : String(staff.hourlyRate))} onChange={event => setRates({ ...rates, [staff.id]: event.target.value })} /><Button variant="primary" disabled={busy} onClick={() => void mutate(async () => { await payrollService.setRate(staff.id, (rates[staff.id] ?? String(staff.hourlyRate ?? '')) === '' ? null : Number(rates[staff.id] ?? staff.hourlyRate)); setRates(current => { const next = { ...current }; delete next[staff.id]; return next; }); })}>Save rate</Button></div>)}
+        {data.staff.map((staff: any) => <div key={staff.id} className="payroll-rate-row"><div className="flex-1 min-w-40"><p className="font-medium">{staff.firstName} {staff.lastName}{!staff.isActive && ' (inactive)'}</p><p className="text-sm text-muted-foreground">{staff.email}</p></div><Input label="Hourly rate" aria-label={`Hourly rate for ${staff.firstName} ${staff.lastName}`} type="number" min="0" max="10000" step="0.01" placeholder="Not set" value={rates[staff.id] ?? (staff.hourlyRate === null ? '' : String(staff.hourlyRate))} onChange={event => setRates({ ...rates, [staff.id]: event.target.value })} /><Button disabled={busy || rates[staff.id] === undefined} onClick={() => void mutate(async () => { await payrollService.setRate(staff.id, (rates[staff.id] ?? String(staff.hourlyRate ?? '')) === '' ? null : Number(rates[staff.id] ?? staff.hourlyRate)); setRates(current => { const next = { ...current }; delete next[staff.id]; return next; }); })}>Save rate</Button></div>)}
       </CardContent></Card>
       {data.unratedShifts > 0 && <p className="text-sm text-warning">{data.unratedShifts} closed shifts have no saved rate and are excluded. Historical pay is not guessed.</p>}
       <Card><CardHeader><CardTitle>Payroll obligations</CardTitle></CardHeader><CardContent>
@@ -87,10 +88,12 @@ export function Payroll() {
       </CardContent></Card>
       <Card><CardHeader><CardTitle>Unposted wage entries</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground mb-3">Up to 50 recent shift segments, including the current period. Post completed periods to review them above.</p>{!data.entries.length ? <p>No unposted wage entries.</p> : <div className="overflow-x-auto"><Table scrollLabel="Payroll records" className="w-full text-sm"><TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Period start</TableHead><TableHead numeric>Hours</TableHead><TableHead numeric>Gross wages</TableHead></TableRow></TableHeader><TableBody>{data.entries.map((entry: any) => <TableRow key={entry.id}><TableCell className="p-2">{entry.user.firstName} {entry.user.lastName}</TableCell><TableCell>{date(entry.periodStart)}</TableCell><TableCell numeric>{(entry.seconds / 3600).toFixed(2)}</TableCell><TableCell numeric>{formatCurrency(entry.grossPay)}</TableCell></TableRow>)}</TableBody></Table></div>}</CardContent></Card>
     </fieldset>}
-    <Modal isOpen={!!record} onClose={() => { if (!operation.busy) setRecord(''); }} title="Review Payroll" size="lg">
+    <Modal isOpen={!!record} onClose={() => { if (!operation.busy) setRecord(''); }} title="Review Payroll" size="lg"
+      footer={expense && expense.status !== 'PAID' && <DialogActions onCancel={() => setRecord('')} confirmLabel={expense.status === 'APPROVED' ? 'Record payment' : 'Save review'} onConfirm={recordAction} loading={operation.busy}
+        disabled={operation.blocked || detail.loading || !!detail.error || !reason.trim() || (expense.status === 'APPROVED' && (!reference.trim() || !paidAt))} />}>
       <div className="space-y-4">
         {detail.loading && <LoadingState label="Loading wage entries…" />}
-        {detail.error && <Alert tone="error" title={detail.error} action={<Button variant="primary" onClick={detail.refresh}>Retry wage entries</Button>} />}
+        {detail.error && <Alert tone="error" title={detail.error} action={<Button onClick={detail.refresh}>Retry wage entries</Button>} />}
         {expense && <>
           <p className="font-semibold">{expense.user.firstName} {expense.user.lastName} — {formatCurrency(expense.amount)} — {formatEnumLabel(expense.status)}</p><p className="text-sm">{expense.description}</p>
           <div className="overflow-x-auto"><Table scrollLabel="Payroll records" className="w-full text-sm"><TableHeader><TableRow><TableHead>Shift</TableHead><TableHead numeric>Hours</TableHead><TableHead numeric>Saved rate</TableHead><TableHead numeric>Gross wages</TableHead></TableRow></TableHeader><TableBody>{detail.data.entries.map((entry: any) => <TableRow key={entry.id}><TableCell className="p-2">{formatDateTime(entry.shift.clockInAt, timezone)}</TableCell><TableCell numeric>{(entry.seconds / 3600).toFixed(2)}</TableCell><TableCell numeric>{formatCurrency(entry.hourlyRate)}</TableCell><TableCell numeric>{formatCurrency(entry.grossPay)}</TableCell></TableRow>)}</TableBody></Table></div>
@@ -103,7 +106,6 @@ export function Payroll() {
             <label className="block">Action<Select aria-label="Payroll action" className="block p-2 rounded border bg-background" value={expense.status === 'APPROVED' ? 'PAY' : expense.status === 'REJECTED' ? 'REOPEN' : action} onChange={event => setAction(event.target.value as Action)}>{expense.status === 'PENDING' ? <><option value="APPROVE">Approve gross wages</option><option value="REJECT">Reject for review</option></> : expense.status === 'REJECTED' ? <option value="REOPEN">Return to review</option> : <option value="PAY">Record completed payment</option>}</Select></label>
             <Input label="Reason" value={reason} maxLength={500} onChange={event => setReason(event.target.value)} required />
             {expense.status === 'APPROVED' && <><label className="block">Payment method<Select aria-label="Payroll payment method" className="block p-2 rounded border bg-background" value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="BANK_TRANSFER">Bank transfer already completed</option><option value="CHECK">Check issued</option><option value="EXTERNAL_CASH">Cash paid outside the register</option><option value="DRAWER_CASH">Cash paid from my open drawer</option></Select></label><Input label="Payment reference" value={reference} maxLength={150} onChange={event => setReference(event.target.value)} required /><Input label={`Payment time (store time${timezone ? ', ' + timezone : ''})`} type="datetime-local" value={paidAt} onChange={event => setPaidAt(event.target.value)} required /></>}
-            <Button variant="primary" disabled={!reason.trim() || (expense.status === 'APPROVED' && (!reference.trim() || !paidAt))} onClick={recordAction}>{expense.status === 'APPROVED' ? 'Record payment' : 'Save review'}</Button>
           </fieldset>}
           <OperationRecovery operation={operation} />
         </>}

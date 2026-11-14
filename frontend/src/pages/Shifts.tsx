@@ -9,6 +9,7 @@ import { formatCurrency, formatDateTime, formatTime, cn, formatEnumLabel } from 
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 import toast from 'react-hot-toast';
@@ -52,6 +53,7 @@ export const Shifts: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showClockInModal, setShowClockInModal] = useState(false);
   const [showClockOutModal, setShowClockOutModal] = useState(false);
+  const [clockBusy, setClockBusy] = useState(false);
   const [startingCash, setStartingCash] = useState('0');
   const [endingCash, setEndingCash] = useState('');
   const [page, setPage] = useUrlPage();
@@ -85,6 +87,8 @@ export const Shifts: React.FC = () => {
   };
 
   const handleClockIn = async () => {
+    if (clockBusy) return;
+    setClockBusy(true);
     try {
       await shiftService.clockIn({
         startingCash: parseFloat(startingCash) || 0,
@@ -95,6 +99,8 @@ export const Shifts: React.FC = () => {
       toast.success('Clocked in successfully');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to clock in');
+    } finally {
+      setClockBusy(false);
     }
   };
 
@@ -198,6 +204,8 @@ export const Shifts: React.FC = () => {
       toast.error('Enter the actual cash count, including 0 for an empty drawer.'); return;
     }
 
+    if (clockBusy) return;
+    setClockBusy(true);
     try {
       if (user?.id && locationId && await currentPaymentSession(user.id, locationId)) {
         toast.error('Finish or reverse the unfinished payment in POS before closing this drawer.'); return;
@@ -218,6 +226,8 @@ export const Shifts: React.FC = () => {
       await loadData();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to clock out');
+    } finally {
+      setClockBusy(false);
     }
   };
 
@@ -243,7 +253,7 @@ export const Shifts: React.FC = () => {
       {autoRefresh.notice}
       {pendingMovement && <div role="status" className="mb-4 p-3 rounded-lg border border-warning/40 bg-warning/10 space-y-2">
         <p>Saved cash movement: {formatEnumLabel(pendingMovement.label)} {formatCurrency(pendingMovement.amount)}. Retry to confirm the recorded result. Do not move the cash twice.</p>
-        <Button variant="primary" onClick={() => submitCashMovement(pendingMovement)} disabled={movementSubmitting}>Retry saved cash movement</Button>
+        <Button onClick={() => submitCashMovement(pendingMovement)} disabled={movementSubmitting}>Retry saved cash movement</Button>
       </div>}
 
       {/* Shift Content */}
@@ -442,8 +452,9 @@ export const Shifts: React.FC = () => {
         isOpen={showClockInModal}
         onClose={() => setShowClockInModal(false)}
         title="Clock In"
+        footer={<DialogActions form="clock-in-form" confirmLabel="Clock In" loading={clockBusy} onCancel={() => setShowClockInModal(false)} />}
       >
-        <div className="space-y-4">
+        <form id="clock-in-form" className="space-y-4" onSubmit={event => { event.preventDefault(); void handleClockIn(); }}>
           <p className="text-muted-foreground">
             Enter the starting cash in your drawer to begin your shift.
           </p>
@@ -456,20 +467,7 @@ export const Shifts: React.FC = () => {
             step="0.01"
             autoFocus
           />
-
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => setShowClockInModal(false)}
-            >
-              Cancel
-            </Button>
-            <Button variant="primary" className="flex-1" onClick={handleClockIn}>
-              Clock In
-            </Button>
-          </div>
-        </div>
+        </form>
       </Modal>
 
       {/* Clock Out Modal */}
@@ -478,10 +476,7 @@ export const Shifts: React.FC = () => {
         onClose={() => setShowClockOutModal(false)}
         title="Clock Out"
         description="Count the cash in the drawer and enter the total."
-        footer={<div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => setShowClockOutModal(false)}>Cancel</Button>
-          <Button variant="primary" type="submit" form="clock-out-form" disabled={!endingCash.trim()}>Clock Out</Button>
-        </div>}
+        footer={<DialogActions form="clock-out-form" confirmLabel="Clock Out" loading={clockBusy} disabled={!endingCash.trim()} onCancel={() => setShowClockOutModal(false)} />}
       >
         {currentShift && (() => {
           const shift = currentShift as typeof currentShift & { totalCashSales?: number; cashMovementNet?: number; expectedDrawer?: number };
@@ -545,6 +540,7 @@ export const Shifts: React.FC = () => {
         onClose={() => setShowSummaryModal(false)}
         title="Shift Summary"
         size="lg"
+        footer={shiftSummary && <DialogActions confirmLabel="Done" onConfirm={() => setShowSummaryModal(false)} />}
       >
         {shiftSummary && (
           <div className="space-y-4">
@@ -609,9 +605,6 @@ export const Shifts: React.FC = () => {
               </div>
             </div>
             {shiftSummary.reconciliationWarning && <p className="text-sm text-warning">{shiftSummary.reconciliationWarning}</p>}
-            <Button variant="primary" className="w-full" onClick={() => setShowSummaryModal(false)}>
-              Done
-            </Button>
           </div>
         )}
       </Modal>

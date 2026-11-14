@@ -25,6 +25,8 @@ interface DialogActionsProps {
   confirmDescribedBy?: string;
   onCancel?: () => void;
   cancelLabel?: React.ReactNode;
+  /** Keeps Cancel unavailable while a saved change waits (it is always unavailable while `loading`). */
+  cancelDisabled?: boolean;
   /** A delete (or cancel-the-record) button, kept apart on the left so it is never hit by mistake. */
   remove?: { label: string; onClick: () => void; disabled?: boolean; icon?: React.ReactNode; title?: string };
   /** `lg`: the register's 48px buttons, sharing the footer's width evenly. */
@@ -38,11 +40,11 @@ interface DialogActionsProps {
  * stay in view while the body scrolls: Cancel, then the one main button on the
  * right, with an optional delete button apart on the left.
  */
-export function DialogActions({ confirmLabel, onConfirm, form, loading = false, disabled = false, tone = 'primary', confirmRef, confirmDescribedBy, onCancel, cancelLabel = 'Cancel', remove, size = 'md', children }: DialogActionsProps) {
+export function DialogActions({ confirmLabel, onConfirm, form, loading = false, disabled = false, tone = 'primary', confirmRef, confirmDescribedBy, onCancel, cancelLabel = 'Cancel', cancelDisabled = false, remove, size = 'md', children }: DialogActionsProps) {
   const large = size === 'lg';
   return <div className="dialog-actions" data-size={large ? 'lg' : undefined}>
     {remove && <Button type="button" variant="ghost" className="dialog-actions-remove text-destructive" disabled={loading || remove.disabled} title={remove.title} onClick={remove.onClick}>{remove.icon ?? <Trash2 aria-hidden="true" />}{remove.label}</Button>}
-    {onCancel && <Button type="button" className={cn(large && 'h-12')} disabled={loading} onClick={onCancel}>{cancelLabel}</Button>}
+    {onCancel && <Button type="button" className={cn(large && 'h-12')} disabled={loading || cancelDisabled} onClick={onCancel}>{cancelLabel}</Button>}
     {children}
     {confirmLabel != null && <Button ref={confirmRef} type={form ? 'submit' : 'button'} form={form} variant={tone} className={cn(large && 'h-12 text-base font-semibold')}
       aria-describedby={confirmDescribedBy} loading={loading} disabled={disabled} onClick={onConfirm}>{confirmLabel}</Button>}

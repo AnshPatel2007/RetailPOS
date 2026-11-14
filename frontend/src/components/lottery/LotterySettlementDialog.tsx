@@ -1,6 +1,7 @@
 import { Checkbox } from '@/components/ui/Checkbox';
 import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
@@ -16,7 +17,7 @@ export function LotterySettlementDialog({ locationId, start, end, existing, bloc
   const [page, setPage] = useState(1), [verified, setVerified] = useState(false);
   const books = useScopedQuery<{ records: LotteryBook[]; pagination: { page: number; totalPages: number } }>(['lottery-books', locationId, page], signal => lotteryRead('/books', locationId, signal, { page }));
   const update = (key: string, value: unknown) => { setForm(previous => ({ ...previous, [key]: value })); setVerified(false); };
-  return <Modal isOpen title={existing ? 'Correct settlement' : 'Reconcile lottery settlement'} size="xl" onClose={() => { if (!blocked) onClose(); }} footer={<div className="flex justify-end gap-2"><Button variant="outline" disabled={blocked} onClick={onClose}>Cancel</Button><Button variant="primary" disabled={blocked || !verified} onClick={() => void onSubmit(form, existing?.version || 0)}>Confirm settlement</Button></div>}>
+  return <Modal isOpen title={existing ? 'Correct settlement' : 'Reconcile lottery settlement'} size="xl" onClose={() => { if (!blocked) onClose(); }} footer={<DialogActions onCancel={onClose} cancelDisabled={blocked} disabled={blocked || !verified} confirmLabel="Confirm settlement" onConfirm={() => void onSubmit(form, existing?.version || 0)} />}>
     <div className="space-y-4"><LotteryError error={error} /><p className="text-sm text-muted-foreground">Enter the period’s actual earnings. Only the difference from earnings already posted is recognized. Settled book value and bank sweeps are retained separately from sales and income.</p>
       <fieldset disabled={blocked} className="space-y-4"><div className="grid gap-4 sm:grid-cols-3"><Input type="date" label="Settlement period start" disabled={!!existing} value={form.periodStart} onChange={e => update('periodStart', e.target.value)} /><Input type="date" label="Settlement period end" disabled={!!existing} value={form.periodEnd} onChange={e => update('periodEnd', e.target.value)} /><Input label="Settlement reference" value={form.reference} maxLength={150} onChange={e => update('reference', e.target.value)} /></div>
         <section className="space-y-3 border-t pt-4"><h3 className="text-lg font-semibold">Lottery earnings</h3>

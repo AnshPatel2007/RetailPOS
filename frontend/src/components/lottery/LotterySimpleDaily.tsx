@@ -9,6 +9,7 @@ import { PageTabs } from '@/components/common/PageTabs';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { LotteryMoneyFields, LotteryError, LotteryRecovery, LotterySection } from './LotteryFields';
 import { LotteryRackTable } from './LotteryRackTable';
 import { LotteryDisclosure, LotteryTerminalStage, earningsFields, ZeroRemaining } from './LotteryReportStages';
@@ -93,7 +94,7 @@ export function LotterySimpleDaily({ locationId, date, onDateChange, readOnly, o
       {closed && (manager || readOnly) && <LotteryDayHistory locationId={locationId} date={date} version={day.version} />}
       </>}
     </>}
-    {compare && day && draft && <Modal isOpen title="Review changed report" size="lg" onClose={() => setCompare(false)} footer={<div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setCompare(false)}>Cancel</Button><Button variant="primary" onClick={() => { editor.rebase(); setCompare(false); }}>Keep my reviewed draft</Button></div>}>
+    {compare && day && draft && <Modal isOpen title="Review changed report" size="lg" onClose={() => setCompare(false)} footer={<DialogActions onCancel={() => setCompare(false)} confirmLabel="Keep my reviewed draft" onConfirm={() => { editor.rebase(); setCompare(false); }} />}>
       <p className="text-sm mb-4">Compare the saved amounts with your draft before replacing them.</p>
       <table className="w-full text-sm"><thead><tr><th className="text-left">Field</th><th>Saved</th><th>Your draft</th></tr></thead><tbody>
         {Object.entries(draft.report).filter(([key, value]) => !Array.isArray(value) && value !== day.report[key as keyof typeof day.report]).map(([key, value]) => <tr key={key}><td className="py-2">{formatEnumLabel(key.replace(/([a-z])([A-Z])/g, '$1_$2'))}</td><td className="text-center">{String(day.report[key as keyof typeof day.report] ?? 'Not entered')}</td><td className="text-center">{String(value ?? 'Not entered')}</td></tr>)}
@@ -102,8 +103,8 @@ export function LotterySimpleDaily({ locationId, date, onDateChange, readOnly, o
     </Modal>}
     {confirmDayDialog}
     <Modal isOpen={reopening} onClose={() => setReopening(false)} title="Reopen this lottery day?" size="sm"
-      footer={<div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setReopening(false)}>Cancel</Button>
-        <Button variant="primary" disabled={reopenReason.trim().length < 3 || operation.blocked} onClick={() => { setReopening(false); void mutate('reopen', { reason: reopenReason.trim() }); }}>Reopen day</Button></div>}>
+      footer={<DialogActions onCancel={() => setReopening(false)} confirmLabel="Reopen day" disabled={reopenReason.trim().length < 3 || operation.blocked}
+        onConfirm={() => { setReopening(false); void mutate('reopen', { reason: reopenReason.trim() }); }} />}>
       <p className="mb-3 text-sm text-muted-foreground">Its totals leave reports until the day is closed again. The reason is kept in the day's history.</p>
       <Input label="Reason for reopening" value={reopenReason} maxLength={300} onChange={e => setReopenReason(e.target.value)} autoFocus />
     </Modal>

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { LotteryGame, lotteryRead, lotteryMoney, lotteryError } from '@/services/lotteryWorkbench';
 import { LotteryError } from './LotteryFields';
@@ -47,9 +48,8 @@ export function LotteryBookDialog({ locationId, date, barcodeEnabled, checkpoint
       ...(kind === 'adjust' ? { slot, lossQuantity: Number(loss), disposition: intent === 'pause' ? 'PAUSED' : intent === 'return' ? 'RETURNED' : intent === 'resume' ? 'ACTIVE' : checkpoint!.disposition === 'DEPLETED' ? 'ACTIVE' : checkpoint!.disposition } : {}) });
   const invalid = blocked || scanning || (kind !== 'soldout' && !/^\d+$/.test(nextTicket)) || (adding && (!ticketTypeId || !bookNumber || !slot || reason.trim().length < 3)) || ((kind === 'adjust' || resetOpening) && reason.trim().length < 3);
   const remaining = checkpoint ? checkpoint.book.ticketCount - (checkpoint.closingPosition ?? checkpoint.openingPosition) : 0;
-  return <Modal isOpen title={title} size={adding ? 'lg' : 'md'} onClose={() => { if (!blocked) onClose(); }} footer={<div className="flex justify-end gap-2">
-    <Button variant="outline" disabled={blocked} onClick={onClose}>Cancel</Button><Button variant="primary" disabled={invalid} onClick={() => void submit()}>{kind === 'replace' ? 'Confirm replacement' : kind === 'soldout' ? 'Confirm sold out' : adding ? 'Add book' : kind === 'adjust' ? 'Save change' : 'Save number'}</Button>
-  </div>}>
+  return <Modal isOpen title={title} size={adding ? 'lg' : 'md'} onClose={() => { if (!blocked) onClose(); }} footer={<DialogActions onCancel={onClose} cancelDisabled={blocked} disabled={invalid} onConfirm={() => void submit()}
+    confirmLabel={kind === 'replace' ? 'Confirm replacement' : kind === 'soldout' ? 'Confirm sold out' : adding ? 'Add book' : kind === 'adjust' ? 'Save change' : 'Save number'} />}>
     <div className="space-y-4"><LotteryError error={error || query.error || scanError} />
       {checkpoint && <div className="rounded-md bg-muted/40 p-3 text-sm"><p className="font-medium">Bin {checkpoint.slot} · {checkpoint.book.name}</p><p className="text-xs text-muted-foreground mt-1">Game {checkpoint.book.gameNumber} · Book {checkpoint.book.bookNumber} · Opening {checkpoint.openingTicket ?? 'Sold out'}</p></div>}
       {(kind === 'replace' || kind === 'soldout') && <div className="rounded-md border p-3 text-sm space-y-2"><p><strong>{remaining} remaining tickets</strong> will be marked sold ({lotteryMoney(remaining * Number(checkpoint?.book.price))}).</p><p className="text-xs text-muted-foreground">Previously recorded missing or damaged tickets remain excluded. Confirm that this book is physically empty.</p></div>}

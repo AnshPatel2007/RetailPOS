@@ -8,6 +8,8 @@ import { developerService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { RowActions } from '@/components/common/RowActions';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Card, CardContent } from '@/components/ui/Card';
 import {
@@ -20,7 +22,7 @@ import {
 } from '@/components/ui/Table';
 import { PageHeader } from '@/components/common/PageHeader';
 import { formatDateTime } from '@/lib/utils';
-import { Code2, Plus, Trash2, Copy, KeyRound, Webhook, Zap, CheckCircle2, XCircle } from 'lucide-react';
+import { Code2, Plus, Trash2, Copy, KeyRound, Webhook, CheckCircle2, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Spinner } from '@/components/ui/LoadingState';
 
@@ -170,15 +172,7 @@ export const Developers: React.FC = () => {
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
-                          {k.isActive && (
-                            <Button
-                              variant="outline"
-                              className="text-destructive"
-                              onClick={() => setRevokeTarget(k)}
-                            >
-                              <Trash2 className="h-3 w-3 mr-1" /> Revoke
-                            </Button>
-                          )}
+                          <RowActions name={`API key ${k.name}`} items={[k.isActive && { id: 'revoke', label: 'Revoke key', icon: <Trash2 size={16} />, destructive: true, onAction: () => setRevokeTarget(k) }]} />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -259,20 +253,8 @@ export const Developers: React.FC = () => {
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex gap-1 justify-end">
-                            <Button variant="outline" onClick={() => handleTest(w.id)} title="Send test ping">
-                              <Zap className="h-3 w-3 mr-1" /> Test
-                            </Button>
-                            <Button
-                              variant="outline"
-                              className="text-destructive"
-                              onClick={() => setDeleteHookTarget(w)}
-                              title="Delete"
-                              aria-label={`Delete webhook ${w.url}`}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
+                          <RowActions name={`webhook ${w.url}`} primary={{ label: 'Test', onAction: () => void handleTest(w.id) }}
+                            items={[{ id: 'delete', label: 'Delete webhook', icon: <Trash2 size={16} />, destructive: true, onAction: () => setDeleteHookTarget(w) }]} />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -290,6 +272,9 @@ export const Developers: React.FC = () => {
         onClose={() => { setShowKeyModal(false); setNewKey(null); }}
         title={newKey ? 'API Key Created' : 'New API Key'}
         size="md"
+        footer={newKey
+          ? <DialogActions confirmLabel="I've copied it" onConfirm={() => { setShowKeyModal(false); setNewKey(null); }} />
+          : <DialogActions onCancel={() => setShowKeyModal(false)} confirmLabel="Create Key" onConfirm={() => void handleCreateKey()} loading={submitting} disabled={!keyName.trim()} />}
       >
         {newKey ? (
           <div className="space-y-4">
@@ -302,9 +287,6 @@ export const Developers: React.FC = () => {
                 <Copy className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <Button variant="primary" className="w-full" onClick={() => { setShowKeyModal(false); setNewKey(null); }}>
-              I've copied it
-            </Button>
           </div>
         ) : (
           <div className="space-y-4">
@@ -315,12 +297,6 @@ export const Developers: React.FC = () => {
               onChange={(e) => setKeyName(e.target.value)}
               autoFocus
             />
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setShowKeyModal(false)}>Cancel</Button>
-              <Button variant="primary" onClick={handleCreateKey} disabled={!keyName.trim() || submitting}>
-                {submitting ? 'Creating...' : 'Create Key'}
-              </Button>
-            </div>
           </div>
         )}
       </Modal>
@@ -331,6 +307,9 @@ export const Developers: React.FC = () => {
         onClose={() => { setShowHookModal(false); setNewSecret(null); }}
         title={newSecret ? 'Webhook Added' : 'Add Webhook Endpoint'}
         size="md"
+        footer={newSecret
+          ? <DialogActions confirmLabel="I've copied it" onConfirm={() => { setShowHookModal(false); setNewSecret(null); }} />
+          : <DialogActions onCancel={() => setShowHookModal(false)} confirmLabel="Add Endpoint" onConfirm={() => void handleCreateWebhook()} loading={submitting} disabled={!hookUrl.trim() || hookEvents.length === 0} />}
       >
         {newSecret ? (
           <div className="space-y-4">
@@ -344,9 +323,6 @@ export const Developers: React.FC = () => {
                 <Copy className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <Button variant="primary" className="w-full" onClick={() => { setShowHookModal(false); setNewSecret(null); }}>
-              I've copied it
-            </Button>
           </div>
         ) : (
           <div className="space-y-4">
@@ -377,16 +353,6 @@ export const Developers: React.FC = () => {
                   </label>
                 ))}
               </div>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setShowHookModal(false)}>Cancel</Button>
-              <Button
-                variant="primary"
-                onClick={handleCreateWebhook}
-                disabled={!hookUrl.trim() || hookEvents.length === 0 || submitting}
-              >
-                {submitting ? 'Adding...' : 'Add Endpoint'}
-              </Button>
             </div>
           </div>
         )}

@@ -9,6 +9,7 @@ import { PageTabs } from '@/components/common/PageTabs';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { ActionMenu } from '@/components/ui/ActionMenu';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
 import { LotteryIssue, LotteryStage, LotteryCorrectionInput, lotteryMoney, manualLottery, lotteryError } from '@/services/lotteryWorkbench';
@@ -141,16 +142,15 @@ export function LotteryDailyWorkbench({ locationId, date, onDateChange, readOnly
     </>}
     {dialog && <LotteryBookDialog locationId={locationId} date={date} barcodeEnabled={!!day?.configuration.barcodeProfile} {...dialog} owner={owner} blocked={operation.blocked} error={operation.error}
       onClose={() => setDialog(null)} onSubmit={mutate} />}
-    {reviewConflict && draft && day && <Modal isOpen title="Review changed report" size="xl" onClose={() => setReviewConflict(false)} footer={<div className="flex justify-end gap-2">
-      <Button variant="outline" onClick={() => setReviewConflict(false)}>Cancel</Button><Button variant="primary" onClick={() => { editor.rebase(); setReviewConflict(false); }}>Keep my reviewed draft</Button>
-    </div>}><p className="text-sm text-muted-foreground mb-4">Compare saved figures with your draft before saving. Book counts stay unchanged.</p>
+    {reviewConflict && draft && day && <Modal isOpen title="Review changed report" size="xl" onClose={() => setReviewConflict(false)} footer={<DialogActions onCancel={() => setReviewConflict(false)} confirmLabel="Keep my reviewed draft" onConfirm={() => { editor.rebase(); setReviewConflict(false); }} />}><p className="text-sm text-muted-foreground mb-4">Compare saved figures with your draft before saving. Book counts stay unchanged.</p>
       <div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow><TableHead>Field</TableHead><TableHead>Saved report</TableHead><TableHead>Your draft</TableHead></TableRow></TableHeader><TableBody>
         {Object.keys(draft.report).filter(key => JSON.stringify(draft.report[key as keyof typeof draft.report]) !== JSON.stringify(day.report[key as keyof typeof day.report])).map(key =>
           <TableRow key={key}><TableCell>{lotteryFieldLabel(key)}</TableCell><TableCell className="max-w-80 whitespace-normal break-words">{reviewValue(day.report[key as keyof typeof day.report])}</TableCell><TableCell className="max-w-80 whitespace-normal break-words">{reviewValue(draft.report[key as keyof typeof draft.report])}</TableCell></TableRow>)}
       </TableBody></Table></div>
     </Modal>}
     {confirm && <Modal isOpen title={confirm === 'close' ? 'Close lottery day' : confirm === 'reopen' ? 'Reopen lottery counts' : 'Correct a closed lottery day'} size={confirm === 'correction' ? 'lg' : 'md'} onClose={() => { if (!operation.busy) setConfirm(null); }}
-      footer={<div className="flex justify-end gap-2"><Button variant="outline" disabled={operation.busy} onClick={() => setConfirm(null)}>Cancel</Button><Button variant="primary" disabled={operation.blocked || (confirm === 'reopen' && reason.trim().length < 3)} onClick={() => void mutate(confirm, confirm === 'reopen' ? { reason } : confirm === 'correction' ? { correction } : {})}>Confirm {confirm === 'close' ? 'close' : confirm === 'reopen' ? 'reopening' : 'correction'}</Button></div>}>
+      footer={<DialogActions onCancel={() => setConfirm(null)} loading={operation.busy} disabled={operation.blocked || (confirm === 'reopen' && reason.trim().length < 3)}
+        confirmLabel={`Confirm ${confirm === 'close' ? 'close' : confirm === 'reopen' ? 'reopening' : 'correction'}`} onConfirm={() => void mutate(confirm, confirm === 'reopen' ? { reason } : confirm === 'correction' ? { correction } : {})} />}>
       <div className="space-y-4"><LotteryRecovery operation={operation} />
         {confirm === 'close' && <><p className="text-sm">Close {friendlyDate(date)} with the saved book counts and report totals.</p><dl className="space-y-2 text-sm">{[['Scratch sales', totals?.scratchSales], ['Online sales', totals?.onlineSales], ['Prizes paid', totals?.payouts], ['Net collections', totals?.netCollections], ['Lottery earnings', totals?.earnings]].map(([label, value]) => <div className="flex justify-between gap-3" key={label}><dt>{label}</dt><dd className="font-medium tabular-nums">{lotteryMoney(value)}</dd></div>)}</dl>{!totals?.earningsComplete && <p className="text-sm text-muted-foreground">Earnings remain pending. Net income stays incomplete until the missing information is confirmed.</p>}</>}
         {confirm === 'reopen' && <><p className="text-sm">Reverses this day’s earnings and restores opening numbers for review. The original close remains in history.</p><Input label="Reopening reason" value={reason} maxLength={2000} onChange={e => setReason(e.target.value)} /></>}

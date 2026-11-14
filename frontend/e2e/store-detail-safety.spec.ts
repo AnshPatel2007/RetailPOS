@@ -19,7 +19,7 @@ test('store detail failures clear old figures, retry, and ignore a closed store 
     finally { if (delay && first) finished(); }
   });
   await page.goto('/admin/stores');
-  const openA = page.getByRole('button', { name: 'View details for Store A', exact: true });
+  const openA = page.getByRole('button', { name: 'Details Store A', exact: true });
   await openA.click(); const dialog = page.getByRole('dialog', { name: 'Store Details', exact: true });
   await expect(dialog).toContainText('$111.11'); await expect(dialog).toContainText('Unavailable');
   unavailable = true; await dialog.getByRole('button', { name: '7d', exact: true }).click();
@@ -29,7 +29,7 @@ test('store detail failures clear old figures, retry, and ignore a closed store 
   await expect(dialog).toContainText('$111.11');
   delay = true; await dialog.getByRole('button', { name: '30d', exact: true }).click(); await ready;
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0); await expect(openA).toBeFocused();
-  await page.getByRole('button', { name: 'View details for Store B', exact: true }).click();
+  await page.getByRole('button', { name: 'Details Store B', exact: true }).click();
   await expect(dialog).toContainText('$222.22');
   release(); await completed;
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));

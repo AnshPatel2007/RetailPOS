@@ -93,7 +93,8 @@ test('the platform admin sees which business a store belongs to and its owners',
   await page.goto('/admin/stores');
   const row = page.getByRole('row').filter({ hasText: 'South Street Store' });
   await expect(row).toContainText('North Street Store'); // the business, named after its first store
-  await row.getByRole('button', { name: 'Business and owners for South Street Store', exact: true }).click();
+  await row.getByRole('button', { name: 'More actions for South Street Store', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Business and owners', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Business and owners' });
   await expect(dialog).toContainText('Part of North Street Store');
   await expect(dialog.getByRole('listitem').filter({ hasText: 'stores@example.test' })).toContainText('Multi Store');

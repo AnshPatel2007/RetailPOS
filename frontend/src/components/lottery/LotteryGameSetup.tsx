@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { useSavedOperation } from '@/hooks/useSavedOperation';
@@ -32,8 +33,7 @@ export function LotteryGameSetup({ locationId, readOnly, onActionsChange }: { lo
       <TableCell>{game.isActive ? 'Active' : 'Inactive'}</TableCell><TableCell>{!readOnly && <Button variant="outline" disabled={operation.blocked} onClick={() => open(game)}>Edit</Button>}</TableCell></TableRow>)}
       {query.data?.length === 0 && <TableRow><TableCell colSpan={6}>Add a game with its bin, ticket price and starting number.</TableCell></TableRow>}
     </TableBody></Table></div>}
-    {edit && <Modal isOpen title={edit === 'new' ? 'Add lottery game' : 'Edit lottery game'} size="lg" onClose={() => { if (!operation.busy) setEdit(null); }} footer={<div className="flex justify-end gap-2">
-      <Button variant="outline" disabled={operation.busy} onClick={() => setEdit(null)}>Cancel</Button><Button variant="primary" disabled={operation.blocked || !valid} onClick={() => void save()}>Save game</Button></div>}>
+    {edit && <Modal isOpen title={edit === 'new' ? 'Add lottery game' : 'Edit lottery game'} size="lg" onClose={() => { if (!operation.busy) setEdit(null); }} footer={<DialogActions onCancel={() => setEdit(null)} loading={operation.busy} disabled={operation.blocked || !valid} confirmLabel="Save game" onConfirm={() => void save()} />}>
       <div className="space-y-4"><LotteryRecovery operation={operation} /><fieldset disabled={operation.blocked} className="grid gap-4 sm:grid-cols-2">
         {([['binNumber', 'Bin number'], ['ticketName', 'Lottery name'], ['gameNumber', 'Game number'], ['pricePerTicket', 'Ticket price'], ['firstTicket', 'Lowest ticket number'], ['lastTicket', 'Highest ticket number'], ['startingNumber', 'Starting number']] as const).map(([key, label]) =>
           <Input key={key} label={label} value={form[key]} inputMode={['ticketName', 'binNumber'].includes(key) ? 'text' : 'decimal'} onChange={e => setForm({ ...form, [key]: e.target.value })} />)}

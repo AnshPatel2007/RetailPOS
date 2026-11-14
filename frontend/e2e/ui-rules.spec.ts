@@ -33,6 +33,17 @@ const popups: { route: string; opens: string }[] = [
   { route: '/inventory', opens: 'Add single item' },
   { route: '/inventory/purchasing/suppliers', opens: 'Add Supplier' },
   { route: '/inventory/purchasing/orders', opens: 'New Order' },
+  { route: '/inventory/purchasing/suppliers/credits', opens: 'Record credit' },
+  { route: '/inventory/stock-control/counts', opens: 'New Count' },
+  { route: '/inventory/stock-control/transfers', opens: 'New Transfer' },
+  { route: '/promotions', opens: 'New Promotion' },
+  { route: '/customers/accounts/gift-cards', opens: 'Issue Gift Card' },
+  { route: '/customers/accounts/store-credits', opens: 'Issue Credit' },
+  { route: '/customers/accounts/house-accounts', opens: 'Open Account' },
+  { route: '/financial?tab=expenses', opens: 'Add Expense' },
+  { route: '/financial?tab=budgets', opens: 'Add Budget' },
+  { route: '/financial?tab=recurring', opens: 'Add Recurring Expense' },
+  { route: '/team-time/staff', opens: 'Add Team Member' },
 ];
 
 const FILLED = '[data-variant="primary"], [data-variant="destructive"]';

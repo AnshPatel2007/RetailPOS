@@ -16,6 +16,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { RowActions } from '@/components/common/RowActions';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { FormSection } from '@/components/common/Workspace';
 import { Badge } from '@/components/ui/Badge';
 import {
@@ -35,7 +37,6 @@ import {
   TrendingUp,
   ShoppingCart,
   Package,
-  Eye,
   Link2,
   X,
   Building2,
@@ -373,53 +374,17 @@ export const StoreManagement: React.FC = () => {
                       <Badge variant="secondary">Inactive</Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <Button variant="outline" aria-label={`Configure lottery for ${location.name}`} onClick={(e) => { e.stopPropagation(); setLotteryStore(location); }}>Lottery</Button>
-                      <Button variant="outline" aria-label={`Business and owners for ${location.name}`} onClick={(e) => { e.stopPropagation(); setBusinessStore(location); }}>
-                        <Building2 className="h-4 w-4 mr-2" />Business
-                      </Button>
-                      <Button variant="outline" aria-label={`Manage connections for ${location.name}`} onClick={(e) => { e.stopPropagation(); setConnectionStore(location); }}>
-                        <Link2 className="h-4 w-4 mr-2" />Connections
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        aria-label={`View details for ${location.name}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleViewDetails(location);
-                        }}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        aria-label={`Edit store ${location.name}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEdit(location);
-                        }}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      {!location.isActive && (
-                        <Button variant="outline" aria-label={`Reactivate store ${location.name}`}
-                          onClick={(e) => { e.stopPropagation(); void handleReactivate(location); }}>Reactivate</Button>
-                      )}
-                      {location.isActive && (
-                        <Button
-                          variant="ghost"
-                          aria-label={`Deactivate store ${location.name}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(location.id);
-                          }}
-                          className="text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
+                  {/* Clicks inside the actions (and their menu) never also open the row's details. */}
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <RowActions name={location.name} primary={{ label: 'Details', onAction: () => handleViewDetails(location) }} items={[
+                      { id: 'edit', label: 'Edit store', icon: <Edit size={16} />, onAction: () => handleEdit(location) },
+                      { id: 'lottery', label: 'Lottery', onAction: () => setLotteryStore(location) },
+                      { id: 'business', label: 'Business and owners', icon: <Building2 size={16} />, onAction: () => setBusinessStore(location) },
+                      { id: 'connections', label: 'Connections', icon: <Link2 size={16} />, onAction: () => setConnectionStore(location) },
+                      location.isActive
+                        ? { id: 'deactivate', label: 'Deactivate store', icon: <Trash2 size={16} />, destructive: true, onAction: () => void handleDelete(location.id) }
+                        : { id: 'reactivate', label: 'Reactivate store', onAction: () => void handleReactivate(location) },
+                    ]} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -437,10 +402,7 @@ export const StoreManagement: React.FC = () => {
         }}
         title={editingLocation ? 'Edit Store' : 'Create New Store'}
         size="lg"
-        footer={<div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => { setShowModal(false); resetForm(); }}>Cancel</Button>
-          <Button type="submit" form="store-form" variant="primary">{editingLocation ? 'Update Store' : 'Create Store'}</Button>
-        </div>}
+        footer={<DialogActions form="store-form" confirmLabel={editingLocation ? 'Update Store' : 'Create Store'} onCancel={() => { setShowModal(false); resetForm(); }} />}
       >
         <form id="store-form" onSubmit={handleSubmit} className="space-y-4">
           <FormSection title="Store">
@@ -556,7 +518,8 @@ export const StoreManagement: React.FC = () => {
                 {[7, 30, 90].map((p) => (
                   <Button
                     key={p}
-                    variant={detailPeriod === p ? 'primary' : 'outline'}
+                    variant={detailPeriod === p ? 'secondary' : 'outline'}
+                    aria-pressed={detailPeriod === p}
                     onClick={() => handleDetailPeriodChange(p)}
                   >
                     {p}d
@@ -577,7 +540,7 @@ export const StoreManagement: React.FC = () => {
                 <Spinner size="lg" className="mx-auto" />
                 <p className="mt-4 text-muted-foreground">Loading store details...</p>
               </div>
-            ) : detailError ? <div role="alert" className="p-6 space-y-3"><p>{detailError}</p><Button variant="primary" onClick={() => void loadStoreDetails(selectedStore)}>Retry store details</Button></div> : storeDetails ? (
+            ) : detailError ? <div role="alert" className="p-6 space-y-3"><p>{detailError}</p><Button onClick={() => void loadStoreDetails(selectedStore)}>Retry store details</Button></div> : storeDetails ? (
               <div className="p-6 space-y-6">
                 {/* Key Metrics */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

@@ -9,21 +9,6 @@ const ts = require('typescript');
 
 const SRC = path.join(__dirname, '../src');
 
-/**
- * Files the buttons-and-layout sweep has not reached yet. Their pop-ups are not
- * checked; once a file follows the rules it must leave this list (the last test
- * says so), so the list only shrinks.
- */
-const PENDING = new Set([
-  'components/StoreConnections.tsx', 'components/admin/StoreBusiness.tsx',
-  'components/lottery/LotteryBookDialog.tsx', 'components/lottery/LotteryBookRegister.tsx', 'components/lottery/LotteryConfiguration.tsx',
-  'components/lottery/LotteryDailyWorkbench.tsx', 'components/lottery/LotteryGameSetup.tsx', 'components/lottery/LotterySettlementDialog.tsx',
-  'components/lottery/LotterySimpleDaily.tsx', 
-  'pages/BackgroundJobs.tsx', 'pages/Developers.tsx',
-  'pages/Payroll.tsx', 'pages/Shifts.tsx', 
-  'pages/Team.tsx', 'pages/admin/StoreManagement.tsx', 'pages/admin/UserManagement.tsx',
-]);
-
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
@@ -58,10 +43,15 @@ function bodyElements(modal, visit) {
     elementsWithin(child, visit);
   }
 }
-/** A filled button: the main action, which belongs in the footer. */
+/**
+ * A filled button: the main action, which belongs in the footer. A submit button counts
+ * too, unless it is marked as a supporting button (outline or ghost), like the button of
+ * an inline "Add an owner" field in a pop-up that has no single main action.
+ */
 const filled = element => {
   const variant = attribute(element, 'variant') || '';
-  return (nameOf(element) === 'Button' && /primary|destructive/.test(variant)) || attribute(element, 'type') === 'submit';
+  return (nameOf(element) === 'Button' && /primary|destructive/.test(variant))
+    || (attribute(element, 'type') === 'submit' && !/^(outline|ghost)$/.test(variant));
 };
 
 const modals = [];
@@ -102,24 +92,14 @@ function footerProblems({ node, where, rel, source }) {
   const footer = attribute(node, 'footer');
   return footer && !/DialogActions/.test(footerText(footer, source)) && !rel.endsWith('FilterDropdown.tsx') ? [where] : [];
 }
-const checked = modals.filter(modal => !PENDING.has(modal.rel));
-
 test('the source has pop-ups to check', () => {
   assert.ok(modals.length > 50, `found only ${modals.length} pop-ups: the scan is broken`);
 });
 
 test("a pop-up's main button sits in its fixed footer, never in the scrolling body", () => {
-  assert.deepEqual(checked.flatMap(bodyProblems), [], 'Move these buttons into the footer (DialogActions); supporting buttons in the body are outline or ghost.');
+  assert.deepEqual(modals.flatMap(bodyProblems), [], 'Move these buttons into the footer (DialogActions); supporting buttons in the body are outline or ghost.');
 });
 
 test('a pop-up footer is laid out by DialogActions', () => {
-  assert.deepEqual(checked.flatMap(footerProblems), [], 'Build the footer with DialogActions: Cancel, then the one main button on the right.');
-});
-
-test('files waiting for the sweep leave the waiting list once they follow the rules', () => {
-  const clean = [...PENDING].filter(rel => {
-    const own = modals.filter(modal => modal.rel === rel);
-    return own.length > 0 && !own.some(modal => bodyProblems(modal).length || footerProblems(modal).length);
-  });
-  assert.deepEqual(clean, [], 'These files now follow the rules: remove them from PENDING in tests/ui-rules.test.cjs.');
+  assert.deepEqual(modals.flatMap(footerProblems), [], 'Build the footer with DialogActions: Cancel, then the one main button on the right.');
 });
