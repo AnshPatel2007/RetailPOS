@@ -206,10 +206,12 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   that menu, red, and asks first (`useConfirm`). Tables stack into cards on a phone
   (`Table` `stackOnPhone`, on by default; a table with its own phone layout passes
   `stackOnPhone={false}`), and pop-ups become bottom sheets.
-- **Alerts**: the attention rules reach owners and managers through the Alerts bell
-  (`components/common/AttentionAlerts.tsx`); the Dashboard shows only alerts not yet read.
-  Read and dismissed marks are kept per person and store in the browser (a dismissed alert
-  returns when its wording changes).
+- **Alerts**: the attention rules reach owners and managers only through the Alerts bell
+  (`components/common/AttentionAlerts.tsx`); nothing about them sits on the Dashboard. At
+  sign-in the bell just shows how many are unread; opening it clears the number. An alert
+  that arrives during the visit slides in at the top right for about 4 seconds (with ×
+  and "View alerts") and the number pops. Read and dismissed marks are kept per person and
+  store in the browser (a dismissed alert returns when its wording changes).
 - **Products carry no pictures** (the owner's choice, Nov 2026): no image field, catalog
   photo or picture before a product's name.
 - **Words**: plain store language ("Sales today", "Sales after refunds", "Balance
