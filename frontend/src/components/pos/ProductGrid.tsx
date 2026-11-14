@@ -106,7 +106,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
         disabled={saleBlocked}
         type="button"
         title={product.name}
-        // --tile-accent is the store's own category color; --tile-tint always has one (the New look colors every tile by category).
+        // --tile-accent is the store's own category color; --tile-tint always has one (every tile is colored by its category).
         style={{ ...(accent ? { '--tile-accent': accent } : {}), ...(tint ? { '--tile-tint': tint } : {}) } as React.CSSProperties}
         className={`pos-product-button w-full text-left border border-border rounded-lg bg-card transition-colors ${
           saleBlocked

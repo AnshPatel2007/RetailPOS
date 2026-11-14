@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { NEW_LOOK } from './utils/look';
 import { login } from './utils/auth-helper';
 
 test('product workspace keeps the catalog prominent and groups all product fields', async ({ page }, info) => {
@@ -11,7 +10,7 @@ test('product workspace keeps the catalog prominent and groups all product field
   // Other specs may add products. Measure the catalog's first row, not its sort order.
   // (Leaves room for the Single Items / Packs tabs and the "Needs costs · Review costs" setup line above the catalog.)
   // The New look's top bar sits above the page, so its catalog starts a little lower.
-  expect((await page.locator('.products-table tbody tr').first().boundingBox())!.y).toBeLessThan(NEW_LOOK ? 440 : 390);
+  expect((await page.locator('.products-table tbody tr').first().boundingBox())!.y).toBeLessThan(440);
   await expect(page.getByText('Total Products', { exact: true })).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'Showing' })).toHaveText(/Showing 1 to \d+ of \d+ products/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

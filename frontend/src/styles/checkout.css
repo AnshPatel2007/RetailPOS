@@ -9,7 +9,7 @@
 .pos-category-bar { flex-shrink: 0; padding: 4px 16px 12px; }
 .pos-category { display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border: 1px solid hsl(var(--border)); border-radius: 7px; background: hsl(var(--card)); color: hsl(var(--muted-foreground)); font-size: 14px; font-weight: 500; transition: background-color .15s, border-color .15s; }
 .pos-category:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
-/* Classic shows a dot only for a color the store chose; the New look shows a swatch for every category. */
+/* A dot for a color the store chose; styles/look.css shows a swatch for every category. */
 .pos-category-dot:not([data-own-color]) { display: none; }
 .pos-category.is-selected { color: hsl(var(--primary)); background: hsl(var(--primary) / .07); border-color: hsl(var(--primary) / .3); }
 .pos-catalog-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 16px 24px; overscroll-behavior: contain; scrollbar-gutter: stable; }

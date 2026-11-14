@@ -1,12 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
-import { NEW_LOOK } from './utils/look';
 
-/**
- * The New look's menu is a bar across the top (components/common/TopBar.tsx).
- * Run with: E2E_LOOK=new node scripts/verify-pos.cjs browser e2e/top-bar.spec.ts --project=chromium
- */
-test.skip(!NEW_LOOK, 'The top bar belongs to the New look: run with E2E_LOOK=new');
+/** The app's menu is a bar across the top (components/common/TopBar.tsx). */
 
 test('the top bar groups pages into drop-downs, marks where you are and leaves pages the full width', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
@@ -82,7 +77,7 @@ test('a cashier gets a short plain row, and the platform administrator gets the 
   await expect(admin.getByRole('link', { name: 'Stores', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
-test('on a phone the bar keeps a menu button, and the drawer holds the pages, the look switch and sign-out', async ({ page }) => {
+test('on a phone the bar keeps a menu button, and the drawer holds the pages and sign-out', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await login(page, 'owner@example.test');
   await page.goto('/inventory');
@@ -96,7 +91,7 @@ test('on a phone the bar keeps a menu button, and the drawer holds the pages, th
   await open.click();
   const drawer = page.getByRole('dialog', { name: 'Main menu', exact: true });
   await expect(drawer.getByRole('link', { name: 'Products', exact: true })).toHaveAttribute('aria-current', 'page');
-  await expect(drawer.getByRole('group', { name: 'Look' }).getByRole('button', { name: 'New', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(drawer.getByRole('group', { name: 'Look' })).toHaveCount(0);
   await expect(drawer.getByRole('button', { name: 'Logout', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(drawer).toHaveCount(0);

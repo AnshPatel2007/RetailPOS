@@ -124,7 +124,7 @@ function AnalyticsEntry() {
 
 function App() {
   const { loadUser, isAuthenticated, user } = useAuthStore();
-  const { theme, setTheme, look } = useThemeStore();
+  const { theme, setTheme } = useThemeStore();
   const { fetchSettings } = useStoreSettingsStore();
   const { locationId: settingsLocationId } = useEffectiveLocation();
 
@@ -152,11 +152,6 @@ function App() {
   useEffect(() => {
     setTheme(theme);
   }, [setTheme, theme]);
-
-  // The look (Classic or New) is a data-look attribute on the page; styles/look-new.css keys on it.
-  useEffect(() => {
-    document.documentElement.dataset.look = look;
-  }, [look]);
 
   return (
     <BrowserRouter>

@@ -5,7 +5,6 @@ import { ChevronDown, Lock, LogOut, Menu as MenuIcon, Moon, Search, Sun, type Lu
 import { ControlPopover } from '@/components/ui/Overlay';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Kbd } from '@/components/ui/Kbd';
-import { LookSwitch } from './LookSwitch';
 import { ROLE_NAMES } from '@/lib/navigation';
 
 export interface TopBarLink {
@@ -73,7 +72,7 @@ function NavMenu({ group }: { group: TopBarGroup }) {
 }
 
 /**
- * The New look's menu: a bar across the top, so pages use the full width.
+ * The app's menu: a bar across the top, so pages use the full width.
  * Sections drop down. Theme, lock and sign-out are plain buttons, one click away.
  * On a phone the bar keeps a menu button for the drawer, which holds the rest.
  */
@@ -103,8 +102,7 @@ export function TopBar({ label, brand, entries, tools, user, theme, onToggleThem
           <Search size={16} aria-hidden="true" /><span className="hidden 2xl:inline">Find</span>{findShortcut && <Kbd className="hidden 2xl:inline-flex">{findShortcut}</Kbd>}
         </AriaButton>
       </Tooltip>}
-      {/* On a phone the look switch, theme, lock and sign-out sit in the drawer instead. */}
-      <div className="hidden lg:block"><LookSwitch className="look-switch-bar" /></div>
+      {/* On a phone the theme, lock and sign-out sit in the drawer instead. */}
       <div className="app-topbar-user hidden xl:flex" title={`${user.name}, ${role}`}>
         <span className="app-topbar-avatar" aria-hidden="true">{initials}</span>
         <span className="hidden min-w-0 leading-tight 2xl:block">

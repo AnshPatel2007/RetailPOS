@@ -71,7 +71,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, descriptio
     setBackgroundAllowed(origin.current?.closest('[data-auto-refresh]')?.getAttribute('data-auto-refresh') === 'allow');
     setBackOffice(!!origin.current?.closest('.management-content'));
   });
-  // A titled back-office form can open as a side panel (the New look styles .app-dialog-panel);
+  // A titled back-office form can open as a side panel (styles/look.css styles .app-dialog-panel);
   // confirmations and the register's pop-ups stay centered.
   const panel = backOffice && !!title && size !== 'sm';
   const level = priority === 'approval' ? Math.max(100, parentLevel + 10) : parentLevel + 10;

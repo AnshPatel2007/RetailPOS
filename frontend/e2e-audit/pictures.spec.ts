@@ -8,7 +8,7 @@ import { seedDemo } from './seed-demo';
  * screen on a computer and a phone, key screens in dark, the register with a
  * sale in progress, and the pop-up each page's main button opens.
  *
- *   UX_AUDIT_DIR=ux-audit-2026-11b/before  [UX_AUDIT_LOOK=new]
+ *   UX_AUDIT_DIR=ux-audit-2026-11b/after
  *   node scripts/verify-pos.cjs browser -c playwright.audit.config.ts pictures.spec.ts -g "owner computer"
  *
  * Each test is one run of a few minutes; run them one at a time.

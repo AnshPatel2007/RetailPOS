@@ -2,36 +2,24 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 interface LayoutState {
-  isSidebarCollapsed: boolean;
   isMobileMenuOpen: boolean;
-  /** The one menu section shown open (accordion); null = all titled sections closed. */
+  /** The one menu section shown open in the phone drawer (accordion); null = all titled sections closed. */
   openSection: string | null;
   setOpenSection: (title: string | null) => void;
-  toggleSidebar: () => void;
-  setSidebarCollapsed: (collapsed: boolean) => void;
   setMobileMenuOpen: (open: boolean) => void;
 }
 
 export const useLayoutStore = create<LayoutState>()(
   persist(
     (set) => ({
-      isSidebarCollapsed: false,
       isMobileMenuOpen: false,
       openSection: null,
       setOpenSection: (title: string | null) => set({ openSection: title }),
-
-      toggleSidebar: () =>
-        set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
-
-      setSidebarCollapsed: (collapsed: boolean) =>
-        set({ isSidebarCollapsed: collapsed }),
-
-      setMobileMenuOpen: (open: boolean) =>
-        set({ isMobileMenuOpen: open }),
+      setMobileMenuOpen: (open: boolean) => set({ isMobileMenuOpen: open }),
     }),
     {
       name: 'pos-layout',
-      partialize: (state) => ({ isSidebarCollapsed: state.isSidebarCollapsed, openSection: state.openSection }),
+      partialize: (state) => ({ openSection: state.openSection }),
     }
   )
 );

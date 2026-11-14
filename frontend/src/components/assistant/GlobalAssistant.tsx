@@ -3,7 +3,6 @@ import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { MessageCircle, Send, X } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
-import { useThemeStore } from '../../store/themeStore';
 import { useEffectiveLocation } from '../../hooks/useEffectiveLocation';
 import { sessionGeneration } from '../../services/sessionGeneration';
 import { api } from '../../services/api';
@@ -62,7 +61,6 @@ export function GlobalAssistant() {
 function AssistantThread({ pathname, storeAnalysis, signedIn, locationId }: { pathname: string; storeAnalysis: boolean; signedIn: boolean; locationId?: string }) {
   const [open, setOpen] = useState(false);
   const [blocked, setBlocked] = useState(false);
-  const topBar = useThemeStore(state => state.look) === 'new';
   const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 639px)').matches);
   const [dockBottom, setDockBottom] = useState(24);
   const [dockRight, setDockRight] = useState(24);
@@ -213,8 +211,8 @@ function AssistantThread({ pathname, storeAnalysis, signedIn, locationId }: { pa
   return <div data-global-assistant className="fixed z-[45] print:hidden" style={{ bottom: dockBottom, right: dockRight }}>
     {open && !blocked && mobile && <div className="fixed inset-0 bg-black/30" aria-hidden="true" onClick={close} />}
     {open && !blocked && <div id="pos-assistant-panel" ref={panel} role="dialog" aria-modal={mobile} aria-labelledby="pos-assistant-title" onKeyDown={trapKeys}
-      // Under the New look's top bar the page title and its main button sit lower: the panel stops below them.
-      style={{ bottom: mobile ? 12 : dockBottom + 64, maxHeight: mobile ? 'calc(100dvh - 24px)' : `calc(100dvh - ${dockBottom + 80 + (topBar && pathname !== '/pos' ? 112 : 0)}px)` }}
+      // Under the top bar the page's band (its title and main button) sits lower: the panel stops below it.
+      style={{ bottom: mobile ? 12 : dockBottom + 64, maxHeight: mobile ? 'calc(100dvh - 24px)' : `calc(100dvh - ${dockBottom + 80 + (pathname !== '/pos' ? 112 : 0)}px)` }}
       className="fixed inset-x-3 sm:inset-x-auto sm:right-6 flex h-[min(36rem,calc(100dvh-2rem))] w-auto sm:w-96 flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-2xl">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b p-4">
         <div><h2 id="pos-assistant-title" className="text-lg font-semibold">POS Assistant</h2><p className="text-xs text-muted-foreground">{storeAnalysis ? 'Read-only store analysis and POS help' : 'General POS help'}</p></div>

@@ -1,15 +1,17 @@
 /*
- * The "New" look. A redesign, not a recolor (the owner rejected a first version
- * that only restyled the Classic screens):
+ * The app's look, chosen by the owner on Nov 14, 2026 (it was the "New" look; the
+ * "Classic" look and the switch between them were removed). It is a layer over the
+ * component styles in index.css, controls.css and workspace.css:
  *   - the menu is a bar across the top (components/common/TopBar.tsx) and pages
- *     use the full width;
- *   - black is the action color, with one bright orange for what needs attention
- *     and for taking money;
- *   - big, heavy titles and numbers in Archivo; tight, sharp rows of data;
+ *     use the full width, each opening on a black band with its title and tabs;
+ *   - black is the action color in light mode and orange in dark mode, with one
+ *     bright orange for what needs attention and for taking money;
+ *   - big, heavy titles and numbers in Archivo; tight, sharp rows of data; forms
+ *     slide in as side panels with filled fields;
  *   - the register has a category list down the left, tiles colored by
  *     category, and a dark sale panel with an orange Charge button.
- * Everything is under :root[data-look="new"] (store/themeStore.ts), so the
- * Classic look is untouched. Whichever look the owner does not choose is deleted.
+ * Every rule is under :root[data-look="new"] (set on <html> in index.html), which
+ * also lets these rules outrank the component styles they refine.
  */
 
 /* ---- Tokens ------------------------------------------------------------ */
@@ -149,8 +151,6 @@ a.app-topbar-link { cursor: pointer; }
 .app-topbar-menu { min-width: 230px; }
 .app-topbar-menu .control-option { min-height: 40px; font-weight: 500; }
 .app-topbar-menu .control-option[data-current] { font-weight: 700; box-shadow: inset 3px 0 0 hsl(var(--brand)); }
-.app-topbar .look-switch-bar { height: 36px; }
-.app-topbar .look-switch-bar .look-switch-label { display: none; }
 /* A small laptop (or a 1366px one at 125% zoom): the store's name and the word "Online" give way to the menu. */
 @media (min-width: 1024px) and (max-width: 1279px) {
   .app-topbar-store { display: none; }
@@ -163,7 +163,6 @@ a.app-topbar-link { cursor: pointer; }
 @media (any-pointer: coarse), (max-width: 639px) { .app-topbar-icon { width: 44px; height: 44px; } .app-topbar-find { height: 44px; min-width: 44px; justify-content: center; } }
 /* The phone drawer's current page. */
 :root[data-look="new"] .sidebar-link[aria-current="page"] { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); font-weight: 700; }
-:root[data-look="new"] .look-switch button[aria-pressed="true"] { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); }
 
 /* ---- Pages: a black band under the top bar ----------------------------- */
 /* Every back-office page opens on a black band that continues the top bar: the

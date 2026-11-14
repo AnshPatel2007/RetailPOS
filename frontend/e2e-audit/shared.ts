@@ -34,13 +34,12 @@ export async function apiToken(page: Page, email: string) {
 }
 
 /** A browser context signed in as one role, with a theme and (for platform admins) an optional previewed store. */
-export async function roleContext(browser: Browser, email: string, options: { dark?: boolean; preview?: { id: string; name: string }; look?: string } = {}) {
+export async function roleContext(browser: Browser, email: string, options: { dark?: boolean; preview?: { id: string; name: string } } = {}) {
   const context = await browser.newContext({ viewport: { width: 1366, height: 768 } });
-  await context.addInitScript(({ dark, preview, look }) => {
+  await context.addInitScript(({ dark, preview }) => {
     localStorage.setItem('theme', dark ? 'dark' : 'light');
-    if (look) localStorage.setItem('look', look);
     if (preview) localStorage.setItem('admin-view-storage', JSON.stringify({ state: { isAdminViewing: true, viewingLocationId: preview.id, viewingStoreName: preview.name }, version: 0 }));
-  }, { dark: !!options.dark, preview: options.preview ?? null, look: options.look ?? process.env.UX_AUDIT_LOOK ?? null });
+  }, { dark: !!options.dark, preview: options.preview ?? null });
   const page = await context.newPage();
   await page.goto('/login');
   await page.getByLabel('Email', { exact: true }).fill(email);

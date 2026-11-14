@@ -14,8 +14,8 @@ interface CategoryTabsProps {
 }
 
 /**
- * The register's category filter: a row of chips in the Classic look, a list
- * down the left in the New look (styles/look-new.css lays it out).
+ * The register's category filter: a row of chips on a narrow screen, a list
+ * down the left on wider screens (styles/look.css lays it out).
  */
 export const CategoryTabs: React.FC<CategoryTabsProps> = ({ categories, selectedId, onSelect }) => {
   if (categories.length === 0) return null;
@@ -48,7 +48,7 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({ categories, selected
                   : ''
               }`}
             >
-              {/* The store's own category color always shows; a generated one shows only in the New look. */}
+              {/* The store's own category color, or a steady generated one when it chose none. */}
               <span
                 className="pos-category-dot w-2 h-2 rounded-full shrink-0"
                 data-own-color={cat.color ? 'true' : undefined}

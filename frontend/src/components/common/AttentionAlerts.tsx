@@ -149,7 +149,7 @@ function AlertToast({ visible, item, count, onOpen, onClose }: { visible: boolea
 }
 
 /**
- * The alerts button (top bar, or the bottom of the Classic menu). Its number counts
+ * The alerts button in the top bar. Its number counts
  * the alerts this person has not read yet; opening the list marks them read. Alerts
  * found at sign-in only set the number; one that arrives later also slides in.
  */

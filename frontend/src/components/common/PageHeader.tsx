@@ -44,7 +44,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   const nestedTabs = workflow?.secondaryTabs;
   const additionalTabs = workflow?.tabs && tabs;
   return (
-    // The title row and the page's own tabs are the header's "band" (the New look paints it black).
+    // The title row and the page's own tabs are the header's "band" (styles/look.css paints it black).
     <header className="page-header mb-6 space-y-4">
       <div className="page-band page-title-row flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <h1 className="min-w-0 text-2xl font-semibold leading-8 tracking-tight break-words">{workflow?.title || title}</h1>

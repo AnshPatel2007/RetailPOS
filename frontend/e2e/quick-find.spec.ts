@@ -1,30 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { login } from './utils/auth-helper';
-import { openMenuSection } from './utils/menu-helper';
-import { NEW_LOOK } from './utils/look';
 import { chooseOption, selectField } from './utils/select-helper';
 
 test('the menu is grouped by job and quick-find reaches tabs, settings and records', async ({ page }) => {
   await login(page, 'owner@example.test');
   const menu = page.getByRole('navigation', { name: 'Main' }).filter({ visible: true });
-  // Sections in the order the work happens; each folds open to show its pages, one at a time.
-  const sections: [string, string[]][] = [['Products', ['Purchasing', 'Stock Control', 'Promotions']], ['Customers', ['Gift Cards & Accounts']], ['Money & reports', ['Finances', 'Reports']], ['Store', ['Team & Time', 'Audit Log', 'Settings']]];
-  // (The New look has drop-downs in a top bar instead: top-bar.spec.ts covers them.)
-  for (const [title, links] of NEW_LOOK ? [] : sections) {
-    await openMenuSection(page, title as 'Products');
-    for (const link of links) await expect(menu.getByRole('link', { name: link, exact: true })).toBeVisible();
-    for (const [other] of sections.filter(([name]) => name !== title)) await expect(menu.getByRole('button', { name: other, exact: true })).toHaveAttribute('aria-expanded', 'false');
-  }
-  // The section holding the current page opens by itself.
+  // The top bar's drop-downs group the pages by job (top-bar.spec.ts covers them);
+  // the section holding the current page is the one lit up.
   await page.goto('/inventory/purchasing/orders');
-  if (NEW_LOOK) {
-    // Top bar: the section holding the current page is the one lit up.
-    await expect(menu.getByRole('button', { name: 'Products', exact: true })).toHaveAttribute('data-current', 'true');
-  } else {
-    await expect(menu.getByRole('button', { name: 'Products', exact: true })).toHaveAttribute('aria-expanded', 'true');
-    await expect(menu.getByRole('link', { name: 'Purchasing', exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(menu.getByRole('link', { name: 'Products', exact: true })).not.toHaveAttribute('aria-current', 'page');
-  }
+  await expect(menu.getByRole('button', { name: 'Products', exact: true })).toHaveAttribute('data-current', 'true');
 
   // Keyboard: Ctrl+K, type, Enter.
   await page.keyboard.press('Control+k');

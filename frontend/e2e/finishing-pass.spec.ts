@@ -1,30 +1,35 @@
 import { test, expect, Page } from '@playwright/test';
 import { login } from './utils/auth-helper';
-import { expectStockExceptionNote, openMenuSection } from './utils/menu-helper';
+import { expectStockExceptionNote } from './utils/menu-helper';
 import { saleComplete } from './utils/sale-complete';
-import { NEW_LOOK } from './utils/look';
 
 const auth = async (page: Page) => ({ Authorization: 'Bearer ' + await page.evaluate(() => localStorage.getItem('token')) });
 const exceptionBadge = (page: Page) => page.locator('.page-tab-badge');
 const badgeCount = async (page: Page) => (await exceptionBadge(page).count()) ? Number(await exceptionBadge(page).textContent()) : 0;
 
-test('the menu folds into sections, one open at a time, and opens where you are', async ({ page }, info) => {
-  test.skip(NEW_LOOK, 'The New look has a top bar instead of a folding side menu: see top-bar.spec.ts');
+test('on a phone the menu drawer folds into sections, one open at a time, and opens where you are', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await login(page, 'owner@example.test');
-  const menu = page.getByRole('navigation', { name: 'Main' }).filter({ visible: true });
+  const openDrawer = async () => {
+    await page.getByRole('button', { name: 'Open menu', exact: true }).click();
+    return page.getByRole('dialog', { name: 'Main menu', exact: true }).getByRole('navigation', { name: 'Main' });
+  };
+  let menu = await openDrawer();
   const heading = (title: string) => menu.getByRole('button', { name: title, exact: true });
   // Always-visible pages stay; folded sections hide theirs until opened.
   await expect(menu.getByRole('link', { name: 'POS', exact: true })).toBeVisible();
-  await openMenuSection(page, 'Products');
+  if (await heading('Products').getAttribute('aria-expanded') !== 'true') await heading('Products').click();
   await expect(menu.getByRole('link', { name: 'Purchasing', exact: true })).toBeVisible();
-  await openMenuSection(page, 'Store');
+  await heading('Store').click();
   await expect(heading('Products')).toHaveAttribute('aria-expanded', 'false');
   await expect(menu.getByRole('link', { name: 'Purchasing', exact: true })).toBeHidden();
   await expect(menu.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
   await heading('Store').click();
   await expect(heading('Store')).toHaveAttribute('aria-expanded', 'false');
   await page.screenshot({ path: info.outputPath('menu-folded.png'), animations: 'disabled' });
+  await page.keyboard.press('Escape');
   await page.goto('/financial');
+  menu = await openDrawer();
   await expect(heading('Money & reports')).toHaveAttribute('aria-expanded', 'true');
   await expect(menu.getByRole('link', { name: 'Finances', exact: true })).toHaveAttribute('aria-current', 'page');
 });
@@ -76,12 +81,10 @@ test('the stock exception count changes as soon as a sale oversells and as soon 
   await resolve.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => badgeCount(page), { timeout: 10000 }).toBe(before);
 
-  // A closed Products section still shows that something needs review.
-  if (before > 0 && !NEW_LOOK) {
+  // The top bar's Products menu still says that something needs review.
+  if (before > 0) {
     await page.goto('/dashboard');
-    const products = page.getByRole('navigation', { name: 'Main' }).filter({ visible: true }).getByRole('button', { name: 'Products', exact: true });
-    if (await products.getAttribute('aria-expanded') === 'true') await products.click();
-    await expect(products).toHaveAttribute('aria-description', /inventory exceptions? needs? review$/);
+    await expectStockExceptionNote(page, /inventory exceptions? needs? review$/);
   }
 });
 

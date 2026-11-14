@@ -220,18 +220,28 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
 - **Dates**: `formatDate` / `formatDateTime` from `lib/utils` (optional `timeZone`),
   e.g. "Nov 4, 2026, 2:11 PM". Business-day strings use `friendlyDate`
   (`lib/calendarDates`). Don't call `toLocaleString` on dates.
-- **Colors**: HSL tokens in `index.css` and `styles/workspace.css`. Dark mode is pure
-  black (#000 page, #111 cards, neutral greys), with blue only for actions. Status text
-  uses `text-success/-warning/-destructive` (AA-contrast tokens) on `bg-*/10`.
-- **Navigation**: `lib/navigation.ts` drives the sidebar (titled sections fold as an
-  accordion; the current section opens itself) and quick-find (Ctrl+K).
+- **Look** (chosen by the owner Nov 2026): component styles live in `index.css`,
+  `styles/controls.css` and `styles/workspace.css`; the app's look is the layer
+  `styles/look.css`, every rule under `:root[data-look="new"]` (set on <html> in
+  `index.html`). Black is the action color in light mode and orange in dark mode (no white
+  fills there), with one bright orange (`--brand`) for what needs attention and for taking
+  money; titles and numbers in Archivo (`--display`). Every page opens on a black band
+  (`PageHeader` marks `.page-band`) with folder tabs; lists have a black heading row;
+  panels are square with a black top edge; back-office forms slide in as side panels
+  (`Modal` adds `.app-dialog-panel`) with filled fields and small-capital labels
+  (`.field-label`). Dark mode is pure black. Status text uses
+  `text-success/-warning/-destructive` (AA-contrast tokens) on `bg-*/10`.
+- **Navigation**: `lib/navigation.ts` drives the top bar (`components/common/TopBar.tsx`:
+  sections become drop-downs; short menus stay a plain row), the phone drawer (titled
+  sections fold as an accordion; the current section opens itself) and quick-find (Ctrl+K).
 - **Data**: `useScopedQuery` caches per user/store; any non-GET response invalidates
   reads in this and other tabs (`services/queryCache.ts`). Live badges subscribe with
   `subscribeScopedQueryInvalidation` (see `hooks/useInventoryExceptionCount.ts`).
 - **Register** (`pages/POS.tsx`): a finished sale stays in the cart as "Sale complete"
   (change due, receipt options); nothing pops up, so the next scan always counts.
-  Scanner input comes from `services/hardware.ts` (keyboard wedge; scan sounds). Products
-  without photos show as compact text tiles.
+  Scanner input comes from `services/hardware.ts` (keyboard wedge; scan sounds). Tiles are
+  colored by category (`lib/categoryColor.ts`), with categories down the left on wider
+  screens and a dark sale panel.
 - **Scans are local-first**: `services/registerCatalog.ts` answers a scan from the
   register's saved catalog (IndexedDB, `services/offlineDb.ts`) with no request, online
   or offline; the server is asked (`GET /products/resolve-barcode`) only when the copy

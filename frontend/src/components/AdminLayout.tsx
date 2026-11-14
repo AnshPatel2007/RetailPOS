@@ -10,7 +10,6 @@ import {
   Store,
   Users,
   Code2,
-  Menu,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -44,8 +43,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const { theme, toggleTheme, look } = useThemeStore();
-  const topBar = look === 'new';
+  const { theme, toggleTheme } = useThemeStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useFocusTrap(menuOpen);
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
@@ -82,18 +80,16 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   const themeLabel = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
 
   return (
-    <div className={cn('h-screen bg-background flex overflow-hidden', topBar && 'app-shell-top flex-col')}>
-      {/* New look: the menu is a bar across the top; the side menu below is then only the phone drawer. */}
-      {topBar
-        ? <TopBar label="Admin" entries={adminNavItems.map(item => ({ name: item.label, href: item.href, icon: item.icon, active: isActive(item.href) }))}
+    <div className="app-shell-top h-screen bg-background flex flex-col overflow-hidden">
+      {/* The menu is a bar across the top; the side menu below is only the phone drawer. */}
+      <TopBar label="Admin" entries={adminNavItems.map(item => ({ name: item.label, href: item.href, icon: item.icon, active: isActive(item.href) }))}
           brand={<p className="app-topbar-store">Administration</p>} tools={<StoreSwitcher className="hidden w-48 lg:block" />}
           user={{ name: [user?.firstName, user?.lastName].filter(Boolean).join(' '), role: user?.role || '' }}
           theme={theme} onToggleTheme={toggleTheme} themeLabel={themeLabel} onLogout={handleLogout}
           onOpenMenu={() => setMenuOpen(true)} menuLabel="Open admin menu" />
-        : <button aria-label="Open admin menu" onClick={() => setMenuOpen(true)} className="lg:hidden fixed top-3 left-3 z-40 p-2 rounded-md bg-card border border-border"><Menu className="h-5 w-5" /></button>}
       {menuOpen && <div className="fixed inset-0 z-40 bg-black/60 lg:hidden" aria-hidden="true" onClick={() => setMenuOpen(false)} />}
       {/* Sidebar */}
-      <aside ref={menuRef} role={menuOpen ? 'dialog' : undefined} aria-label={menuOpen ? 'Admin menu' : undefined} aria-modal={menuOpen || undefined} className={cn('app-sidebar w-60 bg-card border-r flex-col h-full shrink-0 fixed inset-y-0 left-0 z-50', !topBar && 'lg:static', menuOpen ? 'flex' : topBar ? 'hidden' : 'hidden lg:flex')}>
+      <aside ref={menuRef} role={menuOpen ? 'dialog' : undefined} aria-label={menuOpen ? 'Admin menu' : undefined} aria-modal={menuOpen || undefined} className={cn('app-sidebar w-60 bg-card border-r flex-col h-full shrink-0 fixed inset-y-0 left-0 z-50', menuOpen ? 'flex' : 'hidden')}>
         {/* Header */}
         <div className="h-16 flex flex-col justify-center px-4 border-b shrink-0 relative">
           <button aria-label="Close admin menu" onClick={() => setMenuOpen(false)} className="lg:hidden absolute right-3 top-3 p-1 rounded hover:bg-accent"><X className="h-5 w-5" /></button>
@@ -132,7 +128,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
 
       {/* Main content */}
       <main className="management-content flex-1 min-w-0 overflow-auto">
-        {!topBar && <div className="lg:hidden h-12" />}
         {children}
       </main>
     </div>
