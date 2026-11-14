@@ -188,7 +188,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Category */}
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label className="field-label block text-sm font-medium mb-1">
                   Category <span className="text-destructive">*</span>
                 </label>
                 <Select
@@ -210,7 +210,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
 
               {/* Amount */}
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label className="field-label block text-sm font-medium mb-1">
                   Amount <span className="text-destructive">*</span>
                 </label>
                 <Input
@@ -227,7 +227,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
 
             {/* Description */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="field-label block text-sm font-medium mb-1">
                 Description <span className="text-destructive">*</span>
               </label>
               <textarea
@@ -243,7 +243,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Vendor */}
               <div>
-                <label className="block text-sm font-medium mb-1">Vendor</label>
+                <label className="field-label block text-sm font-medium mb-1">Vendor</label>
                 <Input
                   type="text"
                   value={formData.vendor}
@@ -254,7 +254,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
 
               {/* Invoice Number */}
               <div>
-                <label className="block text-sm font-medium mb-1">Invoice Number</label>
+                <label className="field-label block text-sm font-medium mb-1">Invoice Number</label>
                 <Input
                   type="text"
                   value={formData.invoiceNumber}
@@ -267,7 +267,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Expense Date */}
               <div>
-                <label className="block text-sm font-medium mb-1">Expense Date</label>
+                <label className="field-label block text-sm font-medium mb-1">Expense Date</label>
                 <Input
                   type="date"
                   aria-label="Expense Date"
@@ -278,7 +278,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
 
               {/* Due Date */}
               <div>
-                <label className="block text-sm font-medium mb-1">Due Date</label>
+                <label className="field-label block text-sm font-medium mb-1">Due Date</label>
                 <Input
                   type="date"
                   aria-label="Due Date"
@@ -290,7 +290,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
 
             {/* Receipt Upload */}
             <div>
-              <label className="block text-sm font-medium mb-2">Receipt</label>
+              <label className="field-label block text-sm font-medium mb-2">Receipt</label>
               <div className="space-y-2">
                 {/* File Upload */}
                 <div>

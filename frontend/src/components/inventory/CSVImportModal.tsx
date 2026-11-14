@@ -33,7 +33,7 @@ export function CSVImportModal({ isOpen, onClose, onImportComplete }: Props) {
       {workflow.pending ? <p>A saved import needs confirmation. Retrying retrieves the original result if it already completed.</p>
         : workflow.result ? <p role="status">Import complete: {workflow.result.created} created, {workflow.result.updated} updated.</p>
         : <>
-          <label className="block text-sm font-medium">CSV file (up to 1 MB, 500 products)
+          <label className="field-label block text-sm font-medium">CSV file (up to 1 MB, 500 products)
             <input aria-label="CSV file" className="mt-2 block w-full" type="file" accept=".csv,text/csv" disabled={workflow.busy} onChange={event => {
               const selected = event.target.files?.[0]; workflow.resetPreview(); setFileError('');
               if (selected && (!selected.name.toLowerCase().endsWith('.csv') || selected.size > 1_000_000)) { setFile(null); setFileError('Select a CSV file up to 1 MB.'); return; }

@@ -606,7 +606,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
 
           <FormSection collapsible title="Tags & marketing" summary={marketingSummary} defaultOpen={!!(editingCustomer && marketingSummary !== 'None')}>
             <div>
-              <label htmlFor={customerFormId + '-tag'} className="mb-1.5 block text-sm font-medium">Tags</label>
+              <label htmlFor={customerFormId + '-tag'} className="field-label mb-1.5 block text-sm font-medium">Tags</label>
               {formData.tags.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1.5">
                   {formData.tags.map((tag) => (
@@ -652,7 +652,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Who gets it?</label>
+            <label className="field-label block text-sm font-medium mb-1">Who gets it?</label>
             <Select
               value={campaignSegment}
               onChange={(e) => setCampaignSegment(e.target.value)}
@@ -687,7 +687,7 @@ export const Customers: React.FC<{ view: 'directory' | 'insights' }> = ({ view }
           />
 
           <div>
-            <label className="block text-sm font-medium mb-1">Message</label>
+            <label className="field-label block text-sm font-medium mb-1">Message</label>
             <textarea
               value={campaignMessage}
               onChange={(e) => setCampaignMessage(e.target.value)}

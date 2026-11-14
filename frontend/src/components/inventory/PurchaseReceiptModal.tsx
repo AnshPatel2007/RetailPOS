@@ -121,7 +121,7 @@ export function PurchaseReceiptModal({ order, onClose, onSaved }: Props) {
           description="The supplier then owes a credit for them, listed under Purchasing > Credits Owed." />}
         <Checkbox label="Close the order after this delivery, including any missing units" checked={finalDelivery} onChange={e => setFinalDelivery(e.target.checked)} />
         {finalDelivery && missing > 0 && <p className="text-sm text-warning">{missing} missing units will remain documented. They will not be added to stock.</p>}
-        <label className="block text-sm font-medium">Delivery notes / discrepancy reason<textarea className="mt-1 block min-h-[80px] w-full rounded-md border border-input bg-background p-3 text-sm" value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} /></label>
+        <label className="field-label block text-sm font-medium">Delivery notes / discrepancy reason<textarea className="mt-1 block min-h-[80px] w-full rounded-md border border-input bg-background p-3 text-sm" value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} /></label>
       </fieldset>
       <p className="text-sm text-muted-foreground">{pending ? 'Retry checks whether this delivery was already recorded.' : !missing || finalDelivery ? 'This delivery will close the order.' : `${missing} units will remain open for a later delivery.`}</p>
     </div>

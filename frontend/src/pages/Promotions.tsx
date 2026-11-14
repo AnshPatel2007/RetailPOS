@@ -476,7 +476,7 @@ export const Promotions: React.FC = () => {
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             />
             <div>
-              <label className="block text-sm font-medium mb-1">Deal type</label>
+              <label className="field-label block text-sm font-medium mb-1">Deal type</label>
               <Select
                 value={form.type}
                 onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as PromotionType }))}
@@ -558,7 +558,7 @@ export const Promotions: React.FC = () => {
           <FormSection title="What it applies to" description="Pick products, whole categories, or both. Any mix of them counts toward the deal.">
           {/* Targeting */}
           <div>
-            <label className="block text-sm font-medium mb-1">Products (mix &amp; match group)</label>
+            <label className="field-label block text-sm font-medium mb-1">Products (mix &amp; match group)</label>
             {form.products.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {form.products.map((p) => (
@@ -602,7 +602,7 @@ export const Promotions: React.FC = () => {
 
           {categories.length > 0 && (
             <div>
-              <label className="block text-sm font-medium mb-1">Or whole categories</label>
+              <label className="field-label block text-sm font-medium mb-1">Or whole categories</label>
               <div className="flex flex-wrap gap-1.5">
                 {categories.map((c) => (
                   <button
@@ -642,7 +642,7 @@ export const Promotions: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Days of week</label>
+              <label className="field-label block text-sm font-medium mb-1">Days of week</label>
               <div className="flex gap-1">
                 {DAY_LABELS.map((label, day) => (
                   <button

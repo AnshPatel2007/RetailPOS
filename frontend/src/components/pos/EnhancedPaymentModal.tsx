@@ -615,7 +615,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
             {getRemainingBalance() > 0 && (
               <>
                 <div>
-                  <label className="block text-sm font-medium mb-2">Payment Method</label>
+                  <label className="field-label block text-sm font-medium mb-2">Payment Method</label>
                   <div className="grid grid-cols-2 gap-2">
                     {paymentMethods.map(({ value, label, icon: Icon }) => (
                       <button
@@ -636,7 +636,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
 
                 {/* Amount Input */}
                 <div>
-                  <label className="block text-sm font-medium mb-2">
+                  <label className="field-label block text-sm font-medium mb-2">
                     {paymentMethod === 'CARD' ? 'Approved amount' : 'Amount Tendered'}
                   </label>
                   <div className="flex gap-2">
@@ -672,7 +672,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                 {/* Reference input for non-cash methods */}
                 {getReferencePlaceholder(paymentMethod) && (
                   <div>
-                    <label className="block text-sm font-medium mb-2">
+                    <label className="field-label block text-sm font-medium mb-2">
                       Reference{paymentMethod === 'GIFT_CARD' ? ' (required — card number)' : ''}
                     </label>
                     <Input

@@ -152,7 +152,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
             {/* Description */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="field-label block text-sm font-medium mb-1">
                 Description <span className="text-destructive">*</span>
               </label>
               <Input
@@ -166,7 +166,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
             {/* Category */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="field-label block text-sm font-medium mb-1">
                 Category <span className="text-destructive">*</span>
               </label>
               <Select
@@ -187,7 +187,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
             <div className="grid grid-cols-2 gap-4">
               {/* Amount */}
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label className="field-label block text-sm font-medium mb-1">
                   Amount <span className="text-destructive">*</span>
                 </label>
                 <Input
@@ -202,7 +202,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
               {/* Frequency */}
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label className="field-label block text-sm font-medium mb-1">
                   Frequency <span className="text-destructive">*</span>
                 </label>
                 <Select
@@ -222,7 +222,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
             {/* Vendor */}
             <div>
-              <label className="block text-sm font-medium mb-1">Vendor</label>
+              <label className="field-label block text-sm font-medium mb-1">Vendor</label>
               <Input
                 type="text"
                 value={formData.vendor}
@@ -233,7 +233,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
             {/* Next Due Date */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="field-label block text-sm font-medium mb-1">
                 Next Due Date <span className="text-destructive">*</span>
               </label>
               <Input

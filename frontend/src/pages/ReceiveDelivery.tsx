@@ -409,7 +409,7 @@ function Stepper({ label, value, onChange, disabled }: { label: string; value: s
   const id = useId();
   const count = whole(value);
   return <div className="min-w-0">
-    <label htmlFor={id} className="mb-1.5 block truncate text-sm font-medium">{label}</label>
+    <label htmlFor={id} className="field-label mb-1.5 block truncate text-sm font-medium">{label}</label>
     <div className="flex items-center gap-1">
       <Button type="button" variant="outline" size="icon" aria-label={`One fewer: ${label}`} disabled={disabled || count === 0} onClick={() => onChange(count > 1 ? String(count - 1) : '')}>
         <Minus className="h-4 w-4" aria-hidden="true" /></Button>

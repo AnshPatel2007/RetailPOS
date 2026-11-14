@@ -118,7 +118,7 @@ export function TransferReceiptModal({ transfer, kind, onClose, onSaved }: Props
             </div>}
           </div>;
         })}
-        <label className="block text-sm font-medium">Reason / notes<textarea value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} className="mt-1 block w-full min-h-[80px] rounded border border-input bg-background p-3" /></label>
+        <label className="field-label block text-sm font-medium">Reason / notes<textarea value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} className="mt-1 block w-full min-h-[80px] rounded border border-input bg-background p-3" /></label>
       </fieldset>
     </div>
   </Modal>;

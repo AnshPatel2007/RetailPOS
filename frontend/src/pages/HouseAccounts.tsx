@@ -323,7 +323,7 @@ export const HouseAccounts: React.FC = () => {
         footer={<DialogActions onCancel={() => setShowOpenModal(false)} confirmLabel="Open Account" onConfirm={() => void handleOpenAccount()} loading={submitting} disabled={!selectedCustomer || !creditLimitInput} />}>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Customer</label>
+            <label className="field-label block text-sm font-medium mb-1">Customer</label>
             {selectedCustomer ? (
               <div className="flex items-center justify-between p-2 border rounded bg-muted/50">
                 <span className="font-medium">{selectedCustomer.name}</span>

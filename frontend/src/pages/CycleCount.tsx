@@ -409,7 +409,7 @@ export const CycleCount: React.FC = () => {
           confirmDescribedBy={createType === 'PARTIAL' && !selectedProducts.length ? 'count-products-hint' : undefined} />}>
         <form id="new-count-form" onSubmit={handleCreate} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Location *</label>
+            <label className="field-label block text-sm font-medium mb-1">Location *</label>
             <Select
               value={createLocationId}
               aria-label="Count location"
@@ -423,7 +423,7 @@ export const CycleCount: React.FC = () => {
             </Select>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Count Type</label>
+            <label className="field-label block text-sm font-medium mb-1">Count Type</label>
             <Select
               value={createType}
               aria-label="Count type"
@@ -437,7 +437,7 @@ export const CycleCount: React.FC = () => {
           </div>
           {createType === 'CATEGORY' && (
             <div>
-              <label className="block text-sm font-medium mb-1">Category *</label>
+              <label className="field-label block text-sm font-medium mb-1">Category *</label>
               <Select
                 value={createCategoryId}
                 aria-label="Count category"
@@ -455,7 +455,7 @@ export const CycleCount: React.FC = () => {
             <ProductPicker locationId={createLocationId} selectedIds={selectedProducts.map(p => p.id)} onSelect={product => setSelectedProducts(current => [...current, product])} />
           </div>}
           <div>
-            <label className="block text-sm font-medium mb-1">Notes</label>
+            <label className="field-label block text-sm font-medium mb-1">Notes</label>
             <Textarea aria-label="Count notes" value={createNotes} onChange={(e) => setCreateNotes(e.target.value)} rows={2} />
           </div>
           {createType === 'PARTIAL' && !selectedProducts.length && <p id="count-products-hint" className="text-xs text-muted-foreground">Select at least one product for a partial count.</p>}

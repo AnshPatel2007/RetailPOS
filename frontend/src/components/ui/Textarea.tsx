@@ -12,7 +12,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
     <div className="min-w-0 space-y-1.5">
       {label && <label htmlFor={fieldId} className="field-label">{label}</label>}
       <textarea ref={ref} id={fieldId} rows={rows} aria-invalid={!!error || undefined} aria-describedby={describedBy}
-        className={cn('block w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
+        className={cn('app-textarea block w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
           error && 'border-destructive', className)} {...props} />
       {description && <p id={fieldId + '-hint'} className="field-description">{description}</p>}
       {error && <p id={fieldId + '-error'} role="alert" className="field-error">{error}</p>}

@@ -206,7 +206,7 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
       <div className="space-y-4">
         {/* Label size selector */}
         <div>
-          <label className="block text-sm font-medium mb-1">Label Size</label>
+          <label className="field-label block text-sm font-medium mb-1">Label Size</label>
           <div className="flex gap-2">
             {(['small', 'medium', 'large'] as const).map((s) => (
               <button

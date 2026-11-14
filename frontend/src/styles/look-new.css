@@ -45,6 +45,9 @@
   --ink-foreground: 0 0% 100%;
   --elevation: none;
   --display: 'Archivo Variable', 'Inter Variable', Inter, system-ui, sans-serif;
+  /* The page's own colors, kept for things drawn on a black surface that must match the page (the current tab). */
+  --page-bg: var(--canvas);
+  --page-fg: var(--foreground);
 }
 :root[data-look="new"].dark {
   --background: 0 0% 0%;
@@ -79,6 +82,7 @@
 /* Black surfaces in the light theme (top bar, page band, phone drawer, register bar, sale panel) read their contents in dark-theme colors. */
 :root[data-look="new"]:not(.dark) .app-topbar,
 :root[data-look="new"]:not(.dark) .management-content .page-header > .page-band,
+:root[data-look="new"]:not(.dark) .app-dialog .dialog-header,
 :root[data-look="new"]:not(.dark) .app-sidebar,
 :root[data-look="new"]:not(.dark) .pos-topbar,
 :root[data-look="new"]:not(.dark) .pos-cart {
@@ -197,10 +201,11 @@ a.app-topbar-link { cursor: pointer; }
 :root[data-look="new"] a.text-primary:not(.page-tab):not(.sidebar-link) { text-decoration: underline; text-decoration-color: hsl(var(--brand)); text-decoration-thickness: 2px; text-underline-offset: 3px; }
 
 /* ---- Buttons and fields: solid black, crisp edges ---------------------- */
-:root[data-look="new"] .app-button { font-weight: 600; transition: background-color .12s, border-color .12s, color .12s; }
+:root[data-look="new"] .app-button { border-radius: 4px; font-weight: 700; transition: background-color .12s, border-color .12s, color .12s; }
 :root[data-look="new"] .app-button[data-variant="primary"]:hover { background: hsl(var(--primary-hover)); }
+/* Outlined buttons are drawn, not hinted: a 2px dark edge. */
 :root[data-look="new"] .app-button[data-variant="outline"],
-:root[data-look="new"] .page-action { border-color: hsl(var(--foreground) / .24); background: hsl(var(--card)); }
+:root[data-look="new"] .page-action { border-width: 2px; border-color: hsl(var(--foreground) / .8); background: hsl(var(--card)); }
 :root[data-look="new"] .app-button[data-variant="outline"]:hover,
 :root[data-look="new"] .page-action:hover { border-color: hsl(var(--foreground) / .6); background: hsl(var(--accent)); }
 :root[data-look="new"] .app-button[data-variant="secondary"] { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
@@ -211,16 +216,62 @@ a.app-topbar-link { cursor: pointer; }
 :root[data-look="new"] .header-more-menu > .page-action:hover { background: hsl(var(--accent)); }
 :root[data-look="new"] .selection-control, :root[data-look="new"] .date-control { border-radius: 4px; }
 
-/* ---- Panels: flat, with a crisp border --------------------------------- */
-:root[data-look="new"] .app-card, :root[data-look="new"] .data-panel { border-radius: 8px; box-shadow: none; }
-:root[data-look="new"] .data-panel .table-scroll tbody tr:last-child td:first-child { border-bottom-left-radius: 8px; }
-:root[data-look="new"] .control-popover { border-radius: 8px; border-color: hsl(var(--foreground) / .16); }
+/* ---- Panels: square sheets under a black edge -------------------------- */
+/* Cards and lists are square sheets with a black top edge, the same mark as the number bar. */
+:root[data-look="new"] .app-card, :root[data-look="new"] .data-panel { border-radius: 3px; box-shadow: none; }
+:root[data-look="new"] .app-card { border-top: 3px solid hsl(var(--ink)); }
+:root[data-look="new"] .data-panel .table-scroll tbody tr:last-child td:first-child { border-bottom-left-radius: 3px; }
+:root[data-look="new"] .control-popover { border-radius: 6px; border-color: hsl(var(--foreground) / .16); }
+
+/* ---- Pop-ups: a black title bar; back-office forms are side panels ----- */
+:root[data-look="new"] .app-dialog .dialog-header { padding: 18px 20px; border-bottom: 0; background: hsl(var(--band)); color: hsl(var(--foreground)); }
+:root[data-look="new"] .app-dialog .dialog-header h2 { font-family: var(--display); font-size: 22px; line-height: 28px; font-weight: 800; letter-spacing: -.01em; }
+:root[data-look="new"] .app-dialog .dialog-header .dialog-close { color: hsl(var(--foreground) / .75); }
+:root[data-look="new"] .app-dialog .dialog-header .dialog-close:hover { background: hsl(var(--foreground) / .12); color: hsl(var(--foreground)); }
 :root[data-look="new"] .app-dialog .dialog-footer { background: hsl(var(--surface-subtle)); }
 @media (min-width: 640px) {
-  :root[data-look="new"] .app-dialog { border-radius: 10px; border-color: hsl(var(--foreground) / .16); box-shadow: 0 24px 64px rgb(0 0 0 / .28); }
-  :root[data-look="new"] .app-dialog .dialog-footer { border-radius: 0 0 10px 10px; }
-  :root[data-look="new"] .app-dialog h2 { font-size: 20px; }
+  :root[data-look="new"] .app-dialog { overflow: hidden; border-radius: 8px; border-color: hsl(var(--foreground) / .16); box-shadow: 0 24px 64px rgb(0 0 0 / .28); }
+  :root[data-look="new"] .app-dialog .dialog-footer { border-radius: 0; }
+  /* A form opened from a back-office page slides in from the right, full height: the page stays in view beside it. */
+  :root[data-look="new"] .app-modal-overlay:has(> .app-dialog-panel) { justify-content: flex-end; align-items: stretch; padding: 0; }
+  :root[data-look="new"] .app-dialog.app-dialog-panel { width: min(560px, 100vw - 48px); max-width: none; height: 100dvh; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: -24px 0 64px rgb(0 0 0 / .24); animation: look-new-panel-in .2s ease-out; }
+  :root[data-look="new"] .app-dialog-panel.app-dialog-lg { width: min(720px, 100vw - 48px); }
+  :root[data-look="new"] .app-dialog-panel.app-dialog-xl { width: min(1000px, 100vw - 48px); }
+  :root[data-look="new"] .app-dialog-panel .app-dialog-content { height: 100%; max-height: none; }
+  :root[data-look="new"] .app-dialog-panel .dialog-body { flex: 1 1 auto; padding: 24px; }
+  :root[data-look="new"] .app-dialog-panel .dialog-header { padding: 22px 24px; }
+  :root[data-look="new"] .app-dialog-panel .dialog-footer { padding: 14px 24px; }
 }
+@keyframes look-new-panel-in { from { transform: translateX(32px); opacity: .4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { :root[data-look="new"] .app-dialog.app-dialog-panel { animation: none; } }
+
+/* ---- Fields: filled, with a strong underline and small capital labels -- */
+:root[data-look="new"] .field-label { margin-bottom: 6px; color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 16px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+/* A label wrapped around its own box keeps the box's text normal. */
+:root[data-look="new"] .field-label :is(input, textarea, select) { margin-top: 6px; font-size: 14px; font-weight: 400; letter-spacing: normal; text-transform: none; color: hsl(var(--foreground)); }
+:root[data-look="new"] .app-input,
+:root[data-look="new"] .app-textarea,
+:root[data-look="new"] :is(.app-dialog, .management-content) textarea,
+:root[data-look="new"] .selection-control,
+:root[data-look="new"] .date-control { border: 0; border-bottom: 2px solid hsl(var(--foreground) / .62); border-radius: 4px 4px 0 0; background: hsl(var(--muted)); }
+:root[data-look="new"] .app-input:hover, :root[data-look="new"] .app-textarea:hover, :root[data-look="new"] :is(.app-dialog, .management-content) textarea:hover,
+:root[data-look="new"] .selection-control:hover, :root[data-look="new"] .date-control:hover { border-bottom-color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+/* The field being typed in turns white with an orange underline (the focus ring stays too). */
+:root[data-look="new"] .app-input:focus, :root[data-look="new"] .app-textarea:focus, :root[data-look="new"] :is(.app-dialog, .management-content) textarea:focus,
+:root[data-look="new"] .selection-control:focus-within, :root[data-look="new"] .date-control:focus-within { border-bottom-color: hsl(var(--brand)); background: hsl(var(--card)); }
+:root[data-look="new"] .app-input[aria-invalid="true"], :root[data-look="new"] .app-textarea[aria-invalid="true"],
+:root[data-look="new"] .selection-control[data-invalid], :root[data-look="new"] [data-invalid] > .selection-control { border-bottom-color: hsl(var(--destructive-text)); }
+:root[data-look="new"] .app-input:disabled, :root[data-look="new"] .app-textarea:disabled { border-bottom-style: dashed; }
+:root[data-look="new"] .app-checkbox input[type="checkbox"] { width: 18px; height: 18px; border-radius: 3px; }
+
+/* ---- Form sections: a heavy capital heading on a black rule ------------ */
+:root[data-look="new"] .form-section + .form-section { margin-top: 28px; padding-top: 0; border-top: 0; }
+:root[data-look="new"] .form-section-heading { margin-bottom: 14px; }
+:root[data-look="new"] .form-section-heading h3, :root[data-look="new"] .form-section-summary-title { display: flex; align-items: center; gap: 12px; font-family: var(--display); font-size: 13px; line-height: 20px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+:root[data-look="new"] .form-section-heading h3::after { content: ''; flex: 1; height: 2px; background: hsl(var(--foreground)); }
+:root[data-look="new"] .form-section-collapsible + .form-section, :root[data-look="new"] .form-section + .form-section-collapsible { margin-top: 14px; }
+:root[data-look="new"] .form-section-summary { padding: 0 12px; border-radius: 4px; background: hsl(var(--muted)); }
+:root[data-look="new"] .form-section-summary:hover { background: hsl(var(--accent)); }
 
 /* ---- Numbers: one compact bar under a black rule ----------------------- */
 /* The owner found separate tall tiles too big: one long figure ("Needs costs"
@@ -257,19 +308,31 @@ a.app-topbar-link { cursor: pointer; }
 :root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab:hover { color: hsl(var(--foreground)); }
 :root[data-look="new"] .page-tab-scroll-shell[data-level="secondary"] .page-tab[aria-current="page"] { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
 :root[data-look="new"] .page-secondary-row, :root[data-look="new"] .page-tabs-secondary { border-top: 0; padding-top: 0; }
-/* On the band: the tabs' orange bar sits on the band's bottom edge, the first word lined up with the title.
-   Tabs keep the header buttons' height (36px, 44px on a phone). */
-:root[data-look="new"] .page-band-tabs .page-tab-scroll-shell[data-level="primary"] > .page-tabs { margin-left: -14px; padding-bottom: 0; border-bottom: 0; }
+/* On the band the tabs are folder tabs: the one you are on is cut out of the band in the page's own color,
+   with an orange top edge, so it reads as the front of the page below. The first word lines up with the title;
+   tabs keep the header buttons' height (36px, 44px on a phone). */
+:root[data-look="new"] .page-band-tabs .page-tab-scroll-shell[data-level="primary"] > .page-tabs { gap: 4px; margin-left: -14px; padding-bottom: 0; border-bottom: 0; }
+:root[data-look="new"] .page-band-tabs .page-tab-scroll-shell[data-level="primary"] .page-tab { border-bottom: 0; border-radius: 6px 6px 0 0; color: hsl(var(--foreground) / .72); }
+:root[data-look="new"] .page-band-tabs .page-tab-scroll-shell[data-level="primary"] .page-tab:hover { background: hsl(var(--foreground) / .1); color: hsl(var(--foreground)); }
+:root[data-look="new"] .page-band-tabs .page-tab-scroll-shell[data-level="primary"] .page-tab[aria-current="page"] { background: hsl(var(--page-bg)); color: hsl(var(--page-fg)); box-shadow: inset 0 3px hsl(var(--brand)); }
 :root[data-look="new"] .page-tab-badge { background: hsl(var(--brand)); color: hsl(var(--brand-foreground)); font-weight: 700; }
 
 /* ---- Tables: tight rows under small capital headings ------------------- */
-:root[data-look="new"] .table-scroll th { height: 36px; background: hsl(var(--surface-subtle)); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-:root[data-look="new"] .table-scroll thead tr { border-bottom-color: hsl(var(--foreground) / .3); }
+/* Lists open with a black heading row; the row under the pointer gets an orange edge. */
+:root[data-look="new"] .table-scroll th { height: 36px; background: hsl(var(--ink)); color: hsl(var(--ink-foreground)); font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+:root[data-look="new"] .table-scroll thead tr { border-bottom-color: hsl(var(--ink)); }
+/* In dark mode the heading row is a raised grey bar, not a white one. */
+:root[data-look="new"].dark .table-scroll th { background: hsl(0 0% 17%); color: hsl(0 0% 98%); }
+:root[data-look="new"].dark .table-scroll thead tr { border-bottom-color: hsl(0 0% 17%); }
+/* No reserved scrollbar strip, so the black heading row reaches the list's right edge. */
+:root[data-look="new"] .table-scroll { scrollbar-gutter: auto; }
 :root[data-look="new"] .table-scroll tbody tr:hover { background: hsl(var(--accent) / .55); }
+:root[data-look="new"] .table-scroll tbody tr:hover > td:first-child { box-shadow: inset 3px 0 hsl(var(--brand)); }
 @media (min-width: 640px) {
   :root[data-look="new"] .table-scroll tbody td { height: 40px; padding-top: 6px; padding-bottom: 6px; }
 }
-:root[data-look="new"] .app-badge { gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; font-weight: 600; }
+/* Status tags: small capitals on a square tag. */
+:root[data-look="new"] .app-badge { gap: 6px; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 :root[data-look="new"] .app-badge:not(:has(svg))::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
 /* ---- Register ---------------------------------------------------------- */

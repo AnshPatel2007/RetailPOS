@@ -17,7 +17,7 @@ export function FundingFields({ method, setMethod, reference, setReference, reas
 }) {
   const id = useId();
   return <div className="space-y-3">
-    <label htmlFor={id} className="block text-sm font-medium">Payment method</label>
+    <label htmlFor={id} className="field-label block text-sm font-medium">Payment method</label>
     <Select id={id} className="w-full h-11 rounded-md border bg-background px-3" value={method} onChange={e => setMethod(e.target.value as FundingMethod)}>
       <option value="CASH">Cash</option><option value="CARD">External card terminal</option>
       {allowGrant && <option value="PROMOTIONAL">Promotional grant (no payment)</option>}

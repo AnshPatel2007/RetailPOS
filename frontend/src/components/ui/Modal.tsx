@@ -65,18 +65,23 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, descriptio
   const parentLevel = useContext(OverlayLevel);
   const origin = useRef<HTMLSpanElement>(null);
   const [backgroundAllowed, setBackgroundAllowed] = useState(false);
+  const [backOffice, setBackOffice] = useState(false);
   // Portals must preserve the explicit live-status opt-out of their owning view.
   useLayoutEffect(() => {
     setBackgroundAllowed(origin.current?.closest('[data-auto-refresh]')?.getAttribute('data-auto-refresh') === 'allow');
+    setBackOffice(!!origin.current?.closest('.management-content'));
   });
+  // A titled back-office form can open as a side panel (the New look styles .app-dialog-panel);
+  // confirmations and the register's pop-ups stay centered.
+  const panel = backOffice && !!title && size !== 'sm';
   const level = priority === 'approval' ? Math.max(100, parentLevel + 10) : parentLevel + 10;
   const sizes = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' };
   return <><span ref={origin} hidden /><ModalOverlay isOpen={isOpen} onOpenChange={open => { if (!open) onClose(); }} isDismissable className="app-modal-overlay" style={{ zIndex: level }} data-auto-refresh={backgroundAllowed ? 'allow' : undefined}>
-    <AriaModal className={cn('app-dialog w-full bg-background rounded-lg shadow-lg flex flex-col', sizes[size], className)}>
+    <AriaModal className={cn('app-dialog w-full bg-background rounded-lg shadow-lg flex flex-col', sizes[size], panel && 'app-dialog-panel', 'app-dialog-' + size, className)}>
       <OverlayLevel.Provider value={level}>
         <Dialog aria-label={title || label || 'Confirmation'} className="app-dialog-content outline-none" data-auto-refresh-pause="true">
           <DisabledFieldsetTabStops />
-          {title && <div className="flex items-center justify-between gap-3 p-4 border-b shrink-0">
+          {title && <div className="dialog-header flex items-center justify-between gap-3 p-4 border-b shrink-0">
             <div className="min-w-0"><Heading slot="title" className="text-lg font-semibold">{title}</Heading>{description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}</div>
             <Button type="button" onPress={onClose} className="dialog-close inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Close"><X size={16} /></Button>
           </div>}

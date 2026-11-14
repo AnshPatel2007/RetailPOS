@@ -439,7 +439,7 @@ export const Settings: React.FC = () => {
           <CardContent className="space-y-4">
             <Checkbox label="Enable receipt printer" checked={hardwareSettings.receiptPrinter.enabled} onChange={(e) => updateHardwareSettings('receiptPrinter', 'enabled', e.target.checked)} />
             <div>
-              <label className="block text-sm font-medium mb-1">Paper Width</label>
+              <label className="field-label block text-sm font-medium mb-1">Paper Width</label>
               <Select
                 value={hardwareSettings.receiptPrinter.paperWidth}
                 onChange={(e) => updateHardwareSettings('receiptPrinter', 'paperWidth', parseInt(e.target.value))}

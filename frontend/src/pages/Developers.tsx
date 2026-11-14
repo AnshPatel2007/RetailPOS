@@ -334,7 +334,7 @@ export const Developers: React.FC = () => {
               autoFocus
             />
             <div>
-              <label className="block text-sm font-medium mb-1.5">Events</label>
+              <label className="field-label block text-sm font-medium mb-1.5">Events</label>
               <div className="space-y-2">
                 {availableEvents.map((e) => (
                   <label key={e} className="flex items-center gap-2">

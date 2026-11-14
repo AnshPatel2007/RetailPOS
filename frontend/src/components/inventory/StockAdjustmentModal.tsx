@@ -209,7 +209,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
 
             {/* Adjustment Type */}
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label className="field-label block text-sm font-medium mb-2">
                 Adjustment Type <span className="text-destructive">*</span>
               </label>
               <div className="grid grid-cols-3 gap-2">
@@ -251,7 +251,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
 
             {/* Quantity */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="field-label block text-sm font-medium mb-1">
                 Quantity <span className="text-destructive">*</span>
               </label>
               <Input
@@ -277,7 +277,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
 
             {/* Reason */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="field-label block text-sm font-medium mb-1">
                 Reason <span className="text-destructive">*</span>
               </label>
               <Select
@@ -322,7 +322,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
 
             {/* Notes */}
             <div>
-              <label className="block text-sm font-medium mb-1">Notes</label>
+              <label className="field-label block text-sm font-medium mb-1">Notes</label>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}

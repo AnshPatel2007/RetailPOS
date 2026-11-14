@@ -62,7 +62,7 @@ export const RegisterDeviceCard: React.FC<{ readOnly?: boolean }> = ({ readOnly 
           <>
             <p className="text-sm">This computer is <span className="font-medium">{here.name}</span> at {here.storeName}. Staff sign in here by tapping their name and entering their PIN.</p>
             <div className="max-w-xs">
-              <label className="block text-sm font-medium mb-1" htmlFor="register-auto-lock">Lock the screen after</label>
+              <label className="field-label block text-sm font-medium mb-1" htmlFor="register-auto-lock">Lock the screen after</label>
               <Select id="register-auto-lock" value={here.autoLockMinutes} disabled={!canManage}
                 onChange={event => { setAutoLock(Number(event.target.value)); toast.success('Saved for this computer'); }}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground">

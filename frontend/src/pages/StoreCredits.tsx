@@ -285,7 +285,7 @@ export const StoreCredits: React.FC = () => {
         <div className="space-y-4">
           {/* Customer search */}
           <div>
-            <label className="block text-sm font-medium mb-1">Customer</label>
+            <label className="field-label block text-sm font-medium mb-1">Customer</label>
             {selectedCustomerId ? (
               <div className="flex items-center justify-between p-2 border rounded bg-muted/50">
                 <span className="font-medium">{selectedCustomerName}</span>
@@ -331,7 +331,7 @@ export const StoreCredits: React.FC = () => {
           </div>
 
           <p className="text-sm text-muted-foreground">For a returned purchase, issue credit from the original sale refund. This form records a goodwill credit or an owner-approved correction.</p>
-          <label className="block text-sm font-medium">Credit source
+          <label className="field-label block text-sm font-medium">Credit source
             <Select className="block w-full h-11 mt-1 rounded border bg-background px-3" value={source} onChange={e => setSource(e.target.value as 'GOODWILL' | 'CORRECTION')}>
               <option value="GOODWILL">Goodwill credit</option>{can(role, 'account.grant') && <option value="CORRECTION">Balance correction</option>}
             </Select>

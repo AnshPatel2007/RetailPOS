@@ -419,7 +419,7 @@ export const UserManagement: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Role</label>
+              <label className="field-label block text-sm font-medium mb-1">Role</label>
               <Select
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
@@ -435,7 +435,7 @@ export const UserManagement: React.FC = () => {
               </Select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Store</label>
+              <label className="field-label block text-sm font-medium mb-1">Store</label>
               <Select
                 value={formData.locationId}
                 onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
@@ -526,7 +526,7 @@ export const UserManagement: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Role</label>
+              <label className="field-label block text-sm font-medium mb-1">Role</label>
               <Select
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
@@ -539,7 +539,7 @@ export const UserManagement: React.FC = () => {
               </Select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Store</label>
+              <label className="field-label block text-sm font-medium mb-1">Store</label>
               <Select
                 value={formData.locationId}
                 onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}

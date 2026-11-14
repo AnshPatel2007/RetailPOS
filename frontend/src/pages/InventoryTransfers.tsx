@@ -303,11 +303,11 @@ export const InventoryTransfers: React.FC = () => {
           <p className="text-sm text-muted-foreground">A draft does not reserve stock. Available quantities are checked again when you ship.</p>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">From Location *</label>
+              <label className="field-label block text-sm font-medium mb-1">From Location *</label>
               <Input value={source?.name || fromLocationId} readOnly aria-label="Source store" />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">To Location *</label>
+              <label className="field-label block text-sm font-medium mb-1">To Location *</label>
               <Select
                 aria-label="Destination store"
                 value={toLocationId}
@@ -354,7 +354,7 @@ export const InventoryTransfers: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Notes</label>
+            <label className="field-label block text-sm font-medium mb-1">Notes</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
