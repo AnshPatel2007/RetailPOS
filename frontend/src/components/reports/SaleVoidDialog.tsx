@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Button } from '@/components/ui/Button';
 import { saleService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
@@ -89,7 +90,9 @@ export function SaleVoidDialog({ sale, onClose, onSuccess }: { sale: Sale; onClo
         + (externalReversal ? ' Keep the terminal reversal evidence and ask a manager to reconcile any rejection; do not reverse the terminal payment again.' : ''));
     } finally { if (inFlight.current === flight) { inFlight.current = null; if (current()) setBusy(false); } }
   };
-  return <Modal isOpen onClose={() => { if (!busy) onClose(); }} title="Void Sale" size="md">
+  return <Modal isOpen onClose={() => { if (!busy) onClose(); }} title="Void Sale" size="md"
+    footer={<DialogActions onCancel={onClose} tone="destructive" confirmLabel={pending ? 'Retry saved void' : 'Record Void'} onConfirm={() => void submit()} loading={busy}
+      disabled={storageError || (!pending && (!reason.trim() || sale.status === 'VOIDED'))} />}>
     <div className="space-y-4">
       <p>{pending?.label || sale.saleNumber}: <strong>{formatCurrency(pending?.amount ?? sale.total)}</strong></p>
       <p className="text-sm text-muted-foreground">This reverses the full sale and restores its inventory. The original sale stays in its original period; the reversal is recorded today.</p>
@@ -98,7 +101,6 @@ export function SaleVoidDialog({ sale, onClose, onSuccess }: { sale: Sale; onClo
       {pending ? <p role="status">A saved void needs confirmation. Retry it before starting another void. Reason: {String(pending.payload.reason)}</p> : sale.status !== 'VOIDED' && <label className="block space-y-2"><span>Reason</span><textarea className="w-full rounded-md border bg-background p-3" value={reason} onChange={e => setReason(e.target.value)} maxLength={500} /></label>}
       {error && <p role="alert" className="text-destructive">{error}</p>}
       {storageError && <Button variant="outline" disabled={busy} onClick={readRecovery}>Retry recovery storage</Button>}
-      <div className="flex justify-end gap-2"><Button variant="outline" disabled={busy} onClick={onClose}>Close</Button><Button variant="destructive" disabled={busy || storageError || (!pending && (!reason.trim() || sale.status === 'VOIDED'))} onClick={submit}>{busy ? 'Saving...' : pending ? 'Retry saved void' : 'Record Void'}</Button></div>
     </div>
   </Modal>;
 }

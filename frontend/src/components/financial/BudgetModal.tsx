@@ -4,7 +4,7 @@ import { formatEnumLabel } from '@/lib/utils';
 import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useId } from 'react';
 import { financialService } from '@/services/api';
-import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import toast from 'react-hot-toast';
@@ -126,14 +126,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting) onClose(); }} title={budget ? 'Edit Budget' : 'Create Budget'} size="sm" footer={<div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button variant="primary" type="submit" form={formId} disabled={isSubmitting}>
-                {isSubmitting ? 'Saving...' : budget ? 'Update Budget' : 'Create Budget'}
-              </Button>
-            </div>}>
+    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting) onClose(); }} title={budget ? 'Edit Budget' : 'Create Budget'} size="sm" footer={<DialogActions form={formId} confirmLabel={budget ? 'Update Budget' : 'Create Budget'} loading={isSubmitting} onCancel={onClose} />}>
       <div className="space-y-4">
           <form id={formId} onSubmit={handleSubmit} className="space-y-4">
             {error && (

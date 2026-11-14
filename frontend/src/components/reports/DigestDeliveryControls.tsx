@@ -3,6 +3,7 @@ import { formatDateTime } from '@/lib/utils';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Pagination } from '@/components/common/Pagination';
 import { reportService } from '@/services/api';
 import toast from 'react-hot-toast';
@@ -53,7 +54,9 @@ export function DigestDeliveryControls({ userId, storeId }: { userId: string; st
   return <>
     <Button variant="outline" disabled={busy} onClick={send}>{busy ? 'Working...' : 'Send Morning Brief'}</Button>
     <Button variant="outline" onClick={() => setOpen(true)}>Delivery History</Button>
-    <div data-auto-refresh={!retry ? 'allow' : undefined}><Modal isOpen={open} onClose={() => { if (!busy) { setOpen(false); setRetry(null); } }} title="Morning brief deliveries" size="lg">
+    <div data-auto-refresh={!retry ? 'allow' : undefined}><Modal isOpen={open} onClose={() => { if (!busy) { setOpen(false); setRetry(null); } }} title="Morning brief deliveries" size="lg"
+      footer={retry && <DialogActions onCancel={() => setRetry(null)} cancelLabel="Back to history" confirmLabel="Queue retry" onConfirm={() => void submitRetry()} loading={busy}
+        disabled={reason.trim().length < 8 || (retry.status === 'REVIEW' && !confirmed)} />}>
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">Each email is stored before sending. Provider acceptance does not confirm arrival in the recipient's inbox.</p>
         {error && <div role="alert" className="text-sm text-destructive"><p>{error}</p>{!retry && <Button variant="outline" onClick={updates.refresh}>Retry</Button>}</div>}
@@ -62,7 +65,6 @@ export function DigestDeliveryControls({ userId, storeId }: { userId: string; st
           <p>Retry delivery to {retry.recipientEmail}</p>
           {retry.status === 'REVIEW' && <Checkbox label="I checked the provider's delivery history and confirmed this email was not delivered." checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />}
           <label className="block text-sm">Reason for retry<textarea value={reason} onChange={event => setReason(event.target.value)} maxLength={500} className="block mt-2 w-full rounded-md border border-input bg-background p-3" /></label>
-          <div className="flex gap-2"><Button variant="primary" disabled={busy || reason.trim().length < 8 || (retry.status === 'REVIEW' && !confirmed)} onClick={submitRetry}>Queue retry</Button><Button variant="outline" disabled={busy} onClick={() => setRetry(null)}>Back to history</Button></div>
         </div> : <>
           {loading && <p role="status" className="text-sm">Refreshing delivery history...</p>}
           {!loading && !error && deliveries.length === 0 && <p>No morning briefs have been queued for this store.</p>}

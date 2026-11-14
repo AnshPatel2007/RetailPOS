@@ -14,6 +14,8 @@ import { PageTabs } from '@/components/common/PageTabs';
 import { SummaryStrip } from '@/components/common/Workspace';
 import { AboutNumbers } from '@/components/common/AboutNumbers';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
+import { RowActions } from '@/components/common/RowActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/Table';
@@ -123,11 +125,15 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
         {view === 'missing' && <p className="text-sm text-muted-foreground">Confirm documented costs. Imported daily summaries have no item costs and remain unavailable.</p>}
         <div className="overflow-x-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Product</TableHead><TableHead>Movement</TableHead><TableHead className="text-right">Units</TableHead><TableHead className="text-right">Value change</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>
           {entries.data.records.map(entry => <TableRow key={entry.id}><TableCell>{formatDate(entry.createdAt, timezone)}</TableCell><TableCell>{entry.productName}<div className="text-xs text-muted-foreground">{entry.sku}</div></TableCell>
-            <TableCell>{label(entry.kind)}</TableCell><TableCell className="text-right tabular-nums">{entry.quantity}</TableCell><TableCell className="text-right tabular-nums">{money(entry.valueChange)}</TableCell><TableCell><div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => { resetForm(); setSelected(entry); setAction('details'); }}>Details</Button>
-              {owner && (['OPENING','BASELINE','PURCHASE','SALE','OFFLINE_SALE'].includes(entry.kind) || (entry.quantity > 0 && ['ADJUSTMENT','IMPORT'].includes(entry.kind))) && (!['SALE','OFFLINE_SALE'].includes(entry.kind) || entry.cogsAmount === null) && <Button variant="outline" onClick={() => { resetForm(); setSelected(entry); setAction('correction'); setValue(''); }}>Review cost</Button>}
-              {!readOnly && entry.kind === 'PURCHASE' && <Button variant="outline" onClick={() => { resetForm(); setSelected(entry); setAction('return'); setQuantity(''); setValue(''); }}>Supplier return</Button>}
-            </div></TableCell></TableRow>)}
+            <TableCell>{label(entry.kind)}</TableCell><TableCell className="text-right tabular-nums">{entry.quantity}</TableCell><TableCell className="text-right tabular-nums">{money(entry.valueChange)}</TableCell><TableCell>
+              {/* Details on every row; reviewing a cost and returning goods to the supplier are in the menu. */}
+              <RowActions name={`${entry.productName}, ${label(entry.kind)}`} primary={{ label: 'Details', onAction: () => { resetForm(); setSelected(entry); setAction('details'); } }} items={[
+                owner && (['OPENING','BASELINE','PURCHASE','SALE','OFFLINE_SALE'].includes(entry.kind) || (entry.quantity > 0 && ['ADJUSTMENT','IMPORT'].includes(entry.kind))) && (!['SALE','OFFLINE_SALE'].includes(entry.kind) || entry.cogsAmount === null)
+                  && { id: 'review', label: 'Review cost', onAction: () => { resetForm(); setSelected(entry); setAction('correction'); setValue(''); } },
+                !readOnly && entry.kind === 'PURCHASE' && { id: 'return', label: 'Supplier return', onAction: () => { resetForm(); setSelected(entry); setAction('return'); setQuantity(''); setValue(''); } },
+              ]} />
+            </TableCell>
+</TableRow>)}
           {!entries.data.records.length && <TableRow><TableCell colSpan={6}>{view === 'missing' ? 'No unresolved inventory cost records.' : 'No inventory value entries yet.'}</TableCell></TableRow>}
         </TableBody></Table></div>
       </>}
@@ -170,8 +176,9 @@ export function InventoryCostPanel({ locationId, owner, readOnly }: { locationId
       error={operation.error} pending={!!operation.pending} onClose={() => setBulkOpening(false)} onRetry={operation.retry}
       onSubmit={payload => operation.submit({ label: `Opening inventory: ${payload.items.length} products`, path: endpoint + '/opening', payload })} />}
     <Modal isOpen={!!opening || !!selected} onClose={close} size={preview ? 'xl' : 'lg'} title={opening ? 'Confirm opening inventory' : action === 'return' ? 'Supplier return & credit' : action === 'correction' ? 'Review cost correction' : 'Inventory value record'}
-      footer={<div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={close} disabled={busy || operation.busy}>Close</Button>{(opening || action !== 'details') && <Button variant="primary" onClick={() => void save()} disabled={busy || operation.blocked || !value.trim() || reason.trim().length < 3 || ((!!opening || action === 'return') && !quantity.trim())}>
-        {busy ? 'Saving…' : opening ? 'Confirm opening value' : action === 'return' ? 'Record supplier return' : preview ? 'Confirm correction' : 'Preview correction'}</Button>}</div>}>
+      footer={(opening || action !== 'details') && <DialogActions onCancel={close} loading={busy || operation.busy} onConfirm={() => void save()}
+        disabled={operation.blocked || !value.trim() || reason.trim().length < 3 || ((!!opening || action === 'return') && !quantity.trim())}
+        confirmLabel={opening ? 'Confirm opening value' : action === 'return' ? 'Record supplier return' : preview ? 'Confirm correction' : 'Preview correction'} />}>
       {error && <p role="alert" className="mb-4 text-sm text-destructive">{error}</p>}
       {operation.error && <p role="alert" className="mb-4 text-sm text-destructive">{operation.error}</p>}
       {operation.pending && <Button variant="outline" disabled={operation.busy} onClick={() => void operation.retry()}>Retry saved operation</Button>}

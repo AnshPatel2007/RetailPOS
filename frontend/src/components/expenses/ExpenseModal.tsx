@@ -4,7 +4,7 @@ import { Upload } from 'lucide-react';
 import { expenseService, api } from '@/services/api';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { Expense } from '@/types';
-import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { formatEnumLabel } from '@/lib/utils';
@@ -176,14 +176,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting && !isUploading) onClose(); }} title={expense ? 'Edit Expense' : 'Add New Expense'} size="lg" footer={<div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting || isUploading}>
-                Cancel
-              </Button>
-              <Button variant="primary" type="submit" form={formId} disabled={isSubmitting || isUploading}>
-                {isSubmitting ? 'Saving...' : expense ? 'Update Expense' : 'Create Expense'}
-              </Button>
-            </div>}>
+    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting && !isUploading) onClose(); }} title={expense ? 'Edit Expense' : 'Add New Expense'} size="lg" footer={<DialogActions form={formId} confirmLabel={expense ? 'Update Expense' : 'Create Expense'} loading={isSubmitting} disabled={isUploading} onCancel={() => { if (!isUploading) onClose(); }} />}>
           <form id={formId} onSubmit={handleSubmit} className="space-y-4">
             <p className="text-xs text-muted-foreground">Dates use {recordTimezone}.</p>
             {error && (

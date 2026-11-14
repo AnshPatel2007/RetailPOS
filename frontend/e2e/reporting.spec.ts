@@ -130,7 +130,7 @@ test.describe('Expense entry on a register in another timezone', () => {
     const record = (await response.json()).data; expect(record.dueDate).toBeNull();
     await expect(form).toHaveCount(0);
     const row = page.getByRole('row').filter({ hasText: 'Store calendar browser purchase' });
-    await expect(row).toBeVisible(); await row.getByTitle('Edit', { exact: true }).click();
+    await expect(row).toBeVisible(); await row.getByRole('button', { name: /^Edit expense / }).click();
     const edit = page.getByRole('dialog', { name: 'Edit Expense', exact: true });
     await expect(edit.getByLabel('Expense Date', { exact: true })).toHaveValue(chosen);
     await edit.getByLabel('Description', { exact: true }).fill('Store calendar browser purchase revised');

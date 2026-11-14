@@ -2,8 +2,8 @@ import { QuickRefundModal } from '@/components/pos/QuickRefundModal';
 import React, { useState, useEffect } from 'react';
 import { XCircle, RotateCcw, CreditCard, User, Calendar } from 'lucide-react';
 import { Sale } from '@/types';
-import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { formatCurrency, formatDate, formatEnumLabel } from '@/lib/utils';
 import { SaleVoidDialog } from './SaleVoidDialog';
 import { useAuthStore } from '@/store/authStore';
@@ -40,7 +40,10 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
   const canRefund = !historical && sale.status === 'COMPLETED' && ['ADMIN', 'MANAGER', 'CASHIER'].includes(user?.role || '');
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={historical ? 'Historical Daily Summary' : 'Sale Details'} size="xl">
+    <Modal isOpen={isOpen} onClose={onClose} title={historical ? 'Historical Daily Summary' : 'Sale Details'} size="xl"
+      footer={(canVoid || canRefund) && <DialogActions disabled={refreshing}
+        {...(canRefund ? { confirmLabel: <><RotateCcw aria-hidden="true" />Refund Sale</>, onConfirm: () => setShowRefund(true) } : {})}
+        remove={canVoid ? { label: sale.status === 'VOIDED' ? 'Void Details / Retry' : 'Void Sale', icon: <XCircle aria-hidden="true" />, disabled: refreshing, onClick: () => setShowVoid(true) } : undefined} />}>
         <fieldset disabled={refreshing} className="min-w-0 space-y-6">
           {refreshing && <p role="status">Refreshing sale. Actions will be available after the latest details load.</p>}
           {historical && <div className="space-y-3">
@@ -191,27 +194,6 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
             </div>
           )}
 
-          {/* Action Buttons */}
-          <div className="flex flex-wrap gap-2 pt-4">
-            {canVoid && (
-              <Button
-                variant="destructive"
-                onClick={() => setShowVoid(true)}
-              >
-                <XCircle className="h-4 w-4 mr-2" />
-                {sale.status === 'VOIDED' ? 'Void Details / Retry' : 'Void Sale'}
-              </Button>
-            )}
-            {canRefund && (
-              <Button
-                variant="outline"
-                onClick={() => setShowRefund(true)}
-              >
-                <RotateCcw className="h-4 w-4 mr-2" />
-                Refund Sale
-              </Button>
-            )}
-          </div>
         </fieldset>
     </Modal>
   );

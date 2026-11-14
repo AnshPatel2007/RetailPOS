@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { FileText, FileSpreadsheet } from 'lucide-react';
@@ -194,7 +195,12 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={() => { if (!isExporting) onClose(); }} title="Export Preview" size="lg">
+    <Modal isOpen={isOpen} onClose={() => { if (!isExporting) onClose(); }} title="Export Preview" size="lg"
+      footer={<DialogActions onCancel={onClose} loading={isExporting}
+        {...(onExportPDF ? { confirmLabel: <><FileText aria-hidden="true" />Download PDF</>, onConfirm: () => void handleExport('pdf') }
+          : { confirmLabel: <><FileSpreadsheet aria-hidden="true" />Download CSV</>, onConfirm: () => void handleExport('csv') })}>
+        {onExportPDF && <Button disabled={isExporting} onClick={() => void handleExport('csv')}><FileSpreadsheet aria-hidden="true" />Download CSV</Button>}
+      </DialogActions>}>
       <div className="space-y-4">
         {exportError && <p role="alert" className="text-destructive text-sm">{exportError}</p>}
         <p className="text-sm text-muted-foreground">
@@ -206,29 +212,6 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
           {renderTable()}
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" disabled={isExporting} onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant={onExportPDF ? 'outline' : 'primary'}
-            onClick={() => handleExport('csv')}
-            disabled={isExporting}
-          >
-            <FileSpreadsheet className="h-4 w-4 mr-2" />
-            {isExporting ? 'Exporting...' : 'Download CSV'}
-          </Button>
-          {onExportPDF && (
-            <Button
-              variant="primary"
-              onClick={() => handleExport('pdf')}
-              disabled={isExporting}
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              {isExporting ? 'Exporting...' : 'Download PDF'}
-            </Button>
-          )}
-        </div>
       </div>
     </Modal>
   );

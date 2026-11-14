@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { FileText, CheckCircle, XCircle, Trash2, Edit } from 'lucide-react';
+import { FileText, CheckCircle, XCircle, Edit } from 'lucide-react';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Expense } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -102,7 +103,14 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
   const canDelete = expense.category !== 'PAYROLL' && user?.role === 'ADMIN';
 
   return (
-    <Modal isOpen={isOpen} onClose={() => { if (!isLoading) onClose(); }} title="Expense Details" size="lg">
+    <Modal isOpen={isOpen} onClose={() => { if (!isLoading) onClose(); }} title="Expense Details" size="lg"
+      footer={(canApprove || canEdit || canDelete) && <DialogActions loading={isLoading}
+        {...(canApprove ? { confirmLabel: <><CheckCircle aria-hidden="true" />Approve</>, onConfirm: () => void handleApprove() }
+          : canEdit ? { confirmLabel: <><Edit aria-hidden="true" />Edit</>, onConfirm: () => { onEdit(expense); onClose(); } } : {})}
+        remove={canDelete ? { label: 'Delete', onClick: () => void handleDelete() } : undefined}>
+        {canApprove && canEdit && <Button disabled={isLoading} onClick={() => { onEdit(expense); onClose(); }}><Edit aria-hidden="true" />Edit</Button>}
+        {canApprove && <Button className="text-destructive" disabled={isLoading} onClick={() => void handleReject()}><XCircle aria-hidden="true" />Reject</Button>}
+      </DialogActions>}>
       {confirmDialog}
       <div className="space-y-6">
           {error && (
@@ -200,55 +208,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
             <p>Last Updated: {formatDate(expense.updatedAt)}</p>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-wrap gap-2 pt-4">
-            {expense.category === 'PAYROLL' && user?.role === 'ADMIN' && <Link className="text-primary underline p-2" to={`/team-time/payroll?record=${expense.id}`}>Review payroll and payment</Link>}
-            {canEdit && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  onEdit(expense);
-                  onClose();
-                }}
-                disabled={isLoading}
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Edit
-              </Button>
-            )}
-            {canApprove && (
-              <>
-                <Button
-                  variant="primary"
-                  onClick={handleApprove}
-                  disabled={isLoading}
-                  className="bg-success hover:bg-success/90"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Approve
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={handleReject}
-                  disabled={isLoading}
-                >
-                  <XCircle className="h-4 w-4 mr-2" />
-                  Reject
-                </Button>
-              </>
-            )}
-            {canDelete && (
-              <Button
-                variant="destructive"
-                onClick={handleDelete}
-                disabled={isLoading}
-                className="ml-auto"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </Button>
-            )}
-          </div>
+          {expense.category === 'PAYROLL' && user?.role === 'ADMIN' && <Link className="text-primary underline" to={`/team-time/payroll?record=${expense.id}`}>Review payroll and payment</Link>}
               </div>
     </Modal>
   );

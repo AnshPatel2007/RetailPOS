@@ -34,7 +34,9 @@ test('owner reviews opening inventory, previews audited corrections and recovers
   await page.getByRole('button', { name: 'Value Ledger', exact: true }).click();
   await page.getByRole('button', { name: 'Toggle theme', exact: true }).click();
   const openingEntry = page.getByRole('row').filter({ hasText: name }).filter({ hasText: 'Opening' });
-  await openingEntry.getByRole('button', { name: 'Review cost', exact: true }).click();
+  // Reviewing a cost is in the row's "…" menu; Details is the row's visible word.
+  await openingEntry.getByRole('button', { name: /^More actions for / }).click();
+  await page.getByRole('menuitem', { name: 'Review cost', exact: true }).click();
   const correction = page.getByRole('dialog', { name: 'Review cost correction', exact: true });
   await correction.getByLabel('Corrected total cost').fill('90');
   await correction.getByLabel('Reason / supporting document').fill('Corrected original supplier invoice');
@@ -61,7 +63,13 @@ test('manager can inspect costs but cannot confirm owner opening values', async 
   await expect(page.getByRole('button', { name: 'Review opening', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Review opening inventory', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Missing Costs', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Review cost', exact: true })).toHaveCount(0);
+  // Managers see the details; no row offers them a cost review.
+  await expect(page.getByRole('button', { name: /^Details / }).first()).toBeVisible();
+  for (const menu of await page.getByRole('button', { name: /^More actions for / }).all()) {
+    await menu.click();
+    await expect(page.getByRole('menuitem', { name: 'Review cost', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+  }
 });
 
 test('owner confirms an editable opening group across pages with explicit zero costs and one recovery key', async ({ page }) => {

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { XCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { saleService } from '@/services/api';
 import { bulkVoidStorageKey, readPendingBulkVoid, PendingBulkVoid } from '@/services/pendingBulkVoid';
 import { cashOperationKey, cashOperationRejected } from '@/services/pendingCashOperation';
@@ -131,7 +132,9 @@ export function SalesBulkActions({ selectedSales, onClearSelection, onSuccess }:
     {!pending && selectedSales.length > 50 && <p className="text-sm">Select at most 50 sales per batch.</p>}
     {!pending && selectedSales.some(sale => sale.status !== 'COMPLETED') && <p className="text-sm">Only completed sales can be voided. Review returned or already voided sales individually.</p>}
     {error && !showReview && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    <Modal isOpen={showReview} onClose={() => { if (!inFlight.current) setShowReview(false); }} title="Void Selected Sales" size="md">
+    <Modal isOpen={showReview} onClose={() => { if (!inFlight.current) setShowReview(false); }} title="Void Selected Sales" size="md"
+      footer={<DialogActions onCancel={() => setShowReview(false)} tone="destructive" confirmLabel={pending ? 'Retry saved bulk void' : 'Record Bulk Void'} onConfirm={() => void submit()} loading={busy}
+        disabled={!ready || storageError || (!pending && !reason.trim())} />}>
       <div className="space-y-4">
         <p>Reverse {reviewSales.length} sale(s), totaling <strong>{formatCurrency(total)}</strong>, and restore their inventory. Every sale must be eligible; the whole batch saves together.</p>
         <p className="text-sm text-muted-foreground">Complete any external card reversals on the terminal first. The POS records the original tenders; cash payouts belong to your open drawer.</p>
@@ -139,7 +142,6 @@ export function SalesBulkActions({ selectedSales, onClearSelection, onSuccess }:
         {pending ? <p role="status">A saved batch needs confirmation. Retry this exact batch before starting another. Reason: {pending.payload.reason}</p>
           : <div className="space-y-2"><label htmlFor={reasonId} className="block">Reason</label><textarea id={reasonId} className="w-full rounded-md border bg-background p-3" value={reason} onChange={event => setReason(event.target.value)} maxLength={500} /></div>}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={busy} onClick={() => setShowReview(false)}>Close</Button><Button variant="destructive" disabled={busy || !ready || storageError || (!pending && !reason.trim())} onClick={submit}>{busy ? 'Saving...' : pending ? 'Retry saved bulk void' : 'Record Bulk Void'}</Button></div>
       </div>
     </Modal>
   </div>;

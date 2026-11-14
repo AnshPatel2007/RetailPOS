@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/services/api';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/Table';
@@ -64,10 +65,8 @@ export function OpeningInventoryReview({ locationId, search, busy, blocked, erro
   return <Modal isOpen onClose={() => { if (!busy) onClose(); }} title="Review opening inventory" size="xl"
     footer={<div className="flex flex-wrap items-center justify-between gap-3">
       <p role="status" className="text-sm tabular-nums">{selected.length} selected · {invalid.length ? `${invalid.length} need attention` : money(selected.reduce((total, row) => total + Number(row.confirmedValue), 0))}</p>
-      <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={blocked || !verified || !selected.length || !!invalid.length || notes.trim().length < 3} onClick={() => void save()}>
-          {busy ? 'Saving…' : `Confirm ${selected.length} products`}
-        </Button></div>
+      <DialogActions onCancel={onClose} loading={busy} onConfirm={() => void save()} confirmLabel={`Confirm ${selected.length} products`}
+        disabled={blocked || !verified || !selected.length || !!invalid.length || notes.trim().length < 3} />
     </div>}>
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">Set the starting quantity and total value at cost once. Suggested values use the latest supplier price; check them against your records. Earlier sales are unchanged.</p>

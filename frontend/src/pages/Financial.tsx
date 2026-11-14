@@ -33,6 +33,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { RowActions } from '@/components/common/RowActions';
 import { ExportPreviewModal } from '@/components/reports/ExportPreviewModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -399,7 +400,8 @@ export const Financial: React.FC = () => {
                   />
                 </div>
                 <Button
-                  variant={expenseFilters.showCharts ? 'primary' : 'outline'}
+                  variant={expenseFilters.showCharts ? 'secondary' : 'outline'}
+                  aria-pressed={expenseFilters.showCharts}
                   onClick={() => setExpenseFilters({ ...expenseFilters, showCharts: !expenseFilters.showCharts })}
                   title="Toggle charts visualization"
                 >
@@ -408,7 +410,8 @@ export const Financial: React.FC = () => {
                 </Button>
                 <div className="relative">
                   <Button
-                    variant={showFilters ? 'primary' : 'outline'}
+                    variant={showFilters ? 'secondary' : 'outline'}
+                    aria-pressed={showFilters}
                     onClick={() => setShowFilters(!showFilters)}
                   >
                     <Filter className="h-4 w-4 mr-2" />
@@ -611,32 +614,14 @@ export const Financial: React.FC = () => {
                             {formatCurrency(expense.amount)}
                           </TableCell>
                           <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex justify-end gap-1">
-                              <button
-                                onClick={() => {
-                                  setSelectedExpense(expense);
-                                  setShowExpenseDetails(true);
-                                }}
-                                className="p-1 hover:bg-accent rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                title="View details"
-                                aria-label={`View expense ${expense.expenseNumber}`}
-                              >
-                                <Eye className="h-4 w-4" />
-                              </button>
-                              {mayManage && expense.status === 'PENDING' && (
-                                <button
-                                  onClick={() => {
-                                    setSelectedExpense(expense);
-                                    setShowExpenseModal(true);
-                                  }}
-                                  className="p-1 hover:bg-accent rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                  title="Edit"
-                                  aria-label={`Edit expense ${expense.expenseNumber}`}
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </button>
-                              )}
-                            </div>
+                            {/* The row itself opens the details: its word is Edit while the expense can still change, View otherwise. */}
+                            {(() => {
+                              const view = () => { setSelectedExpense(expense); setShowExpenseDetails(true); };
+                              const editable = mayManage && expense.status === 'PENDING';
+                              return <RowActions name={`expense ${expense.expenseNumber}`}
+                                primary={editable ? { label: 'Edit', onAction: () => { setSelectedExpense(expense); setShowExpenseModal(true); } } : { label: 'View', onAction: view }}
+                                items={editable ? [{ id: 'view', label: 'View details', icon: <Eye size={16} />, onAction: view }] : []} />;
+                            })()}
                           </TableCell>
                         </TableRow>
                       ))
@@ -840,23 +825,9 @@ export const Financial: React.FC = () => {
                             )}
                           </TableCell>
                           <TableCell>
-                            <div className="flex gap-1">
-                              {mayManage && <Button aria-label="Edit recurring expense"
-                                variant="ghost"
-                                onClick={() => {
-                                  setEditingRecurring(recurring);
-                                  setShowRecurringModal(true);
-                                }}
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>}
-                              {can(role, 'financial.delete') && <Button aria-label="Delete recurring expense"
-                                variant="ghost"
-                                onClick={() => handleDeleteRecurring(recurring.id)}
-                              >
-                                <Trash2 className="w-4 h-4 text-destructive" />
-                              </Button>}
-                            </div>
+                            <RowActions name={recurring.description}
+                              primary={mayManage && { label: 'Edit', onAction: () => { setEditingRecurring(recurring); setShowRecurringModal(true); } }}
+                              items={[can(role, 'financial.delete') && { id: 'delete', label: 'Delete', icon: <Trash2 size={16} />, destructive: true, onAction: () => void handleDeleteRecurring(recurring.id) }]} />
                           </TableCell>
                         </TableRow>
                       ))

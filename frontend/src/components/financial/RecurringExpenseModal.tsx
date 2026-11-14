@@ -5,7 +5,7 @@ import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useId } from 'react';
 import { financialService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
-import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import toast from 'react-hot-toast';
@@ -141,14 +141,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting) onClose(); }} title={recurringExpense ? 'Edit Recurring Expense' : 'Add Recurring Expense'} size="sm" footer={<div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button variant="primary" type="submit" form={formId} disabled={isSubmitting}>
-                {isSubmitting ? 'Saving...' : recurringExpense ? 'Update' : 'Create'}
-              </Button>
-            </div>}>
+    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting) onClose(); }} title={recurringExpense ? 'Edit Recurring Expense' : 'Add Recurring Expense'} size="sm" footer={<DialogActions form={formId} confirmLabel={recurringExpense ? 'Update' : 'Create'} loading={isSubmitting} onCancel={onClose} />}>
       <div className="space-y-4">
           <form id={formId} onSubmit={handleSubmit} className="space-y-4">
             {error && (

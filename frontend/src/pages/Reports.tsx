@@ -663,7 +663,8 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
               />
             </div>
             <Button
-              variant={salesFilters.showCharts ? 'primary' : 'outline'}
+              variant={salesFilters.showCharts ? 'secondary' : 'outline'}
+              aria-pressed={salesFilters.showCharts}
               onClick={() => setSalesFilters({ ...salesFilters, showCharts: !salesFilters.showCharts })}
               title="Toggle charts visualization"
             >
@@ -672,7 +673,8 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
             </Button>
             <div className="relative">
               <Button
-                variant={showSalesFilters ? 'primary' : 'outline'}
+                variant={showSalesFilters ? 'secondary' : 'outline'}
+                aria-pressed={showSalesFilters}
                 onClick={() => setShowSalesFilters(!showSalesFilters)}
               >
                 <Filter className="h-4 w-4 mr-2" />
@@ -920,7 +922,7 @@ export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
 
       {activeTab === 'sales' && saleRecord && (!saleDetail.data || saleDetail.error) && <Modal isOpen onClose={() => setSaleRecord('')} title="Sale Details" size="md">
         {saleDetail.loading && <p role="status">Loading sale...</p>}
-        {saleDetail.error && <div role="alert"><p>{saleDetail.error}</p><Button variant="primary" onClick={saleDetail.refresh}>Retry sale</Button></div>}
+        {saleDetail.error && <div role="alert"><p>{saleDetail.error}</p><Button onClick={saleDetail.refresh}>Retry sale</Button></div>}
       </Modal>}
       <SaleDetailsModal isOpen={activeTab === 'sales' && !!saleRecord && !!saleDetail.data && !saleDetail.error} onClose={() => setSaleRecord('')} sale={saleDetail.data} refreshing={saleDetail.loading || saleDetail.refreshing} onSuccess={loadReports} />
 
