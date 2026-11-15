@@ -219,6 +219,12 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
 
 ## Frontend conventions
 
+- **Shared code builds alone**: the frontend imports some backend files (`lib/barcode.ts`, `lib/money.ts`,
+  `lib/promotionEngine.ts`, `lib/capabilities.ts`, the lottery validator and readiness types). Vercel installs
+  only the frontend's packages, so those files (and everything they import, types included) must never reach
+  `@prisma/client`, `express` or another backend-only package; a package the frontend uses goes in
+  `frontend/package.json`. To check, build the frontend in a clean copy after `npm install` inside `frontend/`.
+
 - Use the shared pieces: `components/ui` (Button, Input, Select, Checkbox, Textarea,
   Modal, ConfirmDialog + `useConfirm`, Alert, LoadingState/Spinner, Table, Badge, Kbd,
   DateControl/DateRangePicker) and `components/common` (PageHeader, PageTabs,
