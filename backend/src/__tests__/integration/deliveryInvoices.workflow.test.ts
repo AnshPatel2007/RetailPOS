@@ -6,6 +6,8 @@ import { prisma, seedTestData, TestData } from './setup';
 import { createTestToken } from './helpers';
 import { invoiceDirectory } from '../../services/deliveryInvoice.service';
 import { normalizeInvoiceText } from '../../services/invoiceMatching.service';
+import { invoicesToConfirm, AttentionContext } from '../../services/attention.service';
+import { numeric } from '../../utils/money';
 
 const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64, 7)]);
 const pdf = Buffer.from('%PDF-1.7\n%test\n');
@@ -204,5 +206,125 @@ describe('Delivery invoices: sending and reviewing', () => {
     await patch(sent.id, { version: 99, lines: [] }).expect(409);
     expect((await get('').expect(200)).body.data).toEqual([]);
     expect((await get('?status=discarded').expect(200)).body.data.map((row: { id: string }) => row.id)).toEqual([sent.id]);
+  });
+
+  const newItem = { name: 'Mystery Snack 3 oz', price: 1.99, categoryId: 'test-category-1', barcode: null, minimumAge: null, ebtEligible: true, isTaxable: false };
+  const decideAll = async (id: string) => {
+    const start = (await get('/' + id).expect(200)).body.data;
+    return (await patch(id, { version: start.version, lines: [{ index: 1, confirmed: true }, { index: 2, newItem }] }).expect(200)).body.data;
+  };
+  const stock = async (id: string) => (await prisma.product.findUniqueOrThrow({ where: { id } })).stockQuantity;
+  const invoiceNumbered = (invoiceNumber: string) => reading({ pages: [{ ...reading().pages[0], invoiceNumber }] });
+
+  it('the OK receives stock and costs once, and remembers every line for the next invoice', async () => {
+    const id = (await send(cashier).expect(201)).body.data.id;
+    const start = (await get('/' + id).expect(200)).body.data;
+    expect((await post(`/${id}/receive`, { version: start.version }).expect(400)).body.error).toBe('Line 2: choose the item, add it as new, or skip it (and 1 more)');
+    await post(`/${id}/receive`, { version: start.version }, cashier).expect(403);
+    const decided = await decideAll(id);
+    await post(`/${id}/receive`, { version: decided.version - 1 }).expect(409);
+    const received = (await post(`/${id}/receive`, { version: decided.version }).expect(200)).body.data;
+    expect(received).toMatchObject({ status: 'RECEIVED', replayed: false, receivedBy: { id: data.adminUser.id } });
+    expect(received.purchaseOrderId).toBeTruthy();
+    expect(received.purchaseReceiptId).toBeTruthy();
+
+    expect(await stock(data.product.id)).toBe(124);
+    expect(await stock(acme.id)).toBe(34);
+    const created = await prisma.product.findFirstOrThrow({ where: { locationId: data.location.id, name: 'Mystery Snack 3 oz' } });
+    expect(numeric(created)).toMatchObject({ stockQuantity: 6, price: 1.99, categoryId: data.category.id, ebtEligible: true, isTaxable: false, minimumAge: null });
+    expect(created.sku).toMatch(/^ITEM-\d+$/);
+
+    const receipt = await prisma.purchaseReceipt.findUniqueOrThrow({ where: { id: received.purchaseReceiptId }, include: { items: { include: { purchaseOrderItem: true } }, purchaseOrder: true } });
+    expect(receipt).toMatchObject({ invoiceNumber: 'INV-77', purchaseOrder: { supplierId: data.supplier.id } });
+    expect(Number(receipt.freight)).toBe(2);
+    const byProduct = new Map(receipt.items.map(item => [item.purchaseOrderItem.productId, item]));
+    expect(byProduct.get(data.product.id)).toMatchObject({ acceptedQty: 24, packSize: 12 });
+    expect(Number(byProduct.get(data.product.id)!.previousUnitCost)).toBe(10);
+    expect(byProduct.get(acme.id)).toMatchObject({ acceptedQty: 24, packSize: 24 });
+
+    // Remembered: each line of this supplier, and its case size and case cost.
+    const learned = await prisma.invoiceItemMatch.findMany({ where: { supplierId: data.supplier.id }, orderBy: { normalizedText: 'asc' } });
+    expect(learned.map(row => [row.normalizedText, row.productId, row.unitsPerCase])).toEqual([
+      ['acme cola 12oz can', acme.id, 24], ['mystery snack 3oz', created.id, null], ['test product', data.product.id, 12]]);
+    expect(numeric(await prisma.productSupplier.findUniqueOrThrow({ where: { productId_supplierId: { productId: acme.id, supplierId: data.supplier.id } } })))
+      .toMatchObject({ packSize: 24, packCost: 12, cost: 0.5 });
+
+    // Pressing OK again changes nothing; a received invoice stays as it is.
+    expect((await post(`/${id}/receive`, { version: decided.version }).expect(200)).body.data).toMatchObject({ status: 'RECEIVED', replayed: true });
+    expect(await stock(data.product.id)).toBe(124);
+    await post(`/${id}/discard`).expect(409);
+    await patch(id, { version: received.version, lines: [] }).expect(409);
+    expect(await prisma.activityLog.count({ where: { entityId: id, action: 'INVOICE_RECEIVED' } })).toBe(1);
+
+    // The next invoice from this supplier is all sure: one tap.
+    const next = (await send(cashier, invoiceNumbered('INV-78')).expect(201)).body.data.id;
+    const second = (await get('/' + next).expect(200)).body.data;
+    expect(second.lines.map((line: { tier: string }) => line.tier)).toEqual(['SURE', 'SURE', 'SURE', 'CREDIT']);
+    expect(second.lines[2]).toMatchObject({ product: { productId: created.id }, reason: 'You confirmed this item on an earlier invoice' });
+    expect(second.counts.waiting).toBe(0);
+    await post(`/${next}/receive`, { version: second.version }).expect(200);
+    expect(await stock(created.id)).toBe(12);
+    expect((await prisma.invoiceItemMatch.findFirstOrThrow({ where: { supplierId: data.supplier.id, productId: created.id } })).confirmations).toBe(2);
+  });
+
+  it('a retry after a lost answer finishes the same receipt; a try that was never applied is thrown away', async () => {
+    const id = (await send(cashier).expect(201)).body.data.id;
+    const decided = await decideAll(id);
+    const done = (await post(`/${id}/receive`, { version: decided.version }).expect(200)).body.data;
+    const importId = (await prisma.deliveryInvoice.findUniqueOrThrow({ where: { id } })).importId;
+    // Applied, but the server stopped before marking the invoice received.
+    await prisma.deliveryInvoice.update({ where: { id }, data: { status: 'READY', version: decided.version, purchaseOrderId: null, purchaseReceiptId: null, receivedAt: null, receivedById: null } });
+    await prisma.invoiceItemMatch.deleteMany();
+    expect((await patch(id, { version: decided.version, invoiceNumber: 'CHANGED' }).expect(409)).body.error).toContain('Press Receive again to finish it');
+    const again = (await post(`/${id}/receive`, { version: decided.version }).expect(200)).body.data;
+    expect(again).toMatchObject({ status: 'RECEIVED', purchaseReceiptId: done.purchaseReceiptId, purchaseOrderId: done.purchaseOrderId, invoiceNumber: 'INV-77' });
+    expect((await prisma.deliveryInvoice.findUniqueOrThrow({ where: { id } })).importId).toBe(importId);
+    expect(await stock(data.product.id)).toBe(124);
+    expect(await prisma.purchaseReceipt.count()).toBe(1);
+    expect(await prisma.invoiceItemMatch.count()).toBe(3);
+
+    // Reviewed but never applied: changing the invoice or pressing OK throws it away first.
+    const other = (await send(cashier, invoiceNumbered('INV-79')).expect(201)).body.data.id;
+    const ready = (await get('/' + other).expect(200)).body.data;
+    const leftover = async () => (await request(app).post('/api/products/imports/receipt/preview').set('Authorization', 'Bearer ' + admin)
+      .send({ supplier: 'Test Supplier', items: [{ matchedProductId: data.product.id, name: 'Test Product', unitQuantity: 5, unitCost: 2 }] }).expect(200)).body.data.id as string;
+    const first = await leftover();
+    await prisma.deliveryInvoice.update({ where: { id: other }, data: { importId: first } });
+    const changed = (await patch(other, { version: ready.version, invoiceNumber: 'INV-79' }).expect(200)).body.data;
+    expect(await prisma.inventoryImport.findUnique({ where: { id: first } })).toBeNull();
+    const second = await leftover();
+    await prisma.deliveryInvoice.update({ where: { id: other }, data: { importId: second } });
+    await post(`/${other}/receive`, { version: changed.version }).expect(200);
+    expect(await prisma.inventoryImport.findUnique({ where: { id: second } })).toBeNull();
+    expect(await stock(data.product.id)).toBe(148);
+  });
+
+  it('an invoice number already received from the supplier is refused, and can still be discarded', async () => {
+    const first = (await send(cashier).expect(201)).body.data.id;
+    const second = (await send(cashier).expect(201)).body.data.id;
+    await post(`/${first}/receive`, { version: (await decideAll(first)).version }).expect(200);
+    const blocked = await post(`/${second}/receive`, { version: (await decideAll(second)).version }).expect(409);
+    expect(blocked.body.error).toContain('already received');
+    expect(await stock(data.product.id)).toBe(124);
+    expect(await prisma.product.count({ where: { name: 'Mystery Snack 3 oz' } })).toBe(1);
+    expect((await post(`/${second}/discard`).expect(200)).body.data.status).toBe('DISCARDED');
+  });
+
+  it('the alert lists invoices waiting for an OK and opens the oldest', async () => {
+    const context = (now = new Date()) => ({ locationId: data.location.id, now } as AttentionContext);
+    expect(await invoicesToConfirm(context())).toBeNull();
+    const first = (await send(cashier).expect(201)).body.data.id;
+    expect(await invoicesToConfirm(context())).toEqual({ key: 'invoices-to-confirm', severity: 'medium', count: 1, amount: 100,
+      href: `/inventory/purchasing/receive?invoice=${first}`, sentence: '1 delivery invoice is waiting for your OK (TEST SUPPLIER INC, $100.00).' });
+    await send(cashier, { fail: 'Too blurry.' }).expect(201);
+    // Still being read: not waiting for anyone yet.
+    await prisma.deliveryInvoice.create({ data: { locationId: data.location.id, createdById: data.cashierUser.id, status: 'READING' } });
+    expect(await invoicesToConfirm(context())).toMatchObject({ count: 2, amount: 100, href: `/inventory/purchasing/receive?invoice=${first}`,
+      sentence: '2 delivery invoices are waiting for your OK (TEST SUPPLIER INC). 1 could not be read.' });
+    // Two days on, the oldest is urgent and the read that never finished counts as failed.
+    expect(await invoicesToConfirm(context(new Date(Date.now() + 2 * 86400000 + 60000)))).toMatchObject({ severity: 'high', count: 3,
+      sentence: '3 delivery invoices are waiting for your OK (TEST SUPPLIER INC). 2 could not be read.' });
+    await post(`/${first}/receive`, { version: (await decideAll(first)).version }).expect(200);
+    expect(await invoicesToConfirm(context())).toMatchObject({ count: 1, sentence: '1 delivery invoice is waiting for your OK. It could not be read.' });
   });
 });

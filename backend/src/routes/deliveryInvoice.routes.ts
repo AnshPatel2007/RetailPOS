@@ -10,6 +10,7 @@ import {
   createDeliveryInvoice, deliveryInvoicePage, discardDeliveryInvoice, getDeliveryInvoice, listDeliveryInvoices,
   readDeliveryInvoiceAgain, updateDeliveryInvoice,
 } from '../services/deliveryInvoice.service';
+import { receiveDeliveryInvoice } from '../services/deliveryInvoiceReceiving.service';
 
 /**
  * Delivery invoices (see services/deliveryInvoice.service.ts). Anyone working
@@ -56,6 +57,9 @@ router.patch('/:id', requireCapability('inventory.manage'), asyncHandler(async (
   res.json({ success: true, data: await updateDeliveryInvoice(req, req.params.id) })));
 router.post('/:id/read', requireCapability('checkout.complete'), readingLimiter, asyncHandler(async (req: AuthRequest, res: Response) =>
   res.json({ success: true, data: await readDeliveryInvoiceAgain(req, req.params.id) })));
+// The owner's OK: stock and costs arrive through the reviewed receipt import.
+router.post('/:id/receive', requireCapability('inventory.manage'), asyncHandler(async (req: AuthRequest, res: Response) =>
+  res.json({ success: true, data: await receiveDeliveryInvoice(req, req.params.id) })));
 router.post('/:id/discard', requireCapability('checkout.complete'), asyncHandler(async (req: AuthRequest, res: Response) =>
   res.json({ success: true, data: await discardDeliveryInvoice(req, req.params.id) })));
 

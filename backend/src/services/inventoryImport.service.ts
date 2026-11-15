@@ -16,7 +16,9 @@ const money = z.number().finite().min(0).max(1_000_000);
 const fields = z.object({ sku: z.string().trim().min(1).max(100), name: z.string().trim().min(1).max(250).optional(),
   barcode: z.string().trim().max(100).optional(), price: money.positive().optional(), cost: money.optional(),
   stockQuantity: z.number().int().min(0).max(2147483647).optional(), lowStockAlert: z.number().int().min(0).max(2147483647).optional(),
-  categoryId: z.string().min(1).optional(), isActive: z.boolean().optional(), trackInventory: z.boolean().optional(), isTaxable: z.boolean().optional() });
+  categoryId: z.string().min(1).optional(), isActive: z.boolean().optional(), trackInventory: z.boolean().optional(), isTaxable: z.boolean().optional(),
+  // New items from a delivery invoice: a sales age (18/21) and SNAP/EBT eligibility. Not read from CSV files.
+  minimumAge: z.union([z.literal(18), z.literal(21)]).optional(), ebtEligible: z.boolean().optional() });
 type Fields = z.infer<typeof fields>;
 type Row = { number: number; data: Fields; productId: string | null; fingerprint: string | null; previousStock: number; nextStock: number; changes: { field: string; before: unknown; after: unknown }[] };
 type Payload = { rows: Row[]; supplier?: string; invoiceNumber?: string; purchaseOrderId?: string; invoiceDate?: string; notes?: string;
@@ -75,7 +77,8 @@ export async function previewInventoryImport(req: AuthRequest, kind: 'CSV' | 'RE
         sellingUnitId: z.string().uuid().optional(), receivedPackageQuantity: z.number().int().min(0).max(1000000).optional(),
         damagedQty: z.number().int().min(0).max(1000000).default(0), rejectedQty: z.number().int().min(0).max(1000000).default(0),
         unitQuantity: z.number().int().min(0).max(1_000_000), unitCost: money, zeroCostConfirmed: z.boolean().default(false), price: money.positive().optional(),
-        sku: z.string().trim().max(100).optional(), barcode: z.string().max(100).nullish(), categoryId: z.string().optional() })).min(1).max(500) }).parse(req.body);
+        sku: z.string().trim().max(100).optional(), barcode: z.string().max(100).nullish(), categoryId: z.string().optional(),
+        minimumAge: z.union([z.literal(18), z.literal(21)]).optional(), ebtEligible: z.boolean().optional(), isTaxable: z.boolean().optional() })).min(1).max(500) }).parse(req.body);
     supplier = body.supplier; invoiceNumber = body.invoiceNumber;
     if (body.items.some(i => i.damagedQty || i.rejectedQty) && !body.notes) throw new AppError('Add a reason for damaged or rejected invoice items', 400);
     if (body.items.some(i => !i.unitQuantity && !i.damagedQty && !i.rejectedQty)) throw new AppError('Each invoice line needs a delivered quantity', 400);
@@ -105,7 +108,9 @@ export async function previewInventoryImport(req: AuthRequest, kind: 'CSV' | 'RE
       return { number: i + 1, matchedId: item.matchedProductId || undefined,
         data: current ? { sku: current.sku, cost: item.unitCost, stockQuantity: item.unitQuantity }
           : { sku: item.sku, name: item.name, cost: item.unitCost, price: item.price, stockQuantity: item.unitQuantity,
-            ...(item.barcode ? { barcode: item.barcode } : {}), ...(item.categoryId ? { categoryId: item.categoryId } : {}) } };
+            ...(item.barcode ? { barcode: item.barcode } : {}), ...(item.categoryId ? { categoryId: item.categoryId } : {}),
+            ...(item.minimumAge ? { minimumAge: item.minimumAge } : {}), ...(item.ebtEligible !== undefined ? { ebtEligible: item.ebtEligible } : {}),
+            ...(item.isTaxable !== undefined ? { isTaxable: item.isTaxable } : {}) } };
     });
   }
   const validated: { number: number; data: Fields; matchedId?: string }[] = [];

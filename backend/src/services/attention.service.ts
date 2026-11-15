@@ -19,6 +19,7 @@ import { loadReorderPlan } from './reorder.service';
 import { addDays, WEEKDAYS } from './reorderPlan';
 import { likelyMixUps } from './inventoryException.service';
 import { missedSales } from './missedSales.service';
+import { effectiveStatus } from './deliveryInvoice.service';
 
 export type Severity = 'high' | 'medium' | 'low';
 export interface Finding {
@@ -111,6 +112,29 @@ export const deliveriesWithoutInvoice: AttentionRule = async ({ locationId }) =>
   const total = money(open.reduce((sum, row) => sum + Number(row.estimatedValue || 0), 0));
   return { key: 'deliveries-without-invoice', severity: 'low', count: open.length, amount: total, href: '/inventory/stock-control/exceptions?view=unmatched',
     sentence: `${open.length} stock ${plural(open.length, 'addition has', 'additions have')} no supplier invoice yet (${usd(total)} at estimated cost). Match ${open.length === 1 ? 'it' : 'them'} to confirm the cost.` };
+};
+
+/**
+ * Delivery invoices someone photographed that wait for an owner's or manager's
+ * OK, including ones that could not be read. Opens the oldest one.
+ */
+export const invoicesToConfirm: AttentionRule = async ({ locationId, now }) => {
+  const rows = await prisma.deliveryInvoice.findMany({ where: { locationId, status: { in: ['READY', 'FAILED', 'READING'] } },
+    select: { id: true, status: true, updatedAt: true, vendorName: true, total: true, createdAt: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 200 });
+  // An invoice still being read is not waiting for anyone yet.
+  const waiting = rows.filter(row => effectiveStatus(row, now.getTime()) !== 'READING');
+  if (!waiting.length) return null;
+  const failed = waiting.filter(row => effectiveStatus(row, now.getTime()) === 'FAILED').length;
+  const vendors = [...new Set(waiting.flatMap(row => row.vendorName ? [row.vendorName] : []))];
+  const known = waiting.filter(row => row.total !== null);
+  const total = money(known.reduce((sum, row) => sum + Number(row.total), 0));
+  const oldestDays = Math.floor((now.getTime() - waiting[0].createdAt.getTime()) / 86400000);
+  const unread = failed ? ` ${failed === waiting.length ? (failed === 1 ? 'It' : 'They') : failed} could not be read.` : '';
+  const sentence = waiting.length === 1
+    ? `1 delivery invoice is waiting for your OK${vendors.length || known.length ? ` (${[...vendors, ...(known.length ? [usd(total)] : [])].join(', ')})` : ''}.${unread}`
+    : `${waiting.length} delivery invoices are waiting for your OK${vendors.length ? ` (${vendors.slice(0, 3).join(', ')}${vendors.length > 3 ? ' and others' : ''})` : ''}.${unread}`;
+  return { key: 'invoices-to-confirm', severity: oldestDays >= 2 ? 'high' : 'medium', count: waiting.length, ...(known.length ? { amount: total } : {}),
+    href: `/inventory/purchasing/receive?invoice=${waiting[0].id}`, sentence };
 };
 
 /** Unpaid bills due in the next seven days, and any already overdue. */
@@ -266,7 +290,8 @@ export const emptyShelves: AttentionRule = async ({ locationId, now, calendar })
 
 /** Shown in this order within one severity. Later packages append their rules here. */
 export const attentionRules: AttentionRule[] = [stockExceptions, profitNotConfirmed, drawerDifferences, pricesBelowTarget, billsDueSoon,
-  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding, labelsOutOfDate, supplierOrderDueTomorrow, likelyMixUp, emptyShelves];
+  ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding, labelsOutOfDate, supplierOrderDueTomorrow, likelyMixUp, emptyShelves,
+  invoicesToConfirm];
 const rank: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
 /**

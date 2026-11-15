@@ -95,7 +95,7 @@ function summary(invoice: InvoiceRow, lookup: Names, full: boolean) {
 }
 
 /** Everything the review screen needs: the lines with today's cost and price, warnings and photo list. */
-async function detail(invoice: InvoiceRow) {
+export async function deliveryInvoiceDetail(invoice: InvoiceRow) {
   const lookup = await names([invoice]);
   const lines = invoiceLines(invoice);
   const ids = [...new Set(lines.flatMap(line => line.product ? [line.product.productId] : []))];
@@ -136,7 +136,7 @@ async function detail(invoice: InvoiceRow) {
 
 const storeOf = (req: AuthRequest) => getLocationFilter(req, typeof req.query?.locationId === 'string' ? req.query.locationId : undefined).locationId;
 
-async function loadInvoice(req: AuthRequest, id: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
+export async function loadInvoice(req: AuthRequest, id: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
   const valid = z.string().uuid().safeParse(id);
   if (!valid.success) throw new AppError('Invoice not found', 404);
   const invoice = await db.deliveryInvoice.findUnique({ where: { id: valid.data }, include: { pages: true } });
@@ -231,6 +231,9 @@ async function readAndMatch(id: string, locationId: string, files: InvoiceFile[]
 export async function readDeliveryInvoiceAgain(req: AuthRequest, id: string) {
   const canned = cannedReading(req.body?.testReading);
   if (!canned && !invoiceReadingConfigured()) throw new AppError('Reading invoices is not set up on this server yet (it needs the AI key).', 503);
+  const target = await loadInvoice(req, id);
+  assertCanSee(req, target);
+  await settleBeforeChange(target.id);
   const invoice = await prisma.$transaction(async tx => {
     const current = await loadInvoice(req, id, tx);
     await tx.$queryRaw`SELECT id FROM delivery_invoices WHERE id = ${current.id} FOR UPDATE`;
@@ -240,6 +243,7 @@ export async function readDeliveryInvoiceAgain(req: AuthRequest, id: string) {
     if (status === 'READING') throw new AppError('This invoice is being read right now', 409);
     if (status === 'RECEIVED' || status === 'DISCARDED') throw new AppError(`This invoice was already ${status.toLowerCase()}`, 409);
     if (status === 'READY' && !manages(req)) throw new AppError('Insufficient permissions', 403);
+    if (locked.importId) throw new AppError('This invoice is being received right now. Reload it in a moment.', 409);
     await tx.deliveryInvoice.update({ where: { id: locked.id }, data: { status: 'READING', error: null, version: { increment: 1 } } });
     return locked;
   });
@@ -256,8 +260,33 @@ export async function readDeliveryInvoiceAgain(req: AuthRequest, id: string) {
 }
 
 async function present(req: AuthRequest, invoice: InvoiceRow) {
-  if (reads(req)) return detail(invoice);
+  if (reads(req)) return deliveryInvoiceDetail(invoice);
   return summary(invoice, await names([invoice]), false);
+}
+
+/**
+ * Settle the receipt import an earlier OK left on an invoice. Waits for an
+ * apply still running (it holds the import's row). Applied: its result, so the
+ * caller finishes that receipt instead of making another. Not applied: it is
+ * deleted (unapplied imports may be), so it can never be applied later.
+ */
+export async function settlePreviousImport(importId: string): Promise<Prisma.JsonValue | null> {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM inventory_imports WHERE id = ${importId} FOR UPDATE`;
+    const record = await tx.inventoryImport.findUnique({ where: { id: importId }, select: { appliedAt: true, result: true } });
+    if (!record) return null;
+    if (record.appliedAt) return record.result ?? {};
+    await tx.inventoryImport.delete({ where: { id: importId } });
+    return null;
+  });
+}
+
+/** Before changing or discarding an invoice: refuse when an earlier OK already received it, else clear that try. */
+async function settleBeforeChange(id: string) {
+  const pending = await prisma.deliveryInvoice.findUnique({ where: { id }, select: { importId: true, status: true } });
+  if (!pending?.importId || pending.status !== 'READY') return;
+  if (await settlePreviousImport(pending.importId)) throw new AppError('This delivery was already received. Press Receive again to finish it.', 409);
+  await prisma.deliveryInvoice.updateMany({ where: { id, importId: pending.importId }, data: { importId: null } });
 }
 
 /* ------------------------------------------------------------------ */
@@ -387,12 +416,14 @@ async function applyLinePatches(tx: Prisma.TransactionClient, locationId: string
 /** PATCH /delivery-invoices/:id: save decisions as they are made (version-checked). */
 export async function updateDeliveryInvoice(req: AuthRequest, id: string) {
   const body = patchSchema.parse(req.body);
+  await settleBeforeChange((await loadInvoice(req, id)).id);
   const updated = await prisma.$transaction(async tx => {
     const found = await loadInvoice(req, id, tx);
     await tx.$queryRaw`SELECT id FROM delivery_invoices WHERE id = ${found.id} FOR UPDATE`;
     const invoice = await loadInvoice(req, id, tx);
     if (effectiveStatus(invoice) !== 'READY') throw new AppError(invoice.status === 'RECEIVED' ? 'This invoice was already received' : 'This invoice is not ready to change', 409);
     if (invoice.version !== body.version) throw new AppError('Someone else changed this invoice. Reload it to see their changes.', 409);
+    if (invoice.importId) throw new AppError('This invoice is being received right now. Reload it in a moment.', 409);
     let lines = invoiceLines(invoice);
     const data: Prisma.DeliveryInvoiceUpdateInput = { version: { increment: 1 } };
     if (body.supplierId !== undefined && body.supplierId !== invoice.supplierId) {
@@ -410,11 +441,14 @@ export async function updateDeliveryInvoice(req: AuthRequest, id: string) {
     await tx.deliveryInvoice.update({ where: { id: invoice.id }, data });
     return loadInvoice(req, id, tx);
   });
-  return detail(updated);
+  return deliveryInvoiceDetail(updated);
 }
 
 /** POST /delivery-invoices/:id/discard: set it aside and delete its photos. The person who sent it may too, until it is received. */
 export async function discardDeliveryInvoice(req: AuthRequest, id: string) {
+  const target = await loadInvoice(req, id);
+  assertCanSee(req, target);
+  await settleBeforeChange(target.id);
   const { invoice, filenames } = await prisma.$transaction(async tx => {
     const found = await loadInvoice(req, id, tx);
     await tx.$queryRaw`SELECT id FROM delivery_invoices WHERE id = ${found.id} FOR UPDATE`;
@@ -423,6 +457,7 @@ export async function discardDeliveryInvoice(req: AuthRequest, id: string) {
     if (!manages(req) && current.createdById !== req.user!.id) throw new AppError('Insufficient permissions', 403);
     if (current.status === 'RECEIVED') throw new AppError('This invoice was already received', 409);
     if (current.status === 'DISCARDED') return { invoice: current, filenames: [] as string[] };
+    if (current.importId) throw new AppError('This invoice is being received right now. Reload it in a moment.', 409);
     await tx.deliveryInvoicePage.deleteMany({ where: { invoiceId: current.id } });
     await tx.deliveryInvoice.update({ where: { id: current.id }, data: { status: 'DISCARDED', discardedById: req.user!.id, discardedAt: new Date(), version: { increment: 1 } } });
     await tx.activityLog.create({ data: { userId: req.user!.id, locationId: current.locationId, action: 'INVOICE_DISCARDED', entity: 'DELIVERY_INVOICE', entityId: current.id,
