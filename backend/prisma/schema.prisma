@@ -416,6 +416,7 @@ model Product {
   transferItems   TransferItem[]
   destinationTransferItems TransferItem[] @relation("TransferDestination")
   cycleCountItems CycleCountItem[]
+  invoiceMatches  InvoiceItemMatch[]
 
   @@unique([sku, locationId])
   @@unique([barcode, locationId])
@@ -514,6 +515,7 @@ model Supplier {
   products       ProductSupplier[]
   purchaseOrders PurchaseOrder[]
   credits        SupplierCredit[]
+  invoiceMatches InvoiceItemMatch[]
 
   @@index([locationId])
   @@map("suppliers")
@@ -1579,6 +1581,82 @@ model AccountingExport {
   @@index([locationId, createdAt])
   @@index([createdAt])
   @@map("accounting_exports")
+}
+
+/// A delivery invoice someone photographed (services/deliveryInvoice.service.ts): read
+/// by AI, matched to products, and waiting until an owner or manager checks it and
+/// receives it through the reviewed receipt import. Nothing reaches stock before that.
+model DeliveryInvoice {
+  id                String                @id @default(uuid())
+  locationId        String
+  createdById       String
+  status            String                @default("READING") // READING | READY | FAILED | RECEIVED | DISCARDED
+  vendorName        String?
+  supplierId        String?
+  invoiceNumber     String?
+  invoiceDate       DateTime?             @db.Date
+  subtotal          Decimal?              @db.Decimal(14, 2)
+  tax               Decimal?              @db.Decimal(14, 2)
+  fees              Decimal?              @db.Decimal(14, 2)
+  discount          Decimal?              @db.Decimal(14, 2)
+  total             Decimal?              @db.Decimal(14, 2)
+  /// What the AI read, kept as it came back.
+  reading           Json?
+  /// The lines as matched and reviewed: product, quantity, cost and the owner's decision.
+  lines             Json?
+  error             String?
+  /// The receipt import used to receive it; a retry re-applies this one import.
+  importId          String?
+  purchaseOrderId   String?
+  purchaseReceiptId String?
+  receivedById      String?
+  receivedAt        DateTime?
+  discardedById     String?
+  discardedAt       DateTime?
+  version           Int                   @default(1)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  pages             DeliveryInvoicePage[]
+
+  @@index([locationId, status])
+  @@map("delivery_invoices")
+}
+
+/// One photographed page (or the PDF) of a delivery invoice, kept on disk in uploads/invoices.
+model DeliveryInvoicePage {
+  id         String          @id @default(uuid())
+  invoiceId  String
+  pageNumber Int
+  filename   String          @unique
+  mimeType   String
+  size       Int
+  createdAt  DateTime        @default(now())
+  invoice    DeliveryInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, pageNumber])
+  @@map("delivery_invoice_pages")
+}
+
+/// "This line on this supplier's invoices is that product": learned each time an owner
+/// or manager confirms an invoice line, so the next invoice matches it for sure.
+model InvoiceItemMatch {
+  id              String   @id @default(uuid())
+  locationId      String
+  supplierId      String
+  itemCode        String?
+  normalizedText  String
+  productId       String
+  sellingUnitId   String?
+  unitsPerCase    Int?
+  confirmations   Int      @default(1)
+  lastConfirmedAt DateTime @default(now())
+  supplier        Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierId, normalizedText])
+  @@index([supplierId, itemCode])
+  @@index([productId])
+  @@map("invoice_item_matches")
 }
 
 model ReceiptAttachment {
