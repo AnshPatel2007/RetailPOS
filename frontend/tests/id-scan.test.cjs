@@ -41,6 +41,20 @@ test('a Canadian card writes dates year first', () => {
   assert.equal(day(scan.expires), '2030-03-15');
 });
 
+test('a scanner that types the license fields separated by $ gives the date of birth', () => {
+  // Sample data in the layout one scanner types: first, middle, last, birth date, street, -, city, state, ZIP, -, number.
+  const scan = id.readIdBarcode('JANE$Q$DOE$04/01/1990$123 MAIN ST$$SPRINGFIELD$IL$627010000$NONE$D12345678901', today);
+  assert.equal(day(scan.birthDate), '1990-04-01');
+  assert.equal(scan.expires, null);
+  assert.equal(scan.firstName, null);
+  // A date still ahead is the expiry; a past second date (it may be the issue date) is not.
+  assert.equal(day(id.readIdBarcode('JANE$DOE$04/01/1990$01/15/2021$04/01/2029$SPRINGFIELD$IL', today).expires), '2029-04-01');
+  assert.equal(id.readIdBarcode('JANE$DOE$04/01/1990$01/15/2021$SPRINGFIELD$IL', today).expires, null);
+  assert.equal(day(id.readIdBarcode('JANE$DOE$1990-04-01$SPRINGFIELD$IL', today).birthDate), '1990-04-01');
+  // Separated text without a date is not an ID.
+  assert.equal(id.readIdBarcode('JANE$DOE$SPRINGFIELD$IL$62701', today), null);
+});
+
 test('a product barcode or random text is not an ID', () => {
   assert.equal(id.readIdBarcode('036000291452', today), null);
   assert.equal(id.readIdBarcode('hello world, nothing to see', today), null);

@@ -3,8 +3,9 @@
  * (PDF417, AAMVA format). A scanner types it as one long burst: a header such as
  * "@ ANSI 636014…", then one element per line: a three-letter code and its value
  * (DBB = date of birth, DBA = expiry, DCS = last name, DAC/DCT = first name).
- * Some scanners keep the line breaks, others drop them, so both are read. Unit
- * tested in tests/id-scan.test.cjs.
+ * Some scanners keep the line breaks, others drop them, so both are read. Others
+ * read the license themselves and type its fields separated by "$" (see
+ * readSeparatedFields). Unit tested in tests/id-scan.test.cjs.
  */
 
 export interface IdScan {
@@ -38,12 +39,40 @@ const name = (value: string | undefined) => {
   return clean && !/^(NONE|UNAVL)$/i.test(clean) ? clean : null;
 };
 
-/** Is this text an ID card's barcode (rather than a product's)? */
+/** Is this text a license barcode as printed (AAMVA), rather than a product's? */
 export const looksLikeIdBarcode = (raw: string) => /ANSI ?\d{6}|AAMVA/.test(raw) || /DBB\d{8}/.test(raw) || (/DAQ/.test(raw) && /DCS/.test(raw));
+
+/** A date written with separators: MM/DD/YYYY (US) or YYYY-MM-DD. */
+function writtenDate(field: string): Date | null {
+  const us = field.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (us) return calendarDate(Number(us[3]), Number(us[1]), Number(us[2]));
+  const iso = field.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+  return iso ? calendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) : null;
+}
+
+/**
+ * Some scanners read the license themselves and type its fields with separators, e.g.
+ * FIRST$MIDDLE$LAST$MM/DD/YYYY$STREET$$CITY$ST$ZIP$…$NUMBER. The order of the fields
+ * differs between scanners, so only the dates are used: the earliest is the date of
+ * birth, and a date still ahead is the expiry (a past one may be the issue date, so it
+ * is not taken as an expiry).
+ */
+function readSeparatedFields(raw: string, today: Date): IdScan | null {
+  const fields = raw.split(/[$^|\t\n\r]/).map(field => field.trim());
+  if (fields.length < 5) return null;
+  const valid = (date: Date | null): date is Date => !!date && date.getFullYear() >= 1900;
+  const written = fields.map(writtenDate).filter(valid);
+  // Dates without separators (MMDDCCYY) only when no field is written as a date.
+  const dates = written.length ? written : fields.map(aamvaDate).filter(valid);
+  const birthDate = dates.filter(date => date <= today).sort((a, b) => a.getTime() - b.getTime())[0];
+  if (!birthDate) return null;
+  const expires = dates.filter(date => date > today).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+  return { birthDate, expires, firstName: null, lastName: null };
+}
 
 /** What the barcode says, or null when it is not an ID card's barcode. */
 export function readIdBarcode(raw: string, today = new Date()): IdScan | null {
-  if (!looksLikeIdBarcode(raw)) return null;
+  if (!looksLikeIdBarcode(raw)) return readSeparatedFields(raw, today);
   const elements = new Map<string, string>();
   // Lines end with a line feed or carriage return; the header also holds a record separator (character 30).
   for (let line of raw.split(String.fromCharCode(30)).join('\n').split(/[\n\r]+/)) {

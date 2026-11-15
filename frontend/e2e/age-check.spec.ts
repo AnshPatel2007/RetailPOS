@@ -62,6 +62,22 @@ test('a 21+ item asks for ID as soon as it is scanned, and a license scan reads 
   await expect(page.getByRole('dialog', { name: 'Payment', exact: true })).toBeVisible();
 });
 
+test('a scanner that reads the license itself and types its fields separated by $ is read too', async ({ page }) => {
+  await login(page, 'owner@example.test');
+  const beer = await product(page, 'Age check beer', { minimumAge: 21 });
+  await page.goto('/pos');
+  await scan(page, beer.barcode);
+  const age = ageDialog(page);
+  await expect(age).toBeVisible();
+  // Sample data in one scanner's layout: first, middle, last, birth date, street, -, city, state, ZIP, -, number.
+  await page.keyboard.type(`JANE$Q$DOE$01/01/${year - 30}$123 MAIN ST$$SPRINGFIELD$IL$627010000$NONE$D12345678901`);
+  await page.keyboard.press('Enter');
+  await expect(age).toContainText('ID scanned — customer is 30');
+  await expect(age).toContainText('OK to sell');
+  await age.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(age).toHaveCount(0);
+});
+
 test('an under-age or expired ID is refused, and Remove item takes the restricted item out of the sale', async ({ page }) => {
   await login(page, 'owner@example.test');
   const chips = await product(page, 'Age check chips');
