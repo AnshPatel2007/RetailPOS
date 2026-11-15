@@ -4,7 +4,9 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { DialogActions } from '@/components/ui/DialogActions';
-import { ShieldAlert, ScanLine, Calendar, Eye, CheckCircle2, XCircle } from 'lucide-react';
+import { ShieldAlert, ScanLine, Calendar, Eye, CheckCircle2, XCircle, Camera, CameraOff, Loader2 } from 'lucide-react';
+import { ageOn, IdScan, isExpired, readIdBarcode } from '@/lib/idScan';
+import { IdCameraReader, useIdCameraSupport } from './IdCameraReader';
 
 export interface AgeVerificationResult {
   method: 'ID_SCAN' | 'MANUAL_DOB' | 'VISUAL';
@@ -18,56 +20,24 @@ interface AgeVerificationModalProps {
   itemNames: string[];
   onConfirm: (result: AgeVerificationResult) => void;
   onClose: () => void;
+  /** What closing without a check does (the register removes the item: "Remove item"). */
+  cancelLabel?: string;
 }
-
-/** Age in whole years as of today */
-const ageFrom = (dob: Date): number => {
-  const now = new Date();
-  let age = now.getFullYear() - dob.getFullYear();
-  const beforeBirthday =
-    now.getMonth() < dob.getMonth() ||
-    (now.getMonth() === dob.getMonth() && now.getDate() < dob.getDate());
-  if (beforeBirthday) age -= 1;
-  return age;
-};
-
-/**
- * Pull the date of birth out of an AAMVA driver's-license PDF417 payload.
- * The DBB element carries the DOB — MMDDCCYY in US jurisdictions (2000+ spec),
- * CCYYMMDD in some others; both are tried.
- */
-const parseLicenseDob = (buffer: string): Date | null => {
-  const match = buffer.match(/DBB(\d{8})/);
-  if (!match) return null;
-  const raw = match[1];
-
-  // MMDDCCYY first (US)
-  const mm = parseInt(raw.slice(0, 2), 10);
-  const dd = parseInt(raw.slice(2, 4), 10);
-  const yyyy = parseInt(raw.slice(4, 8), 10);
-  if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31 && yyyy > 1900 && yyyy <= new Date().getFullYear()) {
-    return new Date(yyyy, mm - 1, dd);
-  }
-
-  // CCYYMMDD fallback
-  const y2 = parseInt(raw.slice(0, 4), 10);
-  const m2 = parseInt(raw.slice(4, 6), 10);
-  const d2 = parseInt(raw.slice(6, 8), 10);
-  if (m2 >= 1 && m2 <= 12 && d2 >= 1 && d2 <= 31 && y2 > 1900 && y2 <= new Date().getFullYear()) {
-    return new Date(y2, m2 - 1, d2);
-  }
-  return null;
-};
 
 const toIsoDate = (d: Date): string => {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
+/** Keys closer together than this come from a scanner; a pause this long ends the scan. */
+const SCANNER_KEY_GAP_MS = 50;
+const SCAN_END_MS = 150;
+
 /**
- * Gate for age-restricted sales. Three paths, all logged server-side with the
- * sale: scan the license barcode (auto-detects the DOB), type the DOB, or
- * visually confirm. An underage result blocks with a DO-NOT-SELL banner.
+ * Gate for age-restricted sales. Three ways, all logged with the sale: scan the
+ * barcode on the back of the ID (a 2D USB scanner, or the camera where the browser
+ * can read it), type the date of birth, or confirm visually. Under age, or an
+ * expired ID, shows DO NOT SELL.
  */
 export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
   isOpen,
@@ -75,78 +45,99 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
   itemNames,
   onConfirm,
   onClose,
+  cancelLabel,
 }) => {
   const [dobInput, setDobInput] = useState('');
-  const [scannedDob, setScannedDob] = useState<Date | null>(null);
-  const scanBuffer = useRef('');
-  const scanTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [scan, setScan] = useState<IdScan | null>(null);
+  const [reading, setReading] = useState(false);
+  const [problem, setProblem] = useState('');
+  const [cameraOn, setCameraOn] = useState(false);
+  const cameraSupported = useIdCameraSupport();
+  const buffer = useRef('');
+  const lastKeyAt = useRef(0);
+  const endTimer = useRef<number>();
 
   useEffect(() => {
     if (isOpen) {
-      setDobInput('');
-      setScannedDob(null);
-      scanBuffer.current = '';
+      setDobInput(''); setScan(null); setReading(false); setProblem(''); setCameraOn(false);
+      buffer.current = '';
     }
   }, [isOpen]);
 
-  // Capture scanner keystrokes while the modal is open. License PDF417 wedges
-  // type the whole AAMVA payload; we buffer and look for the DBB element.
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key.length === 1 || e.key === 'Enter') {
-      if (e.key.length === 1) scanBuffer.current += e.key;
-      if (scanTimer.current) clearTimeout(scanTimer.current);
-      const dob = parseLicenseDob(scanBuffer.current);
-      if (dob) {
-        setScannedDob(dob);
-        scanBuffer.current = '';
-        return;
-      }
-      // Idle reset so slow manual typing doesn't accumulate forever
-      scanTimer.current = setTimeout(() => { scanBuffer.current = ''; }, 400);
-    }
+  const accept = useCallback((raw: string) => {
+    const result = readIdBarcode(raw);
+    if (!result) { setScan(null); setProblem('That was not an ID card\'s barcode. Scan the barcode on the back of the driver\'s license or ID.'); return; }
+    if (!result.birthDate) { setScan(null); setProblem('This ID\'s barcode has no date of birth that can be read. Type the date of birth instead.'); return; }
+    setScan(result); setProblem(''); setDobInput(''); setCameraOn(false);
   }, []);
 
+  // A USB or Bluetooth scanner types the ID's barcode as one fast burst of keys. Listen
+  // before any field or button does, so a focused date box cannot swallow the burst and
+  // an Enter inside it cannot press a button.
   useEffect(() => {
     if (!isOpen) return;
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      if (scanTimer.current) clearTimeout(scanTimer.current);
+    const finish = () => {
+      const text = buffer.current;
+      buffer.current = '';
+      setReading(false);
+      // Typing, or a short product barcode, is not an ID.
+      if (text.replace(/\s/g, '').length >= 20) accept(text);
     };
-  }, [isOpen, handleKeyDown]);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const key = event.key.length === 1 ? event.key : event.key === 'Enter' || event.key === 'Tab' ? '\n' : null;
+      if (key === null) return;
+      const now = performance.now();
+      const fromScanner = now - lastKeyAt.current < SCANNER_KEY_GAP_MS;
+      lastKeyAt.current = now;
+      // One scan lasts until a pause of SCAN_END_MS (a Bluetooth scanner may hesitate mid-way).
+      buffer.current += key;
+      if (fromScanner) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (buffer.current.length > 8) setReading(true);
+      }
+      window.clearTimeout(endTimer.current);
+      endTimer.current = window.setTimeout(finish, SCAN_END_MS);
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      window.clearTimeout(endTimer.current);
+    };
+  }, [isOpen, accept]);
 
   if (!isOpen) return null;
 
   const manualDob = dobInput ? new Date(dobInput + 'T00:00:00') : null;
-  const manualAge = manualDob && !isNaN(manualDob.getTime()) ? ageFrom(manualDob) : null;
-  const scannedAge = scannedDob ? ageFrom(scannedDob) : null;
+  const manualAge = manualDob && !isNaN(manualDob.getTime()) ? ageOn(manualDob) : null;
+  const scannedAge = scan?.birthDate ? ageOn(scan.birthDate) : null;
+  const expired = !!scan && isExpired(scan.expires);
 
-  const cutoffYear = new Date().getFullYear() - requiredAge;
   const cutoff = new Date();
-  cutoff.setFullYear(cutoffYear);
+  cutoff.setFullYear(cutoff.getFullYear() - requiredAge);
 
   // One Approve, in the footer: from the scanned ID when it shows the customer is old enough, otherwise from the typed date.
-  const scanOk = scannedDob !== null && scannedAge !== null && scannedAge >= requiredAge;
+  const scanOk = !!scan?.birthDate && scannedAge !== null && scannedAge >= requiredAge && !expired;
   const manualOk = manualDob !== null && manualAge !== null && manualAge >= requiredAge;
   const approve = () => {
-    if (scanOk) onConfirm({ method: 'ID_SCAN', birthDate: toIsoDate(scannedDob), verifiedForAge: requiredAge });
-    else if (manualOk) onConfirm({ method: 'MANUAL_DOB', birthDate: toIsoDate(manualDob), verifiedForAge: requiredAge });
+    if (scanOk && scan?.birthDate) onConfirm({ method: 'ID_SCAN', birthDate: toIsoDate(scan.birthDate), verifiedForAge: requiredAge });
+    else if (manualOk && manualDob) onConfirm({ method: 'MANUAL_DOB', birthDate: toIsoDate(manualDob), verifiedForAge: requiredAge });
   };
+  const holder = scan ? [scan.firstName, scan.lastName].filter(Boolean).join(' ') : '';
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Age Verification Required" size="md"
-      footer={<DialogActions confirmLabel="Approve" onConfirm={approve} disabled={!scanOk && !manualOk} onCancel={onClose} />}>
+      footer={<DialogActions confirmLabel="Approve" onConfirm={approve} disabled={!scanOk && !manualOk} onCancel={onClose} cancelLabel={cancelLabel} />}>
       <div className="space-y-4">
         {/* Requirement banner */}
         <div className="flex items-start gap-3 p-3 rounded-lg bg-warning/10 border border-warning/30">
           <ShieldAlert className="h-8 w-8 text-warning shrink-0" />
-          <div>
+          <div className="min-w-0">
             <p className="font-bold text-lg">Customer must be {requiredAge}+</p>
             <p className="text-xs text-muted-foreground">
               Born on or before{' '}
-              <span className="font-semibold text-foreground">
-                {formatDate(cutoff)}
-              </span>
+              <span className="font-semibold text-foreground">{formatDate(cutoff)}</span>
             </p>
             <p className="text-xs text-muted-foreground mt-1 truncate" title={itemNames.join(', ')}>
               Restricted: {itemNames.join(', ')}
@@ -155,41 +146,36 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
         </div>
 
         {/* Scanned result */}
-        {scannedDob && scannedAge !== null && (
-          <div
-            className={`p-3 rounded-lg border flex items-center gap-3 ${
-              scannedAge >= requiredAge
-                ? 'bg-success/10 border-success/40'
-                : 'bg-destructive/10 border-destructive/40'
-            }`}
-          >
-            {scannedAge >= requiredAge ? (
-              <CheckCircle2 className="h-6 w-6 text-success shrink-0" />
-            ) : (
-              <XCircle className="h-6 w-6 text-destructive shrink-0" />
-            )}
-            <div className="flex-1">
-              <p className="font-semibold">
-                ID scanned — customer is {scannedAge}
-              </p>
+        {scan?.birthDate && scannedAge !== null && (
+          <div role="status" className={`p-3 rounded-lg border flex items-center gap-3 ${scanOk ? 'bg-success/10 border-success/40' : 'bg-destructive/10 border-destructive/40'}`}>
+            {scanOk ? <CheckCircle2 className="h-6 w-6 text-success shrink-0" /> : <XCircle className="h-6 w-6 text-destructive shrink-0" />}
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">ID scanned — {holder ? `${holder}, ` : 'customer is '}{scannedAge}</p>
               <p className="text-xs text-muted-foreground">
-                DOB {formatDate(scannedDob)}
+                Born {formatDate(scan.birthDate)}{scan.expires ? ` · ${expired ? 'expired' : 'valid until'} ${formatDate(scan.expires)}` : ''}
               </p>
+              {expired && <p className="text-xs font-medium text-destructive">This ID has expired. Ask for a valid ID.</p>}
             </div>
-            {scannedAge >= requiredAge
-              ? <span className="text-sm font-bold text-success">OK to sell</span>
-              : <span className="text-sm font-bold text-destructive">DO NOT SELL</span>}
+            <span className={`text-sm font-bold ${scanOk ? 'text-success' : 'text-destructive'}`}>{scanOk ? 'OK to sell' : 'DO NOT SELL'}</span>
           </div>
         )}
 
         {/* Scan prompt */}
-        {!scannedDob && (
-          <div className="p-4 rounded-lg border border-dashed text-center">
-            <ScanLine className="h-6 w-6 mx-auto mb-1 text-muted-foreground animate-pulse" />
-            <p className="text-sm font-medium">Scan the driver's license barcode</p>
-            <p className="text-xs text-muted-foreground">PDF417 on the back of the ID — detected automatically</p>
+        {!scan && (cameraOn
+          ? <div className="space-y-2">
+            <IdCameraReader onRead={accept} onError={message => { setCameraOn(false); setProblem(message); }} />
+            <Button type="button" variant="outline" className="w-full" onClick={() => setCameraOn(false)}><CameraOff className="h-4 w-4 mr-2" aria-hidden="true" />Stop camera</Button>
           </div>
-        )}
+          : <div className="p-4 rounded-lg border border-dashed text-center space-y-1">
+            {reading ? <Loader2 className="h-6 w-6 mx-auto text-muted-foreground animate-spin" aria-hidden="true" />
+              : <ScanLine className="h-6 w-6 mx-auto text-muted-foreground animate-pulse" aria-hidden="true" />}
+            <p className="text-sm font-medium" role="status">{reading ? 'Reading the ID…' : 'Scan the barcode on the back of the driver\'s license or ID'}</p>
+            <p className="text-xs text-muted-foreground">If the scanner does not beep on the ID, it cannot read ID barcodes: type the date of birth below.</p>
+            {cameraSupported && <Button type="button" variant="outline" className="mt-2" onClick={() => { setProblem(''); setCameraOn(true); }}>
+              <Camera className="h-4 w-4 mr-2" aria-hidden="true" />Scan with camera</Button>}
+          </div>)}
+        {problem && <p role="alert" className="text-sm text-destructive">{problem}</p>}
+        {scan && <Button type="button" variant="ghost" onClick={() => { setScan(null); setProblem(''); }}>Scan another ID</Button>}
 
         {/* Manual DOB */}
         <div>

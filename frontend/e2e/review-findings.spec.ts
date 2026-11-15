@@ -63,18 +63,20 @@ for (const tender of ['cash', 'split']) test(`immediate product taps and scans r
   await expect(page.getByText('Sales today', { exact: true }).locator('..')).toContainText((before.todaySales + 27).toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
 });
 
-test('age-restricted quick add still requires a valid DOB before payment', async ({ page }) => {
+test('an age-restricted quick add asks for a valid DOB as soon as it is in the cart, once per sale', async ({ page }) => {
   await login(page, 'owner@example.test');
   const item = await product(page, 'Quick age restricted', 3, { minimumAge: 21 });
   await page.goto('/pos'); await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).fill(item.name);
   await page.getByRole('button', { name: /^Quick age restricted/ }).click();
-  await page.getByRole('button', { name: 'Charge $10.00', exact: true }).click();
   const age = page.getByRole('dialog', { name: 'Age Verification Required', exact: true });
   await expect(age).toBeVisible(); await expect(page.getByRole('dialog', { name: 'Payment', exact: true })).toHaveCount(0);
   await age.getByRole('textbox').fill('2020-01-01'); await age.getByRole('textbox').blur();
   await expect(age.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
   await age.getByRole('textbox').fill('1990-01-01'); await age.getByRole('textbox').blur();
   await age.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(age).toHaveCount(0);
+  // Checked once for this sale: Charge goes straight to payment.
+  await page.getByRole('button', { name: 'Charge $10.00', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Payment', exact: true })).toBeVisible();
 });
 

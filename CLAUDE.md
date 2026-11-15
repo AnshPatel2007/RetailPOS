@@ -278,6 +278,13 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   Scanner input comes from `services/hardware.ts` (keyboard wedge; scan sounds). Tiles are
   colored by category (`lib/categoryColor.ts`), with categories down the left on wider
   screens and a dark sale panel.
+- **Age checks** (`components/pos/AgeVerificationModal.tsx`, `lib/idScan.ts`): an age-restricted item asks for
+  the customer's ID the moment it is in the cart (tap, scan, search or a restored sale), once per sale for that
+  age; closing without a check removes the items it did not cover (`cancelAgeCheck` in `pages/POS.tsx`), and
+  Charge keeps the check as a last safeguard. The barcode on the back of a license (AAMVA PDF417) is read from
+  a 2D scanner's keystroke burst, caught before any field or button (an Enter inside it must never press one),
+  or from the camera where the browser's BarcodeDetector reads pdf417 (Android, Mac; not Windows or iPhone).
+  Under age or an expired ID shows DO NOT SELL; typing the date of birth and the logged visual check remain.
 - **Scans are local-first**: `services/registerCatalog.ts` answers a scan from the
   register's saved catalog (IndexedDB, `services/offlineDb.ts`) with no request, online
   or offline; the server is asked (`GET /products/resolve-barcode`) only when the copy

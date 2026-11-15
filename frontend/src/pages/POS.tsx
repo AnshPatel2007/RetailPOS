@@ -179,6 +179,8 @@ export const POS: React.FC = () => {
     return saved;
   };
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState<'CASH' | 'CARD' | undefined>(undefined);
+  // Why the ID check is open: an age-restricted item just went into the cart, or Charge was pressed.
+  const [ageCheckFrom, setAgeCheckFrom] = useState<'item' | 'checkout'>('item');
   const showAgeModalRef = useRef(false);
   useEffect(() => { showAgeModalRef.current = showAgeModal; }, [showAgeModal]);
 
@@ -186,6 +188,27 @@ export const POS: React.FC = () => {
   useEffect(() => {
     if (items.length === 0 && ageVerification) setAgeVerification(null);
   }, [items.length]);
+
+  // An age-restricted item asks for the customer's ID the moment it is in the cart (tapped,
+  // scanned, searched or restored), unless this sale's check already covers its age.
+  const requiredAge = getRequiredAge();
+  useEffect(() => {
+    if (isReadOnly || showAgeModal || showPaymentModal || pendingPayment) return;
+    if (requiredAge > 0 && (!ageVerification || ageVerification.verifiedForAge < requiredAge)) {
+      setAgeCheckFrom('item');
+      setShowAgeModal(true);
+    }
+  }, [requiredAge, ageVerification, isReadOnly, showAgeModal, showPaymentModal, pendingPayment]);
+
+  /** No ID check: the restricted items it did not cover leave the cart (the rest of the sale stays). */
+  const cancelAgeCheck = () => {
+    const verified = ageVerification?.verifiedForAge ?? 0;
+    const blocked = useCartStore.getState().items.filter(item => (item.product.minimumAge || 0) > verified);
+    blocked.forEach(item => useCartStore.getState().removeItem(item.product.id));
+    setShowAgeModal(false);
+    if (blocked.length) toast(`${blocked.length === 1 ? blocked[0].product.name + ' was' : blocked.length + ' age-restricted items were'} removed: the customer's age was not verified.`);
+    searchInputRef.current?.focus();
+  };
 
   // The first item of the next sale replaces the finished sale's summary
   useEffect(() => {
@@ -272,9 +295,11 @@ export const POS: React.FC = () => {
         }
       }
     }
-    const requiredAge = useCartStore.getState().getRequiredAge();
-    if (requiredAge > 0 && (!ageVerification || ageVerification.verifiedForAge < requiredAge)) {
+    // Normally the ID was checked when the item went in; this is the last safeguard before payment.
+    const ageNeeded = useCartStore.getState().getRequiredAge();
+    if (ageNeeded > 0 && (!ageVerification || ageVerification.verifiedForAge < ageNeeded)) {
       setPendingPaymentMethod(method);
+      setAgeCheckFrom('checkout');
       setShowAgeModal(true);
       return;
     }
@@ -534,7 +559,7 @@ export const POS: React.FC = () => {
     if (e.key === 'Escape') {
       e.preventDefault();
       // Close the top-most open thing first
-      if (showAgeModal) { setShowAgeModal(false); return; }
+      if (showAgeModal) { cancelAgeCheck(); return; }
       if (showPaymentModal) { setShowPaymentModal(false); return; }
       if (showHeldSalesModal) { setShowHeldSalesModal(false); return; }
       if (showRefundModal) { setShowRefundModal(false); setRefundSaleId(undefined); return; }
@@ -1088,17 +1113,20 @@ export const POS: React.FC = () => {
       {/* Modals */}
       <AgeVerificationModal
         isOpen={showAgeModal}
-        requiredAge={getRequiredAge()}
+        requiredAge={requiredAge}
         itemNames={items
-          .filter((i) => (i.product.minimumAge || 0) > 0)
+          .filter((i) => (i.product.minimumAge || 0) > (ageVerification?.verifiedForAge ?? 0))
           .map((i) => i.product.name)}
+        cancelLabel={items.filter(i => (i.product.minimumAge || 0) > (ageVerification?.verifiedForAge ?? 0)).length > 1 ? 'Remove items' : 'Remove item'}
         onConfirm={(result) => {
           setAgeVerification(result);
           setShowAgeModal(false);
-          setInitialPaymentMethod(pendingPaymentMethod);
-          setShowPaymentModal(true);
+          if (ageCheckFrom === 'checkout') {
+            setInitialPaymentMethod(pendingPaymentMethod);
+            setShowPaymentModal(true);
+          } else searchInputRef.current?.focus();
         }}
-        onClose={() => setShowAgeModal(false)}
+        onClose={cancelAgeCheck}
       />
 
       <EnhancedPaymentModal
