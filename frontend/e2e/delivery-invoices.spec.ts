@@ -1,16 +1,43 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Browser, Page } from '@playwright/test';
 import { login, logout } from './utils/auth-helper';
 import { clickHeaderAction } from './utils/header-helper';
 
 // invoices@example.test owns a store no other spec uses (Fizz Bottling; Fizz Cola and Crunch Chips on the shelf);
 // invoice-cashier@example.test works there.
-const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD6sAAAAASUVORK5CYII=', 'base64');
 const auth = async (page: Page) => ({ Authorization: 'Bearer ' + await page.evaluate(() => localStorage.getItem('token')) });
 
+/** A photo of a supplier's invoice page, drawn in the browser (what the reading below says it contains). */
+async function invoicePhoto(browser: Browser, invoiceNumber: string) {
+  const sheet = await browser.newPage({ viewport: { width: 860, height: 640 } });
+  await sheet.setContent(`<style>
+    body { margin: 0; background: #fbfaf4; color: #1d1d1d; font: 15px/1.45 'Courier New', monospace; }
+    .page { padding: 34px 44px; } h1 { margin: 0; font: bold 26px Arial, sans-serif; letter-spacing: .02em; }
+    .top { display: flex; justify-content: space-between; } .box { border: 2px solid #1d1d1d; padding: 6px 12px; text-align: right; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; } th { text-align: left; border-bottom: 2px solid #1d1d1d; font-size: 13px; padding: 4px 6px; }
+    td { padding: 7px 6px; border-bottom: 1px dashed #9a9a9a; } .n { text-align: right; }
+    .totals { margin: 14px 0 0 auto; width: 250px; } .totals div { display: flex; justify-content: space-between; }
+    .sign { margin-top: 36px; width: 280px; border-top: 1px solid #1d1d1d; padding-top: 4px; font-size: 12px; }
+  </style><div class="page">
+    <div class="top"><div><h1>FIZZ BOTTLING CO.</h1><div>1200 Industrial Pkwy, Joliet IL 60431</div><div>Route 14</div></div>
+      <div class="box"><b>INVOICE</b><div>No. ${invoiceNumber}</div><div>Date 11/14/2026</div></div></div>
+    <div style="margin-top:16px">SOLD TO: INVOICE CHECK STORE &middot; ACCT 40917</div>
+    <table><thead><tr><th>ITEM#</th><th>UPC</th><th>DESCRIPTION</th><th class="n">QTY</th><th>UNIT</th><th class="n">PRICE</th><th class="n">AMOUNT</th></tr></thead><tbody>
+      <tr><td>10234</td><td>012345678905</td><td>FIZZ COLA 12Z CN 24CT</td><td class="n">2</td><td>CS</td><td class="n">9.60</td><td class="n">19.20</td></tr>
+      <tr><td>20871</td><td></td><td>CRUNCH CHIPS 3OZ</td><td class="n">1</td><td>CS</td><td class="n">6.00</td><td class="n">6.00</td></tr>
+      <tr><td>30552</td><td></td><td>ZING JERKY 2OZ</td><td class="n">4</td><td>EA</td><td class="n">2.50</td><td class="n">10.00</td></tr>
+    </tbody></table>
+    <div class="totals"><div><span>SUBTOTAL</span><span>35.20</span></div><div><span>TAX</span><span>0.00</span></div><div><b>TOTAL DUE</b><b>35.20</b></div></div>
+    <div class="sign">Received by (signature)</div>
+  </div>`);
+  const buffer = await sheet.screenshot({ fullPage: true });
+  await sheet.close();
+  return { name: `invoice-${invoiceNumber}.png`, mimeType: 'image/png', buffer };
+}
+
 const reading = (invoiceNumber: string) => ({ pages: [{ vendor: 'FIZZ BOTTLING CO', invoiceNumber, invoiceDate: '2026-11-14', total: 35.2, tax: 0, fees: 0, lines: [
-  { description: 'FIZZ COLA 12Z CN 24CT', upc: '012345678905', quantity: 2, unit: 'CASE', unitsPerCase: 24, unitPrice: 9.6, lineTotal: 19.2 },
-  { description: 'CRUNCH CHIPS 3OZ', quantity: 1, unit: 'CASE', unitsPerCase: 6, unitPrice: 6, lineTotal: 6 },
-  { description: 'ZING JERKY 2OZ', quantity: 4, unit: 'EACH', unitPrice: 2.5, lineTotal: 10 },
+  { description: 'FIZZ COLA 12Z CN 24CT', itemCode: '10234', upc: '012345678905', quantity: 2, unit: 'CASE', unitsPerCase: 24, unitPrice: 9.6, lineTotal: 19.2 },
+  { description: 'CRUNCH CHIPS 3OZ', itemCode: '20871', quantity: 1, unit: 'CASE', unitsPerCase: 6, unitPrice: 6, lineTotal: 6 },
+  { description: 'ZING JERKY 2OZ', itemCode: '30552', quantity: 4, unit: 'EACH', unitPrice: 2.5, lineTotal: 10 },
 ] }] });
 
 /**
@@ -29,7 +56,7 @@ async function withReading(page: Page, prepared: object) {
   }, { times: 1 });
 }
 
-test('a cashier photographs an invoice at the register; the owner checks it from the bell and one OK receives it', async ({ page }) => {
+test('a cashier photographs an invoice at the register; the owner checks it from the bell and one OK receives it', async ({ page, browser }) => {
   test.setTimeout(120000);
   // At the register: Delivery, a photo, Send. Nothing changes in stock yet.
   await login(page, 'invoice-cashier@example.test');
@@ -37,7 +64,7 @@ test('a cashier photographs an invoice at the register; the owner checks it from
   await withReading(page, reading('F-100'));
   await page.getByRole('button', { name: 'Delivery: photograph the invoice', exact: true }).click();
   const capture = page.getByRole('dialog', { name: 'Delivery invoice', exact: true });
-  await capture.getByTestId('invoice-files').setInputFiles({ name: 'invoice.png', mimeType: 'image/png', buffer: png });
+  await capture.getByTestId('invoice-files').setInputFiles(await invoicePhoto(browser, 'F-100'));
   await expect(capture.getByRole('img', { name: 'Page 1', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/delivery-invoice-register-capture.png' });
   await capture.getByRole('button', { name: 'Send', exact: true }).click();
@@ -90,7 +117,7 @@ test('a cashier photographs an invoice at the register; the owner checks it from
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => document.documentElement.classList.add('dark'));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: 'test-results/delivery-invoice-review-phone-dark.png', fullPage: true });
+  await page.screenshot({ path: 'test-results/delivery-invoice-review-phone-dark.png', fullPage: true, animations: 'disabled' });
   await page.evaluate(() => document.documentElement.classList.remove('dark'));
   await page.setViewportSize({ width: 1280, height: 720 });
 
@@ -108,13 +135,20 @@ test('a cashier photographs an invoice at the register; the owner checks it from
   // Crunch Chips now cost $1.00 each, up from $0.80: their price may be too low.
   await expect(done).toContainText('Costs went up on 1 item');
   await expect(done.getByRole('link', { name: 'Check prices', exact: true })).toHaveAttribute('href', '/inventory/purchasing/price-review');
-  await page.screenshot({ path: 'test-results/delivery-invoice-received.png' });
+  // The confirmation is at the top of the page, in view.
+  await expect(done).toBeInViewport();
+  await page.screenshot({ path: 'test-results/delivery-invoice-received.png', animations: 'disabled' });
   await done.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page).toHaveURL(/\/inventory\/purchasing\/receive$/);
+  await expect(page.getByRole('heading', { name: 'Or scan the items one by one', exact: true })).toBeVisible();
+  // Back on the page, at its top: the main action is in view (once the cost alert has slid away).
+  await expect(page.getByRole('button', { name: 'Take a photo of the invoice', exact: true })).toBeInViewport();
+  await expect(page.locator('.attention-toast')).toHaveCount(0, { timeout: 10000 });
+  await page.screenshot({ path: 'test-results/delivery-invoice-receive-page.png', animations: 'disabled' });
   await withReading(page, reading('F-101'));
   await clickHeaderAction(page, 'Take a photo of the invoice');
   const again = page.getByRole('dialog', { name: 'Delivery invoice', exact: true });
-  await again.getByTestId('invoice-files').setInputFiles({ name: 'invoice.png', mimeType: 'image/png', buffer: png });
+  await again.getByTestId('invoice-files').setInputFiles(await invoicePhoto(browser, 'F-101'));
   await again.getByRole('button', { name: 'Send', exact: true }).click();
   const second = page.getByRole('region', { name: 'Invoice from Fizz Bottling', exact: true });
   await expect(second.getByText('Everything is checked. Stock changes when you press Receive.', { exact: true })).toBeVisible({ timeout: 30000 });

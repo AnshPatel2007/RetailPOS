@@ -16,6 +16,7 @@ import { InvoiceLineCard } from './InvoiceLineCard';
 import { InvoicePhotoViewer } from './InvoicePhotoViewer';
 import { ItemPickerPanel, NewItemPanel } from './InvoiceLinePanels';
 import { lineProblem, reviewOrder } from './invoiceText';
+import { scrollPageToTop } from './pageScroll';
 
 const errorText = (failure: unknown, fallback: string) => (failure as { response?: { data?: { error?: string } } }).response?.data?.error || fallback;
 const statusOf = (failure: unknown) => (failure as { response?: { status?: number } }).response?.status;
@@ -87,6 +88,7 @@ export function InvoiceReview({ invoiceId, locationId, onBack }: { invoiceId: st
       const done = (await deliveryInvoiceService.receive(current.id, current.version)).data.data;
       setInvoice(done);
       setReceived({ units: current.counts.units, lines: current.lines.filter(line => !line.skip).length, costsUp });
+      scrollPageToTop();
       toast.success(`Received ${plural(current.counts.units, 'unit')}`);
     } catch (failure) {
       setError(errorText(failure, 'The delivery was not received. Nothing changed; try again.'));

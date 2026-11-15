@@ -122,7 +122,7 @@ export function InvoiceCapture({ isOpen, onClose, onReady }: { isOpen: boolean; 
           {page.pdf
             ? <div className="flex aspect-[3/4] flex-col items-center justify-center gap-1 rounded-md border bg-muted/40 p-2 text-center text-xs">
                 <FileText className="h-6 w-6 text-muted-foreground" aria-hidden="true" /><span className="break-all">{page.name}</span></div>
-            : <img src={page.url!} alt={`Page ${index + 1}`} className="aspect-[3/4] w-full rounded-md border object-cover" />}
+            : <img src={page.url!} alt={`Page ${index + 1}`} className="aspect-[3/4] w-full rounded-md border bg-muted/40 object-contain" />}
           <span className="mt-1 block text-center text-xs text-muted-foreground">{page.pdf ? 'PDF' : `Page ${index + 1}`}</span>
           <Button type="button" variant="ghost" size="icon" aria-label={`Remove page ${index + 1}`} onClick={() => remove(page.key)}
             className="absolute right-1 top-1 h-8 w-8 bg-background/90"><X className="h-4 w-4" aria-hidden="true" /></Button>

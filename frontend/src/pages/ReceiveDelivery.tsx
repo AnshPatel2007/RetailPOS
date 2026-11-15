@@ -10,6 +10,7 @@ import { PickableProduct, ProductPicker } from '@/components/common/ProductPicke
 import { ImportReview } from '@/components/inventory/ImportReview';
 import { InvoiceCapture } from '@/components/deliveries/InvoiceCapture';
 import { InvoiceReview } from '@/components/deliveries/InvoiceReview';
+import { scrollPageToTop } from '@/components/deliveries/pageScroll';
 import { WaitingInvoices } from '@/components/deliveries/WaitingInvoices';
 import { Alert } from '@/components/ui/Alert';
 import { Badge } from '@/components/ui/Badge';
@@ -62,6 +63,8 @@ export default function ReceiveDelivery() {
     return next;
   }), [setParams]);
   const [capturing, setCapturing] = useState(false);
+  // Opening an invoice (from the list or the Alerts bell) or going back starts at the top of the page.
+  useEffect(() => { scrollPageToTop(); }, [invoiceId]);
   const userId = useAuthStore(state => state.user?.id);
   const storageKey = `pos-receive-delivery:${locationId || ''}:${userId || ''}`;
   const [draft, setDraftState] = useState<DeliveryDraft>(emptyDraft);
