@@ -28,18 +28,19 @@ test('an owner links the stores\' items, changes one for both stores, and adds a
   await expect(match).toContainText('Sparkle Water 16 oz');
   await expect(match).toContainText('Oak Street Store: Sparkle Water 16oz · $2.09 · 6 in stock');
   await expect(match).toContainText('Differs: Name, SKU, Price');
-  await page.screenshot({ path: info.outputPath('link-review.png') });
+  await page.screenshot({ path: info.outputPath('link-review.png'), animations: 'disabled' });
   await wizard.getByRole('button', { name: 'Link 1 item', exact: true }).click();
   await expect(page.getByText('2 store items linked as 1 shared item')).toBeVisible();
   const sparkle = page.getByRole('table', { name: 'Shared items' }).getByRole('row').filter({ hasText: 'SPARKLE-16' });
   await expect(sparkle).toContainText('Elm Street Store $1.99');
   await expect(sparkle).toContainText('Oak Street Store $2.09');
 
-  // Edit once: the new name reaches both stores.
+  // Edit once: the new name reaches both stores (opened once the notice has gone, for the picture).
+  await expect(page.getByText('2 store items linked as 1 shared item')).toHaveCount(0, { timeout: 10000 });
   await sparkle.getByRole('button', { name: 'Edit Sparkle Water 16 oz', exact: true }).click();
   const edit = page.getByRole('dialog', { name: 'Edit Shared Item' });
   await edit.getByLabel('Name', { exact: true }).fill('Sparkle Water Lime 16 oz');
-  await page.screenshot({ path: info.outputPath('edit-shared-item.png') });
+  await page.screenshot({ path: info.outputPath('edit-shared-item.png'), animations: 'disabled' });
   await edit.getByRole('button', { name: 'Save 1 change', exact: true }).click();
   await expect(page.getByText('Sparkle Water Lime 16 oz changed in 2 stores')).toBeVisible();
 
@@ -78,7 +79,7 @@ test('an owner links the stores\' items, changes one for both stores, and adds a
   await page.locator('main').getByRole('searchbox', { name: 'Search shared items' }).fill('');
   await expect(page.getByRole('table', { name: 'Shared items' }).getByRole('row').filter({ hasText: 'SPARKLE-16' })).toBeVisible();
   await expect(page.getByText(/^Trail Mix 6 oz (added to|is in)/)).toHaveCount(0, { timeout: 10000 });
-  await page.screenshot({ path: info.outputPath('shared-catalog.png'), fullPage: true });
+  await page.screenshot({ path: info.outputPath('shared-catalog.png'), fullPage: true, animations: 'disabled' });
 
   // At Oak Street: the shared name and price, a locked form, and Trail Mix with no stock yet.
   await switchTo(page, 'Oak Street Store');
@@ -95,7 +96,7 @@ test('an owner links the stores\' items, changes one for both stores, and adds a
   const follow = oakForm.getByRole('checkbox', { name: /^Follow shared price/ });
   await expect(oakForm.getByLabel('Retail Price', { exact: true })).toBeDisabled();
   await expect(follow).toBeChecked();
-  await page.screenshot({ path: info.outputPath('store-item-form.png') });
+  await page.screenshot({ path: info.outputPath('store-item-form.png'), animations: 'disabled' });
 
   // The store sets its own price by turning Follow off.
   await follow.uncheck();
@@ -108,5 +109,5 @@ test('an owner links the stores\' items, changes one for both stores, and adds a
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/inventory/catalog');
   await expect(page.getByText('Oak Street Store $2.29')).toBeVisible();
-  await page.screenshot({ path: info.outputPath('shared-catalog-phone.png'), fullPage: true });
+  await page.screenshot({ path: info.outputPath('shared-catalog-phone.png'), fullPage: true, animations: 'disabled' });
 });
