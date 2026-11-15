@@ -36,16 +36,16 @@ export type SharedValues = {
   priceEmbedded: boolean; saleBlockedReason: string | null; categoryName: string | null;
 };
 
-const memberSelect = {
+export const memberSelect = {
   id: true, locationId: true, name: true, sku: true, barcode: true, description: true, brand: true, productFamily: true, variant: true, size: true,
   baseUnitName: true, isTaxable: true, minimumAge: true, ebtEligible: true, priceEmbedded: true, saleBlockedReason: true,
   price: true, stockQuantity: true, updatedAt: true, catalogItemId: true,
   category: { select: { name: true } },
   sellingUnits: { where: { isActive: true }, select: { id: true, name: true, sku: true, barcode: true, unitsPerPackage: true, price: true, catalogPackId: true }, orderBy: { id: 'asc' as const } },
 } satisfies Prisma.ProductSelect;
-type Member = Prisma.ProductGetPayload<{ select: typeof memberSelect }>;
+export type Member = Prisma.ProductGetPayload<{ select: typeof memberSelect }>;
 
-const itemSelect = {
+export const itemSelect = {
   id: true, organizationId: true, name: true, sku: true, barcode: true, description: true, brand: true, productFamily: true, variant: true, size: true,
   baseUnitName: true, categoryName: true, isTaxable: true, minimumAge: true, ebtEligible: true, priceEmbedded: true, saleBlockedReason: true,
   defaultPrice: true, isActive: true, version: true, updatedAt: true,
@@ -54,13 +54,18 @@ const itemSelect = {
 } satisfies Prisma.CatalogItemSelect;
 type Item = Prisma.CatalogItemGetPayload<{ select: typeof itemSelect }>;
 
+/** An item as the catalog screen shows it: with each store's listing and the stores that do not carry it. */
+export const listItemSelect = { ...itemSelect,
+  products: { select: { id: true, locationId: true, price: true, priceFollowsCatalog: true, stockQuantity: true, isActive: true } } } satisfies Prisma.CatalogItemSelect;
+type ListItem = Prisma.CatalogItemGetPayload<{ select: typeof listItemSelect }>;
+
 export function sharedValues(source: Pick<Member, SharedField> & { category: { name: string } | null }): SharedValues {
   return { name: source.name, sku: source.sku, barcode: source.barcode, description: source.description, brand: source.brand,
     productFamily: source.productFamily, variant: source.variant, size: source.size, baseUnitName: source.baseUnitName, isTaxable: source.isTaxable,
     minimumAge: source.minimumAge, ebtEligible: source.ebtEligible, priceEmbedded: source.priceEmbedded, saleBlockedReason: source.saleBlockedReason,
     categoryName: source.category?.name ?? null };
 }
-const itemValues = (item: Item | SharedValues): SharedValues => ({ name: item.name, sku: item.sku, barcode: item.barcode, description: item.description,
+export const itemValues = (item: Item | SharedValues): SharedValues => ({ name: item.name, sku: item.sku, barcode: item.barcode, description: item.description,
   brand: item.brand, productFamily: item.productFamily, variant: item.variant, size: item.size, baseUnitName: item.baseUnitName, isTaxable: item.isTaxable,
   minimumAge: item.minimumAge, ebtEligible: item.ebtEligible, priceEmbedded: item.priceEmbedded, saleBlockedReason: item.saleBlockedReason, categoryName: item.categoryName });
 
@@ -105,25 +110,36 @@ export async function listCatalog(req: AuthRequest) {
     { name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }, { barcode: { in: barcodeVariants(search) } },
   ] } : {}) };
   const [items, total, unlinked] = await Promise.all([
-    prisma.catalogItem.findMany({ where, orderBy: [{ name: 'asc' }, { id: 'asc' }], skip: (query.page - 1) * limit, take: limit,
-      select: { ...itemSelect, products: { select: { id: true, locationId: true, price: true, priceFollowsCatalog: true, stockQuantity: true, isActive: true } } } }),
+    prisma.catalogItem.findMany({ where, orderBy: [{ name: 'asc' }, { id: 'asc' }], skip: (query.page - 1) * limit, take: limit, select: listItemSelect }),
     prisma.catalogItem.count({ where }),
     prisma.product.count({ where: { locationId: { in: context.stores.map(store => store.id) }, catalogItemId: null, isActive: true, sku: { not: 'MISC-001' } } }),
   ]);
-  const storeName = (id: string | null) => context.stores.find(store => store.id === id)?.name ?? 'A store';
   return {
     stores: context.stores,
     unlinkedProducts: unlinked,
-    items: items.map(item => ({
-      ...itemValues(item), id: item.id, defaultPrice: item.defaultPrice === null ? null : Number(item.defaultPrice), isActive: item.isActive, version: item.version,
-      packs: item.packs.map(pack => ({ ...pack, defaultPrice: pack.defaultPrice === null ? null : Number(pack.defaultPrice) })),
-      listings: item.products.map(product => ({ locationId: product.locationId, storeName: storeName(product.locationId), productId: product.id,
-        price: Number(product.price), priceFollowsCatalog: product.priceFollowsCatalog, stockQuantity: product.stockQuantity, isActive: product.isActive }))
-        .sort((a, b) => a.storeName.localeCompare(b.storeName)),
-      missingStores: context.stores.filter(store => !item.products.some(product => product.locationId === store.id)).map(store => ({ locationId: store.id, storeName: store.name })),
-    })),
+    items: items.map(item => presentItem(item, context.stores)),
     pagination: { page: query.page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
   };
+}
+
+export function presentItem(item: ListItem, stores: { id: string; name: string }[]) {
+  const storeName = (id: string | null) => stores.find(store => store.id === id)?.name ?? 'A store';
+  return {
+    ...itemValues(item), id: item.id, defaultPrice: item.defaultPrice === null ? null : Number(item.defaultPrice), isActive: item.isActive, version: item.version,
+    packs: item.packs.map(pack => ({ ...pack, defaultPrice: pack.defaultPrice === null ? null : Number(pack.defaultPrice) })),
+    listings: item.products.map(product => ({ locationId: product.locationId, storeName: storeName(product.locationId), productId: product.id,
+      price: Number(product.price), priceFollowsCatalog: product.priceFollowsCatalog, stockQuantity: product.stockQuantity, isActive: product.isActive }))
+      .sort((a, b) => a.storeName.localeCompare(b.storeName)),
+    missingStores: stores.filter(store => !item.products.some(product => product.locationId === store.id)).map(store => ({ locationId: store.id, storeName: store.name })),
+  };
+}
+
+/** GET /catalog/:id */
+export async function getCatalogItem(req: AuthRequest) {
+  const context = await ownerContext(req);
+  const item = await prisma.catalogItem.findFirst({ where: { id: String(req.params.id), organizationId: context.organizationId }, select: listItemSelect });
+  if (!item) throw new AppError('Shared item not found', 404);
+  return presentItem(item, context.stores);
 }
 
 /* ------------------------------------------------------------------ */
@@ -223,7 +239,7 @@ export async function previewLinks(req: AuthRequest) {
 }
 
 /** Copy the shared fields onto a store's product; SKU and barcode only when that store has them free. */
-async function matchProduct(tx: Prisma.TransactionClient, product: Member, shared: SharedValues, storeName: string) {
+export async function matchProduct(tx: Prisma.TransactionClient, product: Member, shared: SharedValues, storeName: string) {
   const data: Prisma.ProductUncheckedUpdateInput = { name: shared.name, description: shared.description, brand: shared.brand, productFamily: shared.productFamily,
     variant: shared.variant, size: shared.size, baseUnitName: shared.baseUnitName, isTaxable: shared.isTaxable, minimumAge: shared.minimumAge,
     ebtEligible: shared.ebtEligible, priceEmbedded: shared.priceEmbedded, saleBlockedReason: shared.saleBlockedReason };
@@ -239,7 +255,7 @@ async function matchProduct(tx: Prisma.TransactionClient, product: Member, share
 }
 
 /** Link each store's packs to the item's packs by barcode (any UPC/EAN form). */
-async function linkPacks(tx: Prisma.TransactionClient, members: Member[], packs: { id: string; barcode: string }[]) {
+export async function linkPacks(tx: Prisma.TransactionClient, members: Member[], packs: { id: string; barcode: string }[]) {
   for (const member of members) for (const unit of member.sellingUnits) {
     const pack = packs.find(candidate => barcodeKey(candidate.barcode) === barcodeKey(unit.barcode));
     if (pack && unit.catalogPackId !== pack.id) await tx.productSellingUnit.update({ where: { id: unit.id }, data: { catalogPackId: pack.id } });
