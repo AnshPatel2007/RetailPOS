@@ -220,8 +220,64 @@ model Organization {
   updatedAt DateTime            @updatedAt
   locations Location[]
   owners    OrganizationOwner[]
+  catalogItems CatalogItem[]
 
   @@map("organizations")
+}
+
+/// Shared catalog: one item an owner manages for all stores of the organization. Each store
+/// keeps its own Product row (stock, cost, price); linked products take the shared fields
+/// from here. No picture field: products carry no pictures (owner's choice, Nov 2026).
+model CatalogItem {
+  id                String   @id @default(uuid())
+  organizationId    String
+  name              String
+  sku               String
+  barcode           String?
+  description       String?
+  brand             String?
+  productFamily     String?
+  variant           String?
+  size              String?
+  baseUnitName      String   @default("unit")
+  categoryName      String?
+  isTaxable         Boolean  @default(true)
+  minimumAge        Int?
+  ebtEligible       Boolean  @default(false)
+  priceEmbedded     Boolean  @default(false)
+  saleBlockedReason String?
+  defaultPrice      Decimal? @db.Decimal(14, 4)
+  isActive          Boolean  @default(true)
+  version           Int      @default(0)
+  createdById       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  organization      Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  packs             CatalogPack[]
+  products          Product[]
+
+  @@unique([organizationId, sku])
+  @@unique([organizationId, barcode])
+  @@index([organizationId, name])
+  @@map("catalog_items")
+}
+
+/// A shared pack of a catalog item (a 12-pack, a carton); stores' packs link to it.
+model CatalogPack {
+  id              String   @id @default(uuid())
+  catalogItemId   String
+  name            String
+  sku             String?
+  barcode         String
+  unitsPerPackage Int
+  defaultPrice    Decimal? @db.Decimal(14, 4)
+  isActive        Boolean  @default(true)
+  version         Int      @default(0)
+  catalogItem     CatalogItem          @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  sellingUnits    ProductSellingUnit[]
+
+  @@unique([catalogItemId, barcode])
+  @@map("catalog_packs")
 }
 
 /// An owner has ADMIN access to every store of the organization (organization.service syncOwnerAccess).
@@ -417,9 +473,14 @@ model Product {
   destinationTransferItems TransferItem[] @relation("TransferDestination")
   cycleCountItems CycleCountItem[]
   invoiceMatches  InvoiceItemMatch[]
+  /// Shared catalog link: the shared fields come from the catalog item; the price too while priceFollowsCatalog.
+  catalogItemId       String?
+  priceFollowsCatalog Boolean          @default(false)
+  catalogItem         CatalogItem?     @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
 
   @@unique([sku, locationId])
   @@unique([barcode, locationId])
+  @@unique([catalogItemId, locationId])
   @@index([sku])
   @@index([barcode])
   @@index([categoryId])
@@ -445,9 +506,14 @@ model ProductSellingUnit {
   isActive Boolean @default(true)
   version Int @default(0)
   createRequestKey String?
+  /// Shared catalog link (see CatalogPack); the pack price follows the shared price while priceFollowsCatalog.
+  catalogPackId String?
+  priceFollowsCatalog Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  catalogPack CatalogPack? @relation(fields: [catalogPackId], references: [id], onDelete: SetNull)
+  @@index([catalogPackId], map: "product_selling_units_catalog_pack_idx")
   @@unique([barcode, locationId], map: "product_selling_units_barcode_location_key")
   @@unique([sku, locationId], map: "product_selling_units_sku_location_key")
   @@unique([createRequestKey, locationId], map: "product_selling_units_request_location_key")
