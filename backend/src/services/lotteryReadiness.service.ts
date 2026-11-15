@@ -1,5 +1,13 @@
 import type { LotteryReport, LotterySettings } from '../validators/lotteryV2.validator';
-import type { LotteryCount, lotteryDayTotals } from './lotteryMath.service';
+
+/**
+ * What readiness reads from each counted book and from the day's totals
+ * (`lotteryDayTotals`). Declared here rather than imported from lotteryMath.service:
+ * the screens share this file's types, and the frontend build (Vercel installs only
+ * the frontend's packages) must never reach the database or web server packages.
+ */
+type CountedBook = { bookId: string; slot: string; openingVerified: boolean; closingPosition: number | null };
+type DayTotals = { cashVariance: string | null; earningsComplete: boolean };
 
 export type LotteryStage = 'scratch' | 'online' | 'reconcile';
 export interface LotteryIssue {
@@ -18,8 +26,7 @@ export interface LotteryReadiness {
 }
 
 /** Navigation metadata only. Monetary calculations and closing rules stay in the lottery services. */
-export function lotteryReadiness(settings: LotterySettings, report: LotteryReport,
-  books: (LotteryCount & { bookId: string; slot: string })[], totals: ReturnType<typeof lotteryDayTotals>): LotteryReadiness {
+export function lotteryReadiness(settings: LotterySettings, report: LotteryReport, books: CountedBook[], totals: DayTotals): LotteryReadiness {
   const issues: LotteryIssue[] = [];
   const add = (stage: LotteryStage, field: string, message: string, blocking = true, reference: Partial<LotteryIssue> = {}) =>
     issues.push({ stage, field, message, blocking, ...reference });
