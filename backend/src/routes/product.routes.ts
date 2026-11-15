@@ -8,7 +8,6 @@ import { getInventoryHistory } from '../controllers/inventoryHistory.controller'
 import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { createProductSchema, updateProductSchema } from '../validators/product.validator';
-import { upload } from '../middleware/upload';
 import * as sellingUnitController from '../controllers/sellingUnit.controller';
 import * as bundleController from '../controllers/productBundle.controller';
 import * as packMergeController from '../controllers/packMerge.controller';
@@ -37,13 +36,7 @@ router.post('/labels/printed', authorize('ADMIN', 'MANAGER'), productController.
 // Inventory > Packs: packs of one item and variety packs, listed on their own.
 router.get('/packs', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), packCatalogController.getPacks);
 
-router.post(
-  '/scan-receipt',
-  authorize('ADMIN', 'MANAGER'),
-  upload.single('receipt'),
-  productController.scanReceipt
-);
-
+// Invoice photos are read and received through /api/delivery-invoices.
 router.post(
   '/apply-receipt',
   authorize('ADMIN', 'MANAGER'),

@@ -11,6 +11,7 @@ import { logger } from '../utils/logger';
 import { can } from '../policies/capabilities';
 import { getLocationFilter, resolveWriteLocation } from '../utils/locationFilter.util';
 import { pickRule, Rounding, storeRules, suggestPrice } from './pricing.service';
+import { costChangeAlertPercent } from '../validators/storeSettings.validator';
 import { InvoiceLine, Tier, invoiceWarnings, lineUnits, matchInvoiceLines, pickSupplier, rematchSupplier, unitsPerCase } from './invoiceMatching.service';
 import {
   InvoiceFile, InvoiceMimeType, InvoiceReadError, InvoiceReading, MAX_IMAGE_BYTES, MAX_INVOICE_FILES, MAX_PDF_BYTES,
@@ -99,13 +100,16 @@ export async function deliveryInvoiceDetail(invoice: InvoiceRow) {
   const lookup = await names([invoice]);
   const lines = invoiceLines(invoice);
   const ids = [...new Set(lines.flatMap(line => line.product ? [line.product.productId] : []))];
-  const [products, rules, warnings] = await Promise.all([
+  const [products, rules, warnings, categories, location] = await Promise.all([
     ids.length ? prisma.product.findMany({ where: { id: { in: ids }, locationId: invoice.locationId },
       select: { id: true, name: true, sku: true, cost: true, price: true, stockQuantity: true, isActive: true, trackInventory: true, categoryId: true, brand: true } }) : [],
     storeRules(prisma, invoice.locationId),
-    invoiceWarnings(prisma, { id: invoice.id, locationId: invoice.locationId, supplierId: invoice.supplierId, vendorName: invoice.vendorName,
+    invoice.status === 'READY' ? invoiceWarnings(prisma, { id: invoice.id, locationId: invoice.locationId, supplierId: invoice.supplierId, vendorName: invoice.vendorName,
       invoiceNumber: invoice.invoiceNumber, subtotal: numberOrNull(invoice.subtotal), tax: numberOrNull(invoice.tax), fees: numberOrNull(invoice.fees),
-      discount: numberOrNull(invoice.discount), total: numberOrNull(invoice.total), lines }),
+      discount: numberOrNull(invoice.discount), total: numberOrNull(invoice.total), lines }) : [],
+    // New items go into the store's own categories (the receipt import accepts only those).
+    prisma.category.findMany({ where: { locationId: invoice.locationId, isActive: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+    prisma.location.findUnique({ where: { id: invoice.locationId }, select: { settings: true } }),
   ]);
   const priceFor = (unitCost: number | null, item: { productId?: string | null; categoryId?: string | null; brand?: string | null }) => {
     if (!unitCost || unitCost <= 0) return null;
@@ -118,6 +122,8 @@ export async function deliveryInvoiceDetail(invoice: InvoiceRow) {
     subtotal: numberOrNull(invoice.subtotal), tax: numberOrNull(invoice.tax), fees: numberOrNull(invoice.fees), discount: numberOrNull(invoice.discount),
     notes: Array.isArray(reading.notes) ? reading.notes : [],
     warnings,
+    categories,
+    costAlertPercent: costChangeAlertPercent(location?.settings),
     pages: invoice.pages.sort((a, b) => a.pageNumber - b.pageNumber).map(page => ({ pageNumber: page.pageNumber, mimeType: page.mimeType })),
     lines: lines.map(line => {
       const { units, unitCost } = lineUnits(line);
@@ -301,7 +307,9 @@ export async function listDeliveryInvoices(req: AuthRequest) {
   if (!locationId) throw new AppError('Select a store to see delivery invoices', 400);
   const wanted = z.enum(['open', 'received', 'discarded']).catch('open').parse(req.query.status);
   const status = wanted === 'open' ? { in: OPEN } : wanted.toUpperCase();
-  const where: Prisma.DeliveryInvoiceWhereInput = reads(req) ? { locationId, status }
+  // The invoice a purchase order was received from (its photos), whatever its status.
+  const order = typeof req.query.purchaseOrderId === 'string' && req.query.purchaseOrderId ? req.query.purchaseOrderId.slice(0, 100) : null;
+  const where: Prisma.DeliveryInvoiceWhereInput = reads(req) ? (order ? { locationId, purchaseOrderId: order } : { locationId, status })
     : { locationId, createdById: req.user!.id, createdAt: { gte: new Date(Date.now() - 7 * 86400000) } };
   const invoices = await prisma.deliveryInvoice.findMany({ where, include: { pages: true },
     orderBy: wanted === 'open' ? [{ createdAt: 'asc' }, { id: 'asc' }] : [{ updatedAt: 'desc' }, { id: 'asc' }], take: wanted === 'open' ? 100 : 50 });

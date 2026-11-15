@@ -329,17 +329,34 @@ export const productService = {
   bulkToggleActive: (productIds: string[], isActive: boolean) =>
     api.post('/products/bulk-toggle-active', { productIds, isActive }),
 
-  scanReceipt: (file: File) => {
-    const formData = new FormData();
-    formData.append('receipt', file);
-    return api.post('/products/scan-receipt', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 60000, // 60s timeout for AI processing
-    });
-  },
+};
 
-  applyReceipt: (data: any) =>
-    api.post('/products/apply-receipt', data),
+/**
+ * Delivery invoices: a photo of a supplier's invoice, read and matched, received
+ * with the owner's OK (backend services/deliveryInvoice.service.ts).
+ */
+export const deliveryInvoiceService = {
+  /** Reading takes about half a minute a page, so these wait longer than other requests. */
+  send: (pages: { blob: Blob; name: string }[]) => {
+    const form = new FormData();
+    for (const page of pages) form.append('pages', page.blob, page.name);
+    return api.post<{ success: boolean; data: import('@/types/deliveryInvoices').InvoiceSummary | import('@/types/deliveryInvoices').InvoiceDetail }>(
+      '/delivery-invoices', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 240000 });
+  },
+  list: (params: { status?: 'open' | 'received' | 'discarded'; purchaseOrderId?: string } = {}, signal?: AbortSignal) =>
+    api.get<{ success: boolean; data: import('@/types/deliveryInvoices').InvoiceSummary[] }>('/delivery-invoices', { params, signal }),
+  get: (id: string, signal?: AbortSignal) =>
+    api.get<{ success: boolean; data: import('@/types/deliveryInvoices').InvoiceDetail }>(`/delivery-invoices/${encodeURIComponent(id)}`, { signal }),
+  update: (id: string, patch: import('@/types/deliveryInvoices').InvoicePatch) =>
+    api.patch<{ success: boolean; data: import('@/types/deliveryInvoices').InvoiceDetail }>(`/delivery-invoices/${encodeURIComponent(id)}`, patch),
+  readAgain: (id: string) =>
+    api.post<{ success: boolean; data: import('@/types/deliveryInvoices').InvoiceSummary | import('@/types/deliveryInvoices').InvoiceDetail }>(`/delivery-invoices/${encodeURIComponent(id)}/read`, {}, { timeout: 240000 }),
+  receive: (id: string, version: number) =>
+    api.post<{ success: boolean; data: import('@/types/deliveryInvoices').InvoiceDetail }>(`/delivery-invoices/${encodeURIComponent(id)}/receive`, { version }, { timeout: 120000 }),
+  discard: (id: string) =>
+    api.post<{ success: boolean; data: import('@/types/deliveryInvoices').InvoiceSummary }>(`/delivery-invoices/${encodeURIComponent(id)}/discard`),
+  page: (id: string, page: number, signal?: AbortSignal) =>
+    api.get<Blob>(`/delivery-invoices/${encodeURIComponent(id)}/pages/${page}`, { responseType: 'blob', signal }),
 };
 
 /**

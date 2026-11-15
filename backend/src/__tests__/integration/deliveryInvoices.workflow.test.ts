@@ -255,6 +255,9 @@ describe('Delivery invoices: sending and reviewing', () => {
     await post(`/${id}/discard`).expect(409);
     await patch(id, { version: received.version, lines: [] }).expect(409);
     expect(await prisma.activityLog.count({ where: { entityId: id, action: 'INVOICE_RECEIVED' } })).toBe(1);
+    // The order it became shows its photos.
+    expect((await get(`?purchaseOrderId=${received.purchaseOrderId}`).expect(200)).body.data).toMatchObject([{ id, status: 'RECEIVED', pageCount: 1 }]);
+    expect((await get(`/${id}`).expect(200)).body.data).toMatchObject({ categories: [{ id: data.category.id, name: 'Test Category' }], costAlertPercent: 3, warnings: [] });
 
     // The next invoice from this supplier is all sure: one tap.
     const next = (await send(cashier, invoiceNumbered('INV-78')).expect(201)).body.data.id;

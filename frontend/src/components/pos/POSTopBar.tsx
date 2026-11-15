@@ -1,13 +1,15 @@
 import { formatTime } from '@/lib/utils';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertTriangle, Sun, Moon, MonitorSmartphone, Lock } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Sun, Moon, MonitorSmartphone, Lock, Truck } from 'lucide-react';
 import { shiftService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { OfflineIndicator } from '@/components/common/OfflineIndicator';
 import { useRegisterStore, canLockRegister } from '@/store/registerStore';
+import { InvoiceCapture } from '@/components/deliveries/InvoiceCapture';
+import { can } from '@/lib/capabilities';
 
 interface CurrentShift {
   clockInAt: string;
@@ -29,6 +31,8 @@ export const POSTopBar: React.FC = () => {
   // undefined = loading/unknown, null = not clocked in
   const [currentShift, setCurrentShift] = useState<CurrentShift | null | undefined>(undefined);
   const [now, setNow] = useState(new Date());
+  // A delivery arrived: anyone at the register can photograph the invoice for the owner.
+  const [sendingInvoice, setSendingInvoice] = useState(false);
 
   // The backend rejects sales without an open shift, so surface it up front
   useEffect(() => {
@@ -111,6 +115,19 @@ export const POSTopBar: React.FC = () => {
             </div>
           </>
         )}
+
+        {can(user?.role, 'checkout.complete') && (
+          <button
+            onClick={() => setSendingInvoice(true)}
+            className="h-11 min-w-11 shrink-0 flex items-center justify-center gap-1.5 px-2 rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+            aria-label="Delivery: photograph the invoice"
+            title="A delivery arrived: photograph its invoice for the owner"
+          >
+            <Truck className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline text-sm font-medium">Delivery</span>
+          </button>
+        )}
+        <InvoiceCapture isOpen={sendingInvoice} onClose={() => setSendingInvoice(false)} />
 
         <button
           onClick={() => window.open('/customer-display', 'customerDisplay', 'width=1024,height=768')}

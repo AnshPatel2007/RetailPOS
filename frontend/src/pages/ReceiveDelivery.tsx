@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Camera, Minus, PackageCheck, Plus, Search, Trash2 } from 'lucide-react';
 import { FormSection, ManagementPage } from '@/components/common/Workspace';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -8,7 +8,9 @@ import { SupplierPicker } from '@/components/common/SupplierPicker';
 import { CameraScanner } from '@/components/common/CameraScanner';
 import { PickableProduct, ProductPicker } from '@/components/common/ProductPicker';
 import { ImportReview } from '@/components/inventory/ImportReview';
-import { ReceiptScanModal } from '@/components/inventory/ReceiptScanModal';
+import { InvoiceCapture } from '@/components/deliveries/InvoiceCapture';
+import { InvoiceReview } from '@/components/deliveries/InvoiceReview';
+import { WaitingInvoices } from '@/components/deliveries/WaitingInvoices';
 import { Alert } from '@/components/ui/Alert';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -42,14 +44,24 @@ const describeMatch = (match: BarcodeMatch) => match.kind === 'SUPPLIER_CASE' ? 
   : match.kind === 'PACK' ? `Pack of ${match.product.unitsPerPackage || 1}` : `Single · ${match.product.sku}`;
 
 /**
- * Receive a delivery on a phone: choose the supplier (and optionally its open
- * order), scan what arrived, then review and save through the reviewed receipt
- * import, the same write path as the invoice photo. Low items offer a quick
- * shelf count first, posted before the receipt. The list is kept in this
- * browser until it is saved.
+ * Receive a delivery. The main way: a photo of the supplier's invoice, read and
+ * matched to the store's items (anyone may send one; it waits here, and under
+ * the Alerts bell, for an owner's or manager's OK: `?invoice=<id>` opens it).
+ * The other way, on a phone: choose the supplier (and optionally its open
+ * order), scan what arrived, then review and save. Both save through the
+ * reviewed receipt import. Low items offer a quick shelf count first, posted
+ * before the receipt. The scanned list is kept in this browser until it is saved.
  */
 export default function ReceiveDelivery() {
   const { locationId, isReadOnly } = useEffectiveLocation();
+  const [params, setParams] = useSearchParams();
+  const invoiceId = params.get('invoice');
+  const openInvoice = useCallback((id: string | null) => setParams(current => {
+    const next = new URLSearchParams(current);
+    if (id) next.set('invoice', id); else next.delete('invoice');
+    return next;
+  }), [setParams]);
+  const [capturing, setCapturing] = useState(false);
   const userId = useAuthStore(state => state.user?.id);
   const storageKey = `pos-receive-delivery:${locationId || ''}:${userId || ''}`;
   const [draft, setDraftState] = useState<DeliveryDraft>(emptyDraft);
@@ -89,8 +101,6 @@ export default function ReceiveDelivery() {
   const [choices, setChoices] = useState<{ code: string; matches: BarcodeMatch[] } | null>(null);
   const [newItem, setNewItem] = useState<NewItemForm | null>(null);
   const [findByName, setFindByName] = useState(false);
-  // The other way in: a photo of the paper invoice (it used to start from Products > Scan Receipt).
-  const [scanningInvoice, setScanningInvoice] = useState(false);
   const [orderLoading, setOrderLoading] = useState(false);
   const [countingShelves, setCountingShelves] = useState(false);
   const [reviewError, setReviewError] = useState('');
@@ -277,14 +287,27 @@ export default function ReceiveDelivery() {
   const setInvoice = (field: keyof DeliveryDraft['invoice'], value: string) => setDraft(current => ({ ...current, invoice: { ...current.invoice, [field]: value } }));
   const orderList = openOrders.data || [];
 
+  if (invoiceId && locationId) return (
+    <ManagementPage>
+      <PageHeader title="Receive Delivery" icon={PackageCheck} />
+      <div className="mx-auto w-full max-w-7xl pb-2">
+        <InvoiceReview key={invoiceId} invoiceId={invoiceId} locationId={locationId} onBack={() => openInvoice(null)} />
+      </div>
+    </ManagementPage>
+  );
+
   return (
     <ManagementPage>
       <PageHeader title="Receive Delivery" icon={PackageCheck}
-        actions={draft.lines.length > 0 && !reviewing && !isReadOnly ? <Button variant="ghost" onClick={() => void startOver()} disabled={locked}>Start over</Button> : undefined} />
+        actions={isReadOnly ? undefined : <>
+          {draft.lines.length > 0 && !reviewing && <Button variant="ghost" onClick={() => void startOver()} disabled={locked}>Start over</Button>}
+          <Button variant="primary" onClick={() => setCapturing(true)}><Camera aria-hidden="true" />Take a photo of the invoice</Button>
+        </>} />
       {confirmDialog}
-      <ReceiptScanModal isOpen={scanningInvoice && !isReadOnly} onClose={() => setScanningInvoice(false)} onSuccess={() => openOrders.refresh()} />
+      <InvoiceCapture isOpen={capturing && !isReadOnly} onClose={() => setCapturing(false)} onReady={invoice => { setCapturing(false); openInvoice(invoice.id); }} />
       <div className="mx-auto w-full max-w-3xl space-y-4 pb-2">
         {isReadOnly && <Alert tone="info">This store is open for viewing only, so deliveries cannot be received here.</Alert>}
+        {!isReadOnly && <WaitingInvoices onOpen={id => openInvoice(id)} />}
         {workflow.error && <Alert tone="error">{workflow.error}</Alert>}
 
         {isReadOnly ? null : workflow.pending ? (
@@ -306,6 +329,7 @@ export default function ReceiveDelivery() {
             </div>
           </section>
         ) : <>
+          <h2 className="pt-2 text-base font-semibold">Or scan the items one by one</h2>
           <section aria-label="Supplier and order" className="space-y-3 rounded-lg border bg-card p-4">
             <SupplierPicker locationId={locationId || undefined} selected={draft.supplier} onSelect={chooseSupplier} />
             {draft.supplier && <Select label="Order (optional)" value={order?.id || ''} disabled={orderLoading || locked}
@@ -315,11 +339,6 @@ export default function ReceiveDelivery() {
               {order && !orderList.some(candidate => candidate.id === order.id) && <option value={order.id}>{order.orderNumber}</option>}
               {orderList.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.orderNumber} · ordered {formatDate(candidate.orderedAt || candidate.createdAt)}</option>)}
             </Select>}
-            {/* The other way to receive: a photo of the paper invoice fills in the lines. */}
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-              <p className="text-sm text-muted-foreground">Have the paper invoice? A photo of it can fill in the items.</p>
-              <Button type="button" disabled={locked} onClick={() => setScanningInvoice(true)}><Camera aria-hidden="true" />Scan the invoice instead</Button>
-            </div>
           </section>
 
           <section aria-label="Scan items" className="space-y-3 rounded-lg border bg-card p-4">

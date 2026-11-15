@@ -35,7 +35,7 @@ const word: Record<AttentionSeverity, string> = { high: 'Urgent', medium: 'Soon'
 const action: Record<string, string> = {
   'stock-exceptions': 'Count items', 'profit-not-confirmed': 'Review', 'drawer-difference': 'See shifts', 'prices-below-target': 'Review prices',
   'bills-due': 'See bills', 'orders-overdue': 'See orders', 'refunds-high': 'See refunds', 'deliveries-without-invoice': 'Match invoices',
-  'job-failures': 'See jobs', 'unusual-sales-day': 'See report',
+  'job-failures': 'See jobs', 'unusual-sales-day': 'See report', 'invoices-to-confirm': 'Check invoices',
 };
 
 /*

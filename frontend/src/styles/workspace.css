@@ -146,3 +146,8 @@
   .settings-save { position: sticky; bottom: 12px; z-index: 5; width: calc(100% - 64px); box-shadow: 0 8px 24px rgb(0 0 0 / .18); }
 }
 
+
+/* Delivery invoices (components/deliveries): a line that needs a person carries the attention edge;
+   the photo stays in view beside the lines on wide screens. */
+.invoice-line-open { border-left: 4px solid hsl(var(--warning)); }
+.invoice-photo-frame img { image-rendering: auto; }

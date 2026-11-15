@@ -99,6 +99,13 @@ const prisma = new PrismaClient({ datasources: { db: { url: target.toString() } 
     const ownUser = await prisma.user.create({ data: { email: name + '@example.test', password, firstName: name, lastName: 'Fixture', role: 'ADMIN', locationId: ownStore.id } });
     await prisma.shift.create({ data: { userId: ownUser.id, locationId: ownStore.id, clockInAt: new Date(), startingCash: 100 } });
   }
+  // A store of its own for the delivery-invoice spec: invoices@ owns it, invoice-cashier@ sends the photos.
+  const invoiceStore = await prisma.location.create({ data: { name: 'Invoice Check Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'invoices-store@example.test', timezone: 'America/Chicago' } });
+  await prisma.user.create({ data: { email: 'invoices@example.test', password, firstName: 'Invoices', lastName: 'Fixture', role: 'ADMIN', locationId: invoiceStore.id } });
+  await prisma.user.create({ data: { email: 'invoice-cashier@example.test', password, firstName: 'Ivy', lastName: 'Cashier', role: 'CASHIER', locationId: invoiceStore.id } });
+  await prisma.supplier.create({ data: { name: 'Fizz Bottling', locationId: invoiceStore.id } });
+  await prisma.product.create({ data: { name: 'Fizz Cola 12 oz Can', sku: 'FIZZ-12', barcode: '012345678905', price: 1.25, cost: 0.4, stockQuantity: 10, locationId: invoiceStore.id } });
+  await prisma.product.create({ data: { name: 'Crunch Chips 3 oz', sku: 'CRUNCH-3', price: 1.99, cost: 0.8, stockQuantity: 5, locationId: invoiceStore.id } });
   // One business with two stores for the store-switching spec (stores@example.test owns both).
   // South Street sold $42.00 two days ago; North Street sold nothing.
   const northStore = await prisma.location.create({ data: { name: 'North Street Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'north-store@example.test', timezone: 'America/Chicago' } });

@@ -4,6 +4,7 @@ import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useUrlFilter, useUrlPage } from '@/hooks/useUrlFilter';
 import { SupplierPicker, PickableSupplier } from '@/components/common/SupplierPicker';
+import { OrderInvoicePhotos } from '@/components/deliveries/OrderInvoicePhotos';
 import { useAuthStore } from '@/store/authStore';
 import { can } from '@/lib/capabilities';
 import { PurchaseReceiptModal } from '@/components/inventory/PurchaseReceiptModal';
@@ -1068,6 +1069,7 @@ export const Suppliers: React.FC<{ view: 'suppliers' | 'orders' }> = ({ view: ac
                 <p className="text-sm">{selectedOrder.notes}</p>
               </div>
             )}
+            <OrderInvoicePhotos purchaseOrderId={selectedOrder.id} />
             <div className="border-t pt-4">
               <h4 className="font-medium mb-2">Items</h4>
               <Table scrollLabel="Order items" stackOnPhone>
