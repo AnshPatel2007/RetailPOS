@@ -289,6 +289,10 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   before any field or button (an Enter inside it must never press one),
   or from the camera where the browser's BarcodeDetector reads pdf417 (Android, Mac; not Windows or iPhone).
   Under age or an expired ID shows DO NOT SELL; typing the date of birth and the logged visual check remain.
+  The result shows the name, city and state with the age so the cashier can compare them with the card and the
+  customer (never stored; the sale logs only the method and birth date). A scan that holds no ID details (the
+  small barcode at the top of a license, a product) is answered with "scan the larger barcode"; the POS cannot
+  choose which barcode the scanner reads (a scanner's "picklist"/centering mode can).
 - **Scans are local-first**: `services/registerCatalog.ts` answers a scan from the
   register's saved catalog (IndexedDB, `services/offlineDb.ts`) with no request, online
   or offline; the server is asked (`GET /products/resolve-barcode`) only when the copy

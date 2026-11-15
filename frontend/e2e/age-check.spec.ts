@@ -20,7 +20,7 @@ async function scan(page: Page, barcode: string) {
 const digits = (date: Date) => `${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}${date.getFullYear()}`;
 /** A US license barcode (sample data) as a 2D scanner types it: one element per line. */
 const license = (born: Date, expires: Date) => ['@', 'ANSI 636014090102DL00410279ZC03200024DLDAQD1234567', 'DCSDOE', 'DDEN', 'DACJANE', 'DDFN',
-  `DBB${digits(born)}`, `DBA${digits(expires)}`, 'DBC2', 'DAJCA', 'DCGUSA'];
+  `DBB${digits(born)}`, `DBA${digits(expires)}`, 'DBC2', 'DAISPRINGFIELD', 'DAJIL', 'DCGUSA'];
 async function scanLicense(page: Page, lines: string[]) {
   for (const [index, line] of lines.entries()) {
     await page.keyboard.type(line);
@@ -46,7 +46,10 @@ test('a 21+ item asks for ID as soon as it is scanned, and a license scan reads 
   await expect(age).toBeVisible();
   await expect(age).toContainText('Restricted: Age check beer');
   await scanLicense(page, license(new Date(year - 30, 0, 1), new Date(year + 3, 0, 1)));
-  await expect(age).toContainText('ID scanned — JANE DOE, 30');
+  // The name and city are shown to compare with the card and the customer.
+  await expect(age).toContainText('JANE DOE · 30 years old');
+  await expect(age).toContainText('SPRINGFIELD, IL');
+  await expect(age).toContainText('Check that the name, photo and city on the card match the customer.');
   await expect(age).toContainText('OK to sell');
   // The license's lines were never looked up as products.
   await expect(page.getByText(/No product has barcode/)).toHaveCount(0);
@@ -72,7 +75,8 @@ test('a scanner that reads the license itself and types its fields separated by 
   // Sample data in one scanner's layout: first, middle, last, birth date, street, -, city, state, ZIP, -, number.
   await page.keyboard.type(`JANE$Q$DOE$01/01/${year - 30}$123 MAIN ST$$SPRINGFIELD$IL$627010000$NONE$D12345678901`);
   await page.keyboard.press('Enter');
-  await expect(age).toContainText('ID scanned — customer is 30');
+  await expect(age).toContainText('JANE Q DOE · 30 years old');
+  await expect(age).toContainText('SPRINGFIELD, IL');
   await expect(age).toContainText('OK to sell');
   await age.getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(age).toHaveCount(0);
@@ -89,8 +93,12 @@ test('an under-age or expired ID is refused, and Remove item takes the restricte
   const age = ageDialog(page);
   await expect(age).toBeVisible();
 
+  // The small barcode at the top of a license holds no details: the cashier is told to scan the larger one.
+  await page.keyboard.type('D12345678901'); await page.keyboard.press('Enter');
+  await expect(age).toContainText('That barcode does not hold the ID\'s details. On the back of the license, scan the larger barcode');
+
   await scanLicense(page, license(new Date(year - 19, 0, 1), new Date(year + 2, 0, 1)));
-  await expect(age).toContainText('ID scanned — JANE DOE, 19');
+  await expect(age).toContainText('JANE DOE · 19 years old');
   await expect(age).toContainText('DO NOT SELL');
   await expect(age.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
 

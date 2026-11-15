@@ -19,14 +19,15 @@ const today = new Date(2026, 10, 15); // Nov 15, 2026
 
 // A US license as a scanner types it: header, then one element per line (sample data).
 const usLines = ['@', '\u001e', 'ANSI 636014090102DL00410279ZC03200024DLDAQD1234567', 'DCSSMITH', 'DDEN', 'DACJOHN', 'DDFN', 'DADQUINCY',
-  'DBD01152021', 'DBB04011990', 'DBA04012028', 'DBC1', 'DAU070 IN', 'DAJCA', 'DAK958200000', 'DCGUSA', 'DDB08292017', 'ZCZCAN'];
+  'DBD01152021', 'DBB04011990', 'DBA04012028', 'DBC1', 'DAU070 IN', 'DAIANYTOWN', 'DAJCA', 'DAK958200000', 'DCGUSA', 'DDB08292017', 'ZCZCAN'];
+/** What the cashier compares with the card: name, city, state. */
+const who = scan => [scan.name, scan.city, scan.state].join(' | ');
 
-test('a US license: date of birth, expiry and name, with the line breaks kept', () => {
+test('a US license: date of birth, expiry, name and city, with the line breaks kept', () => {
   const scan = id.readIdBarcode(usLines.join('\n'), today);
   assert.equal(day(scan.birthDate), '1990-04-01');
   assert.equal(day(scan.expires), '2028-04-01');
-  assert.equal(scan.firstName, 'JOHN');
-  assert.equal(scan.lastName, 'SMITH');
+  assert.equal(who(scan), 'JOHN QUINCY SMITH | ANYTOWN | CA');
 });
 
 test('the same license from a scanner that drops the line breaks still gives the dates', () => {
@@ -46,7 +47,8 @@ test('a scanner that types the license fields separated by $ gives the date of b
   const scan = id.readIdBarcode('JANE$Q$DOE$04/01/1990$123 MAIN ST$$SPRINGFIELD$IL$627010000$NONE$D12345678901', today);
   assert.equal(day(scan.birthDate), '1990-04-01');
   assert.equal(scan.expires, null);
-  assert.equal(scan.firstName, null);
+  // The words before the birth date are the name; the city is before the state code and its ZIP.
+  assert.equal(who(scan), 'JANE Q DOE | SPRINGFIELD | IL');
   // A date still ahead is the expiry; a past second date (it may be the issue date) is not.
   assert.equal(day(id.readIdBarcode('JANE$DOE$04/01/1990$01/15/2021$04/01/2029$SPRINGFIELD$IL', today).expires), '2029-04-01');
   assert.equal(id.readIdBarcode('JANE$DOE$04/01/1990$01/15/2021$SPRINGFIELD$IL', today).expires, null);
@@ -75,29 +77,32 @@ test('the raw sample card reads the same however the scanner types it', () => {
     assert.equal(day(scan.birthDate), '1995-05-20', how);
     assert.equal(day(scan.expires), '2029-05-20', how);
   }
-  const named = id.readIdBarcode(sample.join('\n'), today);
-  assert.equal(`${named.firstName} ${named.lastName}`, 'JANE DOE');
+  assert.equal(who(id.readIdBarcode(sample.join('\n'), today)), 'JANE MARIE DOE | CHICAGO | IL');
+  assert.equal(who(id.readIdBarcode(invertCase(sample.join('\n')), today)), 'JANE MARIE DOE | CHICAGO | IL');
 });
 
 test('older cards: the full name in one element, dates year first, or dates written with slashes', () => {
   const older = id.readIdBarcode(['@', 'ANSI 636035010002DL00390187DLDAQD123456789012', 'DAADOE,JANE,MARIE', 'DBB19950520', 'DBA20290520'].join('\n'), today);
   assert.equal(day(older.birthDate), '1995-05-20');
   assert.equal(day(older.expires), '2029-05-20');
-  assert.equal(`${older.firstName} ${older.lastName}`, 'JANE DOE');
+  assert.equal(older.name, 'JANE MARIE DOE');
   const slashes = id.readIdBarcode(['ANSI 636035090002DL', 'DCSDOE', 'DACJANE', 'DBB05/20/1995', 'DBA05/20/2029'].join('\n'), today);
   assert.equal(day(slashes.birthDate), '1995-05-20');
   assert.equal(day(slashes.expires), '2029-05-20');
 });
 
 test('fields the scanner read itself: labeled, tab-separated, or with an issue date', () => {
-  const labeled = id.readIdBarcode('NAME: JANE M DOE\nDOB: 05/20/1995\nISS: 08/15/2024\nEXP: 05/20/2029', today);
+  const labeled = id.readIdBarcode('NAME: JANE M DOE\nDOB: 05/20/1995\nISS: 08/15/2024\nEXP: 05/20/2029\nCITY: CHICAGO\nSTATE: IL', today);
   assert.equal(day(labeled.birthDate), '1995-05-20');
   assert.equal(day(labeled.expires), '2029-05-20');
+  assert.equal(who(labeled), 'JANE M DOE | CHICAGO | IL');
   // A labeled expiry in the past is an expired ID.
   assert.equal(id.isExpired(id.readIdBarcode('DOB 05/20/1995 | EXP 05/20/2024', today).expires, today), true);
   const tabs = id.readIdBarcode(['DOE', 'JANE', 'MARIE', '1995-05-20', '2029-05-20', 'CHICAGO', 'IL'].join('\t'), today);
   assert.equal(day(tabs.birthDate), '1995-05-20');
   assert.equal(day(tabs.expires), '2029-05-20');
+  // A scanner that types the last name first keeps its order; the city is before the state after the birth date.
+  assert.equal(who(tabs), 'DOE JANE MARIE | CHICAGO | IL');
   const digitsOnly = id.readIdBarcode('DOE^JANE^MARIE^05201995^05202029^CHICAGO^IL', today);
   assert.equal(day(digitsOnly.birthDate), '1995-05-20');
   assert.equal(day(digitsOnly.expires), '2029-05-20');
@@ -106,6 +111,7 @@ test('fields the scanner read itself: labeled, tab-separated, or with an issue d
 test('a magnetic stripe swipe gives the date of birth from track 2', () => {
   const swipe = id.readIdBarcode('%ILCHICAGO^DOE$JANE$MARIE^123 MAIN ST^?;636035123456789012=290519950520?', today);
   assert.equal(day(swipe.birthDate), '1995-05-20');
+  assert.equal(who(swipe), 'JANE MARIE DOE | CHICAGO | IL');
 });
 
 test('a product barcode or random text is not an ID', () => {

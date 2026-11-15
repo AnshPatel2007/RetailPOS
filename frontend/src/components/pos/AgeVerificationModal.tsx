@@ -54,6 +54,8 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
   const [cameraOn, setCameraOn] = useState(false);
   const cameraSupported = useIdCameraSupport();
   const buffer = useRef('');
+  const keyCount = useRef(0);
+  const fastCount = useRef(0);
   const lastKeyAt = useRef(0);
   const endTimer = useRef<number>();
 
@@ -66,7 +68,8 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
 
   const accept = useCallback((raw: string) => {
     const result = readIdBarcode(raw);
-    if (!result) { setScan(null); setProblem('That was not an ID card\'s barcode. Scan the barcode on the back of the driver\'s license or ID.'); return; }
+    // A license has two barcodes on the back; the small one at the top holds no details.
+    if (!result) { setScan(null); setProblem('That barcode does not hold the ID\'s details. On the back of the license, scan the larger barcode (usually the lower one), not the small one at the top.'); return; }
     if (!result.birthDate) { setScan(null); setProblem('This ID\'s barcode has no date of birth that can be read. Type the date of birth instead.'); return; }
     setScan(result); setProblem(''); setDobInput(''); setCameraOn(false);
   }, []);
@@ -77,11 +80,12 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     const finish = () => {
-      const text = buffer.current;
-      buffer.current = '';
+      const text = buffer.current, keys = keyCount.current, fast = fastCount.current;
+      buffer.current = ''; keyCount.current = 0; fastCount.current = 0;
       setReading(false);
-      // Typing, or a short product barcode, is not an ID.
-      if (text.replace(/\s/g, '').length >= 20) accept(text);
+      // A scanner types nearly every key fast; a person typing the date of birth does not.
+      // Any scan is answered, so the small barcode at the top of a license says so.
+      if (fast >= 5 && fast >= (keys - 1) * 0.8) accept(text);
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -92,6 +96,8 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
       lastKeyAt.current = now;
       // One scan lasts until a pause of SCAN_END_MS (a Bluetooth scanner may hesitate mid-way).
       buffer.current += key;
+      keyCount.current += 1;
+      if (fromScanner) fastCount.current += 1;
       if (fromScanner) {
         event.preventDefault();
         event.stopPropagation();
@@ -124,7 +130,8 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
     if (scanOk && scan?.birthDate) onConfirm({ method: 'ID_SCAN', birthDate: toIsoDate(scan.birthDate), verifiedForAge: requiredAge });
     else if (manualOk && manualDob) onConfirm({ method: 'MANUAL_DOB', birthDate: toIsoDate(manualDob), verifiedForAge: requiredAge });
   };
-  const holder = scan ? [scan.firstName, scan.lastName].filter(Boolean).join(' ') : '';
+  // What the cashier compares with the card and the customer (never stored).
+  const place = scan ? [scan.city, scan.state].filter(Boolean).join(', ') : '';
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Age Verification Required" size="md"
@@ -150,11 +157,13 @@ export const AgeVerificationModal: React.FC<AgeVerificationModalProps> = ({
           <div role="status" className={`p-3 rounded-lg border flex items-center gap-3 ${scanOk ? 'bg-success/10 border-success/40' : 'bg-destructive/10 border-destructive/40'}`}>
             {scanOk ? <CheckCircle2 className="h-6 w-6 text-success shrink-0" /> : <XCircle className="h-6 w-6 text-destructive shrink-0" />}
             <div className="min-w-0 flex-1">
-              <p className="font-semibold">ID scanned — {holder ? `${holder}, ` : 'customer is '}{scannedAge}</p>
+              <p className="font-semibold">{scan.name ?? 'Customer'} · {scannedAge} years old</p>
               <p className="text-xs text-muted-foreground">
-                Born {formatDate(scan.birthDate)}{scan.expires ? ` · ${expired ? 'expired' : 'valid until'} ${formatDate(scan.expires)}` : ''}
+                {[place, `Born ${formatDate(scan.birthDate)}`, scan.expires ? `${expired ? 'Expired' : 'Valid until'} ${formatDate(scan.expires)}` : ''].filter(Boolean).join(' · ')}
               </p>
-              {expired && <p className="text-xs font-medium text-destructive">This ID has expired. Ask for a valid ID.</p>}
+              {expired
+                ? <p className="text-xs font-medium text-destructive">This ID has expired. Ask for a valid ID.</p>
+                : <p className="text-xs">Check that the {scan.name ? 'name, ' : ''}photo{place ? ' and city' : ''} on the card match the customer.</p>}
             </div>
             <span className={`text-sm font-bold ${scanOk ? 'text-success' : 'text-destructive'}`}>{scanOk ? 'OK to sell' : 'DO NOT SELL'}</span>
           </div>
