@@ -27,8 +27,13 @@ and must not be replayed against the current schema.
 ## Upgrading the Render installation deployed from GitHub `main` (July 20, 2026)
 
 That installation was built by `prisma db push --accept-data-loss` at every start
-(commit `434d023`). Its schema is short of the baseline only by the payroll and
-store-connection additions, covered by
+(commit `434d023`; on 2026-11-15 the Render dashboard Start Command was still
+`npx prisma db push --accept-data-loss --skip-generate && npm run start`, overriding
+`render.yaml`). Its database is on **Neon**, not Render: Render's `DATABASE_URL` uses Neon's
+pooled host (`…-pooler.….neon.tech`). Run every command below against Neon's **direct** host
+(the same address without `-pooler`), because Prisma Migrate needs a direct connection; the
+service itself also uses the direct address from the upgrade on. Its schema is short of the
+baseline only by the payroll and store-connection additions, covered by
 `bridges/20260720_github_main_to_baseline.sql` (new nullable/defaulted columns,
 two new tables, indexes and foreign keys; nothing dropped or converted).
 
@@ -40,24 +45,40 @@ refund, customer, shift and stock totals were identical before and after. The ne
 API logged in and served sales, products, reports, analytics and pricing from it.
 The bridge refused a database in any other state.
 
-Order matters, because the old release rewrites the schema on every start:
+Rehearsed again on 2026-11-15 on a restored copy of the live Neon database (7 sales,
+1 store). The fixed-precision migration refused two June 28, 2026 test sales whose tax,
+total and change carried fractions of a cent (booked before the July rounding fix); the
+reviewed correction `prisma/reconciled/corrections/20261115_round_june_2026_sales.sql`
+rounds exactly those two to what was charged, logs each change, refuses any other data
+and does nothing when run again. With it: bridge, baseline, 45 migrations, check: no
+difference; sales, item, payment, product, customer, staff and shift totals identical; the
+new API signed in and served products, sales, customers, the drawer, alerts, the catalog
+and delivery invoices without an error. The new API also stayed up against the
+un-upgraded copy (its sign-ins fail there until the upgrade runs).
 
-1. In the Render dashboard, confirm the service's **Start Command** is
-   `npm run db:migrate:deploy && npm run start`. A dashboard value overrides
-   `render.yaml`; if it still runs `prisma db push`, the new release would push
-   past the migrations (skipping triggers, views and sequences) and the old one
-   would undo the bridge on its next start.
-2. Back up the production database (`pg_dump -Fc` with the external URL from the
-   Render dashboard) and rehearse steps 2–4 above on a restored local clone.
-3. Suspend the Render service so the old release cannot restart in between.
-4. With `DATABASE_URL` set to the production external URL in the environment, run
+Order matters, because the old release rewrites the schema on every start. Do **not**
+suspend the service: Render's documentation does not say which release a resumed
+service runs, and the old one would rewrite the upgraded schema. A restart keeps the
+running release's settings; dashboard changes apply at the next deploy.
+
+1. Back up the live database (`pg_dump -Fc` through the direct host) and rehearse the
+   steps below on a restored local copy.
+2. Close the store (the POS is unavailable for about 20 minutes) and take a fresh backup.
+3. In the Render dashboard set the **Start Command** to `npm run start` (temporary) and
+   `DATABASE_URL` to the direct Neon address.
+4. Merge the release into `main`; Vercel and Render build it. Wait until Render shows the
+   new deploy **Live**. If it fails, the old release keeps running and nothing has
+   changed: stop and investigate.
+5. Against the direct host, from `backend/`: run the correction (`psql -v ON_ERROR_STOP=1
+   -f prisma/reconciled/corrections/20261115_round_june_2026_sales.sql`), then
    `npm run db:bridge`, `npm run db:baseline`, `npm run db:migrate:deploy` and
-   `npm run db:check` from `backend/`.
-5. Deploy the new release (frontend and backend together) and resume the service.
-   Its start command finds every migration applied.
-6. If customers, suppliers or categories are missing for a store, run
-   `npx ts-node scripts/backfillLocationScoping.ts` (dry run), then with `--apply`.
-   It only fills rows whose store is still empty.
+   `npm run db:check`.
+6. Set the Start Command to `npm run db:migrate:deploy && npm run start` and deploy the
+   latest commit again (Manual Deploy). From then on every start applies new
+   migrations first.
+7. Sign in and check products, sales and a report. If customers, suppliers or categories
+   are missing for a store, run `npx ts-node scripts/backfillLocationScoping.ts` (dry
+   run), then with `--apply`. It only fills rows whose store is still empty.
 
 Do not use `db push --accept-data-loss`, reset, or test cleanup against an
 operational database. If deployment fails, keep the old application stopped,
