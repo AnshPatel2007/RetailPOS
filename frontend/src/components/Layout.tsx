@@ -229,7 +229,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     <div className="app-shell-top flex h-screen flex-col bg-background">
       <TopBar label="Main" entries={entries}
         brand={(user?.role === 'SUPER_ADMIN' ? isAdminViewing : (user?.stores?.length ?? 0) > 1)
-          ? <StoreSwitcher className="w-44" />
+          // On a phone the bar shows the store's name; the switcher is in the menu drawer, where it has room.
+          ? <><StoreSwitcher className="hidden w-44 max-w-full sm:block" /><div className="sm:hidden"><p className="app-topbar-store">{storeName || 'POS System'}</p></div></>
           : <p className="app-topbar-store" data-sidebar-store-name>{storeName || 'POS System'}</p>}
         tools={<><OfflineIndicator variant="badge" compact showDetails /><AttentionBell /></>}
         user={{ name: [user?.firstName, user?.lastName].filter(Boolean).join(' '), role: user?.role || '' }}

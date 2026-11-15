@@ -93,27 +93,34 @@ const applyBody = z.object({ changes: z.array(z.object({
   price: z.number().gt(0).max(1_000_000), expectedPrice: z.number().min(0),
 })).min(1).max(500) });
 
-/** Apply reviewed prices. Each change must still match the price the owner saw. */
+/**
+ * Apply reviewed prices. Each change must still match the price the owner saw. Items
+ * whose price follows the shared catalog keep it: they are skipped and listed (their
+ * price changes in the Shared Catalog).
+ */
 export const applyPrices = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { changes } = applyBody.parse(req.body);
   const locationId = store(req);
-  const applied = await prisma.$transaction(async tx => {
+  const result = await prisma.$transaction(async tx => {
     let count = 0;
+    const skipped: { productId: string; sellingUnitId: string | null; name: string }[] = [];
     for (const change of changes) {
       if (change.sellingUnitId) {
         const unit = await tx.productSellingUnit.findFirst({ where: { id: change.sellingUnitId, productId: change.productId, locationId } });
         if (!unit) throw new AppError('Pack not found', 404);
+        if (unit.priceFollowsCatalog) { skipped.push({ productId: change.productId, sellingUnitId: unit.id, name: unit.name }); continue; }
         if (Math.abs(Number(unit.price) - change.expectedPrice) > 0.00005) throw new AppError(`The price of ${unit.name} changed. Reload the review.`, 409);
         await tx.productSellingUnit.update({ where: { id: unit.id }, data: { price: change.price, version: { increment: 1 } } });
       } else {
         const product = await tx.product.findFirst({ where: { id: change.productId, locationId } });
         if (!product) throw new AppError('Product not found', 404);
+        if (product.priceFollowsCatalog) { skipped.push({ productId: product.id, sellingUnitId: null, name: product.name }); continue; }
         if (Math.abs(Number(product.price) - change.expectedPrice) > 0.00005) throw new AppError(`The price of ${product.name} changed. Reload the review.`, 409);
         await tx.product.update({ where: { id: product.id }, data: { price: change.price } });
       }
       count++;
     }
-    return count;
+    return { applied: count, followingSharedPrice: skipped };
   });
-  res.json({ success: true, data: { applied } });
+  res.json({ success: true, data: result });
 });

@@ -100,15 +100,21 @@ export async function categoryIdFor(tx: Prisma.TransactionClient, locationId: st
 /* The catalog                                                         */
 /* ------------------------------------------------------------------ */
 
-/** GET /catalog?search&page: shared items with each store's listing, and the stores that do not carry them. */
+/**
+ * GET /catalog?search&page&limit&missingFrom: shared items with each store's listing, and the
+ * stores that do not carry them. `missingFrom` keeps the items a store does not carry yet
+ * (for adding them all to a new store).
+ */
 export async function listCatalog(req: AuthRequest) {
   const context = await ownerContext(req);
-  const query = z.object({ search: z.string().trim().max(100).optional(), page: z.coerce.number().int().min(1).max(10000).catch(1) }).parse(req.query);
-  const limit = 50;
+  const query = z.object({ search: z.string().trim().max(100).optional(), page: z.coerce.number().int().min(1).max(10000).catch(1),
+    limit: z.coerce.number().int().min(1).max(500).catch(50), missingFrom: z.string().trim().min(1).max(100).optional() }).parse(req.query);
+  if (query.missingFrom && !context.stores.some(store => store.id === query.missingFrom)) throw new AppError('Choose one of your stores', 400);
+  const limit = query.limit;
   const search = query.search || '';
   const where: Prisma.CatalogItemWhereInput = { organizationId: context.organizationId, ...(search ? { OR: [
     { name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }, { barcode: { in: barcodeVariants(search) } },
-  ] } : {}) };
+  ] } : {}), ...(query.missingFrom ? { isActive: true, products: { none: { locationId: query.missingFrom } } } : {}) };
   const [items, total, unlinked] = await Promise.all([
     prisma.catalogItem.findMany({ where, orderBy: [{ name: 'asc' }, { id: 'asc' }], skip: (query.page - 1) * limit, take: limit, select: listItemSelect }),
     prisma.catalogItem.count({ where }),

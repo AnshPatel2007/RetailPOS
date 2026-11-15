@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { can } from '@/lib/capabilities';
+import { managesSharedCatalog } from '@/lib/navigation';
 import { PageTabs } from './PageTabs';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useInventoryExceptionCount } from '@/hooks/useInventoryExceptionCount';
@@ -77,12 +78,18 @@ export function PurchasingNavigation({ children }: { children: React.ReactNode }
 }
 
 export const PRICE_REVIEW = '/inventory/price-review';
-/** The Products page's tabs. Single Items and Packs are one page (`?view=`); Price Review is its own. */
-export function ProductTabs({ value }: { value: 'singles' | 'packs' | 'price-review' }) {
+export const SHARED_CATALOG = '/inventory/catalog';
+/**
+ * The Products page's tabs. Single Items and Packs are one page (`?view=`); Price Review is
+ * its own; Shared Catalog shows for an owner of several stores.
+ */
+export function ProductTabs({ value }: { value: 'singles' | 'packs' | 'price-review' | 'catalog' }) {
+  const shared = useAuthStore(state => managesSharedCatalog(state.user));
   return <PageTabs label="Products views" value={value} items={[
     { id: 'singles', label: 'Single Items', href: '/inventory' },
     { id: 'packs', label: 'Packs', href: '/inventory?view=packs' },
     { id: 'price-review', label: 'Price Review', href: PRICE_REVIEW },
+    ...(shared ? [{ id: 'catalog', label: 'Shared Catalog', href: SHARED_CATALOG }] : []),
   ]} />;
 }
 

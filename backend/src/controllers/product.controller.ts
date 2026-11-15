@@ -13,6 +13,7 @@ import { lockInventory, moveInventory } from '../services/inventory.service';
 import { valueProducts } from '../services/inventoryValueRead.service';
 import { barcodeVariants } from '../utils/barcode';
 import { can } from '../policies/capabilities';
+import { guardProductChange } from '../services/catalogGuards.service';
 
 /**
  * A product may only be moved into a category the caller's store owns. Keeping
@@ -386,6 +387,8 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   if (req.user?.locationId && product.locationId !== req.user.locationId) {
     throw new AppError('Product not found', 404);
   }
+  // Shared catalog: shared fields of a linked item, and a price that follows the shared one, are not the store's to change.
+  Object.assign(data, await guardProductChange(prisma, req, product, data));
   await validateProductCategory(req, data.categoryId, product.categoryId);
 
   // Check SKU uniqueness if changing — scoped to the product's own store
@@ -602,10 +605,15 @@ export const bulkUpdatePrice = asyncHandler(async (req: AuthRequest, res: Respon
     where.locationId = req.user.locationId;
   }
 
+  // Items whose price follows the shared catalog keep it; their cost still changes.
+  const following = updateData.price !== undefined
+    ? (await prisma.product.findMany({ where: { ...where, priceFollowsCatalog: true }, select: { id: true } })).map(row => row.id)
+    : [];
   const updatedProducts = await prisma.product.updateMany({
-    where,
+    where: following.length ? { ...where, id: { in: productIds.filter((id: string) => !following.includes(id)) } } : where,
     data: updateData,
   });
+  if (following.length && updateData.cost !== undefined) await prisma.product.updateMany({ where: { id: { in: following } }, data: { cost: updateData.cost } });
 
   logger.info(`Bulk price update for ${updatedProducts.count} products`);
 
@@ -613,8 +621,10 @@ export const bulkUpdatePrice = asyncHandler(async (req: AuthRequest, res: Respon
     success: true,
     data: {
       updatedCount: updatedProducts.count,
+      followingSharedPrice: following.length,
     },
-    message: `${updatedProducts.count} product(s) updated successfully`,
+    message: `${updatedProducts.count} product(s) updated successfully`
+      + (following.length ? `. ${following.length} follow the shared price and kept it.` : ''),
   });
 });
 
@@ -651,8 +661,10 @@ export const bulkUpdateCategory = asyncHandler(async (req: AuthRequest, res: Res
     where.locationId = req.user.locationId;
   }
 
+  // A shared-catalog item's category is set in the Shared Catalog.
+  const shared = await prisma.product.count({ where: { ...where, catalogItemId: { not: null } } });
   const updatedProducts = await prisma.product.updateMany({
-    where,
+    where: { ...where, catalogItemId: null },
     data: {
       categoryId,
     },
@@ -665,8 +677,10 @@ export const bulkUpdateCategory = asyncHandler(async (req: AuthRequest, res: Res
     data: {
       updatedCount: updatedProducts.count,
       categoryName: category.name,
+      sharedSkipped: shared,
     },
-    message: `${updatedProducts.count} product(s) moved to ${category.name}`,
+    message: `${updatedProducts.count} product(s) moved to ${category.name}`
+      + (shared ? `. ${shared} shared ${shared === 1 ? 'item keeps its' : 'items keep their'} category from the Shared Catalog.` : ''),
   });
 });
 

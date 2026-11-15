@@ -87,17 +87,19 @@ export async function priceReview(db: ReviewDb, locationId: string) {
   const [rules, products] = await Promise.all([
     storeRules(db, locationId),
     db.product.findMany({ where: { locationId, isActive: true, sku: { not: 'MISC-001' }, priceEmbedded: false },
-      select: { id: true, name: true, sku: true, price: true, cost: true, stockQuantity: true, categoryId: true, brand: true,
-        sellingUnits: { where: { isActive: true }, select: { id: true, name: true, price: true, unitsPerPackage: true, version: true } } } }),
+      select: { id: true, name: true, sku: true, price: true, cost: true, stockQuantity: true, categoryId: true, brand: true, catalogItemId: true, priceFollowsCatalog: true,
+        sellingUnits: { where: { isActive: true }, select: { id: true, name: true, price: true, unitsPerPackage: true, version: true, priceFollowsCatalog: true, catalogPackId: true } } } }),
   ]);
   const balances = await db.inventoryValuation.findMany({ where: { productId: { in: products.map(product => product.id) } } });
   const rows = [];
   for (const product of products) {
     const basis = costBasis(product, balances.find(balance => balance.productId === product.id));
     if (!basis) continue;
+    // Shared catalog: a price that follows the shared one is set there ("Shared price"), not in this store.
     const items = [
-      { sellingUnitId: null as string | null, name: product.name, price: product.price, unitCost: basis.cost, version: null as number | null },
-      ...product.sellingUnits.map(unit => ({ sellingUnitId: unit.id, name: `${product.name} (${unit.name})`, price: unit.price, unitCost: basis.cost.mul(unit.unitsPerPackage), version: unit.version })),
+      { sellingUnitId: null as string | null, name: product.name, price: product.price, unitCost: basis.cost, version: null as number | null, follows: product.priceFollowsCatalog, catalogPackId: null as string | null },
+      ...product.sellingUnits.map(unit => ({ sellingUnitId: unit.id, name: `${product.name} (${unit.name})`, price: unit.price, unitCost: basis.cost.mul(unit.unitsPerPackage), version: unit.version,
+        follows: unit.priceFollowsCatalog, catalogPackId: unit.catalogPackId })),
     ];
     for (const item of items) {
       const picked = pickRule(rules, { productId: product.id, sellingUnitId: item.sellingUnitId, categoryId: product.categoryId, brand: product.brand });
@@ -112,7 +114,7 @@ export async function priceReview(db: ReviewDb, locationId: string) {
       rows.push({ productId: product.id, sellingUnitId: item.sellingUnitId, name: item.name, sku: product.sku, price: Number(item.price),
         unitCost: Number(item.unitCost.toDecimalPlaces(4)), costBasis: basis.basis, margin: metrics.margin, targetMargin: target, minMargin: minimum,
         ruleSource: picked?.source ?? null, suggestedPrice: suggestion?.price ?? null, suggestedMargin: suggestion?.margin ?? null,
-        sellingUnitVersion: item.version, status });
+        sellingUnitVersion: item.version, status, priceFollowsCatalog: item.follows, catalogItemId: product.catalogItemId, catalogPackId: item.catalogPackId });
     }
   }
   const rank = { BELOW_COST: 0, BELOW_MINIMUM: 1, UNDER_TARGET: 2 } as const;

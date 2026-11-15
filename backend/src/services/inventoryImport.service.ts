@@ -11,6 +11,8 @@ import { lockInventory, moveInventory } from './inventory.service';
 import { receiveOrder } from './purchaseReceiving.service';
 import { pickRule, priceMetrics, Rounding, storeRules, suggestPrice } from './pricing.service';
 import { costChangeAlertPercent } from '../validators/storeSettings.validator';
+import { sharedFieldChanges } from './catalogGuards.service';
+import { FIELD_LABELS } from './sharedCatalog.service';
 
 const money = z.number().finite().min(0).max(1_000_000);
 const fields = z.object({ sku: z.string().trim().min(1).max(100), name: z.string().trim().min(1).max(250).optional(),
@@ -145,6 +147,15 @@ export async function previewInventoryImport(req: AuthRequest, kind: 'CSV' | 'RE
       changes: Object.entries(row.data).filter(([key, value]) => key !== 'sku' && (key === 'stockQuantity' ? nextStock !== previousStock : !current || Number(current[key as keyof Product]) !== value))
         .map(([key, value]) => ({ field: key, before: Number(current ? current[key as keyof Product] : null), after: key === 'stockQuantity' ? nextStock : value })) };
   });
+  // Shared catalog: a linked item's shared fields, and a price that follows the shared one, change in the Shared Catalog.
+  for (const row of rows) {
+    const current = existing.find(product => product.id === row.productId);
+    if (!current) continue;
+    const changed = current.catalogItemId ? sharedFieldChanges(current, row.data) : [];
+    if (changed.length) errors.push(`Row ${row.number}: ${current.name} is in the Shared Catalog; change its ${changed.map(field => field === 'categoryId' ? 'category' : FIELD_LABELS[field as keyof typeof FIELD_LABELS].toLowerCase()).join(', ')} there`);
+    if (current.priceFollowsCatalog && row.data.price !== undefined && Math.round(row.data.price * 10000) !== Math.round(Number(current.price) * 10000))
+      errors.push(`Row ${row.number}: ${current.name}'s price follows the shared catalog; change it there`);
+  }
   const costs = kind === 'RECEIPT' ? await reviewCosts(locationId, rows, existing) : null;
   const shown = rows.map(row => ({ ...row, costReview: costs?.reviews.get(row.number) ?? null }));
   const costAlertPercent = costs?.alertPercent ?? null;

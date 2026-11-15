@@ -97,6 +97,12 @@ export interface Product {
   minimumAge?: number | null;
   ebtEligible?: boolean;
   priceEmbedded?: boolean;
+  /**
+   * Shared catalog: an item linked to the owner's shared item takes its name, barcode and
+   * selling rules from there; while `priceFollowsCatalog`, its price too.
+   */
+  catalogItemId?: string | null;
+  priceFollowsCatalog?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -113,6 +119,9 @@ export interface ProductSellingUnit {
   sealedQuantity: number;
   isActive: boolean;
   version: number;
+  /** A shared pack: its name, SKU and barcode are set in the Shared Catalog. */
+  catalogPackId?: string | null;
+  priceFollowsCatalog?: boolean;
 }
 
 export interface ProductPackaging {

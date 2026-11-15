@@ -65,5 +65,7 @@ export const updateProductSchema = z.object({
     productFamily: z.string().trim().max(80).optional().nullable(),
     variant: z.string().trim().max(80).optional().nullable(),
     size: z.string().trim().max(40).optional().nullable(),
+    // Shared catalog: the store price follows the shared price (owner or store admin only).
+    priceFollowsCatalog: z.boolean().optional(),
   }),
 });

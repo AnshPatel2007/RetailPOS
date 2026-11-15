@@ -132,6 +132,12 @@ describe('Shared catalog: editing, prices and adding to stores', () => {
     const { id } = await cola();
     const chipsA = await item(A, 'Chips', 'CHIPS-1', { price: 2 });
     const chips = (await call('post', '/from-product', { productId: chipsA.id }).expect(200)).body.data.catalogItemId;
+    // The screen first lists what the new store does not carry yet.
+    const missing = (await call('get', `?missingFrom=${D}&limit=500`).expect(200)).body.data;
+    expect(missing.items.map((row: { id: string }) => row.id).sort()).toEqual([id, chips].sort());
+    expect(missing.pagination).toMatchObject({ total: 2, limit: 500 });
+    expect((await call('get', `?missingFrom=${B}`).expect(200)).body.data.items.map((row: { id: string }) => row.id)).toEqual([chips]);
+    await call('get', '?missingFrom=store-c').expect(400);
     await item(D, 'Our Chips', 'CHIPS-1');
     const result = (await call('post', '/publish', { itemIds: [id, chips, '00000000-0000-4000-8000-000000000000'], locationId: D, followPrice: true }).expect(200)).body.data;
     expect(result.created.map((row: { catalogItemId: string }) => row.catalogItemId)).toEqual([id]);

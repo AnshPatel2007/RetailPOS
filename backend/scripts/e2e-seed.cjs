@@ -116,6 +116,16 @@ const prisma = new PrismaClient({ datasources: { db: { url: target.toString() } 
   await prisma.user.create({ data: { email: 'north-cashier@example.test', password, firstName: 'Nora', lastName: 'North', role: 'CASHIER', locationId: northStore.id } });
   await prisma.product.create({ data: { name: 'North Only Lemonade', sku: 'NORTH-LEMONADE', price: 3, cost: 1, stockQuantity: 10, locationId: northStore.id } });
   await prisma.product.create({ data: { name: 'South Only Iced Tea', sku: 'SOUTH-ICED-TEA', price: 3, cost: 1, stockQuantity: 10, locationId: southStore.id } });
+  // One business with two stores for the shared-catalog spec (catalog@example.test owns both). Both sell
+  // Sparkle Water under one barcode with their own name, SKU and price; only Elm Street has Trail Mix.
+  const elmStore = await prisma.location.create({ data: { name: 'Elm Street Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'elm-store@example.test', timezone: 'America/Chicago' } });
+  const oakStore = await prisma.location.create({ data: { name: 'Oak Street Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'oak-store@example.test', timezone: 'America/Chicago', organizationId: elmStore.organizationId } });
+  const catalogOwner = await prisma.user.create({ data: { email: 'catalog@example.test', password, firstName: 'Catalog', lastName: 'Owner', role: 'ADMIN', locationId: elmStore.id } });
+  await prisma.organizationOwner.create({ data: { organizationId: elmStore.organizationId, userId: catalogOwner.id } });
+  await prisma.userStoreAccess.create({ data: { userId: catalogOwner.id, locationId: oakStore.id, role: 'ADMIN' } });
+  await prisma.product.create({ data: { name: 'Sparkle Water 16 oz', sku: 'SPARKLE-16', barcode: '012000161155', price: 1.99, cost: 0.8, stockQuantity: 12, locationId: elmStore.id } });
+  await prisma.product.create({ data: { name: 'Sparkle Water 16oz', sku: 'SPK-16', barcode: '012000161155', price: 2.09, cost: 0.8, stockQuantity: 6, locationId: oakStore.id } });
+  await prisma.product.create({ data: { name: 'Trail Mix 6 oz', sku: 'TRAIL-6', barcode: '041234567890', price: 3.49, cost: 1.5, stockQuantity: 5, locationId: elmStore.id } });
   const southCalendar = require('../src/services/reportDates.service').reportCalendar('America/Chicago');
   await prisma.sale.create({ data: { saleNumber: 'SOUTH-STREET-1', userId: storesOwner.id, locationId: southStore.id,
     createdAt: new Date(southCalendar.day(-2).getTime() + 3600000), subtotal: 40, total: 42, tax: 2, paymentMethod: 'CASH', amountPaid: 42, pricingVersion: 1 } });

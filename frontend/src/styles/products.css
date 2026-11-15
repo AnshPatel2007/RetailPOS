@@ -9,6 +9,11 @@
 .products-filter-chip:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 .products-results-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; font-size: 12px; color: hsl(var(--muted-foreground)); }
 .products-results-footer nav { margin-top: 0; }
+/* Shared Catalog: one chip per store (its price, whether it follows the shared price, or "not carried"). */
+.catalog-store-chip { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; overflow-wrap: anywhere; padding: 2px 8px; border: 1px solid hsl(var(--border)); border-radius: 6px; font-size: 12px; background: hsl(var(--muted) / .5); }
+.catalog-store-chip-note { color: hsl(var(--success)); font-weight: 500; }
+.catalog-store-chip[data-missing] { border-style: dashed; background: transparent; color: hsl(var(--muted-foreground)); }
+.catalog-store-chip[data-missing] .catalog-store-chip-note { color: hsl(var(--muted-foreground)); font-weight: 400; }
 .products-table { container: product-catalog / inline-size; }
 .products-table table { table-layout: fixed; }
 .products-table th:first-child { width: 36%; }

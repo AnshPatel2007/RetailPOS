@@ -11,7 +11,7 @@ import { ManagerApprovalDialog } from './components/ManagerApprovalDialog';
 import { GlobalAssistant } from './components/assistant/GlobalAssistant';
 import { RegisterLockLayer } from './components/register/RegisterLock';
 import { AppUpdateNotice } from './components/common/AppUpdateNotice';
-import { WorkflowNavigation, PreserveRedirect, StockControlNavigation, PurchasingNavigation, PRICE_REVIEW, SUPPLIER_CREDITS, accountViews, TeamNavigation, ShiftRedirect } from './components/common/WorkflowNavigation';
+import { WorkflowNavigation, PreserveRedirect, StockControlNavigation, PurchasingNavigation, PRICE_REVIEW, SHARED_CATALOG, SUPPLIER_CREDITS, accountViews, TeamNavigation, ShiftRedirect } from './components/common/WorkflowNavigation';
 import { changeSessionGeneration } from './services/sessionGeneration';
 
 // Eager-load Login (needed immediately) and AdminLayout (small)
@@ -47,6 +47,7 @@ const StoreCredits = lazy(() => import('./pages/StoreCredits').then(m => ({ defa
 const Promotions = lazy(() => import('./pages/Promotions').then(m => ({ default: m.Promotions })));
 const SuggestedOrders = lazy(() => import('./pages/SuggestedOrders').then(m => ({ default: m.SuggestedOrders })));
 const PriceReview = lazy(() => import('./pages/PriceReview'));
+const SharedCatalog = lazy(() => import('./pages/SharedCatalog'));
 const ReceiveDelivery = lazy(() => import('./pages/ReceiveDelivery'));
 const SupplierCredits = lazy(() => import('./pages/SupplierCredits'));
 const CustomerDisplay = lazy(() => import('./pages/CustomerDisplay').then(m => ({ default: m.CustomerDisplay })));
@@ -221,6 +222,8 @@ function App() {
         {([['orders', <Suppliers key="orders" view="orders" />], ['receive', <ReceiveDelivery />], ['suppliers', <Suppliers key="suppliers" view="suppliers" />], ['suggestions', <SuggestedOrders />], ['suppliers/credits', <SupplierCredits />]] as const).map(([view, page]) => <Route key={view} path={'/inventory/purchasing/' + view} element={<PageRoute roles={MANAGER_ROLES} page={<PurchasingNavigation>{page}</PurchasingNavigation>} />} />)}
         {/* Price Review is a Products tab and Credits Owed sits under Suppliers; their old addresses still work. */}
         <Route path={PRICE_REVIEW} element={<PageRoute roles={MANAGER_ROLES} page={<PriceReview />} />} />
+        {/* Shared Catalog: owners of several stores (the server refuses anyone else). */}
+        <Route path={SHARED_CATALOG} element={<PageRoute roles={['ADMIN']} page={<SharedCatalog />} />} />
         <Route path="/inventory/purchasing/price-review" element={<PreserveRedirect to={PRICE_REVIEW} />} />
         <Route path="/inventory/purchasing/credits" element={<PreserveRedirect to={SUPPLIER_CREDITS} />} />
         <Route path="/customer-display" element={<PageRoute page={<CustomerDisplay />} />} />

@@ -190,6 +190,19 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   person's drawer is open at the store. The morning brief goes to everyone who runs a
   store as ADMIN; an owner of several stores instead gets one email with a section per
   store (`sendOwnerCombinedBrief`), in their home store's morning.
+- **Shared catalog** (Nov 2026, `services/sharedCatalog.service.ts`, `sharedCatalogEdit.service.ts`,
+  `catalogGuards.service.ts`; `/api/catalog`; Products > Shared Catalog, `/inventory/catalog`, for owners of
+  several stores): a `CatalogItem` per organization owns the shared fields of the store products linked to it
+  (`Product.catalogItemId`; packs through `ProductSellingUnit.catalogPackId`): name, SKU, barcode, category,
+  brand/size/description and selling rules. Each store keeps its own stock, cost and price; the price follows
+  the shared one only while `priceFollowsCatalog` is on (switched by the owner or a store admin). Only owners
+  change the catalog; each change takes the organization's advisory lock and is all or nothing (a clash in one
+  store refuses it and names the store). Store-side writes refuse a linked item's shared fields and a following
+  price (`guardProductChange`/`guardPackChange`: item and pack forms, bulk tools, Price Review, stock files);
+  a new product write path goes through the same guard, and the item form never sends those fields
+  (`SHARED_FORM_FIELDS` in `pages/Inventory.tsx`). Linking existing products is a reviewed preview, then an
+  idempotent apply (`CATALOG_LINK`) that never changes prices or stock. A transfer finds the receiving store's
+  item through the catalog link before the SKU.
 - **Auth**: access JWTs carry a refresh-session id; the `users_revoke_sessions` trigger
   ends sessions on password/role/store/active changes. Cashier discounts, refunds and
   voids need manager approval (the API answers 428 and the app opens the approval dialog).

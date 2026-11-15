@@ -360,6 +360,36 @@ export const deliveryInvoiceService = {
 };
 
 /**
+ * Shared catalog: an owner's one list of items for every store of the business
+ * (backend routes/catalog.routes.ts). Only owners may call these.
+ */
+type CatalogItemData = import('@/types/sharedCatalog').CatalogItem;
+export const catalogService = {
+  list: (params: { search?: string; page?: number; limit?: number; missingFrom?: string }, signal?: AbortSignal) =>
+    api.get<{ success: boolean; data: import('@/types/sharedCatalog').CatalogList }>('/catalog', { params, signal }),
+  get: (id: string, signal?: AbortSignal) => api.get<{ success: boolean; data: CatalogItemData }>(`/catalog/${encodeURIComponent(id)}`, { signal }),
+  previewLinks: (primaryLocationId: string) =>
+    api.post<{ success: boolean; data: import('@/types/sharedCatalog').LinkPreview }>('/catalog/link/preview', { primaryLocationId }, { timeout: 120000 }),
+  applyLinks: (data: { idempotencyKey: string; primaryLocationId: string; groups: { fingerprint: string; productIds: string[]; makeStoresMatch: boolean }[] }) =>
+    api.post<{ success: boolean; data: import('@/types/sharedCatalog').LinkResult; replayed?: boolean }>('/catalog/link/apply', data, { timeout: 180000 }),
+  fromProduct: (productId: string) => api.post<{ success: boolean; data: { catalogItemId: string; created: boolean } }>('/catalog/from-product', { productId }),
+  update: (id: string, expectedVersion: number, fields: import('@/types/sharedCatalog').CatalogFieldsPatch) =>
+    api.put<{ success: boolean; data: CatalogItemData }>(`/catalog/${encodeURIComponent(id)}`, { expectedVersion, fields }),
+  setPrice: (id: string, data: { expectedVersion: number; defaultPrice: number; apply: import('@/types/sharedCatalog').PriceApply }) =>
+    api.put<{ success: boolean; data: { item: CatalogItemData; updated: number } }>(`/catalog/${encodeURIComponent(id)}/price`, data),
+  setPackPrice: (packId: string, data: { expectedVersion: number; defaultPrice: number; apply: import('@/types/sharedCatalog').PriceApply }) =>
+    api.put<{ success: boolean; data: { item: CatalogItemData; updated: number } }>(`/catalog/packs/${encodeURIComponent(packId)}/price`, data),
+  publish: (id: string, data: { locationId: string; price?: number; followPrice: boolean; lowStockAlert?: number }) =>
+    api.post<{ success: boolean; data: { productId: string; locationId: string; storeName: string; item: CatalogItemData } }>(`/catalog/${encodeURIComponent(id)}/publish`, data),
+  /** Each item is added on its own; the ones that cannot be come back with the reason. */
+  publishMany: (data: { itemIds: string[]; locationId: string; followPrice: boolean }) =>
+    api.post<{ success: boolean; data: { created: { catalogItemId: string; productId: string }[]; skipped: { catalogItemId: string; reason: string; existingProductId: string | null }[] } }>(
+      '/catalog/publish', data, { timeout: 300000 }),
+  link: (id: string, productId: string, makeMatch = true) => api.post<{ success: boolean; data: CatalogItemData }>(`/catalog/${encodeURIComponent(id)}/link`, { productId, makeMatch }),
+  unlink: (id: string, productId: string) => api.post<{ success: boolean; data: CatalogItemData }>(`/catalog/${encodeURIComponent(id)}/unlink`, { productId }),
+};
+
+/**
  * Category service
  */
 export const categoryService = {

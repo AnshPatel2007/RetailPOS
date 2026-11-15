@@ -68,6 +68,7 @@ export const sidebarSections: NavSection[] = [
 const pageViews: (NavLink & { within: string })[] = [
   { within: 'Products', name: 'Packs & cartons', href: '/inventory?view=packs', icon: Package, roles: MANAGERS, keywords: 'variety pack case carton' },
   { within: 'Products', name: 'Price review', href: '/inventory/price-review', icon: Package, roles: MANAGERS, keywords: 'cost change margin purchasing' },
+  { within: 'Products', name: 'Shared catalog', href: '/inventory/catalog', icon: Package, roles: ['ADMIN'], severalStores: true, keywords: 'all stores same items link shared price chain' },
   { within: 'Purchasing', name: 'Purchase orders', href: '/inventory/purchasing/orders', icon: Truck, roles: MANAGERS, keywords: 'po receive order' },
   { within: 'Purchasing', name: 'Receive delivery', href: '/inventory/purchasing/receive', icon: Truck, roles: MANAGERS, keywords: 'receive delivery scan truck check in invoice phone' },
   { within: 'Purchasing', name: 'Suppliers', href: '/inventory/purchasing/suppliers', icon: Truck, roles: MANAGERS, keywords: 'vendors distributors' },
@@ -107,6 +108,10 @@ export interface QuickFindEntry extends NavLink { within?: string }
 /** Runs more than one store as ADMIN (an owner of several stores): My Stores is shown. */
 export const runsSeveralStores = (user: { stores?: { role: string }[] } | null | undefined) =>
   (user?.stores?.filter(store => store.role === 'ADMIN').length ?? 0) > 1;
+
+/** Owns the business of the current store, and it has more than one store: the Shared Catalog is theirs. */
+export const managesSharedCatalog = (user: { role?: string; organization?: { isOwner: boolean; storeCount: number } | null } | null | undefined) =>
+  user?.role === 'ADMIN' && !!user.organization?.isOwner && user.organization.storeCount > 1;
 
 export function navigationFor(role: string | undefined, severalStores = false): QuickFindEntry[] {
   const allowed = (link: NavLink) => !!role && link.roles.includes(role as Role) && (!link.severalStores || severalStores);

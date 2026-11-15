@@ -4,17 +4,19 @@ import { ProductPacksSection } from '@/components/inventory/ProductPacksSection'
 import { SupplierCasesEditor } from '@/components/inventory/SupplierCasesEditor';
 import { PackForm, PackFormTarget } from '@/components/inventory/PackForm';
 import { PackCatalog } from '@/components/inventory/PackCatalog';
-import { ProductTabs } from '@/components/common/WorkflowNavigation';
+import { ProductTabs, SHARED_CATALOG } from '@/components/common/WorkflowNavigation';
 import { useProductPackaging } from '@/hooks/useProductPackaging';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ADJUSTMENT_REASONS } from '@/components/inventory/StockAdjustmentModal';
 import { Select } from '@/components/ui/Select';
+import { Alert } from '@/components/ui/Alert';
 import React, { useState, useEffect, useRef, useCallback, useId } from 'react';
-import { api, productService, categoryService, apiErrorMessage } from '@/services/api';
+import { api, productService, categoryService, catalogService, apiErrorMessage } from '@/services/api';
 import { useConfirm } from '@/components/ui/useConfirm';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useAuthStore } from '@/store/authStore';
 import { can } from '@/lib/capabilities';
+import { managesSharedCatalog } from '@/lib/navigation';
 import { suggestedCatalogCategory } from '@/lib/catalogCategory';
 import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils';
@@ -41,11 +43,16 @@ import { CSVImportModal } from '@/components/inventory/CSVImportModal';
 import '@/styles/products.css';
 import { Spinner } from '@/components/ui/LoadingState';
 
+/** What a shared item takes from the Shared Catalog: the item form shows them but never sends them. */
+const SHARED_FORM_FIELDS = ['sku', 'name', 'description', 'categoryId', 'barcode', 'isTaxable', 'saleBlockedReason', 'brand', 'productFamily',
+  'variant', 'size', 'minimumAge', 'ebtEligible', 'priceEmbedded'] as const;
+
 export const Inventory: React.FC = () => {
   const [confirm, confirmDialog] = useConfirm();
   const { locationId, isReadOnly } = useEffectiveLocation();
   const role = useAuthStore(state => state.user?.role);
   const userId = useAuthStore(state => state.user?.id);
+  const ownsSharedCatalog = useAuthStore(state => managesSharedCatalog(state.user));
   const canManage = !isReadOnly && can(role, 'inventory.manage');
   const productRequest = useRef<AbortController | null>(null);
   const statsRequest = useRef<AbortController | null>(null);
@@ -131,7 +138,11 @@ export const Inventory: React.FC = () => {
     ebtEligible: false,
     priceEmbedded: false,
     categoryId: '',
+    priceFollowsCatalog: false,
   });
+  // The edit form as opened, to tell whether it has unsaved changes.
+  const [openedForm, setOpenedForm] = useState('');
+  const [addingToCatalog, setAddingToCatalog] = useState(false);
 
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -289,6 +300,14 @@ export const Inventory: React.FC = () => {
       if (editingProduct) {
         if (!data.trackInventory || data.stockQuantity === editingProduct.stockQuantity) delete data.stockQuantity;
         else { data.expectedStockVersion = editingProduct.stockVersion; data.stockAdjustmentReason = formData.stockAdjustmentReason; }
+        // Shared catalog: the shared fields are not this store's to change, so they are not sent;
+        // a price that follows the shared one is set there (turning Follow on sets it on save).
+        if (editingProduct.catalogItemId) {
+          for (const field of SHARED_FORM_FIELDS) delete data[field];
+          const following = !!editingProduct.priceFollowsCatalog;
+          if (formData.priceFollowsCatalog !== following) data.priceFollowsCatalog = formData.priceFollowsCatalog;
+          else if (following) delete data.price;
+        }
         await productService.update(editingProduct.id, data);
       } else {
         await productService.create(data);
@@ -313,7 +332,7 @@ export const Inventory: React.FC = () => {
     lookup.reset();
     setSaveError('');
     setEditingProduct(product);
-    setFormData({
+    const opened = {
       sku: product.sku,
       name: product.name,
       description: product.description || '',
@@ -339,10 +358,30 @@ export const Inventory: React.FC = () => {
       ebtEligible: product.ebtEligible ?? false,
       priceEmbedded: product.priceEmbedded ?? false,
       categoryId: product.categoryId || '',
-    });
+      priceFollowsCatalog: product.priceFollowsCatalog ?? false,
+    };
+    setFormData(opened);
+    setOpenedForm(JSON.stringify(opened));
     setShowNewCategoryInput(false);
     setNewCategoryName('');
     setShowModal(true);
+  };
+
+  // Shared catalog: start a shared item from this store's item (owners of several stores).
+  const addToSharedCatalog = async () => {
+    if (!editingProduct || addingToCatalog) return;
+    setAddingToCatalog(true);
+    try {
+      await catalogService.fromProduct(editingProduct.id);
+      const fresh: Product = (await productService.getById(editingProduct.id)).data.data;
+      handleEdit(fresh);
+      productUpdates.refresh();
+      toast.success(`${fresh.name} is in the Shared Catalog. Add it to your other stores there.`);
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Could not add it to the Shared Catalog. Try again.'));
+    } finally {
+      setAddingToCatalog(false);
+    }
   };
 
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
@@ -404,7 +443,9 @@ export const Inventory: React.FC = () => {
       ebtEligible: false,
       priceEmbedded: false,
       categoryId: '',
+      priceFollowsCatalog: false,
     });
+    setOpenedForm('');
     setShowNewCategoryInput(false);
     setNewCategoryName('');
   };
@@ -438,6 +479,11 @@ export const Inventory: React.FC = () => {
   // A barcode lookup that brings a photo or description opens that section so the clerk sees what was filled in.
   const lookupFilledDetails = lookup.state.kind !== 'idle' && !!formData.description;
   const advancedSummary = [!formData.trackInventory && 'Stock not tracked', formData.saleBlockedReason.trim() && 'On sale hold'].filter(Boolean).join(' · ') || undefined;
+  // Shared catalog: a linked item's shared fields are set there, and its price too while it follows the shared price.
+  const sharedItem = !!editingProduct?.catalogItemId;
+  const priceLocked = sharedItem && formData.priceFollowsCatalog;
+  const formDirty = !!editingProduct && JSON.stringify(formData) !== openedForm;
+  const canShare = !!editingProduct && !sharedItem && ownsSharedCatalog && editingProduct.sku !== 'MISC-001';
 
   const hasFilters = !!(search || filterCategory || filterStatus);
   const clearFilters = () => { setSearch(''); setFilterCategory(''); setFilterStatus(''); setCurrentPage(1); };
@@ -529,13 +575,18 @@ export const Inventory: React.FC = () => {
         </div>}
       >
         <form id={productFormId} onSubmit={handleSubmit} aria-busy={isSavingProduct}>
+          {sharedItem && editingProduct && <Alert title="Shared item" className="mb-4"
+            action={ownsSharedCatalog ? <Link to={`${SHARED_CATALOG}?search=${encodeURIComponent(editingProduct.sku)}`} className="text-sm font-medium text-primary hover:underline">Open Shared Catalog</Link> : undefined}>
+            Name, barcode and selling rules are managed in the Shared Catalog.
+          </Alert>}
           <fieldset disabled={isSavingProduct} className="min-w-0 product-form">
             <FormSection title="Basics" description="What every item needs. Open the sections below only when you need them.">
               <div className="space-y-4">
                 <Input label="Barcode" value={formData.barcode} onChange={e => lookup.changeBarcode(e.target.value)} placeholder="Scan or enter a barcode" autoFocus={!editingProduct} autoComplete="off" maxLength={100}
-                  description={editingProduct ? 'Use Auto-fill to look up missing details.' : 'Scan to fill available product details automatically.'}
+                  disabled={sharedItem}
+                  description={sharedItem ? undefined : editingProduct ? 'Use Auto-fill to look up missing details.' : 'Scan to fill available product details automatically.'}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void lookup.identify(); } }} />
-                <div className="product-lookup">
+                {!sharedItem && <div className="product-lookup">
                   <p id={`${productFormId}-identify-hint`} className="product-lookup-hint">Review catalog details and age requirements, then enter your prices and stock.</p>
                   <Button type="button" variant="outline" onClick={() => { void lookup.identify(undefined, true); }} disabled={lookup.identifying || !formData.barcode.trim()} aria-describedby={`${productFormId}-identify-hint`} title="Look the barcode up in the product database">{lookup.identifying ? 'Looking up...' : lookup.state.kind === 'unavailable' ? 'Retry lookup' : 'Auto-fill'}</Button>
                   {lookup.state.kind !== 'idle' && <div className="product-lookup-result" role={lookup.state.kind === 'unavailable' ? 'alert' : 'status'}>
@@ -555,27 +606,32 @@ export const Inventory: React.FC = () => {
                       }}>Open existing product</Button>}
                     </div>
                   </div>}
-                </div>
+                </div>}
                 <div className="product-field-grid">
-                  <Input label="Product Name" value={formData.name} onChange={e => lookup.editIdentity('name', e.target.value)} required />
-                  <Input label="SKU" value={formData.sku} onChange={e => lookup.editIdentity('sku', e.target.value)} description="Editable store code; defaults to the barcode." required />
+                  <Input label="Product Name" value={formData.name} onChange={e => lookup.editIdentity('name', e.target.value)} required disabled={sharedItem} />
+                  <Input label="SKU" value={formData.sku} onChange={e => lookup.editIdentity('sku', e.target.value)} description={sharedItem ? undefined : 'Editable store code; defaults to the barcode.'} required disabled={sharedItem} />
                 </div>
                 {!showNewCategoryInput ? <div className="space-y-2"><div className="product-category-control">
-                  <Select label="Category" value={formData.categoryId} disabled={categoriesLoading || !!categoriesError} onChange={e => lookup.editIdentity('categoryId', e.target.value)}>
+                  <Select label="Category" value={formData.categoryId} disabled={categoriesLoading || !!categoriesError || sharedItem} onChange={e => lookup.editIdentity('categoryId', e.target.value)}>
                     <option value="">Select a category</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
                   </Select>
-                  <Button type="button" variant="outline" onClick={() => { setNewCategoryName(suggestedCategory || ''); setShowNewCategoryInput(true); }} title="Create new category" aria-label="Create new category"><FolderPlus size={16} /></Button>
+                  <Button type="button" variant="outline" disabled={sharedItem} onClick={() => { setNewCategoryName(suggestedCategory || ''); setShowNewCategoryInput(true); }} title="Create new category" aria-label="Create new category"><FolderPlus size={16} /></Button>
                 </div>
-                  {suggestedCategory && !formData.categoryId && !categoriesLoading && !categoriesError && <Button type="button" variant="outline" className="max-w-full whitespace-normal text-left" onClick={() => { setNewCategoryName(suggestedCategory); setShowNewCategoryInput(true); }}>Add suggested category: {suggestedCategory}</Button>}
+                  {suggestedCategory && !sharedItem && !formData.categoryId && !categoriesLoading && !categoriesError && <Button type="button" variant="outline" className="max-w-full whitespace-normal text-left" onClick={() => { setNewCategoryName(suggestedCategory); setShowNewCategoryInput(true); }}>Add suggested category: {suggestedCategory}</Button>}
                 </div> : <div className="space-y-2">
                   <Input label="New category name" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} autoFocus />
                   <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => { setShowNewCategoryInput(false); setNewCategoryName(''); }}>Cancel</Button><Button type="button" onClick={handleCreateCategory} disabled={!newCategoryName.trim()} loading={isCreatingCategory}>Add category</Button></div>
                 </div>}
                 <div className="product-field-grid">
-                  <Input type="number" label="Retail Price" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} step="0.01" min="0.01" required />
+                  <Input type="number" label="Retail Price" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} step="0.01" min="0.01" required
+                    disabled={priceLocked} description={!priceLocked ? undefined : editingProduct?.priceFollowsCatalog ? 'Follows the shared price, set in the Shared Catalog.' : 'Saving sets it to the shared price.'} />
                   <Input type="number" label="Cost Price" value={formData.cost} onChange={e => setFormData({ ...formData, cost: e.target.value })} step="0.01" min="0" required
                     description={costHint} />
                 </div>
+                {sharedItem && <Checkbox label="Follow shared price" checked={formData.priceFollowsCatalog} disabled={role !== 'ADMIN'}
+                  onChange={e => setFormData({ ...formData, priceFollowsCatalog: e.target.checked })}
+                  description={role !== 'ADMIN' ? 'Only the owner or a store admin changes this.'
+                    : formData.priceFollowsCatalog ? 'The price changes when the owner changes the shared price.' : 'This store sets its own price.'} />}
                 {formData.cost && formData.price && parseFloat(formData.price) < parseFloat(formData.cost) && <p className="text-xs text-warning flex items-center gap-1"><AlertTriangle size={14} />Retail price is below cost</p>}
                 <div className="product-field-grid">
                   <Input type="number" label="Stock Quantity" value={formData.stockQuantity} onChange={e => setFormData({ ...formData, stockQuantity: e.target.value })} required />
@@ -592,12 +648,12 @@ export const Inventory: React.FC = () => {
             <FormSection title="Selling rules">
               <div className="space-y-4">
                 <div className="product-choice-grid">
-                  <Checkbox label="Taxable item" checked={formData.isTaxable} onChange={e => setFormData({ ...formData, isTaxable: e.target.checked })} />
+                  <Checkbox label="Taxable item" checked={formData.isTaxable} onChange={e => setFormData({ ...formData, isTaxable: e.target.checked })} disabled={sharedItem} />
                   <Checkbox label="Active" checked={formData.isActive} onChange={e => setFormData({ ...formData, isActive: e.target.checked })} />
-                  <Checkbox label="EBT / SNAP eligible" checked={formData.ebtEligible} onChange={e => setFormData({ ...formData, ebtEligible: e.target.checked })} title="SNAP/EBT can pay for this item" />
-                  <Checkbox label="Price-embedded barcode" checked={formData.priceEmbedded} onChange={e => setFormData({ ...formData, priceEmbedded: e.target.checked })} title="The scanned scale or deli barcode contains the price" />
+                  <Checkbox label="EBT / SNAP eligible" checked={formData.ebtEligible} onChange={e => setFormData({ ...formData, ebtEligible: e.target.checked })} title="SNAP/EBT can pay for this item" disabled={sharedItem} />
+                  <Checkbox label="Price-embedded barcode" checked={formData.priceEmbedded} onChange={e => setFormData({ ...formData, priceEmbedded: e.target.checked })} title="The scanned scale or deli barcode contains the price" disabled={sharedItem} />
                 </div>
-                <Select label="Age restriction" value={formData.minimumAge} onChange={e => lookup.editIdentity('minimumAge', e.target.value)}>
+                <Select label="Age restriction" value={formData.minimumAge} onChange={e => lookup.editIdentity('minimumAge', e.target.value)} disabled={sharedItem}>
                   <option value="">None</option><option value="18">18+ (lottery)</option><option value="21">21+ (alcohol, tobacco, vape)</option>
                 </Select>
                 {lookup.state.info?.ageRestriction?.status === 'unknown' && <p className="text-xs text-muted-foreground">The catalog did not establish an age requirement. Check the product before saving.</p>}
@@ -607,15 +663,16 @@ export const Inventory: React.FC = () => {
 
             <FormSection collapsible title="Pricing help" summary={pricingSummary} description="Type a target margin to get a price, or see the margin of the price you entered.">
               <div className="space-y-4">
-                <MarginPricing productId={editingProduct?.id} categoryId={formData.categoryId || undefined} brand={formData.brand.trim() || undefined}
-                  cost={formData.cost} averageCost={editingProduct?.averageCost} price={formData.price} onPrice={price => setFormData(current => ({ ...current, price }))} />
+                {priceLocked ? <p className="text-sm text-muted-foreground">This price follows the shared price, so it is set in the Shared Catalog.</p>
+                  : <MarginPricing productId={editingProduct?.id} categoryId={formData.categoryId || undefined} brand={formData.brand.trim() || undefined}
+                    cost={formData.cost} averageCost={editingProduct?.averageCost} price={formData.price} onPrice={price => setFormData(current => ({ ...current, price }))} />}
                 <Input type="number" label="Compare-at Price" description="Optional. Shown as the regular price when on sale." value={formData.compareAtPrice} onChange={e => setFormData({ ...formData, compareAtPrice: e.target.value })} step="0.01" min="0" />
               </div>
             </FormSection>
 
             {editingProduct && formData.trackInventory && <FormSection collapsible title="Packs of this item" summary={packsSummary}
               description="Cartons, 12-packs or cases of this item. They share its stock: selling a carton of 10 takes 10 from it.">
-              <ProductPacksSection data={packaging.data} error={packaging.error} onReload={() => void packaging.reload()}
+              <ProductPacksSection data={packaging.data} error={packaging.error} onReload={() => void packaging.reload()} sharedItem={sharedItem}
                 onAddPack={() => setPackTarget({ mode: 'create', kind: 'PACK', baseProductId: editingProduct.id })}
                 onEditPack={unit => setPackTarget({ mode: 'edit-pack', productId: editingProduct.id, unitId: unit.id })} />
             </FormSection>}
@@ -625,15 +682,24 @@ export const Inventory: React.FC = () => {
               <SupplierCasesEditor data={packaging.data} onChanged={() => void packaging.reload()} />
             </FormSection>}
 
+            {canShare && <FormSection collapsible title="Shared catalog" summary="Only this store"
+              description="Share this item with your other stores. Its name, barcode and selling rules are then managed once, in the Shared Catalog, where you can add it to the other stores.">
+              <div className="flex flex-wrap items-center gap-3">
+                <Button type="button" variant="outline" loading={addingToCatalog} disabled={formDirty} aria-describedby={formDirty ? `${productFormId}-share-hint` : undefined}
+                  onClick={() => void addToSharedCatalog()}>Add to Shared Catalog</Button>
+                {formDirty && <p id={`${productFormId}-share-hint`} className="text-xs text-muted-foreground">Save your changes first.</p>}
+              </div>
+            </FormSection>}
+
             <FormSection collapsible title="Brand, size & description" summary={detailsSummary} defaultOpen={lookupFilledDetails}>
               <div className="space-y-4">
                 <div className="product-field-grid">
-                  <Input label="Brand" description="Optional" value={formData.brand} onChange={e => setFormData({ ...formData, brand: e.target.value })} maxLength={80} placeholder="e.g. Gatorade" />
-                  <Input label="Product family" description="Optional. Groups flavors/variants to check together." value={formData.productFamily} onChange={e => setFormData({ ...formData, productFamily: e.target.value })} maxLength={80} placeholder="e.g. Gatorade Thirst Quencher" />
-                  <Input label="Flavor / variant" description="Optional" value={formData.variant} onChange={e => setFormData({ ...formData, variant: e.target.value })} maxLength={80} placeholder="e.g. Lemon-Lime" />
-                  <Input label="Size" description="Optional" value={formData.size} onChange={e => setFormData({ ...formData, size: e.target.value })} maxLength={40} placeholder="e.g. 20 oz" />
+                  <Input label="Brand" description="Optional" value={formData.brand} onChange={e => setFormData({ ...formData, brand: e.target.value })} maxLength={80} placeholder="e.g. Gatorade" disabled={sharedItem} />
+                  <Input label="Product family" description="Optional. Groups flavors/variants to check together." value={formData.productFamily} onChange={e => setFormData({ ...formData, productFamily: e.target.value })} maxLength={80} placeholder="e.g. Gatorade Thirst Quencher" disabled={sharedItem} />
+                  <Input label="Flavor / variant" description="Optional" value={formData.variant} onChange={e => setFormData({ ...formData, variant: e.target.value })} maxLength={80} placeholder="e.g. Lemon-Lime" disabled={sharedItem} />
+                  <Input label="Size" description="Optional" value={formData.size} onChange={e => setFormData({ ...formData, size: e.target.value })} maxLength={40} placeholder="e.g. 20 oz" disabled={sharedItem} />
                 </div>
-                <Input label="Description" value={formData.description} onChange={e => lookup.editIdentity('description', e.target.value)} />
+                <Input label="Description" value={formData.description} onChange={e => lookup.editIdentity('description', e.target.value)} disabled={sharedItem} />
               </div>
             </FormSection>
 
@@ -645,7 +711,7 @@ export const Inventory: React.FC = () => {
                 <p className="text-xs text-muted-foreground">The register never blocks a sale because recorded stock is zero or negative. A negative balance opens an inventory exception for review.</p>
                 <div className="product-field-grid">
                   <Input type="number" label="Provisional unit cost" description="Optional. Used for cost of goods only when stock runs out before any receipt or average cost exists." value={formData.provisionalUnitCost} onChange={e => setFormData({ ...formData, provisionalUnitCost: e.target.value })} step="0.01" min="0" />
-                  <Input label="Sale hold" description="Optional. Recall or prohibited-sale reason; the register refuses this item while set." value={formData.saleBlockedReason} onChange={e => setFormData({ ...formData, saleBlockedReason: e.target.value })} maxLength={200} />
+                  <Input label="Sale hold" description={sharedItem ? 'Set in the Shared Catalog.' : 'Optional. Recall or prohibited-sale reason; the register refuses this item while set.'} value={formData.saleBlockedReason} onChange={e => setFormData({ ...formData, saleBlockedReason: e.target.value })} maxLength={200} disabled={sharedItem} />
                 </div>
               </div>
             </FormSection>

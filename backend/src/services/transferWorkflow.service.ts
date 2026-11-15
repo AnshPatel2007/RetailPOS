@@ -72,25 +72,36 @@ export async function recordTransferReceipt(tx: Prisma.TransactionClient, req: A
   // Catalog serialization must not block the foreign-key checks of a sale that
   // already holds a product lock, or receiving and checkout can deadlock.
   if (kind === 'RECEIVE') await tx.$queryRaw`SELECT id FROM locations WHERE id = ${locationId} FOR NO KEY UPDATE`;
-  const targets = new Map<string, { id: string; automatic: boolean }>();
+  // How a line found its product here: chosen, the same shared-catalog item, or the same SKU and name.
+  const targets = new Map<string, { id: string; automatic: false | 'CATALOG' | 'SKU' }>();
   for (const line of lines.filter(line => line.acceptedQty > 0).sort((a, b) => a.item.productId.localeCompare(b.item.productId))) {
     if (kind === 'SOURCE_RETURN') { targets.set(line.item.id, { id: line.item.productId, automatic: false }); continue; }
     const snapshot = shipmentProduct(line.item);
+    const sharedItemId = line.item.product.catalogItemId;
     if (line.item.destinationProductId && ((line.destinationProductId && line.destinationProductId !== line.item.destinationProductId) || line.createProduct)) throw new AppError('This line is already mapped to a destination product', 409);
     let id = line.item.destinationProductId || line.destinationProductId;
-    let automatic = false;
+    let automatic: false | 'CATALOG' | 'SKU' = false;
     if (line.createProduct) {
       if (id) throw new AppError('Select an existing product or create a product, not both', 400);
       const sku = line.newSku || snapshot.sku;
       if (sku === 'MISC-001') throw new AppError('The internal MISC product cannot receive transferred stock', 400);
       const conflict = await tx.product.findFirst({ where: { locationId, OR: [{ sku }, ...(snapshot.barcode ? [{ barcode: snapshot.barcode }] : [])] } });
       if (conflict) throw new AppError('A destination product already uses that SKU or barcode. Select its mapping or use a different SKU where appropriate.', 409);
-      const product = await tx.product.create({ data: { ...snapshot, sku, locationId, stockQuantity: 0, trackInventory: true } });
+      // A shared-catalog item stays shared when this store is in the same business.
+      const sameBusiness = sharedItemId ? await tx.catalogItem.findFirst({ where: { id: sharedItemId, organization: { locations: { some: { id: locationId } } } }, select: { id: true } }) : null;
+      if (sameBusiness && await tx.product.findFirst({ where: { locationId, catalogItemId: sharedItemId }, select: { id: true } }))
+        throw new AppError(`This store already carries the shared item ${snapshot.name}. Select it instead of creating a product.`, 409);
+      const product = await tx.product.create({ data: { ...snapshot, sku, locationId, stockQuantity: 0, trackInventory: true, ...(sameBusiness ? { catalogItemId: sharedItemId } : {}) } });
       id = product.id;
     } else if (!id) {
-      const product = await tx.product.findUnique({ where: { sku_locationId: { sku: snapshot.sku, locationId } } });
-      if (!line.item.productSnapshot || !product || !exactProductMatch(product, snapshot)) throw new AppError('Choose a destination product for ' + snapshot.name + ' before accepting stock', 409);
-      id = product.id; automatic = true;
+      const linked = sharedItemId ? await tx.product.findFirst({ where: { locationId, catalogItemId: sharedItemId } }) : null;
+      if (linked) {
+        id = linked.id; automatic = 'CATALOG';
+      } else {
+        const product = await tx.product.findUnique({ where: { sku_locationId: { sku: snapshot.sku, locationId } } });
+        if (!line.item.productSnapshot || !product || !exactProductMatch(product, snapshot)) throw new AppError('Choose a destination product for ' + snapshot.name + ' before accepting stock', 409);
+        id = product.id; automatic = 'SKU';
+      }
     }
     targets.set(line.item.id, { id, automatic });
   }
@@ -99,7 +110,8 @@ export async function recordTransferReceipt(tx: Prisma.TransactionClient, req: A
     const target = targets.get(line.item.id)!;
     const product = await tx.product.findUnique({ where: { id: target.id } });
     if (!product || product.locationId !== locationId || !product.trackInventory || (kind === 'RECEIVE' && !product.isActive) || product.sku === 'MISC-001') throw new AppError('Select an active tracked product at this store', 409);
-    if (target.automatic && !exactProductMatch(product, shipmentProduct(line.item))) throw new AppError('The destination product changed; confirm its mapping', 409);
+    if (target.automatic === 'SKU' && !exactProductMatch(product, shipmentProduct(line.item))) throw new AppError('The destination product changed; confirm its mapping', 409);
+    if (target.automatic === 'CATALOG' && product.catalogItemId !== line.item.product.catalogItemId) throw new AppError('The destination product changed; confirm its mapping', 409);
   }
   const receipt = await tx.transferReceipt.create({ data: {
     transferId: transfer.id, kind, idempotencyKey: body.idempotencyKey, requestHash: hash, locationId, userId: req.user!.id, notes: body.notes,

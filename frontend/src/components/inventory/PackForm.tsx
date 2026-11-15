@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Alert } from '@/components/ui/Alert';
 import { ProductPicker } from '@/components/common/ProductPicker';
 import { FormSection } from '@/components/common/Workspace';
 import { MarginPricing } from '@/components/inventory/MarginPricing';
@@ -104,6 +105,9 @@ export const PackForm: React.FC<{
   const unit = base?.baseUnitName && base.baseUnitName !== 'unit' ? base.baseUnitName : 'single';
   const units = Number(pack.units);
   const editingPack = current?.mode === 'edit-pack' ? base?.sellingUnits.find(candidate => candidate.id === current.unitId) ?? null : null;
+  // Shared catalog: a shared pack's name, barcode and SKU, and a price that follows the shared one, are set there.
+  const sharedPack = !!editingPack?.catalogPackId;
+  const priceFollows = !!editingPack?.priceFollowsCatalog;
   const setUnits = (value: string) => setPack(previous => ({ ...previous, units: value,
     // Until a cost is typed, the pack cost follows the single's cost.
     packCost: !costTouched && base && Number(value) >= 2 ? (Number(base.cost) * Number(value)).toFixed(2) : previous.packCost }));
@@ -269,19 +273,21 @@ export const PackForm: React.FC<{
                 {base ? <p className="text-sm">Holds <span className="font-medium">{base.name}</span> <Button type="button" variant="ghost" onClick={() => { setBase(null); setBaseId(null); }}>Change</Button></p>
                   : <ProductPicker locationId={locationId || ''} selectedIds={[]} onSelect={picked => { void pickBase(picked.id); }} />}
               </div>}
+            {sharedPack && <Alert title="Shared pack">Its name, barcode and SKU are managed in the Shared Catalog{priceFollows ? ', and so is its price' : ''}.</Alert>}
             <div className="product-field-grid">
               <Input label={`${unit[0].toUpperCase()}${unit.slice(1)}s in the pack`} type="number" min="2" step="1" value={pack.units} readOnly={!!editingPack}
                 onChange={e => setUnits(e.target.value)} required />
-              <Input label="Pack name" value={pack.name} onChange={e => setPack({ ...pack, name: e.target.value })} placeholder={units >= 2 ? `${units}-pack` : 'e.g. Carton'} maxLength={60} />
-              <Input label="Pack barcode" value={pack.barcode} onChange={e => setPack({ ...pack, barcode: e.target.value })} required maxLength={100} autoComplete="off" />
-              <Input label="Pack SKU" description="Optional" value={pack.sku} onChange={e => setPack({ ...pack, sku: e.target.value })} maxLength={100} />
+              <Input label="Pack name" value={pack.name} onChange={e => setPack({ ...pack, name: e.target.value })} placeholder={units >= 2 ? `${units}-pack` : 'e.g. Carton'} maxLength={60} disabled={sharedPack} />
+              <Input label="Pack barcode" value={pack.barcode} onChange={e => setPack({ ...pack, barcode: e.target.value })} required maxLength={100} autoComplete="off" disabled={sharedPack} />
+              <Input label="Pack SKU" description="Optional" value={pack.sku} onChange={e => setPack({ ...pack, sku: e.target.value })} maxLength={100} disabled={sharedPack} />
             </div>
             <div className="product-field-grid">
-              <Input label="Pack price" type="number" min="0.01" step="0.01" value={pack.price} onChange={e => setPack({ ...pack, price: e.target.value })} required />
+              <Input label="Pack price" type="number" min="0.01" step="0.01" value={pack.price} onChange={e => setPack({ ...pack, price: e.target.value })} required disabled={priceFollows}
+                description={priceFollows ? 'Follows the shared price' : undefined} />
               <Input label="Pack cost" type="number" min="0" step="0.01" value={pack.packCost} onChange={e => { setCostTouched(true); setPack({ ...pack, packCost: e.target.value }); }}
                 description={units >= 2 && pack.packCost !== '' ? `${formatCurrency(Number(pack.packCost))} ÷ ${units} = ${formatCurrency(Number(pack.packCost) / units)} per ${unit}${costTouched ? ', saved as its cost price' : ''}` : 'What you pay for one pack'} />
             </div>
-            {base && <MarginPricing productId={base.productId} cost={pack.packCost} price={pack.price} onPrice={price => setPack(previous => ({ ...previous, price }))} />}
+            {base && !priceFollows && <MarginPricing productId={base.productId} cost={pack.packCost} price={pack.price} onPrice={price => setPack(previous => ({ ...previous, price }))} />}
             {editingPack && (
               <FormSection title="Unopened on the shelf" description={`Packs still sealed. Selling a single ${unit} opens one automatically when no loose ones are left.`}>
                 <div className="flex flex-wrap items-end gap-2">

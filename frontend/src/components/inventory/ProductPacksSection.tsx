@@ -14,7 +14,9 @@ import type { ProductSellingUnit } from '@/types';
 export const ProductPacksSection: React.FC<{
   data: PackagingView | null; error: string | null; onReload: () => void;
   onAddPack: () => void; onEditPack: (unit: ProductSellingUnit) => void; disabled?: boolean;
-}> = ({ data, error, onReload, onAddPack, onEditPack, disabled }) => {
+  /** The item is in the shared catalog: what one unit is called is set there. */
+  sharedItem?: boolean;
+}> = ({ data, error, onReload, onAddPack, onEditPack, disabled, sharedItem }) => {
   const [baseName, setBaseName] = useState('');
   const [saving, setSaving] = useState(false);
   useEffect(() => { setBaseName(data?.baseUnitName || 'unit'); }, [data?.baseUnitName]);
@@ -38,7 +40,7 @@ export const ProductPacksSection: React.FC<{
         : <ul className="space-y-2">{packs.map(unit => (
           <li key={unit.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
             <span><span className="font-medium">{unit.name}</span>
-              <span className="text-xs text-muted-foreground"> · {unit.unitsPerPackage} {data.baseUnitName}s · {unit.barcode}</span></span>
+              <span className="text-xs text-muted-foreground"> · {unit.unitsPerPackage} {data.baseUnitName}s · {unit.barcode}{unit.catalogPackId ? ' · Shared pack' : ''}</span></span>
             <span className="text-xs text-muted-foreground">
               Price {formatCurrency(Number(unit.price))} · Pack cost {formatCurrency(unitCost * unit.unitsPerPackage)} · {unit.sealedQuantity} unopened
             </span>
@@ -46,8 +48,9 @@ export const ProductPacksSection: React.FC<{
           </li>))}</ul>}
       <Button type="button" variant="outline" disabled={disabled} onClick={onAddPack}>Add a pack of this item</Button>
       <div className="flex flex-wrap items-end gap-2 pt-2" onKeyDown={event => { if (event.key === 'Enter' && event.target instanceof HTMLInputElement) event.preventDefault(); }}>
-        <Input label="Each one is called" description="Used in pack counts, e.g. can, bottle, pack" value={baseName} onChange={e => setBaseName(e.target.value)} maxLength={30} className="w-48" />
-        <Button type="button" variant="outline" disabled={disabled || saving || !baseName.trim() || baseName === data.baseUnitName} onClick={saveName}>Save name</Button>
+        <Input label="Each one is called" description={sharedItem ? 'Set in the Shared Catalog' : 'Used in pack counts, e.g. can, bottle, pack'} value={baseName} onChange={e => setBaseName(e.target.value)} maxLength={30} className="w-48"
+          disabled={sharedItem} />
+        {!sharedItem && <Button type="button" variant="outline" disabled={disabled || saving || !baseName.trim() || baseName === data.baseUnitName} onClick={saveName}>Save name</Button>}
       </div>
     </div>
   );

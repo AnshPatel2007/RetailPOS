@@ -261,7 +261,8 @@ a.app-topbar-link { cursor: pointer; }
 :root[data-look="new"] .selection-control:focus-within, :root[data-look="new"] .date-control:focus-within { border-bottom-color: hsl(var(--brand)); background: hsl(var(--card)); }
 :root[data-look="new"] .app-input[aria-invalid="true"], :root[data-look="new"] .app-textarea[aria-invalid="true"],
 :root[data-look="new"] .selection-control[data-invalid], :root[data-look="new"] [data-invalid] > .selection-control { border-bottom-color: hsl(var(--destructive-text)); }
-:root[data-look="new"] .app-input:disabled, :root[data-look="new"] .app-textarea:disabled { border-bottom-style: dashed; }
+:root[data-look="new"] .app-input:disabled, :root[data-look="new"] .app-textarea:disabled,
+:root[data-look="new"] .selection-control[data-disabled], :root[data-look="new"] [data-disabled] > .selection-control { border-bottom-style: dashed; }
 :root[data-look="new"] .app-checkbox input[type="checkbox"] { width: 18px; height: 18px; border-radius: 3px; }
 
 /* ---- Form sections: a heavy capital heading on a black rule ------------ */

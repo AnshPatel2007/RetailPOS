@@ -7,6 +7,7 @@ import { AuthRequest } from '../types';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { resolveWriteLocation } from '../utils/locationFilter.util';
 import { assertSellingIdentifiersAvailable, lockPackagingProduct, packagingSummary, setPackageCount } from '../services/productSellingUnit.service';
+import { guardPackChange, SHARED_MESSAGE } from '../services/catalogGuards.service';
 
 /**
  * Connected packaging: one product (the base unit, e.g. a can) can be sold as
@@ -87,6 +88,7 @@ export const updateSellingUnit = asyncHandler(async (req: AuthRequest, res: Resp
     const unit = current.sellingUnits.find(candidate => candidate.id === req.params.unitId);
     if (!unit) throw new AppError('Pack not found', 404);
     if (unit.version !== body.expectedVersion) throw new AppError('This pack changed. Reload and try again.', 409);
+    guardPackChange(unit, body);
     if (body.isActive === false && unit.sealedQuantity > 0) throw new AppError(`Open or count the ${unit.sealedQuantity} unopened ${unit.name} before retiring it`, 409);
     await assertSellingIdentifiersAvailable(tx, { locationId, barcode: body.barcode ?? null, sku: body.sku ?? null, excludeSellingUnitId: unit.id });
     await tx.productSellingUnit.update({ where: { id: unit.id }, data: {
@@ -104,6 +106,8 @@ export const updateBaseUnitName = asyncHandler(async (req: AuthRequest, res: Res
   const locationId = resolveWriteLocation(req);
   const product = await prisma.$transaction(async tx => {
     const current = await lockPackagingProduct(tx, req.params.id, locationId);
+    // "Sold as" is shared by items in the shared catalog.
+    if (current.catalogItemId && current.baseUnitName !== baseUnitName) throw new AppError(SHARED_MESSAGE, 409, { code: 'SHARED_FIELD', fields: ['baseUnitName'] });
     await tx.product.update({ where: { id: current.id }, data: { baseUnitName } });
     return tx.product.findUniqueOrThrow({ where: { id: current.id }, include: withPackaging });
   });
