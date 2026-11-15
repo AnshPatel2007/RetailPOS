@@ -39,9 +39,11 @@ test('a cashier photographs an invoice at the register; the owner checks it from
   const capture = page.getByRole('dialog', { name: 'Delivery invoice', exact: true });
   await capture.getByTestId('invoice-files').setInputFiles({ name: 'invoice.png', mimeType: 'image/png', buffer: png });
   await expect(capture.getByRole('img', { name: 'Page 1', exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/delivery-invoice-register-capture.png' });
   await capture.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(capture.getByText('Sent to the owner', { exact: true })).toBeVisible({ timeout: 30000 });
   await expect(capture.getByText('FIZZ BOTTLING CO · Invoice F-100 · 3 lines', { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/delivery-invoice-register-sent.png' });
   await page.keyboard.press('Escape');
   await logout(page);
 
@@ -52,6 +54,8 @@ test('a cashier photographs an invoice at the register; the owner checks it from
   await bell.click();
   const alert = page.getByRole('dialog', { name: 'Alerts', exact: true }).getByRole('listitem')
     .filter({ hasText: '1 delivery invoice is waiting for your OK (FIZZ BOTTLING CO, $35.20).' });
+  await expect(alert).toBeVisible();
+  await page.screenshot({ path: 'test-results/delivery-invoice-bell.png', animations: 'disabled' });
   await alert.getByRole('link', { name: 'Check invoices', exact: true }).click();
   await expect(page).toHaveURL(/\/inventory\/purchasing\/receive\?invoice=[0-9a-f-]{36}$/);
 
@@ -76,6 +80,7 @@ test('a cashier photographs an invoice at the register; the owner checks it from
   const newItem = page.getByRole('dialog', { name: 'Add a new item', exact: true });
   await expect(newItem.getByLabel('Name', { exact: true })).toHaveValue('Zing Jerky 2 oz');
   await newItem.getByLabel('Selling price', { exact: true }).fill('4.99');
+  await page.screenshot({ path: 'test-results/delivery-invoice-new-item.png' });
   await newItem.getByRole('button', { name: 'Add item', exact: true }).click();
   await expect(newItem).toHaveCount(0);
   await expect(review.getByRole('listitem', { name: 'Line 3: Zing Jerky 2 oz', exact: true })).toContainText('New item · sells for $4.99');
@@ -103,6 +108,7 @@ test('a cashier photographs an invoice at the register; the owner checks it from
   // Crunch Chips now cost $1.00 each, up from $0.80: their price may be too low.
   await expect(done).toContainText('Costs went up on 1 item');
   await expect(done.getByRole('link', { name: 'Check prices', exact: true })).toHaveAttribute('href', '/inventory/purchasing/price-review');
+  await page.screenshot({ path: 'test-results/delivery-invoice-received.png' });
   await done.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page).toHaveURL(/\/inventory\/purchasing\/receive$/);
   await withReading(page, reading('F-101'));

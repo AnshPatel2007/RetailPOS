@@ -97,6 +97,23 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   when an invoice number is entered) and supplier returns create OPEN credits;
   Purchasing > Credits Owed records and settles them once (RECEIVED or WRITTEN_OFF).
   Credits never change stock or inventory value.
+- **Invoice receiving** (Nov 2026, `services/deliveryInvoice.service.ts`,
+  `invoiceReading.service.ts`, `invoiceMatching.service.ts`,
+  `deliveryInvoiceReceiving.service.ts`; `/api/delivery-invoices`): anyone working in the
+  store may photograph a supplier's invoice (up to 5 photos, or its PDF); the photos and a
+  draft are saved before the AI reads them, so a failed read is kept to read again.
+  Reading never sends the catalog. Lines match SURE only from a match an owner confirmed
+  on an earlier invoice from that supplier (`invoice_item_matches`), the supplier's item
+  number or the printed barcode; an AI pick among the closest names is only ever "to
+  check"; returns and credits are never received. Only owners and managers change or
+  receive an invoice (version-checked), and receiving goes through the reviewed receipt
+  import: its id is stored on the invoice before it is applied, and every retry, change or
+  discard first settles it (`settlePreviousImport`: applied, finish that receipt; not
+  applied, delete it), so stock never arrives twice. Confirmed lines are remembered with
+  their case size, and the item's supplier link gets the item number, case size and case
+  cost. The alert `invoicesToConfirm` opens the oldest waiting invoice. Tests never call
+  the AI: under `NODE_ENV=test` only, a request may carry a prepared reading
+  (`testReading`).
 - **Shelf labels**: price changes are stamped by trigger (`priceChangedAt` on products
   and packs, any write path); Products > "Labels to print (N)" and Price Review's
   "Print labels for these items" print them through `BarcodeLabelPrint`, and confirming
@@ -252,6 +269,12 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   re-prices on the server, so a stale cached price is never charged. A computer set up
   as a register keeps its store's product catalog across cashier sign-outs; customer
   details are always cleared.
+- **Receiving from an invoice photo** (`components/deliveries/`): the register top bar's
+  Delivery button and Receive Delivery's main action open `InvoiceCapture` (photos shrunk
+  to 2000 px on the device, `lib/imageCompress.ts`). Receive Delivery lists the invoices
+  waiting for an OK; `?invoice=<id>` opens `InvoiceReview`: photos beside the lines, the
+  lines that need a person first ("Is this …?" Yes / pick another / add as new / skip),
+  each decision saved as it is made, one "Receive N units" button.
 - **Receiving by scanning** (Purchasing > Receive Delivery, `pages/ReceiveDelivery.tsx`;
   line logic in `lib/deliveryLines.ts`, laid out for a phone): supplier, optional open
   order, then scans through `components/common/CameraScanner.tsx` (the browser's

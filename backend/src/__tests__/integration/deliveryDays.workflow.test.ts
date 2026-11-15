@@ -48,14 +48,17 @@ describe('Supplier delivery days and the reorder plan', () => {
 
   it('suggests the weekdays deliveries arrived on at least three days in the last eight weeks, without saving them', async () => {
     const order = await prisma.purchaseOrder.create({ data: { orderNumber: 'PO-DAYS', supplierId: data.supplier.id, locationId: data.location.id, status: 'ORDERED', totalAmount: 0 } });
-    const receivedOn = (daysAgo: number, hourUtc = 17) => {
+    const timeOf = (daysAgo: number, hourUtc = 17) => {
       const at = new Date(Date.now() - daysAgo * 86400000);
       at.setUTCHours(hourUtc, 0, 0, 0);
-      return prisma.purchaseReceipt.create({ data: { purchaseOrderId: order.id, idempotencyKey: randomUUID(), requestHash: 'x', receivedBy: data.adminUser.id, createdAt: at } });
+      return at;
     };
+    const receivedOn = (daysAgo: number, hourUtc = 17) =>
+      prisma.purchaseReceipt.create({ data: { purchaseOrderId: order.id, idempotencyKey: randomUUID(), requestHash: 'x', receivedBy: data.adminUser.id, createdAt: timeOf(daysAgo, hourUtc) } });
     // Three different weeks on one weekday, twice on the same day of another weekday (one day only), and one too long ago.
     await Promise.all([receivedOn(7), receivedOn(14), receivedOn(21), receivedOn(10), receivedOn(10, 18), receivedOn(70)]);
-    const expected = weekdayOf(storeDay(zone, new Date(Date.now() - 7 * 86400000)).date);
+    // The store day of the delivery itself (in the evening in Chicago, the UTC date is already tomorrow).
+    const expected = weekdayOf(storeDay(zone, timeOf(7)).date);
     const suggestion = (await call('get', `/api/suppliers/${data.supplier.id}/delivery-days/suggestion`).expect(200)).body.data;
     expect(suggestion).toEqual({ weekdays: [expected], deliveries: 4, weeks: 8 });
     expect((await prisma.supplier.findUniqueOrThrow({ where: { id: data.supplier.id } })).deliveryDays).toEqual([]);

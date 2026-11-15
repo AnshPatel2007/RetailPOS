@@ -42,6 +42,11 @@ npx tsc --noEmit -p frontend; npx tsc --noEmit -p backend
 - On Windows a running API holds Prisma's engine DLL, so `prisma generate` cannot
   replace it. The JavaScript client still regenerates; stop the API before a clean
   generate or production build.
+- Tests never call the AI service. Delivery-invoice tests send a prepared reading as
+  the `testReading` field (honoured only under `NODE_ENV=test`): the integration suite
+  attaches it to its upload, and `e2e/delivery-invoices.spec.ts` adds it to the
+  browser's real upload with `page.route`. Suites that need no reading delete
+  `ANTHROPIC_API_KEY` while they run.
 
 ## Other verification tools
 
