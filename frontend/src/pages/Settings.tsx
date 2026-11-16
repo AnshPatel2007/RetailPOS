@@ -29,6 +29,8 @@ import { RegisterDeviceCard } from '@/components/settings/RegisterDeviceCard';
 import { PricingRulesCard } from '@/components/settings/PricingRulesCard';
 import { CostAlertCard } from '@/components/settings/CostAlertCard';
 import {SecurityNotifications} from '@/components/settings/SecurityNotifications';
+import { PhoneAlertsCard } from '@/components/settings/PhoneAlertsCard';
+import { AlertAmountsCard } from '@/components/settings/AlertAmountsCard';
 import { ManagementPage } from '@/components/common/Workspace';
 import { PageHeader } from '@/components/common/PageHeader';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
@@ -379,6 +381,7 @@ export const Settings: React.FC = () => {
         </Card>
 
         </fieldset>)}
+        {selected === 'notifications' && user?.role === 'ADMIN' && <AlertAmountsCard editable={canOperate} />}
 
         {selected === 'devices' && !isSuperAdmin && <RegisterDeviceCard readOnly={isReadOnly} />}
         {selected === 'devices' && canOperate && (<>
@@ -563,6 +566,7 @@ export const Settings: React.FC = () => {
 
         {/* Two-Factor Authentication — visible to all roles */}
         <RegisterPinCard />
+        <PhoneAlertsCard />
         <TwoFactorCard />
         <SecurityNotifications />
         </>}

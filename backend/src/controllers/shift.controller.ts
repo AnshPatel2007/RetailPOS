@@ -9,6 +9,8 @@ import { logger } from '../utils/logger';
 import { storeDateRange } from '../services/reportDates.service';
 import { assertOwnsRecord, getLocationFilter } from '../utils/locationFilter.util';
 import { cashierCountsBlind } from '../services/cashControl.service';
+import { afterResponse } from '../services/storeAlert.service';
+import { alertDrawer } from '../services/eventAlerts';
 
 const CASH_MOVEMENT_TYPES = ['SAFE_DROP', 'PAID_IN', 'PAID_OUT'] as const;
 
@@ -101,6 +103,7 @@ export const clockOut = asyncHandler(async (req: AuthRequest, res: Response) => 
   });
   await generatePayrollExpenses().catch(error => logger.error('Payroll posting deferred', error));
   res.json({ success: true, data: result, message: 'Clocked out successfully' });
+  afterResponse(() => alertDrawer(result));
 });
 
 /**
@@ -128,6 +131,7 @@ export const closeShift = asyncHandler(async (req: AuthRequest, res: Response) =
   });
   await generatePayrollExpenses().catch(error => logger.error('Payroll posting deferred', error));
   res.json({ success: true, data: result, message: 'Shift closed successfully' });
+  afterResponse(() => alertDrawer(result));
 });
 
 /**

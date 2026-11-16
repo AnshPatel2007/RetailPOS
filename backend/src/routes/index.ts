@@ -33,6 +33,7 @@ import promotionRoutes from './promotion.routes';
 import houseAccountRoutes from './houseAccount.routes';
 import developerRoutes from './developer.routes';
 import { organizationAdminRoutes, organizationRoutes } from './organization.routes';
+import pulseRoutes from './pulse.routes';
 
 const router = Router();
 
@@ -85,5 +86,6 @@ router.use('/house-accounts', houseAccountRoutes);
 router.use('/developer', developerRoutes);
 router.use('/organization', organizationRoutes);
 router.use('/organizations', organizationAdminRoutes);
+router.use('/pulse', pulseRoutes);
 
 export default router;

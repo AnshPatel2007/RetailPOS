@@ -152,6 +152,7 @@ model User {
   pinFailedAttempts          Int                  @default(0)
   pinLockoutUntil            DateTime?
   registerDevicesCreated     RegisterDevice[]     @relation("RegisterDeviceCreator")
+  pushSubscriptions          PushSubscription[]
   activityLogs               ActivityLog[]
   expenses                   Expense[]
   refreshTokens              RefreshToken[]
@@ -338,6 +339,8 @@ model Location {
   registerDevices RegisterDevice[]
   cashPlanSetting CashPlanSetting?
   cashPlanItems   CashPlanItem[]
+  storeAlerts     StoreAlert[]
+  storeAlertSetting StoreAlertSetting?
   costingActivatedAt DateTime?
   historicalIncome HistoricalIncome[]
   operationReceipts OperationReceipt[]
@@ -1651,6 +1654,58 @@ model CashPlanSetting {
   location            Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
   @@map("cash_plan_settings")
+}
+
+/// A phone or computer where someone turned on alerts (Settings > Profile & Security). The
+/// keys are the browser's own push keys; a push service that answers "gone" removes the row.
+model PushSubscription {
+  id          String    @id @default(uuid())
+  userId      String
+  endpoint    String    @unique
+  p256dh      String
+  auth        String
+  deviceLabel String?
+  createdAt   DateTime  @default(now())
+  lastSentAt  DateTime?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+/// Something a store's owners (or owners and managers) are told about at once on their phones
+/// (services/storeAlert.service.ts). Recorded once per key, so a retry or a second server never
+/// sends it twice; closed (resolvedAt) when its condition clears.
+model StoreAlert {
+  id         String    @id @default(uuid())
+  locationId String
+  key        String
+  kind       String
+  severity   String // high | medium | low
+  audience   String    @default("OWNERS") // OWNERS | LEADS (owners and managers)
+  sentence   String
+  href       String
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+  location   Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, key])
+  @@index([locationId, resolvedAt])
+  @@map("store_alerts")
+}
+
+/// The owner's alert amounts. Owner-only; kept out of the store settings registers receive.
+model StoreAlertSetting {
+  locationId      String   @id
+  /// A refund or void of at least this much is sent to the owners; null turns it off.
+  refundAlertOver Decimal? @default(50) @db.Decimal(14, 2)
+  /// A drawer that closes off by at least this much is sent to the owners; null turns it off.
+  drawerAlertOver Decimal? @default(5) @db.Decimal(14, 2)
+  updatedById     String?
+  updatedAt       DateTime @updatedAt
+  location        Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@map("store_alert_settings")
 }
 
 /// Money the owner expects that no record shows (a loan payment, an owner draw, a tax refund).

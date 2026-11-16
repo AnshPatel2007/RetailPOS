@@ -19,6 +19,14 @@ test('the build contains a service worker that saves the app and leaves API requ
   assert.ok(!worker.includes('clientsClaim'), 'a new version must not take over an open register');
 });
 
+test('the service worker shows phone alerts and opens them on a tap', () => {
+  assert.match(read('sw.js'), /importScripts\(["']push-sw\.js["']\)/, 'the app worker must load the alert worker');
+  const alerts = read('push-sw.js');
+  assert.ok(alerts.includes("addEventListener('push'"), 'an alert from the server is shown');
+  assert.ok(alerts.includes("addEventListener('notificationclick'"), 'a tap opens the alert');
+  assert.ok(alerts.includes('pos:open-alert'), 'an open window opens the alert inside the app, without reloading');
+});
+
 test('the manifest makes the app installable with its own icons', () => {
   const manifest = JSON.parse(read('manifest.webmanifest'));
   assert.equal(manifest.display, 'standalone');

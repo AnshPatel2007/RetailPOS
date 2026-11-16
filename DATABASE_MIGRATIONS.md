@@ -147,6 +147,14 @@ replace them. Integration tests exercise them.
 
 ## Recent changes
 
+- **`20261116010000_store_alerts` (2026-11-16).** Phone alerts, purely additive: new tables
+  `push_subscriptions` (a device where someone turned alerts on; deleted with the person),
+  `store_alerts` (each alert once per store and key, so a retry or a second server never
+  sends it twice; `resolvedAt` closes it) and `store_alert_settings` (the owner's refund and
+  drawer amounts; a store without a row uses $50 and $5). No triggers, no backfill. The app
+  needs it: this version's Prisma client writes `store_alerts` after refunds, voids and
+  drawer closes (failures are logged, never fail the request).
+
 - **`20261116000000_cash_plan` (2026-11-16).** Money Ahead, purely additive: new tables
   `cash_plan_settings` (one row per store: card deposit days and fee, sales tax schedule,
   the lottery's sweep weekday, and the money the business had on a given morning) and

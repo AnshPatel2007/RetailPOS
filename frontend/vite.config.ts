@@ -15,7 +15,7 @@ export default defineConfig({
       // a register is never reloaded in the middle of a sale (AppUpdateNotice).
       registerType: 'prompt',
       injectRegister: false,
-      includeAssets: ['favicon.svg', 'icons/*.png'],
+      includeAssets: ['favicon.svg', 'icons/*.png', 'push-sw.js'],
       manifest: {
         name: 'POS System',
         short_name: 'POS',
@@ -37,6 +37,8 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
+        // Phone alerts: shows what the POS server sends and opens it on a tap (public/push-sw.js).
+        importScripts: ['push-sw.js'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
     }),

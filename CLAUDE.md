@@ -165,6 +165,15 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   the plan is learning and raises no alert; the attention rule `cashTight` (owners only) names a day
   in the coming week that runs short (or, without money today, where $500 more goes out than comes
   in). Its settings live in `cash_plan_settings`, never in the store settings registers receive.
+- **Phone alerts** (`services/storeAlert.service.ts`, `services/eventAlerts.ts`, `/api/pulse`; Web Push with
+  `VAPID_*` keys): owners and managers turn alerts on per device (Settings > Profile & Security; never on a
+  register computer; signing out takes the device off). `raiseStoreAlert` records each alert once per store and
+  key, then sends it in the background to everyone with ADMIN (and, for `LEADS` alerts, MANAGER) access there,
+  read at send time; a device answering 404/410 is removed; a high alert is emailed to owners when none has a
+  device on. Event alerts (owners only): a refund or void of at least the owner's amount, a drawer closing off by
+  at least theirs (`store_alert_settings`, $50/$5 by default, owner-only, never in store settings). Raise them with
+  `afterResponse` after the transaction; they must never fail or delay the request. A tap opens
+  `/alerts/open?store=&to=` (switches to that store first; only paths of this app).
 - **Attention list and morning brief** (`services/attention.service.ts`,
   `services/ownerBrief.service.ts`): one rule per exported function returns one plain
   sentence with its amount and the page that fixes it; the Dashboard (owners and

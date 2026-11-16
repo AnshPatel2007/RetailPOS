@@ -11,6 +11,7 @@ import { ManagerApprovalDialog } from './components/ManagerApprovalDialog';
 import { GlobalAssistant } from './components/assistant/GlobalAssistant';
 import { RegisterLockLayer } from './components/register/RegisterLock';
 import { AppUpdateNotice } from './components/common/AppUpdateNotice';
+import { PushAlertRouter } from './components/common/PushAlertRouter';
 import { WorkflowNavigation, PreserveRedirect, StockControlNavigation, PurchasingNavigation, PRICE_REVIEW, SHARED_CATALOG, SUPPLIER_CREDITS, accountViews, TeamNavigation, ShiftRedirect } from './components/common/WorkflowNavigation';
 import { changeSessionGeneration } from './services/sessionGeneration';
 
@@ -25,6 +26,7 @@ import { AccessDenied, NotFound } from './components/common/StatusPage';
 // Lazy-load all page components
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
 const MyStores = lazy(() => import('./pages/MyStores').then(m => ({ default: m.MyStores })));
+const OpenAlert = lazy(() => import('./pages/OpenAlert').then(m => ({ default: m.OpenAlert })));
 const POS = lazy(() => import('./pages/POS').then(m => ({ default: m.POS })));
 const Inventory = lazy(() => import('./pages/Inventory').then(m => ({ default: m.Inventory })));
 const Customers = lazy(() => import('./pages/Customers').then(m => ({ default: m.Customers })));
@@ -160,6 +162,7 @@ function App() {
       <GlobalAssistant />
       <RegisterLockLayer />
       <AppUpdateNotice />
+      <PushAlertRouter />
       {import.meta.env.PROD && <VercelAnalytics />}
       <Toaster
         position="top-right"
@@ -227,6 +230,7 @@ function App() {
         <Route path="/inventory/purchasing/price-review" element={<PreserveRedirect to={PRICE_REVIEW} />} />
         <Route path="/inventory/purchasing/credits" element={<PreserveRedirect to={SUPPLIER_CREDITS} />} />
         <Route path="/customer-display" element={<PageRoute page={<CustomerDisplay />} />} />
+        <Route path="/alerts/open" element={<PageRoute roles={['ADMIN', 'MANAGER']} page={<OpenAlert />} />} />
         <Route path="/house-accounts" element={<PreserveRedirect to="/customers/accounts/house-accounts" />} />
         <Route path="/developers" element={<PreserveRedirect to="/admin/integrations" />} />
         <Route path="/admin/integrations" element={<PageRoute layout="admin" page={<Developers />} roles={['SUPER_ADMIN']} />} />

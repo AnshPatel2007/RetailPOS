@@ -49,3 +49,13 @@ services:
       # sendgrid.com after verifying a "Single Sender" (no domain needed).
       - key: SENDGRID_API_KEY
         sync: false
+      # Phone alerts (Settings > Profile & Security). Generate once with
+      # `npx web-push generate-vapid-keys` and keep them: new keys silently end every
+      # phone's alerts until each turns them on again. VAPID_SUBJECT is a mailto: or
+      # https: address the push services may contact.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false

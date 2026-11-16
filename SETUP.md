@@ -180,6 +180,16 @@ DAILY_DIGEST_DISABLED, DAILY_DIGEST_HOUR and DAILY_DIGEST_EMAILS still work. Wor
 while delivery is disabled. Review pending jobs before enabling a worker in a
 configured deployment. NODE_ENV=test also disables the durable worker.
 
+**Phone alerts** (owners: large refunds and voids, drawers that close off; owners and
+managers: the store not running as usual) need push keys on the API server. Generate them
+once with `npx web-push generate-vapid-keys` and set `VAPID_PUBLIC_KEY`,
+`VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` or `https:` address). Keep the keys:
+new ones end every phone's alerts until each person turns them on again. Each person then
+turns alerts on in Settings > Profile & Security on their own phone. Alerts need the
+installed app served over HTTPS (the deployed site; not `npm run dev`); on an iPhone, add
+the POS to the Home Screen first. An urgent alert is emailed to owners who have no phone
+with alerts on, so the email worker must be on for that.
+
 PAYROLL_SCHEDULER_DISABLED=true also prevents automatic expense generation on a
 local preview. Enable the scheduler only in the intended store deployment after
 reviewing its payroll schedule; owner processing remains available explicitly.

@@ -8,6 +8,7 @@ import { offlineDb } from '../services/offlineDb';
 import { useRegisterStore } from './registerStore';
 import { useCartStore } from './cartStore';
 import { connectionSettled, isOffline, subscribeConnection } from '../services/connection';
+import { forgetDeviceOnSignOut } from '../services/pushAlerts';
 import toast from 'react-hot-toast';
 
 let logoutPending: Promise<void> | null = null;
@@ -173,7 +174,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: null, token: null, isAuthenticated: false, isLoading: false, isSigningOut: true, sessionUnverified: false, error: null });
     const cleanup = clearSessionState();
     logoutPending = (async () => {
-      try { await authService.logout(token); }
+      // This device stops getting the person's phone alerts before the session ends.
+      try { await forgetDeviceOnSignOut(token); await authService.logout(token); }
       catch (error: unknown) {
         if ((error as { response?: { status: number } }).response?.status !== 401) toast.error('Signed out on this device. Server sign-out could not be confirmed; reconnect and sign out again.');
       } finally {

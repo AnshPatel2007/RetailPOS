@@ -684,6 +684,16 @@ export const financialService = {
   getProfitAndLoss: (params?: any, signal?: AbortSignal) => api.get('/financial/reports/pnl', { params, signal }),
 };
 
+/** Phone alerts: this person's devices, a test alert, and (owners) the alert amounts. */
+export const pulseService = {
+  getSettings: (signal?: AbortSignal) => api.get('/pulse/settings', { signal }),
+  updateSettings: (data: { refundAlertOver?: number | null; drawerAlertOver?: number | null }) => api.put('/pulse/settings', data),
+  subscribe: (data: { endpoint: string; keys: { p256dh: string; auth: string }; deviceLabel?: string }) => api.post('/pulse/push/subscribe', data),
+  /** A token can be passed while signing out, after the stored one is gone. */
+  unsubscribe: (endpoint: string, token?: string | null) => api.delete('/pulse/push/subscribe', { data: { endpoint }, ...(token ? { headers: { Authorization: 'Bearer ' + token } } : {}) }),
+  test: () => api.post('/pulse/push/test'),
+};
+
 /**
  * The reason the server gave for a failed request. The API answers
  * `{ error }`; older endpoints may send `{ message }`.

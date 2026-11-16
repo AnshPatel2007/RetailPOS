@@ -23,6 +23,8 @@ import { bulkRefund, previewBulkRefund } from '../services/bulkRefund.service';
 import { generateSaleNumber } from '../utils/saleNumber';
 import { nextDocumentSequence } from '../services/documentNumber.service';
 import { getReportCalendar, storeDateRange } from '../services/reportDates.service';
+import { afterResponse } from '../services/storeAlert.service';
+import { alertBatch, alertRefund, alertVoid } from '../services/eventAlerts';
 import { ageOn, parseCalendarDate } from '../utils/calendarAge';
 import { assertOwnsRecord, assertCanReadRecord, getLocationFilter } from '../utils/locationFilter.util';
 import { isPromotionActiveNow } from '../utils/promotionEngine';
@@ -776,6 +778,8 @@ export const getSale = asyncHandler(async (req: AuthRequest, res: Response) => {
 export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { sale, refund, replayed } = await prisma.$transaction(tx => refundSaleInTransaction(req, tx));
   res.json({ success: true, data: sale, refund: { id: refund.id, amount: refund.amount, pointsRestored: refund.pointsRestored, pointsReversed: refund.pointsReversed, taxAmount: refund.taxAmount,method:refund.method,reference:refund.reference,tenders:refund.tenders }, replayed, message: replayed ? 'Saved refund confirmed' : 'Sale refunded successfully' });
+  // The owners hear about a large refund at once (a retry is the same refund: one alert).
+  afterResponse(() => alertRefund(sale.locationId, req.user!.id, { id: refund.id, amount: Number(refund.amount), method: refund.method, saleNumber: sale.saleNumber }));
 });
 
 /**
@@ -785,6 +789,8 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
 export const voidSale = asyncHandler(async (req: AuthRequest, res: Response) => {
   const sale = await prisma.$transaction(tx => voidSaleInTransaction(req, tx));
   res.json({ success: true, data: sale, replayed: sale.replayed, message: sale.replayed ? 'Saved void confirmed' : 'Sale voided successfully' });
+  afterResponse(() => alertVoid(sale.locationId, req.user!.id, { id: sale.id, total: Number(sale.total), saleNumber: sale.saleNumber,
+    cashReturned: Number((sale.voidEvent.tenders as Record<string, number> | null)?.CASH ?? 0) }));
 });
 
 /**
@@ -796,10 +802,16 @@ export const previewBulkRefundSales = asyncHandler(async (req: AuthRequest, res:
 export const bulkVoidSales = asyncHandler(async (req: AuthRequest, res: Response) => {
   const result = await bulkVoid(req);
   res.json({ success: true, data: result, replayed: result.replayed, message: result.replayed ? 'Saved bulk void confirmed' : 'Sales voided successfully' });
+  afterResponse(() => alertBatch(result.voidedSales[0]?.locationId ?? null, req.user!.id, { key: 'bulk-void:' + result.voidedSales.map(sale => sale.id).sort().join(','),
+    kind: 'VOID', count: result.voidedCount, total: result.voidedSales.reduce((sum, sale) => sum + Number(sale.total), 0) }));
 });
 
 export const bulkRefundSales = asyncHandler(async (req: AuthRequest, res: Response) => {
-  res.json({ success: true, ...await bulkRefund(req) });
+  const result = await bulkRefund(req);
+  res.json({ success: true, ...result });
+  const refunds = (result as { data?: { refunds?: { refundId: string; amount: number }[] } }).data?.refunds ?? [];
+  afterResponse(() => alertBatch(req.user!.locationId ?? null, req.user!.id, { key: 'bulk-refund:' + refunds.map(refund => refund.refundId).sort().join(','),
+    kind: 'REFUND', count: refunds.length, total: refunds.reduce((sum, refund) => sum + refund.amount, 0) }));
 });
 
 

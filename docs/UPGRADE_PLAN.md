@@ -678,8 +678,8 @@ End-to-end acceptance for the whole plan:
 | 8.2 | Deli price-label lines | Two labels of one item are two lines, each at its own price | S | Built Nov 16 |
 | 8.3 | Scan data and store-day dates | A carton exports its own barcode on the store's date | S | Built Nov 16 |
 | 8.4 | **Money Ahead** | "Thursday looks tight: about $5,900 goes out and about $4,300 comes in." | M | Built Nov 16 |
-| 8.5 | Phone alerts | "Sam refunded $84.20 in cash on sale S-20261115-0042." on the owner's phone | M | Next |
-| 8.6 | **Store Pulse** | "It is 6:25 AM and nobody has clocked in. On Tuesdays the store usually opens by 6:00 AM." | M | Planned |
+| 8.5 | Phone alerts | "Sam refunded $84.20 in cash on sale S-20261115-0042." on the owner's phone | M | Built Nov 16 |
+| 8.6 | **Store Pulse** | "It is 6:25 AM and nobody has clocked in. On Tuesdays the store usually opens by 6:00 AM." | M | Next |
 | 8.7 | Cash rounding to 5 cents | A $12.42 cash sale takes $12.40; cards are never rounded; off by default | M | Planned |
 
 **8.4 Money Ahead** (Finances, owner only; built as described, with three choices made while building: the owner's settings live in their own table `cash_plan_settings` so registers never receive them; the lottery is planned from closed lottery days once the owner picks the sweep weekday, instead of a planned item, so its money in and its sweep stay balanced; deliveries already received count only once their bill is entered). The next 14 store days. Coming in: the usual sales of each weekday (the median of the last six weeks; fewer than four such days means "still learning"), cash the same day and cards a few business days later. Going out: unpaid bills, recurring expenses, payroll, supplier deliveries on their delivery days (the open order's total, or about the last four receipts' median), sales tax when the owner turns it on, and the owner's own planned items (lottery sweep, loan payment). The owner may type "Money Today"; then each day shows what is left and the lowest point. One alert, for owners: a day within the week that runs short.
