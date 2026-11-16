@@ -75,6 +75,8 @@ the upgrade on a restored clone, then deploy the reviewed migrations and check
 schema drift. Generate the client after schema changes and restart the API.
 
 The seed creates: a Main Store location, demo users (super admin/admin/manager/cashier), sample products, customers, suppliers, categories, and tax rates.
+Because those accounts have the published passwords below, the seed refuses to run on a database that already
+holds a store or a user (unless its name ends in `_test`, `_e2e` or `_benchmark`).
 
 ## 5. Run the Application
 

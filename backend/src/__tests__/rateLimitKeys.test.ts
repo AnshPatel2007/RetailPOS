@@ -6,7 +6,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import request from 'supertest';
 import { Request } from 'express';
-import { requestBudgetKey, trustProxySetting } from '../middleware/rateLimitKeys';
+import { requestBudgetKey, signInAttemptKey, trustProxySetting } from '../middleware/rateLimitKeys';
 import { generateToken } from '../utils/jwt';
 
 const call = (authorization: string | undefined, ip = '203.0.113.7') =>
@@ -74,6 +74,28 @@ describe('request budget keys', () => {
     expect((await from('198.51.100.1')).status).toBe(200);
     expect((await from('198.51.100.1')).status).toBe(429);
     expect((await from('198.51.100.2')).status).toBe(200);
+    expect(warnings).not.toHaveBeenCalled();
+    warnings.mockRestore();
+  });
+
+  it('counts wrong passwords per person at an address, so one person does not lock the whole store out', async () => {
+    const warnings = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const app = express();
+    app.set('trust proxy', trustProxySetting(undefined, 'production'));
+    // As in server.ts: the sign-in body is read before the limiter that counts per person.
+    app.use('/login', express.json({ limit: '10kb' }), rateLimit({ windowMs: 60_000, max: 2, keyGenerator: signInAttemptKey, skipSuccessfulRequests: true, standardHeaders: true, legacyHeaders: false }));
+    app.post('/login', (req, res) => { res.status(req.body.password === 'right' ? 200 : 401).json({}); });
+    const signIn = (email: string, password = 'wrong', address = '203.0.113.50') =>
+      request(app).post('/login').set('X-Forwarded-For', address).send({ email, password });
+    expect((await signIn('sam@store.test')).status).toBe(401);
+    expect((await signIn(' Sam@Store.Test ')).status).toBe(401); // the same person, however the email is typed
+    expect((await signIn('sam@store.test')).status).toBe(429);
+    // A co-worker at the same store address still signs in, and a right password is never counted.
+    expect((await signIn('maria@store.test', 'right')).status).toBe(200);
+    expect((await signIn('maria@store.test', 'right')).status).toBe(200);
+    expect((await signIn('maria@store.test', 'right')).status).toBe(200);
+    // The same email from somewhere else has its own count.
+    expect((await signIn('sam@store.test', 'wrong', '198.51.100.9')).status).toBe(401);
     expect(warnings).not.toHaveBeenCalled();
     warnings.mockRestore();
   });

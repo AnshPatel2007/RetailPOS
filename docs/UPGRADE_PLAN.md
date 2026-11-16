@@ -1,6 +1,6 @@
 # POS Upgrade Plan (November 2026)
 
-> Approved November 10, 2026. Implement the work packages in order, starting with Phase 0. Nothing in this plan has been built yet.
+> Approved November 10, 2026. **Status on November 16, 2026:** Phases 1 to 5 are built (one commit per work package on `wip/oct-2026-checkpoint`). Phase 6 is not built. Phase 7 is design notes. Phase 8 (approved November 15) is in progress: its status and the list of known problems are at the end of this document.
 
 ## Context
 
@@ -100,7 +100,6 @@ Size: S = up to two days, M = up to a week and a half, L = two to four weeks.
 | 6.3 | Quiet register self-checks | Medium | S | — |
 | 6.4 | Store quick keys | Medium | S | — |
 | 6.5 | Handover notes and tasks | Medium | M | — |
-
 Phase 6 packages have no dependencies and can be pulled forward whenever the owner has the hardware to test them.
 
 ---
@@ -662,3 +661,63 @@ End-to-end acceptance for the whole plan:
 - **Service worker updates.** Never reload a register mid-sale; the update notice applies only when idle.
 - **Shared catalog scope.** Variety-pack contents and customers are not shared in this version; say so in the screen copy.
 - **Hardware.** Printing and terminals cannot be proven without devices; ship them behind settings that default to today's behaviour.
+
+---
+
+## Phase 8: What no other POS has (approved November 15, 2026)
+
+**Why.** Market research (November 2026) found that rivals already cover the normal things and are adding AI: NRS sends phone alerts for single events (a void, a refund, a no-sale); Toast, Square, Tote and CStore.one answer questions and read invoices. Searched for and not found in any store POS: a look ahead at the store's cash, an alert that the store is not running normally right now, measured price tests, a delivery check that ends in a supplier credit, a statement of what the POS found in dollars, and weather-aware ordering for a single store.
+
+**House style.** One plain sentence, numbers that come from records (an estimate says "about"), and the page that fixes it. No AI writes a number. No analysis dashboards.
+
+**Owner's choices (do not re-ask).** Build Money Ahead and Store Pulse first. Fix the small problems in the same build; drawer and printing, the card terminal and EBT are the build after it. Urgent alerts arrive as phone notifications from the installed app. One local commit per work package.
+
+| WP | Title | What the owner sees | Size | Status |
+|---|---|---|---|---|
+| 8.1 | Protect and tidy | The seed script cannot touch a database in use; small fixes | S | Built Nov 16 |
+| 8.2 | Deli price-label lines | Two labels of one item are two lines, each at its own price | S | Next |
+| 8.3 | Scan data and store-day dates | A carton exports its own barcode on the store's date | S | Planned |
+| 8.4 | **Money Ahead** | "Thursday looks tight: about $5,900 goes out and about $4,300 comes in." | M | Planned |
+| 8.5 | Phone alerts | "Sam refunded $84.20 in cash on sale S-20261115-0042." on the owner's phone | M | Planned |
+| 8.6 | **Store Pulse** | "It is 6:25 AM and nobody has clocked in. On Tuesdays the store usually opens by 6:00 AM." | M | Planned |
+| 8.7 | Cash rounding to 5 cents | A $12.42 cash sale takes $12.40; cards are never rounded; off by default | M | Planned |
+
+**8.4 Money Ahead** (Finances, owner only). The next 14 store days. Coming in: the usual sales of each weekday (the median of the last six weeks; fewer than four such days means "still learning"), cash the same day and cards a few business days later. Going out: unpaid bills, recurring expenses, payroll, supplier deliveries on their delivery days (the open order's total, or about the last four receipts' median), sales tax when the owner turns it on, and the owner's own planned items (lottery sweep, loan payment). The owner may type "Money Today"; then each day shows what is left and the lowest point. One alert, for owners: a day within the week that runs short.
+
+**8.5 Phone alerts.** Web Push from the installed app (`web-push`, VAPID keys in the environment). An alert is stored once (`StoreAlert`, unique per store and key) and sent to every device an owner or manager of that store turned on in Settings > Notifications; by email when no owner has a device on. First alerts: a refund or void over the owner's amount, a drawer closed off by the owner's amount. The amounts are never sent to cashiers.
+
+**8.6 Store Pulse.** The store's own hours and its usual sales per weekday and hour are learned from the last six weeks. Alerts: nobody on the register 20 minutes after the usual opening; no sale for as long as five sales usually take in that hour; a register that stopped answering while its drawer is open; a drawer still open an hour after the usual closing. "The store is closed today" silences the first two until tomorrow.
+
+**Later rounds, in this order.** Vendor Check (count a delivery against its invoice photo; a short case becomes a credit); Price Tests (a new price for two weeks, measured against the weeks before); Found Money (a monthly statement of what the POS found); Get Ready (weather, holidays, paydays in the reorder suggestions); Cashier patterns (voids, refunds and drawer differences per person, with the times to check on camera).
+
+**Needed from the owner before the build after Phase 8.** Which card terminal and processor the stores use; where production keeps uploaded files (problem P9); which state or states the stores are in (SNAP soda and candy rules, bottle deposits, rounding law).
+
+## Known problems (found November 15 and 16, 2026)
+
+**Wrong results**
+- **P1** Deli price-label items of one product merge into one line at the last price (`store/cartStore.ts`, `pages/POS.tsx`, `services/salePricing.service.ts`). *WP 8.2.*
+- **P2** Tobacco scan-data export: a carton prints the single pack's barcode; dates are UTC and times the server's clock; refunded sales count as sold; a platform admin gets every store in one file (`controllers/report.controller.ts`). *WP 8.3.* Still open after it: the real Altria and RJR file layouts.
+- **P3** Old date filters use the server's day, not the store's (`utils/dateFilter.util.ts`: sales list, shift list, age-check log, public API). *WP 8.3.*
+- **P4** An unused staff endpoint summed `sale.total` by hand and invented a "cash accuracy" percent. *Removed in 8.1.*
+- **P5** The Z-report read every wrong-product correction the store ever had. *Fixed in 8.1.*
+- **P6** Misc item: Enter in the price box did nothing (*fixed in 8.1*). Open: an unknown barcode sold as misc is forgotten, so the catalog never learns it; misc is always taxed.
+- **P16** The server's age check used the server's date, so in the evening it would pass a customer a few hours before their birthday (the register's own check came first). *Fixed in 8.1: the store's date decides.*
+- **P17** Bills created from recurring expenses had no due date, so "bills due" never mentioned rent. *Fixed in 8.1.* Open: they are created only when someone presses "Generate Due Expenses"; creating them automatically would make a backlog the first time (the owner's call).
+
+**Risks to store data and security**
+- **P7** `npm run db:seed` had no guard and `backend/.env` points at the store database; the seed creates accounts with published passwords. *Fixed in 8.1: it refuses a database that holds a store or a user, and `db:push` is gone.*
+- **P8** Known vulnerabilities in the packages the app ships with: 38 (2 critical, 13 high) before 8.1, 6 after it (2 high). The six need breaking upgrades: nodemailer 10, zod 4, react-router 7, exceljs (uuid).
+- **P9** Invoice photos and expense receipts are kept on the API server's own disk (`uploads/`). `backend/render.yaml` declares no persistent disk, so on Render they are lost at each deploy unless a disk was added by hand. **The owner needs to confirm.**
+- **P10** Five wrong passwords from anyone in the store blocked email sign-in for everyone there. *Fixed in 8.1: counted per person at an address.*
+- **P11** A sale does not record which register rang it (needed for camera lookups and two-register stores). Open.
+- **P18** Two old database passwords are saved in plain text on this computer, inside remembered commands in `.claude/settings.local.json` that run the seed script against a hosted (Neon) database. The file is not in git. If that database still exists, change its password and delete those entries. Open.
+
+**Day-one gaps (the build after Phase 8)**
+- The POS cannot open the cash drawer and prints through the browser's print window (`frontend/src/services/hardware.ts`; WP 6.1).
+- Every card sale needs a typed approval reference, and nothing compares card sales with the terminal's batch: a cash sale recorded as "card" cannot be detected today. Needs a real terminal (WP 6.2) or at least a daily batch check.
+- EBT/SNAP payment is switched off (`services/tenderAvailability.service.ts`); after it, the state soda and candy rules.
+- One tax rate with taxable yes/no: no tax classes, bottle deposits, sold by weight, alcohol sale hours or manufacturer coupons. Quick keys, register self-checks and handover notes (WP 6.3 to 6.5) are not built.
+
+**Housekeeping**
+- **P14** `.local/` holds more than backups again (logs, screenshots, two audit folders, `prod-db.txt`); delete only with the owner's OK.
+- **P15** Unused leftovers: `Location.businessHours` (stored, never read), the `Discount` table, product picture code in `services/productCatalog.service.ts`.

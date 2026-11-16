@@ -476,35 +476,6 @@ export interface InventoryReportData {
 }
 
 // ============================================
-// EMPLOYEE PERFORMANCE TYPES
-// ============================================
-
-export interface EmployeePerformance {
-  id: string;
-  name: string;
-  role: string;
-  totalSales: number;
-  totalTransactions: number;
-  totalHoursWorked: number;
-  totalCashDifference: number;
-  averageOrderValue: number;
-  salesPerHour: number;
-  cashAccuracy: number;
-  shiftCount: number;
-  itemsSold: number;
-}
-
-export interface EmployeePerformanceData {
-  performance: EmployeePerformance[];
-  summary: {
-    totalEmployees: number;
-    totalSales: number;
-    totalTransactions: number;
-    totalHoursWorked: number;
-  };
-}
-
-// ============================================
 // BULK ACTION TYPES
 // ============================================
 

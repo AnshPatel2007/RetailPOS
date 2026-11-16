@@ -1,7 +1,7 @@
 {
-  "name": "square-pos-system",
+  "name": "pos-system",
   "version": "1.0.0",
-  "description": "Enterprise-grade POS System - Square Clone",
+  "description": "Point of sale for convenience, liquor and grocery stores",
   "private": true,
   "workspaces": [
     "frontend",
@@ -21,7 +21,6 @@
   "keywords": [
     "pos",
     "point-of-sale",
-    "square",
     "retail",
     "inventory"
   ],

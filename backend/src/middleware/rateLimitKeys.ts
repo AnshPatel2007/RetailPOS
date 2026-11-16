@@ -33,3 +33,15 @@ export function requestBudgetKey(req: Request): string {
   }
   return 'ip:' + (req.ip || 'unknown');
 }
+
+/**
+ * Wrong passwords are counted per person at an address. Everyone in a store
+ * signs in from one public address: counted by the address alone, five typos by
+ * one person paused sign-in for the whole store. (Each account also locks itself
+ * after repeated wrong passwords; a wider per-address ceiling slows a guesser
+ * who tries many emails.) Needs the sign-in body to be parsed first.
+ */
+export function signInAttemptKey(req: Request): string {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase().slice(0, 254) : '';
+  return 'ip:' + (req.ip || 'unknown') + '|' + email;
+}

@@ -23,6 +23,7 @@ import { bulkRefund, previewBulkRefund } from '../services/bulkRefund.service';
 import { generateSaleNumber } from '../utils/saleNumber';
 import { nextDocumentSequence } from '../services/documentNumber.service';
 import { getReportCalendar } from '../services/reportDates.service';
+import { ageOn, parseCalendarDate } from '../utils/calendarAge';
 import { assertOwnsRecord, assertCanReadRecord, getLocationFilter } from '../utils/locationFilter.util';
 import { createDateFilter } from '../utils/dateFilter.util';
 import { isPromotionActiveNow } from '../utils/promotionEngine';
@@ -129,6 +130,10 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     }
   }
 
+  // The store's calendar at the time of sale: the age check and the sale number use the
+  // store's date. Preserves the checkout's store date across retries, including offline uploads.
+  const saleCalendar = await getReportCalendar({ locationId: req.user.locationId || undefined }, saleTime);
+
   // Age-restricted items require a verification record — the register must have
   // checked ID (or DOB, or visually confirmed) before this sale can complete.
   // Every verification is logged for compliance audits.
@@ -158,16 +163,15 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       if (!ageVerification.birthDate) {
         throw new AppError('Birth date is required for ID scan / manual verification', 400);
       }
-      birthDate = new Date(ageVerification.birthDate);
-      if (isNaN(birthDate.getTime())) {
+      const birth = parseCalendarDate(ageVerification.birthDate);
+      if (!birth) {
         throw new AppError('Invalid birth date', 400);
       }
-      const now = saleTime;
-      let age = now.getFullYear() - birthDate.getFullYear();
-      const beforeBirthday =
-        now.getMonth() < birthDate.getMonth() ||
-        (now.getMonth() === birthDate.getMonth() && now.getDate() < birthDate.getDate());
-      if (beforeBirthday) age -= 1;
+      birthDate = new Date(Date.UTC(birth.year, birth.month - 1, birth.day));
+      // Age on the store's own date. The server's clock is not the store's: late in the
+      // evening it can already be tomorrow there, which would pass a customer a few
+      // hours before their birthday.
+      const age = ageOn(birth, { year: saleCalendar.year, month: saleCalendar.month, day: saleCalendar.dayOfMonth });
 
       if (age < requiredAge) {
         // Log the failed check too — declined-sale evidence matters in audits
@@ -228,8 +232,6 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     user: { select: { id: true, firstName: true, lastName: true } },
   } as const;
 
-  const saleCalendar = await getReportCalendar({ locationId: req.user.locationId || undefined }, saleTime);
-  // Preserve the checkout's store date across retries, including offline uploads.
   let sale: any, replayed = false;
   for (let attempt = 1; ; attempt++) {
     const saleNumber = generateSaleNumber(saleTime, saleCalendar.timezone, await nextDocumentSequence());

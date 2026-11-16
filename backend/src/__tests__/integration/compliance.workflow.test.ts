@@ -125,6 +125,29 @@ describe('Compliance Workflow Integration Tests', () => {
 
       assertResponse.error(res, 'Birth date is required');
     });
+
+    it('checks the age on the store\'s own date, not the server\'s', async () => {
+      const now = new Date();
+      // A store whose date differs from the UTC date at this moment: a day behind before noon UTC, a day ahead after.
+      const behind = now.getUTCHours() < 12;
+      const timezone = behind ? 'Etc/GMT+12' : 'Etc/GMT-14';
+      await prisma.location.update({ where: { id: testData.location.id }, data: { timezone } });
+      const storeDate = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(now);
+      const utcDate = now.toISOString().slice(0, 10);
+      expect(storeDate).not.toBe(utcDate);
+      // The customer turns 21 on the later of the two dates (Feb 29 has no birthday 21 years back).
+      const later = (behind ? utcDate : storeDate).replace(/-02-29$/, '-02-28');
+      const birthDate = `${Number(later.slice(0, 4)) - 21}${later.slice(4)}`;
+      const res = await api.post('/api/sales').withAuth(cashierToken).withBody(saleBody({ ageVerification: { method: 'ID_SCAN', birthDate } })).execute();
+      if (behind) {
+        // In the store it is still the evening before the birthday: 20 years old.
+        expect(res.status).toBe(400);
+        assertResponse.error(res, 'Customer is 20');
+      } else {
+        // In the store the birthday has already begun.
+        expect(res.status).toBe(201);
+      }
+    });
   });
 
   describe('EBT launch boundary', () => {

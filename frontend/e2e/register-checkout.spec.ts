@@ -62,8 +62,13 @@ test('an unknown barcode is explained under the search box with what to do next'
   const problem = page.getByRole('alert').filter({ hasText: 'No product has barcode ' + unknown + '.' });
   await expect(problem).toBeVisible();
   await problem.getByRole('button', { name: 'Sell as misc item', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Add Misc Item', exact: true })).toBeVisible();
-  await page.keyboard.press('Escape');
+  const misc = page.getByRole('dialog', { name: 'Add Misc Item', exact: true });
+  await expect(misc).toBeVisible();
+  // Enter in the price box adds the item: no reaching for the mouse.
+  await misc.getByLabel('Price', { exact: true }).fill('2.49');
+  await page.keyboard.press('Enter');
+  await expect(misc).toHaveCount(0);
+  await expect(page.locator('[data-sale-cart]').filter({ visible: true }).getByText('Misc Item')).toBeVisible();
 
   await page.waitForTimeout(1600);
   await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).click();

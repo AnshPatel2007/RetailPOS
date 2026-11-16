@@ -9,7 +9,7 @@ import { config } from './config';
 import { errorHandler } from './utils/errorHandler';
 import { logger } from './utils/logger';
 import routes from './routes';
-import { requestBudgetKey, trustProxySetting } from './middleware/rateLimitKeys';
+import { requestBudgetKey, signInAttemptKey, trustProxySetting } from './middleware/rateLimitKeys';
 
 /**
  * Create Express application
@@ -52,16 +52,31 @@ const generalLimiter = rateLimit({
 });
 
 /**
- * Rate limiting - Login specific (stricter)
+ * Rate limiting - Login specific (stricter): five wrong passwords per person at an
+ * address, so one person's typos do not pause sign-in for everyone in the store.
  */
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Only 5 login attempts per 15 minutes
+  max: 5, // Only 5 wrong passwords per person and address per 15 minutes
+  keyGenerator: signInAttemptKey,
   message: { success: false, error: 'Too many login attempts, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful logins
   skip: () => config.nodeEnv === 'test', // no rate limiting in tests
+});
+
+/**
+ * Rate limiting - Login, per address: a wider ceiling that slows guessing across many accounts.
+ */
+const loginAddressLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { success: false, error: 'Too many login attempts, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  skip: () => config.nodeEnv === 'test',
 });
 
 /**
@@ -117,7 +132,8 @@ const publicApiLimiter = rateLimit({
 app.use('/api/v1', publicApiLimiter);
 
 app.use('/api/', generalLimiter);
-app.use('/api/auth/login', loginLimiter);
+// The small sign-in body is read here, ahead of the general parser, so wrong passwords can be counted per person.
+app.use('/api/auth/login', loginAddressLimiter, express.json({ limit: '10kb' }), loginLimiter);
 app.use(['/api/auth/pin-login', '/api/auth/pin/verify'], pinLimiter);
 app.use('/api/auth/forgot-password', passwordResetLimiter);
 app.use('/api/sales/bulk-void', financialLimiter);
@@ -168,7 +184,7 @@ app.use('/api', routes);
 app.get('/', (_req, res) => {
   res.json({
     success: true,
-    message: 'Square-Style POS System API',
+    message: 'POS System API',
     version: '1.0.0',
     documentation: '/api/health',
   });

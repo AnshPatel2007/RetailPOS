@@ -1176,9 +1176,10 @@ export const POS: React.FC = () => {
 
       {/* Misc Item Modal (F7) */}
       <Modal isOpen={showMiscModal} onClose={() => setShowMiscModal(false)} title="Add Misc Item" size="sm"
-        footer={<DialogActions confirmLabel={<><DollarSign aria-hidden="true" />Add to Cart</>} onConfirm={handleAddMisc}
+        footer={<DialogActions confirmLabel={<><DollarSign aria-hidden="true" />Add to Cart</>} form="misc-item-form"
           disabled={!miscPrice || parseFloat(miscPrice) <= 0} onCancel={() => setShowMiscModal(false)} />}>
-        <div className="space-y-4">
+        {/* A form, so Enter adds the item from the price box as well as from the name. */}
+        <form id="misc-item-form" className="space-y-4" onSubmit={(e) => { e.preventDefault(); handleAddMisc(); }}>
           <p className="text-sm text-muted-foreground">
             Add an item not in the system. Enter a price and optional name.
           </p>
@@ -1198,9 +1199,8 @@ export const POS: React.FC = () => {
             placeholder="Misc Item"
             value={miscName}
             onChange={(e) => setMiscName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleAddMisc(); }}
           />
-        </div>
+        </form>
       </Modal>
 
       {/* Keyboard shortcuts help overlay */}

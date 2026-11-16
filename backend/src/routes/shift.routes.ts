@@ -14,11 +14,6 @@ router.use(authenticate);
  */
 router.get('/', shiftController.getShifts);
 router.get('/current', shiftController.getCurrentShift);
-router.get(
-  '/employee-performance',
-  authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'),
-  shiftController.getEmployeePerformance
-);
 
 router.post('/clock-in', shiftController.clockIn);
 router.post('/clock-out', shiftController.clockOut);

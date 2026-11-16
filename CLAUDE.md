@@ -18,6 +18,8 @@ a platform-admin shell. npm workspaces monorepo:
   `services/api.ts` (axios + session/refresh/approval interceptors), `lib/`, `styles/`.
 - `docs/testing.md`: how to run every test. `DATABASE_MIGRATIONS.md`: how schema
   changes reach a real store. `API.md`: public API and webhooks. `SETUP.md`: install.
+  `docs/UPGRADE_PLAN.md`: the roadmap, what is built, and the list of known problems
+  (add a problem there when you find one).
 
 ## Commands
 
@@ -35,6 +37,8 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
 - `backend/.env` points at the **real store database** (`pos_system`). Never seed,
   reset, truncate, `prisma db push` or run tests against it. Tests use the
   disposable `_reliability_test` / `_reliability_e2e` databases via `verify-pos.cjs`.
+  The demo seed (`npm run db:seed`) refuses any database that holds a store or a user
+  unless it is a disposable test database (`utils/seedGuard.ts`); keep that check first.
 - Schema changes: edit `backend/prisma/schema.prisma` **and** add a reviewed, forward,
   additive SQL migration in `backend/prisma/reconciled/migrations/<timestamp>_<name>/`.
   `node scripts/verify-pos.cjs prepare` applies it to the test DBs and must report

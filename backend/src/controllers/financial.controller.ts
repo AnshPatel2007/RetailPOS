@@ -416,7 +416,8 @@ export const generateRecurringExpenses = asyncHandler(async (req: AuthRequest, r
         if (!exists) created.push(await tx.expense.create({ data: {
           expenseNumber: await nextDocumentNumber('EXP', tx), referenceKey: number, category: recurring.category,
           description: recurring.description + ' (Auto-generated)', amount: recurring.amount,
-          vendor: recurring.vendor, expenseDate: storeDay(nextDate), locationId: recurring.locationId,
+          // The day it recurs is the day it is due, so "bills due" counts rent and utilities.
+          vendor: recurring.vendor, expenseDate: storeDay(nextDate), dueDate: storeDay(nextDate), locationId: recurring.locationId,
           userId: recurring.userId, status: 'PENDING',
         } }));
         const next = new Date(nextDate);

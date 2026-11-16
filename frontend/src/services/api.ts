@@ -471,8 +471,6 @@ export const shiftService = {
 
   close: (id: string, data: any) => api.post(`/shifts/${id}/close`, data),
 
-  getEmployeePerformance: (params?: any, signal?: AbortSignal) => api.get('/shifts/employee-performance', { params, signal }),
-
   cashMovement: (data: { type: string; amount: number; reason: string; idempotencyKey?: string }) =>
     api.post('/shifts/cash-movement', data),
 
