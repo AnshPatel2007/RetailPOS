@@ -100,6 +100,44 @@ test('dark mode is pure black on management pages and the register', async ({ pa
   await page.screenshot({ path: info.outputPath('register-dark.png'), animations: 'disabled' });
 });
 
+test('in dark mode, Payment keeps orange for the field being typed in and Charge only', async ({ page }, info) => {
+  await login(page, 'owner@example.test');
+  await page.getByRole('button', { name: 'Toggle theme', exact: true }).filter({ visible: true }).click();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.goto('/pos');
+  await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).fill('Fixture Coffee');
+  await page.getByRole('button', { name: /^Fixture Coffee/ }).click();
+  await page.getByRole('button', { name: /^Charge \$/ }).click();
+  const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
+  await expect(payment).toBeVisible();
+  const amount = payment.getByRole('spinbutton', { name: 'Amount Tendered' });
+  await expect(amount).toBeFocused();
+  await page.waitForTimeout(300); // the dialog's entrance has settled
+  const colors = await page.evaluate(() => {
+    const dialog = document.querySelector('.pos-payment-dialog')!;
+    const style = (element: Element | null) => element ? getComputedStyle(element) : null;
+    const selected = style(dialog.querySelector('.payment-method[aria-pressed="true"]'));
+    const remaining = style(dialog.querySelector('.payment-remaining > p:last-child'));
+    const box = style(dialog.querySelector('.payment-remaining'));
+    const input = style(dialog.querySelector('input[aria-label="Amount Tendered"]'));
+    return { selected: selected?.borderTopColor, remaining: remaining?.color, box: box ? `${box.borderLeftColor} ${box.backgroundColor}` : undefined,
+      underline: input?.borderBottomColor, ring: input?.boxShadow };
+  });
+  // Every element was found: a missing one would pass the color checks without testing anything.
+  for (const [part, value] of Object.entries(colors)) expect(value, part).toBeTruthy();
+  // Orange: much more red than blue, with a middling green.
+  const orange = (value = '') => (value.match(/rgba?\((\d+), (\d+), (\d+)/g) || []).some(color => {
+    const [r, g, b] = color.replace(/rgba?\(/, '').split(', ').map(Number);
+    return r > 200 && g > 80 && g < 170 && b < 90;
+  });
+  expect(orange(colors.selected), `selected method: ${colors.selected}`).toBe(false);
+  expect(orange(colors.remaining), `remaining amount: ${colors.remaining}`).toBe(false);
+  expect(orange(colors.box), `remaining box: ${colors.box}`).toBe(false);
+  expect(orange(colors.underline), `amount underline: ${colors.underline}`).toBe(true);
+  expect(orange(colors.ring), `amount focus ring: ${colors.ring}`).toBe(false);
+  await page.screenshot({ path: info.outputPath('payment-dark.png'), animations: 'disabled' });
+});
+
 test('Enter pressed while the total is still being checked charges once the check finishes', async ({ page }) => {
   await login(page, 'owner@example.test');
   const barcode = '73' + String(Date.now()).slice(-10);

@@ -397,3 +397,13 @@ a.app-topbar-link { cursor: pointer; }
 :root[data-look="new"].dark .form-section-heading h3::after { background: hsl(0 0% 30%); }
 /* (:where keeps this below the hover and typing states, which still brighten the line.) */
 :root[data-look="new"].dark :where(.app-input, .app-textarea, .app-dialog textarea, .management-content textarea, .selection-control, .date-control) { border-bottom-color: hsl(0 0% 45%); }
+/* Payment: what a cashier reads at a glance (the amount still due, the chosen way to pay, the
+   customer) is white on grey, as calm as light mode's black. Orange stays for the field being
+   typed in (its underline) and for taking money (the Charge button); focus rings are grey. */
+:root[data-look="new"].dark .pos-payment-dialog { --ring: 0 0% 62%; }
+:root[data-look="new"].dark .pos-payment-dialog .payment-remaining { border-color: hsl(0 0% 40%); background: hsl(0 0% 100% / .07); }
+:root[data-look="new"].dark .pos-payment-dialog .payment-remaining > p:last-child { color: hsl(0 0% 98%); }
+:root[data-look="new"].dark .pos-payment-dialog .payment-method[aria-pressed="true"] { border-color: hsl(0 0% 85%); background: hsl(0 0% 20%); color: hsl(0 0% 98%); }
+:root[data-look="new"].dark .pos-payment-dialog .payment-method[aria-pressed="false"]:hover { border-color: hsl(0 0% 50%); }
+:root[data-look="new"].dark .pos-payment-dialog .payment-customer { border-color: hsl(0 0% 40%); background: hsl(0 0% 100% / .07); }
+:root[data-look="new"].dark .pos-payment-dialog .payment-customer .text-primary { color: hsl(0 0% 98%); }

@@ -370,7 +370,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
 
             {linkedCustomer ? (
               /* Customer found - show card */
-              <div className="p-4 rounded-lg border-2 border-primary bg-primary/5">
+              <div className="payment-customer p-4 rounded-lg border-2 border-primary bg-primary/5">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -507,7 +507,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
             )}
             {/* Linked customer indicator */}
             {linkedCustomer && (
-              <div className="flex items-center justify-between p-2 rounded-lg bg-primary/5 border border-primary/20">
+              <div className="payment-customer flex items-center justify-between p-2 rounded-lg bg-primary/5 border border-primary/20">
                 <div className="flex items-center gap-2">
                   <User className="h-4 w-4 text-primary" />
                   <span className="text-sm font-medium">
@@ -599,7 +599,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
             <div className="grid grid-cols-3 gap-2" aria-label="Payment totals">
               <Card className="p-3"><p className="text-xs text-muted-foreground">Total</p><p className="text-lg font-bold tabular-nums">{formatCurrency(dueTotal)}</p></Card>
               <Card className="p-3"><p className="text-xs text-muted-foreground">Recorded</p><p className="text-lg font-bold tabular-nums">{formatCurrency(getTotalPaid())}</p></Card>
-              <Card className="p-3 border-primary bg-primary/5"><p className="text-xs text-muted-foreground">Remaining</p><p className="text-lg font-bold tabular-nums">{formatCurrency(getRemainingBalance())}</p></Card>
+              <Card className="payment-remaining p-3 border-primary bg-primary/5"><p className="text-xs text-muted-foreground">Remaining</p><p className="text-lg font-bold tabular-nums">{formatCurrency(getRemainingBalance())}</p></Card>
             </div>
             {payments.length > 0 && <div className="space-y-2" aria-label="Recorded payments">
               {payments.map((payment, index) => <div key={index} className="flex items-center justify-between gap-2 rounded border p-2">
@@ -620,8 +620,9 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                     {paymentMethods.map(({ value, label, icon: Icon }) => (
                       <button
                         key={value}
+                        aria-pressed={paymentMethod === value}
                         onClick={() => { amountEdited.current = false; setPaymentMethod(value); setReferenceInput(''); setPaymentError(''); }}
-                        className={`p-3 min-h-[64px] border-2 rounded-lg transition-all ${
+                        className={`payment-method p-3 min-h-[64px] border-2 rounded-lg transition-all ${
                           paymentMethod === value
                             ? 'border-primary bg-primary/10'
                             : 'border-border hover:border-primary/50'
