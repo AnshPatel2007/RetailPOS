@@ -243,6 +243,8 @@ export interface CartItem {
   discount: number;
   notes: string;
   priceOverride?: boolean;
+  /** Set on a price-label line (deli, scale): a line of its own beside the product's other lines. See lib/cartLines. */
+  lineId?: string;
 }
 
 export interface Shift {

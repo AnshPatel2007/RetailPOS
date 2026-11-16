@@ -182,7 +182,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
             minimumAge: requiredAge,
             method: ageVerification.method,
             birthDate,
-            productNames: restrictedProducts.map((p: any) => p.name),
+            productNames: [...new Set<string>(restrictedProducts.map((p: any) => p.name))],
             approved: false,
           },
         });
@@ -197,7 +197,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
       minimumAge: requiredAge,
       method: ageVerification.method,
       birthDate,
-      productNames: restrictedProducts.map((p: any) => p.name),
+      productNames: [...new Set<string>(restrictedProducts.map((p: any) => p.name))],
     };
   }
 

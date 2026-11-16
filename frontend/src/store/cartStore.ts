@@ -1,4 +1,5 @@
 import { lineMoney, roundMoney, taxMoney } from '@/lib/money';
+import { lineKey, newLineId } from '@/lib/cartLines';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { CartItem, Product, Customer, Promotion } from '../types';
@@ -33,12 +34,14 @@ interface CartState {
   promotions: Promotion[]; // active promotions, refreshed by the POS page (not persisted)
 
   applyQuote: (quote: any) => void;
-  addItem: (product: Product, quantity?: number) => boolean;
-  removeItem: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
-  updateDiscount: (productId: string, discount: number) => void;
-  updateNotes: (productId: string, notes: string) => void;
-  updatePrice: (productId: string, price: number) => void;
+  /** `separateLine`: a price-label scan, added as a line of its own at the label's price. */
+  addItem: (product: Product, quantity?: number, options?: { separateLine?: boolean; price?: number }) => boolean;
+  // Lines are addressed by their line key (lib/cartLines): the product's id, or a price-label line's own id.
+  removeItem: (line: string) => void;
+  updateQuantity: (line: string, quantity: number) => void;
+  updateDiscount: (line: string, discount: number) => void;
+  updateNotes: (line: string, notes: string) => void;
+  updatePrice: (line: string, price: number) => void;
   setCustomer: (customer: Customer | null) => void;
   setNotes: (notes: string) => void;
   setTaxRate: (rate: number) => void;
@@ -89,16 +92,25 @@ export const useCartStore = create<CartState>()(
         }),
         taxRate: quote.taxRate, cardSurchargePercent: quote.cardSurchargePercent, promotions: quote.promotions,
       }),
-      addItem: (product: Product, quantity = 1) => {
+      addItem: (product: Product, quantity = 1, options = {}) => {
         const items = get().items;
-        const existingItem = items.find((item) => item.product.id === product.id);
         // Recorded stock never limits the cart; only recalls/prohibited items do.
         if (!Number.isSafeInteger(quantity) || quantity <= 0 || product.saleBlockedReason) return false;
 
+        // A price label carries its own price: each scan is a line of its own, so two
+        // packages of one product are charged what each label says.
+        if (options.separateLine) {
+          set({ items: [...items, { product: { ...product, price: options.price ?? product.price }, quantity, discount: 0, notes: '',
+            priceOverride: true, lineId: newLineId(items, product.id) }] });
+          return true;
+        }
+
+        // The product's ordinary line (a price-label line of the same product is not it).
+        const existingItem = items.find((item) => lineKey(item) === product.id);
         if (existingItem) {
           set({
             items: items.map((item) =>
-              item.product.id === product.id
+              lineKey(item) === product.id
                 ? { ...item, quantity: item.quantity + quantity }
                 : item
             ),
@@ -114,23 +126,23 @@ export const useCartStore = create<CartState>()(
         return true;
       },
 
-      removeItem: (productId: string) => {
+      removeItem: (line: string) => {
         set({
-          items: get().items.filter((item) => item.product.id !== productId),
+          items: get().items.filter((item) => lineKey(item) !== line),
         });
       },
 
-      updateQuantity: (productId: string, quantity: number) => {
-        const item = get().items.find(line => line.product.id === productId);
+      updateQuantity: (line: string, quantity: number) => {
+        const item = get().items.find(candidate => lineKey(candidate) === line);
         if (!Number.isSafeInteger(quantity) || !item) return;
         if (quantity <= 0) {
-          get().removeItem(productId);
+          get().removeItem(line);
           return;
         }
 
         set({
           items: get().items.map((item) =>
-            item.product.id === productId
+            lineKey(item) === line
               ? {
                   ...item,
                   quantity,
@@ -145,26 +157,26 @@ export const useCartStore = create<CartState>()(
         });
       },
 
-      updateDiscount: (productId: string, discount: number) => {
+      updateDiscount: (line: string, discount: number) => {
         set({
           items: get().items.map((item) =>
-            item.product.id === productId ? { ...item, discount } : item
+            lineKey(item) === line ? { ...item, discount } : item
           ),
         });
       },
 
-      updateNotes: (productId: string, notes: string) => {
+      updateNotes: (line: string, notes: string) => {
         set({
           items: get().items.map((item) =>
-            item.product.id === productId ? { ...item, notes } : item
+            lineKey(item) === line ? { ...item, notes } : item
           ),
         });
       },
 
-      updatePrice: (productId: string, price: number) => {
+      updatePrice: (line: string, price: number) => {
         set({
           items: get().items.map((item) =>
-            item.product.id === productId
+            lineKey(item) === line
               ? {
                   ...item,
                   product: { ...item.product, price },
@@ -311,7 +323,7 @@ export const useCartStore = create<CartState>()(
           items
             .filter((i) => !i.product.id.startsWith('misc-'))
             .map((i) => ({
-              key: i.product.id,
+              key: lineKey(i),
               productId: i.product.id,
               categoryId: i.product.categoryId,
               unitPrice: i.product.price,
@@ -320,14 +332,15 @@ export const useCartStore = create<CartState>()(
           active
         );
 
+        // One entry per cart line, by its line key (lib/cartLines).
         const breakdown: Record<string, LineBreakdown> = {};
         for (const item of items) {
           const gross = lineMoney(item.product.price, item.quantity);
           const manualDiscount = roundMoney(Math.min(item.discount, gross));
-          const promo = promoResults.get(item.product.id);
+          const promo = promoResults.get(lineKey(item));
           const totalDiscount = roundMoney(Math.min(manualDiscount + (promo?.discount || 0), gross));
           const promoDiscount = Math.round((totalDiscount - manualDiscount) * 100) / 100;
-          breakdown[item.product.id] = {
+          breakdown[lineKey(item)] = {
             gross: Math.round(gross * 100) / 100,
             manualDiscount: Math.round(manualDiscount * 100) / 100,
             promoDiscount,
@@ -352,7 +365,7 @@ export const useCartStore = create<CartState>()(
         const breakdown = get().getLineBreakdown();
         return Math.round(items.reduce((total, item) => {
           if (!item.product.ebtEligible || item.product.id.startsWith('misc-')) return total;
-          const line = breakdown[item.product.id];
+          const line = breakdown[lineKey(item)];
           const net = Math.max(0, lineMoney(item.product.price, item.quantity) - (line?.totalDiscount ?? item.discount));
           return total + net;
         }, 0) * 100) / 100;
@@ -369,7 +382,7 @@ export const useCartStore = create<CartState>()(
       getSubtotal: () => {
         const breakdown = get().getLineBreakdown();
         return Math.round(get().items.reduce((total, item) => {
-          const line = breakdown[item.product.id];
+          const line = breakdown[lineKey(item)];
           return total + lineMoney(item.product.price, item.quantity) - (line?.totalDiscount ?? item.discount);
         }, 0) * 100) / 100;
       },
@@ -381,7 +394,7 @@ export const useCartStore = create<CartState>()(
         // Tax applies per taxable line, net of discounts, rounded per line like the backend
         return Math.round(get().items.reduce((total, item) => {
           if (!item.product.isTaxable) return total;
-          const line = breakdown[item.product.id];
+          const line = breakdown[lineKey(item)];
           const net = Math.max(0, lineMoney(item.product.price, item.quantity) - (line?.totalDiscount ?? item.discount));
           return total + taxMoney(roundMoney(net), taxRate);
         }, 0) * 100) / 100;

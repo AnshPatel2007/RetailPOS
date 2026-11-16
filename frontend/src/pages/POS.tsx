@@ -26,7 +26,8 @@ import { useApprovalStore, requestManagerApproval } from '@/store/approvalStore'
 import { approvalCovers, approvalKey, DISCOUNT_APPROVAL_PATH, type CheckoutLine, type DiscountApproval } from '@/services/discountApproval';
 import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
 import { useFavoritesStore } from '@/store/favoritesStore';
-import { Product } from '@/types';
+import { CartItem, Product } from '@/types';
+import { lineKey, quantityOfProduct } from '@/lib/cartLines';
 import { formatCurrency } from '@/lib/utils';
 import { QuantityNumpad } from '@/components/pos/QuantityNumpad';
 import { EnhancedPaymentModal } from '@/components/pos/EnhancedPaymentModal';
@@ -73,7 +74,8 @@ export const POS: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [linkedCustomer, setLinkedCustomer] = useState<LinkedCustomer | null>(null);
   const [showHeldSalesModal, setShowHeldSalesModal] = useState(false);
-  const [numpadProduct, setNumpadProduct] = useState<Product | null>(null);
+  // The cart line whose quantity is being typed on the number pad.
+  const [numpadLine, setNumpadLine] = useState<CartItem | null>(null);
   const [lastReceipt, setLastReceipt] = useState<Receipt | null>(null);
   const [lastSaleId, setLastSaleId] = useState<string | null>(null);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
@@ -133,7 +135,7 @@ export const POS: React.FC = () => {
   useEffect(() => { useStoreSettingsStore.getState().fetchSettings(locationId || undefined); }, [locationId]);
   const { favoriteIds, toggleFavorite, isFavorite } = useFavoritesStore();
   const {
-    items, addItem, updateQuantity, updatePrice, clearCart, notes,
+    items, addItem, updateQuantity, clearCart, notes,
     getTax, getTotal, setTaxRate, setCustomer,
     getLineBreakdown, setPromotions, getEbtEligibleTotal, getRequiredAge,
     setCardSurchargePercent, cardSurchargePercent, taxRate,
@@ -204,7 +206,7 @@ export const POS: React.FC = () => {
   const cancelAgeCheck = () => {
     const verified = ageVerification?.verifiedForAge ?? 0;
     const blocked = useCartStore.getState().items.filter(item => (item.product.minimumAge || 0) > verified);
-    blocked.forEach(item => useCartStore.getState().removeItem(item.product.id));
+    blocked.forEach(item => useCartStore.getState().removeItem(lineKey(item)));
     setShowAgeModal(false);
     if (blocked.length) toast(`${blocked.length === 1 ? blocked[0].product.name + ' was' : blocked.length + ' age-restricted items were'} removed: the customer's age was not verified.`);
     searchInputRef.current?.focus();
@@ -346,9 +348,9 @@ export const POS: React.FC = () => {
         name: i.product.name,
         quantity: i.quantity,
         lineTotal: Math.round(
-          (i.product.price * i.quantity - (breakdown[i.product.id]?.totalDiscount ?? i.discount)) * 100
+          (i.product.price * i.quantity - (breakdown[lineKey(i)]?.totalDiscount ?? i.discount)) * 100
         ) / 100,
-        promoName: breakdown[i.product.id]?.promotionName,
+        promoName: breakdown[lineKey(i)]?.promotionName,
       })),
       subtotal: gross,
       promoSavings: savings,
@@ -459,10 +461,10 @@ export const POS: React.FC = () => {
               (p.barcode === embedded.itemCode || p.sku === embedded.itemCode || p.barcode === barcode)
           );
           if (found) {
-            if (!addItem(found, 1)) { problem(saleHoldMessage(found)); return; }
-            // The label price wins — flags the line as an override so the server
-            // (which allows it for priceEmbedded products) charges the same amount
-            updatePrice(found.id, embedded.price);
+            // The label price wins, and every label is a line of its own: a second package of
+            // the same product keeps its own price. The line is flagged as an override so the
+            // server (which allows it for priceEmbedded products) charges the same amount.
+            if (!addItem(found, 1, { separateLine: true, price: embedded.price })) { problem(saleHoldMessage(found)); return; }
             added(found, embedded.price);
           } else {
             problem(`No product is set up for price label ${embedded.itemCode}. In Products, turn on "Price-embedded barcode" for it.`, true);
@@ -566,7 +568,7 @@ export const POS: React.FC = () => {
       if (showMiscModal) { setShowMiscModal(false); return; }
       if (showReceiptPreview) { setShowReceiptPreview(false); return; }
       if (showShortcutsHelp) { setShowShortcutsHelp(false); return; }
-      if (numpadProduct) { setNumpadProduct(null); return; }
+      if (numpadLine) { setNumpadLine(null); return; }
       if (mobileCartOpen) { setMobileCartOpen(false); return; }
       if (inInput) { (e.target as HTMLElement).blur(); return; }
       // An idle register stays put (leaving mid-shift by accident cost a sale); Esc just clears the search.
@@ -586,7 +588,7 @@ export const POS: React.FC = () => {
       e.preventDefault();
       searchInputRef.current?.focus();
     }
-  }, [items, search, showPaymentModal, showHeldSalesModal, showRefundModal, showMiscModal, showReceiptPreview, showShortcutsHelp, numpadProduct, showAgeModal, ageVerification, isReadOnly, isProcessing, pendingPayment, paymentReady, paymentReadError, mobileCartOpen]);
+  }, [items, search, showPaymentModal, showHeldSalesModal, showRefundModal, showMiscModal, showReceiptPreview, showShortcutsHelp, numpadLine, showAgeModal, ageVerification, isReadOnly, isProcessing, pendingPayment, paymentReady, paymentReadError, mobileCartOpen]);
 
   // A scanner aimed while the search box has focus types the code there. Treat it
   // as a scan: digits-only codes, receipt numbers, or anything typed at scanner speed.
@@ -663,9 +665,8 @@ export const POS: React.FC = () => {
     return false;
   };
 
-  const getCartQty = (productId: string): number => {
-    return items.find((i) => i.product.id === productId)?.quantity ?? 0;
-  };
+  // Units of a product in the cart, over all of its lines (a deli item can have one line per label).
+  const getCartQty = (productId: string): number => quantityOfProduct(items, productId);
 
   // Recorded stock never blocks a sale (the customer is holding the item).
   const handleProductClick = (product: Product) => {
@@ -728,14 +729,8 @@ export const POS: React.FC = () => {
 
   // Numpad confirms the TOTAL quantity for the item (it opens pre-filled with
   // the current cart quantity), so set rather than add
-  const handleSetQuantity = (product: Product, qty: number) => {
-    if (qty <= 0) return;
-    const current = getCartQty(product.id);
-    if (current === 0) {
-      addItem(product, qty);
-    } else if (qty !== current) {
-      updateQuantity(product.id, qty);
-    }
+  const handleSetQuantity = (line: CartItem, qty: number) => {
+    if (qty > 0 && qty !== line.quantity) updateQuantity(lineKey(line), qty);
   };
 
   const handlePrintReceipt = async () => {
@@ -944,7 +939,7 @@ export const POS: React.FC = () => {
         try {
           const cart = useCartStore.getState(), breakdown = cart.getLineBreakdown();
           const originalLines = items.map(item => {
-            const discount = breakdown[item.product.id]?.totalDiscount || 0;
+            const discount = breakdown[lineKey(item)]?.totalDiscount || 0;
             const net = roundMoney(lineMoney(item.product.price, item.quantity) - discount);
             const tax = item.product.isTaxable ? taxMoney(net, cart.taxRate) : 0;
             return { productId: item.product.id, productName: item.product.name, sku: item.product.sku, quantity: item.quantity, price: item.product.price, discount, tax, total: roundMoney(net + tax), pointsEarned: 0 };
@@ -1012,12 +1007,12 @@ export const POS: React.FC = () => {
       />}
 
       {/* Quantity Numpad overlay */}
-      {numpadProduct && (
+      {numpadLine && (
         <QuantityNumpad
-          initialQty={getCartQty(numpadProduct.id) || 1}
-          productName={numpadProduct.name}
-          onConfirm={(qty) => { handleSetQuantity(numpadProduct, qty); setNumpadProduct(null); }}
-          onCancel={() => setNumpadProduct(null)}
+          initialQty={numpadLine.quantity}
+          productName={numpadLine.product.name}
+          onConfirm={(qty) => { handleSetQuantity(numpadLine, qty); setNumpadLine(null); }}
+          onCancel={() => setNumpadLine(null)}
         />
       )}
 
@@ -1054,7 +1049,7 @@ export const POS: React.FC = () => {
         <div className="pos-desktop-cart">
           {isReadOnly ? <RecentTransactions onViewReceipt={handleViewRecentReceipt} /> : <CartPanel
             onShowShortcuts={() => setShowShortcutsHelp(true)}
-            onEditQuantity={setNumpadProduct}
+            onEditQuantity={setNumpadLine}
             lastReceipt={lastReceipt}
             onPrintReceipt={handlePrintReceipt}
             onShowHeldSales={() => setShowHeldSalesModal(true)}
@@ -1074,7 +1069,7 @@ export const POS: React.FC = () => {
             <Dialog aria-label="Current Sale" className="pos-cart-sheet-dialog" data-assistant-priority data-auto-refresh-pause="true">
               <CartPanel
                 onClose={() => setMobileCartOpen(false)}
-                onEditQuantity={setNumpadProduct}
+                onEditQuantity={setNumpadLine}
                 lastReceipt={lastReceipt}
                 onPrintReceipt={handlePrintReceipt}
                 onShowHeldSales={() => setShowHeldSalesModal(true)}
@@ -1114,9 +1109,9 @@ export const POS: React.FC = () => {
       <AgeVerificationModal
         isOpen={showAgeModal}
         requiredAge={requiredAge}
-        itemNames={items
+        itemNames={[...new Set(items
           .filter((i) => (i.product.minimumAge || 0) > (ageVerification?.verifiedForAge ?? 0))
-          .map((i) => i.product.name)}
+          .map((i) => i.product.name))]}
         cancelLabel={items.filter(i => (i.product.minimumAge || 0) > (ageVerification?.verifiedForAge ?? 0)).length > 1 ? 'Remove items' : 'Remove item'}
         onConfirm={(result) => {
           setAgeVerification(result);

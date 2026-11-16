@@ -56,6 +56,23 @@ describe('manager reconciliation of saved register payments', () => {
     expect((await prisma.product.findUniqueOrThrow({ where: { id: data.product.id } })).stockQuantity).toBe(before - 12);
   });
 
+  it('books two price labels of one deli product as two lines; repeated ordinary lines must be combined', async () => {
+    const line = (price: number, tax: number) => ({ ...receipt().items[0], price, tax, total: Math.round((price + tax) * 100) / 100 });
+    const labels = { ...receipt(), subtotal: 10.49, tax: 1.05, amountPaid: 20, changeDue: 8.46, items: [line(4.37, 0.44), line(6.12, 0.61)] };
+    // An ordinary product on two lines is still refused.
+    await post({ ...body('BOOK_CASH'), total: 11.54, receipt: labels }).expect(400);
+    expect(await prisma.sale.count()).toBe(0);
+    await prisma.product.update({ where: { id: data.product.id }, data: { priceEmbedded: true } });
+    const before = (await prisma.product.findUniqueOrThrow({ where: { id: data.product.id } })).stockQuantity;
+    const input = { ...body('BOOK_CASH'), total: 11.54, receipt: labels };
+    await post(input).expect(200);
+    const sale = await prisma.sale.findUniqueOrThrow({ where: { idempotencyKey: input.localId }, include: { items: true } });
+    expect(sale.items.map(item => Number(item.price)).sort()).toEqual([4.37, 6.12]);
+    // Each line has its own stock movement and cost record.
+    expect(new Set(sale.items.map(item => item.inventoryEntryId)).size).toBe(2);
+    expect((await prisma.product.findUniqueOrThrow({ where: { id: data.product.id } })).stockQuantity).toBe(before - 2);
+  });
+
   it('rejects incomplete or inconsistent receipt facts and rolls all effects back', async () => {
     const input = { ...body('BOOK_CASH'), receipt: receipt() };
     await post({ ...input, receipt: { ...input.receipt, tax: 2 } }).expect(400);

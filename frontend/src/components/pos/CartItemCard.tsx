@@ -1,4 +1,5 @@
 import { lineMoney, roundMoney } from '@/lib/money';
+import { lineKey } from '@/lib/cartLines';
 import React, { useState } from 'react';
 import { CartItem } from '@/types';
 import { formatCurrency } from '@/lib/utils';
@@ -16,11 +17,12 @@ import {
 interface CartItemCardProps {
   onEditQuantity: () => void;
   item: CartItem;
-  onUpdateQuantity: (productId: string, quantity: number) => void;
-  onRemove: (productId: string) => void;
-  onUpdateDiscount: (productId: string, discount: number) => void;
-  onUpdateNotes: (productId: string, notes: string) => void;
-  onUpdatePrice?: (productId: string, price: number) => void;
+  // Each takes the line's key (lib/cartLines): a deli item can have one line per price label.
+  onUpdateQuantity: (line: string, quantity: number) => void;
+  onRemove: (line: string) => void;
+  onUpdateDiscount: (line: string, discount: number) => void;
+  onUpdateNotes: (line: string, notes: string) => void;
+  onUpdatePrice?: (line: string, price: number) => void;
   canOverridePrice?: boolean;
   /** Automatic promotion applied to this line (display only — server recomputes) */
   promoDiscount?: number;
@@ -47,6 +49,7 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
   const [priceInput, setPriceInput] = useState('');
   const [noteInput, setNoteInput] = useState(item.notes || '');
 
+  const line = lineKey(item);
   const lineTotal = lineMoney(item.product.price, item.quantity);
   const effectiveDiscount = Math.min(item.discount + promoDiscount, lineTotal);
   const discountedTotal = roundMoney(lineTotal - effectiveDiscount);
@@ -54,7 +57,7 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
   const handleApplyDiscount = () => {
     const val = parseFloat(discountInput);
     if (!val || val <= 0) {
-      onUpdateDiscount(item.product.id, 0);
+      onUpdateDiscount(line, 0);
       setShowDiscount(false);
       setDiscountInput('');
       return;
@@ -67,13 +70,13 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
       discountAmount = Math.min(val, lineTotal);
     }
 
-    onUpdateDiscount(item.product.id, roundMoney(discountAmount));
+    onUpdateDiscount(line, roundMoney(discountAmount));
     setShowDiscount(false);
     setDiscountInput('');
   };
 
   const handleClearDiscount = () => {
-    onUpdateDiscount(item.product.id, 0);
+    onUpdateDiscount(line, 0);
     setShowDiscount(false);
     setDiscountInput('');
   };
@@ -84,12 +87,12 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
       setEditingPrice(false);
       return;
     }
-    onUpdatePrice?.(item.product.id, val);
+    onUpdatePrice?.(line, val);
     setEditingPrice(false);
   };
 
   const handleSaveNotes = () => {
-    onUpdateNotes(item.product.id, noteInput);
+    onUpdateNotes(line, noteInput);
     setShowNotes(false);
   };
 
@@ -101,7 +104,7 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
         </div>
         <div className="pos-quantity" aria-label={`Quantity for ${item.product.name}`}>
           <button
-            onClick={() => onUpdateQuantity(item.product.id, item.quantity - 1)}
+            onClick={() => onUpdateQuantity(line, item.quantity - 1)}
             className="pos-quantity-button"
             title="Decrease quantity"
           >
@@ -110,7 +113,7 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
           <button type="button" onClick={onEditQuantity} aria-label={`Change quantity for ${item.product.name}`}
             className="pos-quantity-button pos-quantity-value tabular-nums">{item.quantity}</button>
           <button
-            onClick={() => onUpdateQuantity(item.product.id, item.quantity + 1)}
+            onClick={() => onUpdateQuantity(line, item.quantity + 1)}
             className="pos-quantity-button"
             title="Increase quantity"
           >
@@ -134,13 +137,13 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
           { id: 'notes', label: 'Item notes', icon: <StickyNote size={16} />, onAction: () => setShowNotes(!showNotes) },
           { id: 'discount', label: 'Item discount', icon: <Percent size={16} />, onAction: () => setShowDiscount(!showDiscount) },
           ...(canOverridePrice ? [{ id: 'price', label: 'Override price', icon: <Pencil size={16} />, onAction: () => { setPriceInput(item.product.price.toFixed(2)); setEditingPrice(true); } }] : []),
-          { id: 'remove', label: 'Remove item', icon: <X size={16} />, destructive: true, onAction: () => onRemove(item.product.id) },
+          { id: 'remove', label: 'Remove item', icon: <X size={16} />, destructive: true, onAction: () => onRemove(line) },
         ]} />
       </div>
 
       {editingPrice && <div className="pos-line-editor flex items-center gap-2">
-        <label className="text-xs" htmlFor={`price-${item.product.id}`}>Unit price</label>
-        <input id={`price-${item.product.id}`} type="number" value={priceInput} aria-label={`Unit price for ${item.product.name}`}
+        <label className="text-xs" htmlFor={`price-${line}`}>Unit price</label>
+        <input id={`price-${line}`} type="number" value={priceInput} aria-label={`Unit price for ${item.product.name}`}
           onChange={e => setPriceInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleApplyPrice(); if (e.key === 'Escape') { e.stopPropagation(); setEditingPrice(false); } }}
           className="min-w-0 flex-1 text-sm px-2 border rounded bg-background" autoFocus step="0.01" />
         <button type="button" onClick={handleApplyPrice} className="text-sm text-primary">Apply</button>

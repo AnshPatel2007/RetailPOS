@@ -53,6 +53,39 @@ test('a finished sale stays in the cart with its change, and the next scan start
   await expect(saleComplete(page)).toHaveCount(0);
 });
 
+test('two deli labels of one item are two lines, each charged at the price on its label', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await login(page, 'owner@example.test');
+  const headers = { Authorization: 'Bearer ' + await page.evaluate(() => localStorage.getItem('token')) };
+  // Labels printed by the deli scale: 2 IIIII PPPPP C (item code, price in cents, check digit).
+  const itemCode = String(Date.now()).slice(-5);
+  expect((await page.request.post('/api/products', { headers, data: {
+    name: 'Deli ham ' + itemCode, sku: 'DELI-' + itemCode, barcode: itemCode, price: 9.99, cost: 3, stockQuantity: 20,
+    trackInventory: true, isTaxable: false, priceEmbedded: true,
+  } })).status()).toBe(201);
+  await page.goto('/pos');
+  const cart = page.locator('[data-sale-cart]').filter({ visible: true });
+  await page.getByPlaceholder('Search products... (/ or F3)', { exact: true }).click();
+  await scan(page, '2' + itemCode + '00437' + '0');
+  await expect(cart.locator('[data-cart-line]')).toHaveCount(1);
+  await scan(page, '2' + itemCode + '00612' + '0');
+  const lines = cart.locator('[data-cart-line]');
+  await expect(lines).toHaveCount(2);
+  await expect(lines.nth(0)).toContainText('$4.37');
+  await expect(lines.nth(1)).toContainText('$6.12');
+
+  await page.keyboard.press('F1');
+  const payment = page.getByRole('dialog', { name: 'Payment', exact: true });
+  await expect(payment.getByRole('button', { name: 'Charge $10.49', exact: true })).toBeEnabled();
+  const saved = page.waitForResponse(response => response.url().endsWith('/api/sales') && response.request().method() === 'POST');
+  await page.keyboard.press('Enter');
+  const response = await saved;
+  expect(response.status()).toBe(201);
+  const sale = (await response.json()).data;
+  expect(sale.items.map((item: { price: number }) => item.price).sort()).toEqual([4.37, 6.12]);
+  await expect(saleComplete(page)).toContainText('Paid in full$10.49');
+});
+
 test('an unknown barcode is explained under the search box with what to do next', async ({ page }) => {
   await login(page, 'owner@example.test');
   await page.goto('/pos');

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useCartStore } from '@/store/cartStore';
-import { Product } from '@/types';
+import { CartItem } from '@/types';
+import { lineKey } from '@/lib/cartLines';
 import { useAuthStore } from '@/store/authStore';
 import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
@@ -20,7 +21,7 @@ import {
 interface CartPanelProps {
   /** Opens the full keyboard shortcut list. */
   onShowShortcuts?: () => void;
-  onEditQuantity: (product: Product) => void;
+  onEditQuantity: (line: CartItem) => void;
   lastReceipt: Receipt | null;
   onPrintReceipt: () => void;
   onShowHeldSales: () => void;
@@ -147,8 +148,8 @@ export const CartPanel: React.FC<CartPanelProps> = ({
         ) : (
           items.map((item) => (
             <CartItemCard
-              onEditQuantity={() => onEditQuantity(item.product)}
-              key={item.product.id}
+              onEditQuantity={() => onEditQuantity(item)}
+              key={lineKey(item)}
               item={item}
               onUpdateQuantity={updateQuantity}
               onRemove={removeItem}
@@ -156,8 +157,8 @@ export const CartPanel: React.FC<CartPanelProps> = ({
               onUpdateNotes={updateNotes}
               onUpdatePrice={updatePrice}
               canOverridePrice={canOverridePrice}
-              promoDiscount={lineBreakdown[item.product.id]?.promoDiscount || 0}
-              promoName={lineBreakdown[item.product.id]?.promotionName}
+              promoDiscount={lineBreakdown[lineKey(item)]?.promoDiscount || 0}
+              promoName={lineBreakdown[lineKey(item)]?.promotionName}
             />
           ))
         )}

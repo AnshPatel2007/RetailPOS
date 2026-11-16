@@ -192,6 +192,53 @@ describe('Compliance Workflow Integration Tests', () => {
       expect(res.body.data.subtotal).toBe(4.2);
     });
 
+    it('charges two labels of one product as two lines, each at its own price', async () => {
+      await prisma.product.update({ where: { id: testData.product.id }, data: { priceEmbedded: true } });
+      const labels = [
+        { productId: testData.product.id, quantity: 1, price: 4.37, priceOverride: true },
+        { productId: testData.product.id, quantity: 1, price: 6.12, priceOverride: true },
+      ];
+      // The register asks for the total first; it must be the two labels, not two units at one price.
+      const quote = await api.post('/api/sales/quote').withAuth(cashierToken).withBody({ items: labels }).expectStatus(200).execute();
+      expect(quote.body.data.subtotal).toBe(10.49);
+      const res = await api.post('/api/sales').withAuth(cashierToken)
+        .withBody({ idempotencyKey: randomUUID(), items: labels, paymentMethod: 'CASH', amountPaid: 20 })
+        .expectStatus(201).execute();
+      const sale = res.body.data;
+      expect(sale.items.map((item: { price: number }) => item.price).sort()).toEqual([4.37, 6.12]);
+      expect(sale.subtotal).toBe(10.49);
+      // Taxed at the store's 10%, line by line.
+      expect(sale.tax).toBe(1.05);
+      expect(sale.total).toBe(11.54);
+      // Both packages left the shelf, each with its own stock movement.
+      expect((await prisma.product.findUniqueOrThrow({ where: { id: testData.product.id } })).stockQuantity).toBe(98);
+      expect(await prisma.inventoryLog.count({ where: { productId: testData.product.id, type: 'SALE', sourceId: sale.id } })).toBe(2);
+
+      // A return of one package refunds that label's amount, not an average of the two.
+      const ownerToken = await loginUser('admin@test.com', 'Admin123!');
+      await clockIn(ownerToken);
+      const small = sale.items.find((item: { price: number }) => item.price === 4.37);
+      const refund = await api.post(`/api/sales/${sale.id}/refund`).withAuth(ownerToken)
+        .withBody({ items: [{ saleItemId: small.id, quantity: 1 }], reason: 'Customer returned one package', idempotencyKey: randomUUID() })
+        .expectStatus(200).execute();
+      expect(refund.body.refund.amount).toBe(4.81);
+    });
+
+    it('still asks to combine repeated lines of an ordinary product', async () => {
+      const res = await api.post('/api/sales').withAuth(cashierToken).withBody({
+        idempotencyKey: randomUUID(), paymentMethod: 'CASH', amountPaid: 50,
+        items: [{ productId: testData.product.id, quantity: 1, price: 19.99 }, { productId: testData.product.id, quantity: 1, price: 19.99 }],
+      }).expectStatus(400).execute();
+      assertResponse.error(res, 'Combine quantities of the same product into one line');
+      // A flagged product typed in twice at the catalog price (no label) is ordinary too.
+      await prisma.product.update({ where: { id: testData.product.id }, data: { priceEmbedded: true } });
+      await api.post('/api/sales').withAuth(cashierToken).withBody({
+        idempotencyKey: randomUUID(), paymentMethod: 'CASH', amountPaid: 50,
+        items: [{ productId: testData.product.id, quantity: 1, price: 19.99 }, { productId: testData.product.id, quantity: 1, price: 19.99 }],
+      }).expectStatus(400).execute();
+      expect(await prisma.sale.count()).toBe(0);
+    });
+
     it('requires manager approval for cashier price overrides on unflagged products', async () => {
       const res = await api
         .post('/api/sales')

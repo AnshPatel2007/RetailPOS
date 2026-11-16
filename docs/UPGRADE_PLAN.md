@@ -675,8 +675,8 @@ End-to-end acceptance for the whole plan:
 | WP | Title | What the owner sees | Size | Status |
 |---|---|---|---|---|
 | 8.1 | Protect and tidy | The seed script cannot touch a database in use; small fixes | S | Built Nov 16 |
-| 8.2 | Deli price-label lines | Two labels of one item are two lines, each at its own price | S | Next |
-| 8.3 | Scan data and store-day dates | A carton exports its own barcode on the store's date | S | Planned |
+| 8.2 | Deli price-label lines | Two labels of one item are two lines, each at its own price | S | Built Nov 16 |
+| 8.3 | Scan data and store-day dates | A carton exports its own barcode on the store's date | S | Next |
 | 8.4 | **Money Ahead** | "Thursday looks tight: about $5,900 goes out and about $4,300 comes in." | M | Planned |
 | 8.5 | Phone alerts | "Sam refunded $84.20 in cash on sale S-20261115-0042." on the owner's phone | M | Planned |
 | 8.6 | **Store Pulse** | "It is 6:25 AM and nobody has clocked in. On Tuesdays the store usually opens by 6:00 AM." | M | Planned |
@@ -695,7 +695,7 @@ End-to-end acceptance for the whole plan:
 ## Known problems (found November 15 and 16, 2026)
 
 **Wrong results**
-- **P1** Deli price-label items of one product merge into one line at the last price (`store/cartStore.ts`, `pages/POS.tsx`, `services/salePricing.service.ts`). *WP 8.2.*
+- **P1** Deli price-label items of one product merged into one line at the last price (`store/cartStore.ts`, `pages/POS.tsx`, `services/salePricing.service.ts`). *Fixed in 8.2: each label is a line of its own.*
 - **P2** Tobacco scan-data export: a carton prints the single pack's barcode; dates are UTC and times the server's clock; refunded sales count as sold; a platform admin gets every store in one file (`controllers/report.controller.ts`). *WP 8.3.* Still open after it: the real Altria and RJR file layouts.
 - **P3** Old date filters use the server's day, not the store's (`utils/dateFilter.util.ts`: sales list, shift list, age-check log, public API). *WP 8.3.*
 - **P4** An unused staff endpoint summed `sale.total` by hand and invented a "cash accuracy" percent. *Removed in 8.1.*
@@ -710,6 +710,7 @@ End-to-end acceptance for the whole plan:
 - **P9** Invoice photos and expense receipts are kept on the API server's own disk (`uploads/`). `backend/render.yaml` declares no persistent disk, so on Render they are lost at each deploy unless a disk was added by hand. **The owner needs to confirm.**
 - **P10** Five wrong passwords from anyone in the store blocked email sign-in for everyone there. *Fixed in 8.1: counted per person at an address.*
 - **P11** A sale does not record which register rang it (needed for camera lookups and two-register stores). Open.
+- **P19** A cashier can type any price on a deli or scale item (price-embedded) without a manager's approval: the server cannot tell a price read from a label from a price typed by hand. Fix: the register sends the label barcode with the line, the server reads the price from it, and a hand-typed price on such an item needs approval like any other. Open.
 - **P18** Two old database passwords are saved in plain text on this computer, inside remembered commands in `.claude/settings.local.json` that run the seed script against a hosted (Neon) database. The file is not in git. If that database still exists, change its password and delete those entries. Open.
 
 **Day-one gaps (the build after Phase 8)**

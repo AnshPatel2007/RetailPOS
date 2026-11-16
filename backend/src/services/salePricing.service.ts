@@ -7,7 +7,10 @@ export function priceSaleItems(items: any[], freshProductMap: Map<string, any>, 
     freshProductMap = new Map([...freshProductMap].map(([id, product]) => [id, numeric(product)]));
     miscProduct = numeric(miscProduct);
     activePromotions = numeric(activePromotions);
-    const regularIds = items.filter(i => !i.productId.startsWith('misc-')).map(i => i.productId);
+    // One line per product, except price labels (deli, scale): each label is a line of its
+    // own at the price printed on it, so two packages of one product may both be on a sale.
+    const priceLabel = (item: any) => !!item.priceOverride && !!freshProductMap.get(item.productId)?.priceEmbedded;
+    const regularIds = items.filter(i => !i.productId.startsWith('misc-') && !priceLabel(i)).map(i => i.productId);
     if (new Set(regularIds).size !== regularIds.length) throw new AppError('Combine quantities of the same product into one line',400);
     for (const product of freshProductMap.values()) if (product.isActive === false) throw new AppError('Product is inactive: ' + product.name,400);
     // Validate and calculate totals using fresh data

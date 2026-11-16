@@ -279,6 +279,9 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   `subscribeScopedQueryInvalidation` (see `hooks/useInventoryExceptionCount.ts`).
 - **Register** (`pages/POS.tsx`): a finished sale stays in the cart as "Sale complete"
   (change due, receipt options); nothing pops up, so the next scan always counts.
+  Cart lines are addressed by their line key (`lib/cartLines.ts`): a deli or scale price-label
+  scan is a line of its own at the label's price, and the server accepts repeated lines of a
+  product only for those (price-embedded with the label price).
   Scanner input comes from `services/hardware.ts` (keyboard wedge; scan sounds). Tiles are
   colored by category (`lib/categoryColor.ts`), with categories down the left on wider
   screens and a dark sale panel.

@@ -103,12 +103,15 @@ test('bulk recovery refuses malformed, incomplete, duplicate or fractional-cent 
 });
 
 // Execute the actual TypeScript modules with browser/API boundaries replaced.
+const loadCart = () => load('store/cartStore.ts', {
+  zustand: require('zustand'), 'zustand/middleware': { persist: initialize => initialize },
+  '@/lib/money': load('../../backend/src/utils/moneyNumbers.ts'),
+  '@/lib/cartLines': load('lib/cartLines.ts'),
+  '../lib/promotionEngine': { applyPromotions() { return new Map(); }, isPromotionActiveNow() { return true; } },
+});
+
 test('recorded stock never limits the cart; recalls and invalid quantities do', () => {
-  const { useCartStore } = load('store/cartStore.ts', {
-    zustand: require('zustand'), 'zustand/middleware': { persist: initialize => initialize },
-    '@/lib/money': load('../../backend/src/utils/moneyNumbers.ts'),
-    '../lib/promotionEngine': { applyPromotions() {}, isPromotionActiveNow() { return true; } },
-  });
+  const { useCartStore } = loadCart();
   const cart = useCartStore.getState();
   const product = { id: 'tracked', price: 10, trackInventory: true, stockQuantity: 2 };
   // The customer is holding the item: a third unit sells although two are recorded.
@@ -123,6 +126,41 @@ test('recorded stock never limits the cart; recalls and invalid quantities do', 
   assert.equal(useCartStore.getState().items.some(item => item.product.id === 'recalled'), false);
   cart.updateQuantity(product.id, 0);
   assert.equal(useCartStore.getState().items.some(item => item.product.id === product.id), false);
+});
+
+test('each deli price label is a line of its own at the price printed on it', () => {
+  const { useCartStore } = loadCart();
+  const { lineKey, quantityOfProduct } = load('lib/cartLines.ts');
+  const cart = useCartStore.getState();
+  const ham = { id: 'ham', name: 'Deli ham', price: 9.99, priceEmbedded: true, isTaxable: false };
+  // Two packages of one product, each with its own label.
+  assert.equal(cart.addItem(ham, 1, { separateLine: true, price: 4.37 }), true);
+  assert.equal(cart.addItem(ham, 1, { separateLine: true, price: 6.12 }), true);
+  let items = useCartStore.getState().items;
+  // Copied into plain arrays: the cart's own arrays come from the module's sandbox.
+  assert.deepEqual([...items].map(item => [item.product.price, item.quantity, item.priceOverride]), [[4.37, 1, true], [6.12, 1, true]]);
+  assert.equal(new Set(items.map(lineKey)).size, 2);
+  assert.equal(useCartStore.getState().getTotal(), 10.49);
+  // A tap on the tile adds the catalog-priced line; it never joins a label's line.
+  cart.addItem(ham); cart.addItem(ham);
+  items = useCartStore.getState().items;
+  assert.equal(items.length, 3);
+  assert.deepEqual([...items.filter(item => lineKey(item) === 'ham')].map(item => [item.product.price, item.quantity]), [[9.99, 2]]);
+  assert.equal(quantityOfProduct(items, 'ham'), 4);
+  // Changing or removing one label line leaves the other one alone.
+  const [first, second] = items.filter(item => item.lineId);
+  cart.updateDiscount(lineKey(second), 1);
+  cart.removeItem(lineKey(first));
+  items = useCartStore.getState().items;
+  assert.deepEqual([...items].map(item => [item.product.price, item.discount]), [[6.12, 1], [9.99, 0]]);
+  assert.equal(useCartStore.getState().getTotal(), 25.1);
+  // A new label line never reuses the id of a line still in the cart.
+  cart.addItem(ham, 1, { separateLine: true, price: 3 });
+  assert.equal(new Set(useCartStore.getState().items.map(lineKey)).size, 3);
+  // A cart saved before label lines existed (no lineId) still works by product.
+  useCartStore.setState({ items: [{ product: ham, quantity: 1, discount: 0, notes: '' }] });
+  cart.updateQuantity('ham', 3);
+  assert.equal(useCartStore.getState().items[0].quantity, 3);
 });
 
 function load(file, mocks = {}, globals = {}) {

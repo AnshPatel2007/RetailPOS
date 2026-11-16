@@ -65,7 +65,6 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
       if (!shift || !input.receipt) throw new AppError('Booking requires the original cashier shift and verified receipt lines', 400);
       const lockedShift = await lockDrawer(tx, shift.id), receipt = input.receipt;
       if (at < lockedShift.clockInAt || (lockedShift.clockOutAt && at > lockedShift.clockOutAt)) throw new AppError('Original time falls outside the original shift', 400);
-      if (new Set(receipt.items.map(item => item.productId)).size !== receipt.items.length) throw new AppError('Combine repeated product lines before review', 400);
       let gross = 0, discount = 0, tax = 0, total = 0;
       for (const item of receipt.items) {
         const itemGross = cents(lineMoney(item.price, item.quantity));
@@ -80,6 +79,10 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
       const products = await resolveSellableProducts(tx, { locationId: req.user!.locationId!, ids: receipt.items.map(item => item.productId), includeInactive: true });
       const sellable = new Map(products.map(product => [product.id, product]));
       if (receipt.items.some(item => !sellable.has(item.productId))) throw new AppError('Every receipt product must be identified at the original store', 400);
+      // One line per product, except price labels (deli, scale): each label was a line of its own at its own price.
+      if (receipt.items.some((item, index) => receipt.items.findIndex(other => other.productId === item.productId) !== index && !sellable.get(item.productId)!.priceEmbedded)) {
+        throw new AppError('Combine repeated product lines before review', 400);
+      }
       await lockInventory(tx, products.map(product => product.inventoryProductId));
       const baseUnits = (productId: string) => { const product = sellable.get(productId)!; return product.sellingUnitId ? product.unitsPerPackage : 1; };
       if (products.some(product => product.minimumAge && product.minimumAge > 0) && !receipt.ageVerified) throw new AppError('Verify original age-check evidence before booking restricted merchandise', 400);
@@ -88,23 +91,32 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
         if (!await tx.customer.findFirst({ where: { id: input.customerId, locationId: req.user!.locationId! } })) throw new AppError('Original customer not found at this store', 404);
       }
       const offlineSaleId = randomUUID();
-      const costEntries = new Map<string, { id: string; cogsAmount: Prisma.Decimal | null; costStatus: CostStatus }>();
-      const lowStockProducts: { name: string; sku: string; stock: number; threshold: number }[] = [];
-      for (const product of [...products].sort((a, b) => a.inventoryProductId.localeCompare(b.inventoryProductId) || a.id.localeCompare(b.id))) if (product.trackInventory) {
-        const sold = receipt.items.find(item => item.productId === product.id)!.quantity;
-        if (product.sellingUnitId) await sellPackages(tx, { productId: product.inventoryProductId, locationId: req.user!.locationId!, sellingUnitId: product.sellingUnitId,
-          quantity: sold, userId: input.cashierId, sourceId: offlineSaleId });
-        const updated = await moveInventory(tx, { productId: product.inventoryProductId, locationId: req.user!.locationId!, userId: input.cashierId,
-          type: 'SALE', sourceId: offlineSaleId, sourceKey: 'offline-sale:' + input.localId + ':' + product.id, forceUnknown: true, allowNegative: true,
-          quantity: -sold * baseUnits(product.id), notes: 'Offline receipt reviewed by ' + req.user!.id });
-        costEntries.set(product.id, updated.inventoryEntry);
-        if (updated.stockQuantity <= product.lowStockAlert) lowStockProducts.push({ name: product.name, sku: product.sku, stock: updated.stockQuantity, threshold: product.lowStockAlert });
+      // Stock and cost are recorded per receipt line, in product order (the lock order).
+      const costEntries = new Map<number, { id: string; cogsAmount: Prisma.Decimal | null; costStatus: CostStatus }>();
+      const lowStock = new Map<string, { name: string; sku: string; stock: number; threshold: number }>();
+      const receiptLines = receipt.items.map((item, index) => ({ item, index, product: sellable.get(item.productId)! }))
+        .sort((a, b) => a.product.inventoryProductId.localeCompare(b.product.inventoryProductId) || a.product.id.localeCompare(b.product.id) || a.index - b.index);
+      const linesOfProduct = new Map<string, number>();
+      for (const { item, index, product } of receiptLines) {
+        // A product's first line keeps the key it always had; a further price-label line of it has its own.
+        const earlier = linesOfProduct.get(product.id) ?? 0;
+        linesOfProduct.set(product.id, earlier + 1);
+        const sourceKey = 'offline-sale:' + input.localId + ':' + product.id + (earlier ? ':' + earlier : '');
+        if (product.trackInventory) {
+          if (product.sellingUnitId) await sellPackages(tx, { productId: product.inventoryProductId, locationId: req.user!.locationId!, sellingUnitId: product.sellingUnitId,
+            quantity: item.quantity, userId: input.cashierId, sourceId: offlineSaleId });
+          const updated = await moveInventory(tx, { productId: product.inventoryProductId, locationId: req.user!.locationId!, userId: input.cashierId,
+            type: 'SALE', sourceId: offlineSaleId, sourceKey, forceUnknown: true, allowNegative: true,
+            quantity: -item.quantity * baseUnits(product.id), notes: 'Offline receipt reviewed by ' + req.user!.id });
+          costEntries.set(index, updated.inventoryEntry);
+          if (updated.stockQuantity <= product.lowStockAlert) lowStock.set(product.id, { name: product.name, sku: product.sku, stock: updated.stockQuantity, threshold: product.lowStockAlert });
         } else {
           const entry = await postNonstockCost(tx, { productId: product.id, locationId: req.user!.locationId!, userId: input.cashierId,
-            sourceId: offlineSaleId, sourceKey: 'offline-sale:' + input.localId + ':' + product.id, kind: 'OFFLINE_SALE',
-            quantity: receipt.items.find(item => item.productId === product.id)!.quantity, cost: null });
-          costEntries.set(product.id, { id: entry.id, cogsAmount: null, costStatus: 'UNKNOWN' });
+            sourceId: offlineSaleId, sourceKey, kind: 'OFFLINE_SALE', quantity: item.quantity, cost: null });
+          costEntries.set(index, { id: entry.id, cogsAmount: null, costStatus: 'UNKNOWN' });
+        }
       }
+      const lowStockProducts = [...lowStock.values()];
       const store = await tx.location.findUniqueOrThrow({ where: { id: req.user!.locationId! }, select: { timezone: true } });
       const sale = await tx.sale.create({ data: { id: offlineSaleId, saleNumber: generateSaleNumber(at, store.timezone, await nextDocumentSequence(tx)), idempotencyKey: input.localId, userId: input.cashierId,
         locationId: req.user!.locationId!, shiftId: shift.id, customerId: input.customerId, createdAt: at, completedAt: at,
@@ -112,7 +124,7 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
         subtotal: receipt.subtotal, discount: receipt.discount, tax: receipt.tax, total: input.total, amountPaid: receipt.amountPaid, changeDue: receipt.changeDue,
         notes: 'Manager-booked original offline receipt: ' + input.reference,
         payments: { create: { paymentMethod: 'CASH', amount: receipt.amountPaid } },
-        items: { create: receipt.items.map(item => { const cost = costEntries.get(item.productId)!; const sold = sellable.get(item.productId)!; return { ...item,
+        items: { create: receipt.items.map((item, index) => { const cost = costEntries.get(index)!; const sold = sellable.get(item.productId)!; return { ...item,
           productId: sold.inventoryProductId, sellingUnitId: sold.sellingUnitId, unitsPerPackage: baseUnits(item.productId), inventoryQuantity: item.quantity * baseUnits(item.productId),
           // Today's average estimates the original receipt's cost; it is flagged, not verified.
           unitCost: cost.cogsAmount === null ? null : cost.cogsAmount.div(item.quantity).toDecimalPlaces(4), costAmount: cost.cogsAmount,
