@@ -154,7 +154,11 @@ replace them. Integration tests exercise them.
   `locations` that deletes with the store. No triggers, no backfill: a store without a
   row uses the defaults. The app needs it: this version's Prisma client reads both on the
   owners' alerts and on Finances > Money Ahead. Kept out of `locations.settings` on
-  purpose, so registers never receive the owner's money figures.
+  purpose, so registers never receive the owner's money figures. Applied to the local
+  store database on 2026-11-16 after the backup in
+  `.local/backups/pre-cash-plan-20261116-145206/` (dump read back, uploads copied): sales
+  (462, $1,608,771.21), products (9), users (5), suppliers (3), stores (3), expenses (23)
+  and live sessions (17) identical before and after; `check` reported no difference.
 
 - **`20261112030000_supplier_delivery_days` (2026-11-12).** Purely additive:
   `suppliers.deliveryDays INTEGER[]` (0 = Sunday ... 6 = Saturday), an empty list for
