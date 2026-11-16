@@ -9,13 +9,13 @@ import { expensePeriod } from '../services/expenseDates.service';
 import { getSalesReportData, salesReportCSV } from '../services/salesReport.service';
 import { sendSalesReportPdf } from '../services/salesReportPdf.service';
 import { Response } from 'express';
-import { getReportCalendar, getReportRange } from '../services/reportDates.service';
+import { getReportCalendar, getReportRange, storeDateRange } from '../services/reportDates.service';
+import { scanDataCsv } from '../services/scanDataExport.service';
 import { getProductFinancialMetrics } from '../services/financialMetrics.service';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import prisma from '../config/database';
 import { SaleStatus, ExpenseStatus, Prisma } from '@prisma/client';
 import { AuthRequest } from '../types';
-import { createDateFilter } from '../utils/dateFilter.util';
 import { parseListFilter } from '../utils/queryFilter.util';
 import { getLocationFilter } from '../utils/locationFilter.util';
 
@@ -784,8 +784,9 @@ export const getAgeVerifications = asyncHandler(async (req: AuthRequest, res: Re
 
   const where: any = {};
   if (req.user?.locationId) where.locationId = req.user.locationId;
-  const dateFilter = createDateFilter(startDate as string, endDate as string);
-  if (dateFilter) where.createdAt = dateFilter;
+  // Whole days in the store's time zone, not the server's.
+  const { range } = await storeDateRange({ locationId: req.user?.locationId || undefined }, startDate, endDate);
+  if (range) where.createdAt = range;
 
   const [logs, total] = await Promise.all([
     prisma.ageVerificationLog.findMany({
@@ -818,83 +819,24 @@ export const getAgeVerifications = asyncHandler(async (req: AuthRequest, res: Re
 });
 
 /**
- * Tobacco / manufacturer scan-data export.
- *
- * Scan-data programs (Altria, RJR/ITG buydown reporting) pay retailers for
- * submitting weekly line-item sales of program categories. This produces the
- * generic wide-format CSV those portals ingest: one row per sold line item
- * with UPC, quantity, pricing, and promo attribution.
+ * Tobacco / manufacturer scan-data export for one store (services/scanDataExport.service.ts):
+ * a row per item sold in the chosen store days, a negative row per item returned or voided
+ * on the day it happened, and a pack's own barcode. A general layout; the Altria and RJR
+ * program layouts are not built yet.
  *
  * GET /api/reports/scan-data/export/csv?startDate&endDate&categoryIds=a,b
  */
 export const exportScanDataCSV = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { Parser } = require('json2csv');
-  const { startDate, endDate, categoryIds } = req.query;
-
-  const categoryFilter = parseListFilter(categoryIds);
-  if (!categoryFilter) {
-    res.status(400).json({ success: false, error: 'Select at least one category to export' });
-    return;
-  }
-
-  const dateFilter = createDateFilter(startDate as string, endDate as string);
-
-  const items = await prisma.saleItem.findMany({
-    where: {
-      ...(dateFilter ? { createdAt: dateFilter } : {}),
-      product: { categoryId: categoryFilter },
-      sale: {
-        status: { in: [SaleStatus.COMPLETED, SaleStatus.REFUNDED] },
-        ...(req.user?.locationId ? { locationId: req.user.locationId } : {}),
-      },
-    },
-    include: {
-      product: { select: { barcode: true, categoryId: true, category: { select: { name: true } } } },
-      sale: {
-        select: {
-          saleNumber: true,
-          createdAt: true,
-          location: { select: { id: true, name: true } },
-        },
-      },
-    },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  const csvData = items.map((item) => {
-    const dt = new Date(item.sale.createdAt);
-    return {
-      'Transaction Date': dt.toISOString().slice(0, 10),
-      'Transaction Time': dt.toTimeString().slice(0, 8),
-      'Store ID': item.sale.location?.id || '',
-      'Store Name': item.sale.location?.name || '',
-      'Transaction ID': item.sale.saleNumber,
-      'UPC': item.product?.barcode || item.sku,
-      'SKU': item.sku,
-      'Item Description': item.productName,
-      'Category': item.product?.category?.name || '',
-      'Quantity': item.quantity,
-      'Unit Price': item.price.toFixed(2),
-      'Total Discount': item.discount.toFixed(2),
-      'Promotion Flag': Number(item.promotionDiscount) > 0 ? 'Y' : 'N',
-      'Promotion Name': item.promotionName || '',
-      'Final Price': (Number(item.total) - Number(item.tax)).toFixed(2),
-      'Tax': item.tax.toFixed(2),
-    };
-  });
-
-  const parser = new Parser();
-  const csv = parser.parse(
-    csvData.length > 0
-      ? csvData
-      : [{ 'Transaction Date': '', 'Transaction Time': '', 'Store ID': '', 'Store Name': '', 'Transaction ID': '', 'UPC': '', 'SKU': '', 'Item Description': '', 'Category': '', 'Quantity': '', 'Unit Price': '', 'Total Discount': '', 'Promotion Flag': '', 'Promotion Name': '', 'Final Price': '', 'Tax': '' }]
-  );
-
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename=scan-data-${startDate || 'all'}-${endDate || 'all'}.csv`
-  );
+  const { startDate, endDate } = req.query;
+  const categories = parseListFilter(req.query.categoryIds);
+  if (!categories) throw new AppError('Select at least one category to export', 400);
+  const scope = getLocationFilter(req, req.query.locationId as string);
+  if (!scope.locationId) throw new AppError('Choose a store to export its scan data', 400);
+  if (!startDate || !endDate) throw new AppError('Choose the store days to export', 400);
+  const { range } = await storeDateRange(scope, startDate, endDate);
+  const { csv } = await scanDataCsv(scope.locationId, range!, typeof categories === 'string' ? [categories] : categories.in);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename=scan-data-${String(startDate).slice(0, 10)}-${String(endDate).slice(0, 10)}.csv`);
   res.send(csv);
 });
 

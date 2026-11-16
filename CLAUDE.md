@@ -62,6 +62,8 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   (`costBasis: 'PROVISIONAL'`, `provisionalReason` and
   `costCompleteness.pendingEstimatedCost` in `financialMetrics.service.ts`). Every screen
   and export that shows such a profit carries the "not final" mark and the reason.
+- **Store days**: a date sent to the API is a whole day in the store's time zone (`storeDateRange` /
+  `getReportRange` in `services/reportDates.service.ts`); never read a date with the server's clock.
 - **One source for sales figures**: every sales/profit number (Dashboard, Reports, Finances,
   Admin dashboard, store list) comes from `getFinancialMetrics`/`getFinancialBreakdowns` with
   store-timezone ranges; don't sum `sale.total` by hand.

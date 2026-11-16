@@ -47,6 +47,22 @@ export function parseReportDate(calendar: ReturnType<typeof reportCalendar>, inp
   return { date: new Date(input), exclusive: false };
 }
 
+/**
+ * A list's optional date filter: calendar days in the store's own time zone (UTC when no
+ * store is chosen), or timestamps with their zone. Without either end the range is
+ * undefined, so an unfiltered list keeps everything (future-dated bills included).
+ */
+export async function storeDateRange(scope: { locationId?: string }, start?: unknown, end?: unknown) {
+  const calendar = await getReportCalendar(scope);
+  const from = start ? parseReportDate(calendar, start).date : undefined;
+  const until = end ? parseReportDate(calendar, end, true) : undefined;
+  if (from && until && (until.exclusive ? from >= until.date : from > until.date)) throw new AppError('The report end must be after its start', 400);
+  const range: MetricRange | undefined = from || until ? {
+    ...(from ? { gte: from } : {}), ...(until ? until.exclusive ? { lt: until.date } : { lte: until.date } : {}),
+  } : undefined;
+  return { range, timezone: calendar.timezone };
+}
+
 export async function getReportRange(scope: { locationId?: string }, start: unknown, end: unknown, fallback: 'month' | 'year' | 'all' = 'all') {
   const calendar = await getReportCalendar(scope);
   const parse = (input: unknown, inclusiveEnd = false) => parseReportDate(calendar, input, inclusiveEnd);

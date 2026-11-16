@@ -22,10 +22,9 @@ import { bulkVoid } from '../services/bulkVoid.service';
 import { bulkRefund, previewBulkRefund } from '../services/bulkRefund.service';
 import { generateSaleNumber } from '../utils/saleNumber';
 import { nextDocumentSequence } from '../services/documentNumber.service';
-import { getReportCalendar } from '../services/reportDates.service';
+import { getReportCalendar, storeDateRange } from '../services/reportDates.service';
 import { ageOn, parseCalendarDate } from '../utils/calendarAge';
 import { assertOwnsRecord, assertCanReadRecord, getLocationFilter } from '../utils/locationFilter.util';
-import { createDateFilter } from '../utils/dateFilter.util';
 import { isPromotionActiveNow } from '../utils/promotionEngine';
 import { queueWebhook } from '../services/webhook.service';
 import { queueLowStockEmails, queueEmail, emailContentKey, EmailPayload } from '../services/queuedEmail.service';
@@ -658,10 +657,9 @@ export const getSales = asyncHandler(async (req: AuthRequest, res: Response) => 
   const scope = getLocationFilter(req, req.query.locationId as string);
   const where: any = { locationId: scope.locationId || { not: null } };
 
-  const dateFilter = createDateFilter(startDate as string, endDate as string);
-  if (dateFilter) {
-    where.createdAt = dateFilter;
-  }
+  // Whole days in the store's time zone, not the server's.
+  const { range: dateFilter } = await storeDateRange(scope, startDate, endDate);
+  if (dateFilter) where.createdAt = dateFilter;
 
   if (saleNumber) {
     const reference = String(saleNumber).trim();

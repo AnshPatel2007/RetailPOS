@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/authStore';
 import { api, financialService, reportService } from '@/services/api';
 import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
+import { AboutNumbers } from '@/components/common/AboutNumbers';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -112,7 +113,7 @@ export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => vo
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-      toast.success('Scan data exported — upload it to your manufacturer portal');
+      toast.success('Scan data exported. Check that your program accepts this layout before uploading it.');
     } catch (error: any) {
       toast.error(apiErrorMessage(error, 'Failed to export scan data'));
     } finally {
@@ -143,7 +144,12 @@ export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => vo
         </Card>
         <Card className="p-4">
           <h3 className="font-medium mb-1">Tobacco / Manufacturer Scan Data</h3>
-          <p className="text-sm text-muted-foreground mb-4">Choose store dates and program categories.</p>
+          <p className="text-sm text-muted-foreground mb-2">Choose store dates and program categories.</p>
+          <AboutNumbers className="mb-4">
+            <p>One row for each item sold, and a negative row for each item returned or voided, on the day the return or void happened.</p>
+            <p>A pack or carton is listed with its own barcode and the number of units in it. Dates and times are the store&apos;s.</p>
+            <p>This is a general layout. The Altria and RJR program file layouts are not built yet: check that your program accepts this file before you upload it.</p>
+          </AboutNumbers>
           <div className="mb-4"><DateRangePicker label="Scan data dates" startDate={scanDataStart} endDate={scanDataEnd} allowOpenRange={false} onChange={range => { setScanDataStart(range.startDate); setScanDataEnd(range.endDate); }} /></div>
           <div className="mb-4">
             <label className="block text-xs font-medium mb-1.5 text-muted-foreground">

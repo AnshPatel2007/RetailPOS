@@ -676,8 +676,8 @@ End-to-end acceptance for the whole plan:
 |---|---|---|---|---|
 | 8.1 | Protect and tidy | The seed script cannot touch a database in use; small fixes | S | Built Nov 16 |
 | 8.2 | Deli price-label lines | Two labels of one item are two lines, each at its own price | S | Built Nov 16 |
-| 8.3 | Scan data and store-day dates | A carton exports its own barcode on the store's date | S | Next |
-| 8.4 | **Money Ahead** | "Thursday looks tight: about $5,900 goes out and about $4,300 comes in." | M | Planned |
+| 8.3 | Scan data and store-day dates | A carton exports its own barcode on the store's date | S | Built Nov 16 |
+| 8.4 | **Money Ahead** | "Thursday looks tight: about $5,900 goes out and about $4,300 comes in." | M | Next |
 | 8.5 | Phone alerts | "Sam refunded $84.20 in cash on sale S-20261115-0042." on the owner's phone | M | Planned |
 | 8.6 | **Store Pulse** | "It is 6:25 AM and nobody has clocked in. On Tuesdays the store usually opens by 6:00 AM." | M | Planned |
 | 8.7 | Cash rounding to 5 cents | A $12.42 cash sale takes $12.40; cards are never rounded; off by default | M | Planned |
@@ -696,8 +696,8 @@ End-to-end acceptance for the whole plan:
 
 **Wrong results**
 - **P1** Deli price-label items of one product merged into one line at the last price (`store/cartStore.ts`, `pages/POS.tsx`, `services/salePricing.service.ts`). *Fixed in 8.2: each label is a line of its own.*
-- **P2** Tobacco scan-data export: a carton prints the single pack's barcode; dates are UTC and times the server's clock; refunded sales count as sold; a platform admin gets every store in one file (`controllers/report.controller.ts`). *WP 8.3.* Still open after it: the real Altria and RJR file layouts.
-- **P3** Old date filters use the server's day, not the store's (`utils/dateFilter.util.ts`: sales list, shift list, age-check log, public API). *WP 8.3.*
+- **P2** Tobacco scan-data export: a carton printed the single pack's barcode; dates were UTC and times the server's clock; returns and voids were missing; a platform admin got every store in one file. *Fixed in 8.3 (`services/scanDataExport.service.ts`).* Still open: the real Altria and RJR file layouts.
+- **P3** Old date filters used the server's day, not the store's (sales list, shift list, age-check log, public API). *Fixed in 8.3: `storeDateRange`; the public API reads UTC days, see `API.md`.*
 - **P4** An unused staff endpoint summed `sale.total` by hand and invented a "cash accuracy" percent. *Removed in 8.1.*
 - **P5** The Z-report read every wrong-product correction the store ever had. *Fixed in 8.1.*
 - **P6** Misc item: Enter in the price box did nothing (*fixed in 8.1*). Open: an unknown barcode sold as misc is forgotten, so the catalog never learns it; misc is always taxed.

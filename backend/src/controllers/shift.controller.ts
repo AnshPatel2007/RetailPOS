@@ -6,7 +6,7 @@ import prisma from '../config/database';
 import { cashAmount, cents, dollars, drawerInclude, lockCurrentDrawer, lockDrawer, postDrawerEntry, summarizeDrawer } from '../services/drawer.service';
 import { z } from 'zod';
 import { logger } from '../utils/logger';
-import { createDateFilter } from '../utils/dateFilter.util';
+import { storeDateRange } from '../services/reportDates.service';
 import { assertOwnsRecord, getLocationFilter } from '../utils/locationFilter.util';
 import { cashierCountsBlind } from '../services/cashControl.service';
 
@@ -141,15 +141,15 @@ export const getShifts = asyncHandler(async (req: AuthRequest, res: Response) =>
   const limitNum = parseInt(limit as string);
   const skip = (pageNum - 1) * limitNum;
 
-  const where: any = { ...getLocationFilter(req, locationId as string) };
+  const scope = getLocationFilter(req, locationId as string);
+  const where: any = { ...scope };
 
   if (req.user?.role === 'CASHIER') where.userId = req.user.id;
   else if (userId) where.userId = userId;
 
-  const dateFilter = createDateFilter(startDate as string, endDate as string);
-  if (dateFilter) {
-    where.clockInAt = dateFilter;
-  }
+  // Whole days in the store's time zone, not the server's.
+  const { range: dateFilter } = await storeDateRange(scope, startDate, endDate);
+  if (dateFilter) where.clockInAt = dateFilter;
 
   const [shifts, total] = await Promise.all([
     prisma.shift.findMany({

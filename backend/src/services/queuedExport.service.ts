@@ -6,17 +6,13 @@ import prisma from '../config/database';
 import { config } from '../config';
 import { jobPayload, JobOutcome, JobFailure } from './jobQueue.service';
 import { dateCondition, getFinancialMetrics, MetricRange } from './financialMetrics.service';
+import { csvCell } from '../utils/csv';
 export type ExportPayload = { type: 'SALES_ACTIVITY' | 'INVENTORY' | 'EXPENSES'; start: string; end: string; timezone: string };
 export function exportPath(id: string, artifactKey: string, temporary = false) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new JobFailure('INVALID_EXPORT_ID');
   if (!/^[0-9a-f-]{36}$/i.test(artifactKey)) throw new JobFailure('INVALID_ARTIFACT_ID');
   return path.join(path.resolve(config.upload.uploadDir, 'private', 'jobs'), id + '-' + artifactKey + (temporary ? '.partial' : '.csv'));
 }
-const csvCell = (value: unknown) => {
-  let content = value === null || value === undefined ? '' : value instanceof Date ? value.toISOString() : String(value);
-  if (typeof value === 'string' && /^[=+@\-\t\r]/.test(content)) content = "'" + content;
-  return '"' + content.replace(/"/g, '""') + '"';
-};
 export async function generateExportJob(job: BackgroundJob): Promise<JobOutcome> {
   // The requester must still be an ADMIN of the store, home store or one they work in as an owner.
   if (!job.locationId || !await prisma.user.findFirst({ where: { id: job.requestedBy || '', isActive: true, storeAccess: { some: { locationId: job.locationId, role: 'ADMIN', location: { isActive: true } } } } })) return { status: 'CANCELLED', code: 'OWNER_NO_LONGER_AUTHORIZED' };

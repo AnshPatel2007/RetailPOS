@@ -31,9 +31,12 @@ Base URL: `https://<your-server>/api/v1`
 | `GET /summary` | Today at a glance: net revenue, transactions, low-stock count | none |
 | `GET /products` | Product catalog | `page`, `limit` (≤100), `search`, `isActive`, `updatedSince` (ISO) |
 | `GET /products/:id` | One product | none |
-| `GET /sales` | Sales with line items and payments | `page`, `limit`, `startDate`, `endDate` (YYYY-MM-DD), `status` |
+| `GET /sales` | Sales with line items and payments | `page`, `limit`, `startDate`, `endDate`, `status` |
 | `GET /sales/:id` | One sale, including refunds | none |
 | `GET /customers` | Active customers | `page`, `limit`, `search` |
+
+`startDate` and `endDate` are whole days in UTC (`2026-11-09`, both included), or timestamps with their time zone
+(`2026-11-09T00:00:00-06:00`) for a store's own day. Anything else is refused with 400.
 
 Responses are `{ "success": true, "data": ..., "pagination"?: { page, limit, total, totalPages } }`.
 
