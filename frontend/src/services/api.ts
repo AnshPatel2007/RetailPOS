@@ -670,6 +670,13 @@ export const financialService = {
   deleteRecurringExpense: (id: string) => api.delete(`/financial/recurring-expenses/${id}`),
   generateRecurringExpenses: () => api.post('/financial/recurring-expenses/generate'),
 
+  // Money Ahead (owners): the next 14 days of money in and out
+  getCashPlan: (signal?: AbortSignal) => api.get('/financial/cash-plan', { signal }),
+  updateCashPlanSettings: (data: Record<string, unknown>) => api.put('/financial/cash-plan/settings', data),
+  createCashPlanItem: (data: Record<string, unknown>) => api.post('/financial/cash-plan/items', data),
+  updateCashPlanItem: (id: string, data: Record<string, unknown>) => api.put(`/financial/cash-plan/items/${encodeURIComponent(id)}`, data),
+  deleteCashPlanItem: (id: string) => api.delete(`/financial/cash-plan/items/${encodeURIComponent(id)}`),
+
   // Accounting Exports
   getExportHistory: () => api.get('/financial/exports'),
   exportSales: (params?: any, signal?: AbortSignal) => api.get('/financial/export/sales', { params, signal }),

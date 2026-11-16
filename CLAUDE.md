@@ -153,6 +153,18 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   skipped); only the store's selling hours (a sale in that local hour on half the 28
   days); capped at three average days per item; valued at today's price. The attention
   rule `emptyShelves` runs on Mondays for the last seven store days, at $20 or more.
+- **Money Ahead** (Finances > Money Ahead, owners only; pure `planCash` in `services/cashPlan.ts`,
+  loader `services/cashPlan.service.ts`, `/api/financial/cash-plan`): the next 14 store days. In:
+  each weekday's usual sales (median of the last six, `getFinancialBreakdowns`), cash the same day,
+  card money N business days later less the fee; lottery sales and the weekly sweep only once the
+  owner chose the sweep day. Out: unpaid bills by due date (overdue ones today), recurring expenses
+  (`services/recurringDates.ts`, shared with Generate Due Expenses), payroll at period end (about the
+  last three periods), supplier deliveries on their delivery days (an open order's own amount, or
+  about the last four deliveries), sales tax when scheduled, planned items. Estimates say "about".
+  "Money today" counts only on the store day it was entered. With fewer than four of every weekday
+  the plan is learning and raises no alert; the attention rule `cashTight` (owners only) names a day
+  in the coming week that runs short (or, without money today, where $500 more goes out than comes
+  in). Its settings live in `cash_plan_settings`, never in the store settings registers receive.
 - **Attention list and morning brief** (`services/attention.service.ts`,
   `services/ownerBrief.service.ts`): one rule per exported function returns one plain
   sentence with its amount and the page that fixes it; the Dashboard (owners and

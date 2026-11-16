@@ -1,5 +1,5 @@
 import prisma from '../config/database';
-import { planReorder, ReorderProduct, StoreDay, VELOCITY_DAYS } from './reorderPlan';
+import { planReorder, ReorderProduct, StoreDay, usualDeliveryWeekdays, VELOCITY_DAYS } from './reorderPlan';
 
 const DAY = 86400000;
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -56,12 +56,6 @@ export async function loadReorderPlan(scope: { locationId?: string }, now = new 
  */
 export async function suggestDeliveryDays(supplierId: string, timezone: string, now = new Date()) {
   const receipts = await prisma.purchaseReceipt.findMany({ where: { purchaseOrder: { supplierId }, createdAt: { gte: new Date(now.getTime() - 56 * DAY) } }, select: { createdAt: true } });
-  const dates = new Map<number, Set<string>>();
-  for (const receipt of receipts) {
-    const day = storeDay(timezone, receipt.createdAt);
-    if (!dates.has(day.weekday)) dates.set(day.weekday, new Set());
-    dates.get(day.weekday)!.add(day.date);
-  }
-  const weekdays = [...dates.entries()].filter(([, days]) => days.size >= 3).map(([weekday]) => weekday).sort((a, b) => a - b);
-  return { weekdays, deliveries: [...dates.values()].reduce((sum, days) => sum + days.size, 0), weeks: 8 };
+  const days = [...new Set(receipts.map(receipt => storeDay(timezone, receipt.createdAt).date))];
+  return { weekdays: usualDeliveryWeekdays(days), deliveries: days.length, weeks: 8 };
 }

@@ -4,6 +4,7 @@ import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { FilterChips } from '@/components/common/FilterChips';
 import { ActionMenu } from '@/components/ui/ActionMenu';
 import { InventoryCostPanel } from '@/components/financial/InventoryCostPanel';
+import { MoneyAheadPanel } from '@/components/financial/MoneyAheadPanel';
 import { ProfitAndLossStatement } from '@/components/financial/ProfitAndLossStatement';
 import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
@@ -73,7 +74,9 @@ export const Financial: React.FC = () => {
   const [tab, setActiveTab] = useUrlFilter('tab', 'expenses', false);
   const [pnlMonth, setPnlMonth] = useUrlFilter('pnlMonth');
   const validPnlMonth = /^20\d{2}-(0[1-9]|1[0-2])$/.test(pnlMonth) ? pnlMonth : '';
-  const activeTab = ['expenses', 'budgets', 'recurring', 'pnl', 'inventory'].includes(tab) ? tab : 'expenses';
+  // Money Ahead is the owner's alone.
+  const activeTab = ['expenses', 'budgets', 'recurring', 'pnl', 'inventory', ...(role === 'ADMIN' ? ['ahead'] : [])].includes(tab) ? tab : 'expenses';
+  const [tabActions, setTabActions] = useState<React.ReactNode>(null);
   const [loading, setLoading] = useState(true);
 
   // Data states
@@ -358,6 +361,7 @@ export const Financial: React.FC = () => {
       <PageHeader
         title="Finances"
         actions={<>
+          {activeTab === 'ahead' && tabActions}
           {activeTab === 'pnl' && <Button variant="outline" onClick={exportPnl} disabled={exportingPnl || loading || !!loadError || loadedView !== viewKey || !pnlData}><Download className="h-4 w-4 mr-2" />{exportingPnl ? 'Preparing Excel…' : 'Export Excel'}</Button>}
           {activeTab === 'expenses' && filteredExpenses.length > 0 && <Button variant="outline" onClick={() => setShowExportMenu(true)}><Download className="h-4 w-4 mr-2" />Export</Button>}
           {activeTab === 'recurring' && mayManage && <Button onClick={handleGenerateRecurring} variant="outline"><RefreshCw className="h-4 w-4 mr-2" />Generate Due Expenses</Button>}
@@ -365,6 +369,7 @@ export const Financial: React.FC = () => {
         </>}
         tabs={<PageTabs label="Financial views" value={activeTab} onChange={setActiveTab} items={[
           {id:'expenses',label:'Expenses'},{id:'recurring',label:'Recurring'},{id:'budgets',label:'Budgets'},{id:'pnl',label:'Profit & Loss'},{id:'inventory',label:'Inventory Costs'},
+          ...(role === 'ADMIN' ? [{id:'ahead',label:'Money Ahead'}] : []),
           ...(role === 'ADMIN' ? [{id:'reconciliation',label:'Balance Corrections',href:'/financial/reconciliation'}] : [])
         ]} />}
         toolbar={<>
@@ -382,6 +387,7 @@ export const Financial: React.FC = () => {
         <div role="alert" className="rounded-lg border border-destructive/30 p-4 space-y-3"><p>{loadError}</p><Button variant="primary" onClick={() => void fetchData()}>Retry</Button></div>
       ) : (
         <>
+          {activeTab === 'ahead' && <MoneyAheadPanel onActions={setTabActions} />}
           {activeTab === 'inventory' && <InventoryCostPanel locationId={activeLocationId || undefined} owner={role === 'ADMIN'} readOnly={role === 'SUPER_ADMIN'} />}
           {/* Expenses Tab */}
           {activeTab === 'expenses' && expenseData && (

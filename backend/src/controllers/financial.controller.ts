@@ -12,6 +12,7 @@ import prisma from '../config/database';
 import { getLocationFilter, assertOwnsRecord, resolveWriteLocation } from '../utils/locationFilter.util';
 import { z } from 'zod';
 import { privateExpenseFilter } from '../utils/financialAccess';
+import { nextRecurringDate } from '../services/recurringDates';
 import { BudgetPeriod, ExpenseCategory, RecurringFrequency } from '@prisma/client';
 
 const positiveMoney = z.coerce.number().finite().positive().max(1_000_000_000);
@@ -420,18 +421,8 @@ export const generateRecurringExpenses = asyncHandler(async (req: AuthRequest, r
           vendor: recurring.vendor, expenseDate: storeDay(nextDate), dueDate: storeDay(nextDate), locationId: recurring.locationId,
           userId: recurring.userId, status: 'PENDING',
         } }));
-        const next = new Date(nextDate);
-        const days = ({ DAILY: 1, WEEKLY: 7, BIWEEKLY: 14 } as Record<string, number>)[recurring.frequency];
-        if (days) next.setUTCDate(next.getUTCDate() + days);
-        else {
-          const months = ({ MONTHLY: 1, QUARTERLY: 3, YEARLY: 12 } as Record<string, number>)[recurring.frequency];
-          if (!months) throw new AppError('Unsupported recurring frequency', 400);
-          const day = recurring.dayOfMonth || recurring.startDate.getUTCDate();
-          next.setUTCDate(1); next.setUTCMonth(next.getUTCMonth() + months);
-          const last = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
-          next.setUTCDate(Math.min(day, last));
-        }
-        nextDate = next;
+        // The same steps Money Ahead projects (services/recurringDates.ts).
+        nextDate = nextRecurringDate(nextDate, recurring);
       }
       await tx.recurringExpense.update({ where: { id: recurring.id }, data: { nextDueDate: nextDate, lastGenerated: now } });
       return created;

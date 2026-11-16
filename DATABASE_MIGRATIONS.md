@@ -147,6 +147,15 @@ replace them. Integration tests exercise them.
 
 ## Recent changes
 
+- **`20261116000000_cash_plan` (2026-11-16).** Money Ahead, purely additive: new tables
+  `cash_plan_settings` (one row per store: card deposit days and fee, sales tax schedule,
+  the lottery's sweep weekday, and the money the business had on a given morning) and
+  `cash_plan_items` (the owner's planned money in or out), each with a foreign key to
+  `locations` that deletes with the store. No triggers, no backfill: a store without a
+  row uses the defaults. The app needs it: this version's Prisma client reads both on the
+  owners' alerts and on Finances > Money Ahead. Kept out of `locations.settings` on
+  purpose, so registers never receive the owner's money figures.
+
 - **`20261112030000_supplier_delivery_days` (2026-11-12).** Purely additive:
   `suppliers.deliveryDays INTEGER[]` (0 = Sunday ... 6 = Saturday), an empty list for
   every existing supplier, which keeps their two-week reorder planning. The app needs

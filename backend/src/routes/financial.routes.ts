@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as financialController from '../controllers/financial.controller';
+import * as cashPlanController from '../controllers/cashPlan.controller';
 import { authenticate, authorize } from '../middleware/auth';
 import reconciliationRoutes from './reconciliation.routes';
 import inventoryCostRoutes from './inventoryCost.routes';
@@ -10,6 +11,13 @@ const router = Router();
 router.use(authenticate);
 router.use('/reconciliation', reconciliationRoutes);
 router.use('/inventory-costs', inventoryCostRoutes);
+
+// ==================== MONEY AHEAD (owners) ====================
+router.get('/cash-plan', authorize('ADMIN'), cashPlanController.getCashPlan);
+router.put('/cash-plan/settings', authorize('ADMIN'), cashPlanController.updateCashPlanSettings);
+router.post('/cash-plan/items', authorize('ADMIN'), cashPlanController.createCashPlanItem);
+router.put('/cash-plan/items/:id', authorize('ADMIN'), cashPlanController.updateCashPlanItem);
+router.delete('/cash-plan/items/:id', authorize('ADMIN'), cashPlanController.deleteCashPlanItem);
 
 // ==================== BUDGETS ====================
 

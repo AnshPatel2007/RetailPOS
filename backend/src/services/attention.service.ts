@@ -20,6 +20,8 @@ import { addDays, WEEKDAYS } from './reorderPlan';
 import { likelyMixUps } from './inventoryException.service';
 import { missedSales } from './missedSales.service';
 import { effectiveStatus } from './deliveryInvoice.service';
+import { cashPlanForAlerts } from './cashPlan.service';
+import { tightSentence } from './cashPlan';
 
 export type Severity = 'high' | 'medium' | 'low';
 export interface Finding {
@@ -39,6 +41,8 @@ type Calendar = Awaited<ReturnType<typeof getReportCalendar>>;
 export interface AttentionContext {
   locationId: string;
   now: Date;
+  /** Who is asking: a rule that only owners see can skip its work for anyone else. */
+  role: string;
   calendar: Calendar;
   /** The last complete store day. */
   yesterday: { gte: Date; lt: Date };
@@ -288,10 +292,23 @@ export const emptyShelves: AttentionRule = async ({ locationId, now, calendar })
       : `Empty shelves cost about ${about(total)} last week: ${list}.` };
 };
 
+/**
+ * Owners: a day in the coming week when the store's money looks tight
+ * (Finances > Money Ahead, services/cashPlan.ts). Never while the plan is still
+ * learning the store's weekdays.
+ */
+export const cashTight: AttentionRule = async ({ locationId, now, role }) => {
+  if (role !== 'ADMIN') return null;
+  const plan = await cashPlanForAlerts(locationId, now);
+  if (!plan.tight) return null;
+  return { key: 'cash-tight', severity: plan.tight.short ? 'high' : 'medium', href: '/financial?tab=ahead', roles: ['ADMIN'],
+    sentence: tightSentence(plan.tight, plan.today) };
+};
+
 /** Shown in this order within one severity. Later packages append their rules here. */
 export const attentionRules: AttentionRule[] = [stockExceptions, profitNotConfirmed, drawerDifferences, pricesBelowTarget, billsDueSoon,
   ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding, labelsOutOfDate, supplierOrderDueTomorrow, likelyMixUp, emptyShelves,
-  invoicesToConfirm];
+  invoicesToConfirm, cashTight];
 const rank: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
 /**
@@ -304,7 +321,7 @@ export async function collectAttention(locationId: string, now = new Date(), rol
   const calendar = await getReportCalendar({ locationId }, now);
   const yesterday = { gte: calendar.day(-1), lt: calendar.day() };
   const [yesterdayMetrics, bills] = await Promise.all([getFinancialMetrics({ locationId }, yesterday), billsDue(locationId, calendar)]);
-  const context: AttentionContext = { locationId, now, calendar, yesterday, yesterdayMetrics, bills };
+  const context: AttentionContext = { locationId, now, role, calendar, yesterday, yesterdayMetrics, bills };
   let incomplete = false;
   const found = await Promise.all(attentionRules.map((rule, order) => rule(context).then(finding => finding && { finding, order })
     .catch(error => { incomplete = true; logger.warn('Attention rule failed: ' + (error instanceof Error ? error.message : 'unknown error')); return null; })));

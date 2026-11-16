@@ -41,6 +41,20 @@ export const addDays = (date: string, days: number) => {
 };
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+/**
+ * The weekdays a supplier usually delivers: those on which deliveries arrived on at
+ * least three different days (store days, YYYY-MM-DD; usually the last eight weeks).
+ */
+export function usualDeliveryWeekdays(deliveryDays: string[]): number[] {
+  const byWeekday = new Map<number, Set<string>>();
+  for (const day of deliveryDays) {
+    const [year, month, date] = day.split('-').map(Number), weekday = new Date(Date.UTC(year, month - 1, date)).getUTCDay();
+    if (!byWeekday.has(weekday)) byWeekday.set(weekday, new Set());
+    byWeekday.get(weekday)!.add(day);
+  }
+  return [...byWeekday.entries()].filter(([, days]) => days.size >= 3).map(([weekday]) => weekday).sort((a, b) => a - b);
+}
+
 /** Days until the next delivery an order placed today can make (D1) and the one after it (D2). */
 export function deliverySchedule(today: StoreDay, deliveryDays: number[], leadTimeDays: number | null) {
   const days = [...new Set(deliveryDays.filter(day => Number.isInteger(day) && day >= 0 && day <= 6))];

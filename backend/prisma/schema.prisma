@@ -336,6 +336,8 @@ model Location {
   organization    Organization?     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   storeAccess     UserStoreAccess[]
   registerDevices RegisterDevice[]
+  cashPlanSetting CashPlanSetting?
+  cashPlanItems   CashPlanItem[]
   costingActivatedAt DateTime?
   historicalIncome HistoricalIncome[]
   operationReceipts OperationReceipt[]
@@ -1628,6 +1630,53 @@ model RecurringExpense {
   @@index([category])
   @@index([locationId])
   @@map("recurring_expenses")
+}
+
+/// Money Ahead (services/cashPlan.service.ts): the owner's own facts that records cannot
+/// know. Owner-only; kept out of the store settings every register receives.
+model CashPlanSetting {
+  locationId          String   @id
+  /// Business days until card sales reach the bank.
+  cardDepositDays     Int      @default(2)
+  cardFeePercent      Decimal  @default(0) @db.Decimal(5, 2)
+  salesTaxFrequency   String   @default("NONE") // NONE | MONTHLY | QUARTERLY
+  salesTaxDueDay      Int      @default(20)
+  /// The weekday the lottery takes its money (0 = Sunday ... 6 = Saturday); null leaves the lottery out.
+  lotterySweepWeekday Int?
+  /// Money the business had in the morning of startingMoneyDate (the store's day, YYYY-MM-DD).
+  startingMoney       Decimal? @db.Decimal(14, 2)
+  startingMoneyDate   String?
+  updatedById         String?
+  updatedAt           DateTime @updatedAt
+  location            Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@map("cash_plan_settings")
+}
+
+/// Money the owner expects that no record shows (a loan payment, an owner draw, a tax refund).
+model CashPlanItem {
+  id          String   @id @default(uuid())
+  locationId  String
+  label       String
+  direction   String // IN | OUT
+  amount      Decimal  @db.Decimal(14, 2)
+  repeat      String // ONCE | WEEKLY | MONTHLY
+  /// ONCE: the store day (YYYY-MM-DD).
+  date        String?
+  /// WEEKLY: 0 = Sunday ... 6 = Saturday.
+  weekday     Int?
+  /// MONTHLY: 1-31 (the month's last day when shorter).
+  dayOfMonth  Int?
+  /// The last store day it applies (YYYY-MM-DD).
+  endsOn      String?
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([locationId, isActive])
+  @@map("cash_plan_items")
 }
 
 model AccountingExport {

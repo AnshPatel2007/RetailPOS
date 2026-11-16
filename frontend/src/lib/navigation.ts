@@ -84,6 +84,7 @@ const pageViews: (NavLink & { within: string })[] = [
   { within: 'Finances', name: 'Expenses', href: '/financial?tab=expenses', icon: DollarSign, roles: MANAGERS, keywords: 'bills costs' },
   { within: 'Finances', name: 'Recurring expenses', href: '/financial?tab=recurring', icon: DollarSign, roles: MANAGERS, keywords: 'rent utilities monthly' },
   { within: 'Finances', name: 'Budgets', href: '/financial?tab=budgets', icon: DollarSign, roles: MANAGERS },
+  { within: 'Finances', name: 'Money ahead', href: '/financial?tab=ahead', icon: DollarSign, roles: ['ADMIN'], keywords: 'cash flow forecast bills due bank balance money coming in going out payroll deliveries' },
   { within: 'Finances', name: 'Profit & loss', href: '/financial?tab=pnl', icon: DollarSign, roles: MANAGERS, keywords: 'p&l pnl income statement' },
   { within: 'Finances', name: 'Inventory costs', href: '/financial?tab=inventory', icon: DollarSign, roles: MANAGERS, keywords: 'stock value valuation cost corrections' },
   { within: 'Finances', name: 'Balance corrections', href: '/financial/reconciliation', icon: DollarSign, roles: ['ADMIN'], keywords: 'reconciliation fix drawer gift card store credit house account balance old voids' },
