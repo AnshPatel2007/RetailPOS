@@ -7,7 +7,7 @@ import { cashAmount, cents, dollars } from './drawer.service';
 export type RefundTender = { sourcePaymentId: string; originalMethod: string; originalReference?: string; method: string; amount: number; reference?: string };
 export type RefundTenderInput = { sourcePaymentId: string; method: string; amount: number; reference?: string };
 type Money = number | Prisma.Decimal;
-type OriginalSale = { total: Money; changeDue?: Money; paymentMethod: string; customerId?: string | null;
+type OriginalSale = { total: Money; changeDue?: Money; cashRounding?: Money; paymentMethod: string; customerId?: string | null;
   payments: { id?: string; paymentMethod: string; amount: Money; reference?: string | null }[];
   refunds: { amount: Money; method?: string | null; reference?: string | null; tenders?: unknown }[] };
 export type RefundTenderOption = { sourcePaymentId: string; method: string; reference?: string; originalAmount: number; remainingAmount: number };
@@ -22,6 +22,14 @@ function sources(sale: OriginalSale): RefundTenderOption[] {
     return { sourcePaymentId: payment.id || `legacy-payment:${index}`, method: payment.paymentMethod, reference: payment.reference || undefined,
       originalAmount: dollars(amount), remainingAmount: dollars(amount) };
   }) : [{ sourcePaymentId: `legacy:${sale.paymentMethod}`, method: sale.paymentMethod, originalAmount: Number(sale.total), remainingAmount: Number(sale.total) }];
+  // Cash rounding belongs to the sale's cash: refunds are planned at the exact value (the
+  // cash it bought), and only the cash handed back is rounded again (utils/cashRounding.ts).
+  const rounding = cents(sale.cashRounding || 0);
+  if (rounding) {
+    const cash = rows.filter(row => row.method === 'CASH').sort((a, b) => cents(b.originalAmount) - cents(a.originalAmount))[0];
+    if (!cash) throw new AppError('Original payment amounts do not reconcile to this sale. Review its tender history before refunding.', 409);
+    cash.originalAmount = cash.remainingAmount = dollars(cents(cash.originalAmount) - rounding);
+  }
   if ((change > 0 && sale.payments.length > 0) || rows.some(row => row.originalAmount < 0)
     || rows.reduce((sum, row) => sum + cents(row.originalAmount), 0) !== cents(sale.total)) {
     throw new AppError('Original payment amounts do not reconcile to this sale. Review its tender history before refunding.', 409);

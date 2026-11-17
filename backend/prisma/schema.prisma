@@ -790,6 +790,8 @@ model Sale {
   paymentMethod  PaymentMethod
   amountPaid     Decimal @db.Decimal(14, 2)         @default(0)
   changeDue      Decimal @db.Decimal(14, 2)         @default(0)
+  /// Cash rounding to 5 cents on the cash that finished the sale (negative: the store took less); total stays exact.
+  cashRounding   Decimal @db.Decimal(14, 2)         @default(0)
   status         SaleStatus    @default(COMPLETED)
   notes          String?
   receiptNumber  String?
@@ -909,6 +911,8 @@ model Refund {
   notes      String?
   refundedBy String
   method     String? // CASH, CARD, GIFT_CARD, STORE_CREDIT — where the money went back to
+  /// Cash rounding of the cash paid back (payout = the cash tenders + this); amount and tenders stay exact.
+  cashRounding Decimal @db.Decimal(14, 2) @default(0)
   reference  String? // gift card code when method = GIFT_CARD
   idempotencyKey String? @unique
   requestHash    String?

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CASH_ROUNDING_MODES, CashRoundingMode } from '../utils/cashRounding';
 
 const text = (max: number) => z.string().max(max);
 export const receiptSettingsSchema = z.object({
@@ -11,8 +12,13 @@ export const notificationSettingsSchema = z.object({
   lowStockAlerts: z.boolean(), endOfDayReports: z.boolean(), emailNotifications: z.boolean(),
   notificationEmail: z.union([z.literal(''), z.string().email().max(254)]),
 }).strict();
-/** Cash handling rules for the store's drawers. */
-export const cashControlSettingsSchema = z.object({ blindClose: z.boolean() }).strict();
+/** Cash handling rules for the store's drawers; cash rounding to 5 cents is off unless the owner chooses it (utils/cashRounding.ts). */
+export const cashControlSettingsSchema = z.object({ blindClose: z.boolean(), cashRounding: z.enum(CASH_ROUNDING_MODES as [CashRoundingMode, ...CashRoundingMode[]]).optional() }).strict();
+export function cashRoundingMode(settings: unknown): CashRoundingMode {
+  const saved = settings && typeof settings === 'object' && !Array.isArray(settings) ? (settings as Record<string, unknown>).cashControl : undefined;
+  const parsed = cashControlSettingsSchema.safeParse(saved);
+  return parsed.success ? parsed.data.cashRounding ?? 'OFF' : 'OFF';
+}
 /**
  * Blind close: a cashier counts the drawer before seeing what it should hold,
  * so the count is a count and not a copy of the expected figure. On unless the
@@ -66,7 +72,7 @@ export function publicStoreSettings(value: unknown) {
     ...(payments.success ? { paymentMethods: payments.data } : {}),
     ...(notifications.success ? { notificationSettings: notifications.data } : {}),
     // Always present, so every screen applies the same default.
-    cashControl: { blindClose: blindCloseEnabled(saved) },
+    cashControl: { blindClose: blindCloseEnabled(saved), cashRounding: cashRoundingMode(saved) },
     purchasing: { costChangeAlertPercent: costChangeAlertPercent(saved) },
   };
 }

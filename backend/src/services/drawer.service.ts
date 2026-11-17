@@ -58,7 +58,8 @@ export const drawerInclude = {
     orderBy: { createdAt: 'desc' as const },
   },
   cashMovements: { orderBy: { createdAt: 'desc' as const } },
-  drawerEntries: { orderBy: { createdAt: 'asc' as const } },
+  // Each entry's cash rounding: its sale's (a sale or a void) or its refund's.
+  drawerEntries: { orderBy: { createdAt: 'asc' as const }, include: { sale: { select: { cashRounding: true } }, refund: { select: { cashRounding: true } } } },
 } satisfies Prisma.ShiftInclude;
 
 type Drawer = Prisma.ShiftGetPayload<{ include: typeof drawerInclude }>;
@@ -71,9 +72,13 @@ export function summarizeDrawer(shift: Drawer) {
     }
   }
   for (const tender of Object.values(tenderBreakdown)) tender.total = dollars(tender.total);
-  let sales = 0, refunds = 0, voids = 0, movements = 0, giftFunding = 0, housePayments = 0;
+  let sales = 0, refunds = 0, voids = 0, movements = 0, giftFunding = 0, housePayments = 0, rounding = 0;
   for (const entry of shift.drawerEntries) {
     const amount = cents(Number(entry.amount));
+    // Cash rounding through this drawer: its sales' rounding, less what its refunds and voids gave back.
+    if (entry.type === 'SALE') rounding += cents(Number(entry.sale?.cashRounding ?? 0));
+    else if (entry.type === 'REFUND') rounding -= cents(Number(entry.refund?.cashRounding ?? 0));
+    else if (entry.type === 'VOID') rounding -= cents(Number(entry.sale?.cashRounding ?? 0));
     if (entry.type === 'SALE') sales += amount;
     else if (entry.type === 'REFUND') refunds -= amount;
     else if (entry.type === 'VOID') voids -= amount;
@@ -88,7 +93,7 @@ export function summarizeDrawer(shift: Drawer) {
     totalTax: dollars(shift.sales.reduce((sum, sale) => sum + cents(Number(sale.tax)), 0)),
     totalDiscount: dollars(shift.sales.reduce((sum, sale) => sum + cents(Number(sale.discount)), 0)),
     cashSales: dollars(sales), cashRefunds: dollars(refunds), cashVoids: dollars(voids), cashMovementNet: dollars(movements),
-    cashGiftFunding: dollars(giftFunding), cashHousePayments: dollars(housePayments),
+    cashGiftFunding: dollars(giftFunding), cashHousePayments: dollars(housePayments), cashRounding: dollars(rounding),
     startingCash: shift.startingCash,
     expectedCash: shift.isClosed ? shift.expectedCash : calculatedExpected,
     calculatedExpected,

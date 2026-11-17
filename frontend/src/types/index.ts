@@ -253,6 +253,8 @@ export interface Shift {
   cashRefunds?: number;
   cashGiftFunding?: number;
   cashHousePayments?: number;
+  /** Cash rounding to 5 cents through this drawer (already inside its cash figures). */
+  cashRounding?: number;
   cashVoids?: number;
   reconciliationWarning?: string | null;
   drawerHistoryComplete?: boolean;
@@ -432,6 +434,8 @@ export interface SalesReportData {
     refundCount: number;
     voids: number;
     voidCount: number;
+    /** Cash rounding to 5 cents in the period (sales figures stay exact). */
+    cashRounding?: number;
     netSales: number | null;
     totalTransactions: number | null;
     averageOrderValue: number | null;

@@ -21,7 +21,8 @@ export interface DisplayState {
   total: number;
   promoSavings: number;
   /** While paying: card surcharge, points redeemed, and what has been paid so far. */
-  payment?: { surcharge: number; pointsDiscount: number; due: number; paid: number } | null;
+  /** cashDue: what cash pays now when it is rounded to 5 cents (absent otherwise). */
+  payment?: { surcharge: number; pointsDiscount: number; due: number; paid: number; cashDue?: number } | null;
   /** Set after checkout completes so the display can thank the customer */
   completed?: { total: number; change: number } | null;
 }

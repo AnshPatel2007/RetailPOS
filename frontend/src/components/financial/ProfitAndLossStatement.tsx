@@ -93,6 +93,7 @@ export function ProfitAndLossStatement({ report, month, onReviewCosts }: { repor
         </section>
         <dl className="statement-results">
           <StatementRow label="Other income (gaming/ATM and confirmed lottery earnings)" value={money(report.otherIncome)} />
+          {!!report.cashRounding && <StatementRow label="Cash rounding to 5 cents (cash taken minus the exact amounts)" value={money(report.cashRounding)} />}
           <StatementRow label={mark('Net Income')} value={money(report.netIncome)} final />
         </dl>
         <dl className="statement-margins">

@@ -8,7 +8,7 @@ export interface ProfitAndLossReport {
   costOfGoodsSold: number | null; grossProfit: number | null; netIncome: number | null;
   margins: { gross: number | null; net: number | null };
   operatingExpenses: { total: number; byCategory: { category: string; amount: number }[] };
-  inventoryPurchases: number; otherIncome: number;
+  inventoryPurchases: number; otherIncome: number; cashRounding?: number;
   recordedSaleCosts?: number | null; inventoryCostAdjustments?: number | null; receivedInventoryPurchases?: number;
   costCompleteness?: { complete: boolean; missingRecords: number; label: string; reviewPath: string; estimated?: boolean; estimatedAmount?: number; pendingStockProblems?: number; pendingEstimatedCost?: number };
   lotteryEarnings?: number;
@@ -47,6 +47,7 @@ export function profitAndLossCsv(report: ProfitAndLossReport, _legacyEstimated =
     ...report.operatingExpenses.byCategory.map(row => ['Operating expenses', row.category.replace(/_/g, ' '), row.amount, 'USD', 'Recorded']),
     ['Operating expenses', 'Total operating expenses (deducted)', report.operatingExpenses.total, 'USD', 'Recorded'],
     ['Other income', 'Gaming/ATM and confirmed lottery earnings', report.otherIncome, 'USD', 'Recorded'],
+    ...(report.cashRounding ? [['Other income', 'Cash rounding to 5 cents', report.cashRounding, 'USD', 'Recorded']] : []),
     ['Profit', 'Net income', amount(figures.netIncome), 'USD', basis],
     ['Margin', 'Gross margin', amount(figures.margins.gross), '%', basis],
     ['Margin', 'Net margin', amount(figures.margins.net), '%', basis],

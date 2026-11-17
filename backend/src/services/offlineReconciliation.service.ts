@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { AuthRequest } from '../types';
 import { AppError } from '../utils/errorHandler';
 import { recordOperation } from './operationReceipt.service';
-import { cents, lockDrawer, postDrawerEntry } from './drawer.service';
+import { cents, dollars, lockDrawer, postDrawerEntry } from './drawer.service';
 import { lockInventory, moveInventory } from './inventory.service';
 import { resolveSellableProducts, sellPackages } from './productSellingUnit.service';
 import { postNonstockCost } from './inventoryCost.service';
@@ -35,6 +35,8 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
     reason: z.string().trim().min(1).max(500), reference: z.string().trim().min(1).max(150), confirmed: z.literal(true),
     references: z.array(z.string().min(1).max(200)).max(20).default([]),
     receipt: z.object({ subtotal: amount, tax: amount, discount: amount, amountPaid: amount, changeDue: amount,
+      // Cash rounding the register applied (utils/cashRounding.ts): a few cents either way, none by default.
+      cashRounding: z.number().finite().min(-0.04).max(0.04).multipleOf(0.01).optional(),
       pointsEarned: z.number().int().min(0).max(1000000), items: z.array(line).min(1).max(100), ageVerified: z.boolean() }).strict().optional(),
   }).strict().parse(req.body);
   const at = new Date(input.createdAt);
@@ -72,7 +74,7 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
         gross += itemGross; discount += cents(item.discount); tax += cents(item.tax); total += cents(item.total);
       }
       if (gross !== cents(receipt.subtotal) || discount !== cents(receipt.discount) || tax !== cents(receipt.tax) || total !== cents(input.total)
-        || cents(receipt.amountPaid) - cents(receipt.changeDue) !== total || receipt.amountPaid < input.total) throw new AppError('Receipt totals, tax, discounts and cash change must reconcile exactly', 400);
+        || cents(receipt.amountPaid) - cents(receipt.changeDue) !== total + cents(receipt.cashRounding ?? 0) || cents(receipt.amountPaid) < total + cents(receipt.cashRounding ?? 0)) throw new AppError('Receipt totals, tax, discounts and cash change must reconcile exactly', 400);
       if (!input.customerId && receipt.pointsEarned) throw new AppError('Verified earned points require the original customer', 400);
       if (receipt.items.reduce((sum, item) => sum + item.pointsEarned, 0) !== receipt.pointsEarned) throw new AppError('Verified line points must equal the receipt points', 400);
       // A line may be a pack (a 12-pack); its stock is the product's base units.
@@ -121,7 +123,7 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
       const sale = await tx.sale.create({ data: { id: offlineSaleId, saleNumber: generateSaleNumber(at, store.timezone, await nextDocumentSequence(tx)), idempotencyKey: input.localId, userId: input.cashierId,
         locationId: req.user!.locationId!, shiftId: shift.id, customerId: input.customerId, createdAt: at, completedAt: at,
         pricingVersion: 1, pointsEarned: receipt.pointsEarned, pointsRedeemed: 0, loyaltyDiscount: 0, paymentMethod: 'CASH',
-        subtotal: receipt.subtotal, discount: receipt.discount, tax: receipt.tax, total: input.total, amountPaid: receipt.amountPaid, changeDue: receipt.changeDue,
+        subtotal: receipt.subtotal, discount: receipt.discount, tax: receipt.tax, total: input.total, amountPaid: receipt.amountPaid, changeDue: receipt.changeDue, cashRounding: receipt.cashRounding ?? 0,
         notes: 'Manager-booked original offline receipt: ' + input.reference,
         payments: { create: { paymentMethod: 'CASH', amount: receipt.amountPaid } },
         items: { create: receipt.items.map((item, index) => { const cost = costEntries.get(index)!; const sold = sellable.get(item.productId)!; return { ...item,
@@ -130,9 +132,11 @@ export async function reconcileOfflineCheckout(req: AuthRequest) {
           unitCost: cost.cogsAmount === null ? null : cost.cogsAmount.div(item.quantity).toDecimalPlaces(4), costAmount: cost.cogsAmount,
           costStatus: cost.costStatus, inventoryEntryId: cost.id, taxRate: null, taxTreatment: 'VERIFIED_OFFLINE_RECEIPT',
           manualDiscount: item.discount, loyaltyDiscount: 0, surcharge: 0, pointsRedeemed: 0 }; }) } } });
-      await postDrawerEntry(tx, { sourceKey: 'sale:' + sale.id, shiftId: shift.id, locationId: req.user!.locationId!, userId: input.cashierId, saleId: sale.id, type: 'SALE', amount: input.total, createdAt: at });
+      // The drawer holds the cash that changed hands: the exact total plus any cash rounding.
+      const cashKept = dollars(cents(input.total) + cents(receipt.cashRounding ?? 0));
+      await postDrawerEntry(tx, { sourceKey: 'sale:' + sale.id, shiftId: shift.id, locationId: req.user!.locationId!, userId: input.cashierId, saleId: sale.id, type: 'SALE', amount: cashKept, createdAt: at });
       await tx.shift.update({ where: { id: shift.id }, data: { totalSales: { increment: input.total }, totalTransactions: { increment: 1 },
-        ...(lockedShift.isClosed ? { expectedCash: { increment: input.total }, cashDifference: { decrement: input.total } } : {}) } });
+        ...(lockedShift.isClosed ? { expectedCash: { increment: cashKept }, cashDifference: { decrement: cashKept } } : {}) } });
       if (input.customerId) {
         const customer = await tx.customer.findUniqueOrThrow({ where: { id: input.customerId } });
         await tx.customer.update({ where: { id: input.customerId }, data: { totalSpent: { increment: input.total }, visitCount: { increment: 1 },

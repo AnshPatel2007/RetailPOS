@@ -76,6 +76,16 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   separate terminal; the POS only records the approval reference. Sales, refunds and
   voids carry idempotency keys, and lost responses retry with the same key. Offline
   sales are cash only (`services/syncService.ts`).
+- **Cash rounding to 5 cents** (off unless the owner chooses it in Settings > Taxes & Payments,
+  `cashControl.cashRounding`: OFF, NEAREST, CUSTOMER; one pure rule in `utils/cashRounding.ts`, re-exported by
+  `lib/cashRounding.ts`): only the cash that finishes a sale is rounded, never the exact cents handed over, never a
+  card or other tender. Totals, tax, lines, refund amounts and tender allocations stay exact; the difference is
+  booked as `sales.cashRounding` / `refunds.cashRounding` (a cash refund rounds its own cash part; in the customer's
+  favor, up), so the change, the drawer ledger and the payment breakdown hold the cash that changed hands. A request
+  carries the mode the register applied (`cashRoundingMode`; absent = none); online it must be the store's own
+  setting, an offline sale keeps the mode it was rung with. The metrics' `cashRounding` (sales' rounding less
+  refunds' and voided sales', each on its own day) is its own line on the Z-report, Sales report and P&L (in net
+  income), never inside sales figures.
 - **Blind drawer close** (on unless the owner turns it off in Settings > Taxes & Payments;
   `cashControl.blindClose`, `services/cashControl.service.ts`): a cashier counts the drawer
   before seeing what it should hold. While their drawer is open the server sends a

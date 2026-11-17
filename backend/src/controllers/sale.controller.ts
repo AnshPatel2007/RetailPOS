@@ -8,7 +8,8 @@ import { priceSaleItems } from '../services/salePricing.service';
 import { resolveSellableProducts, sellPackages } from '../services/productSellingUnit.service';
 import { checkoutTotals } from '../services/checkoutTotals.service';
 import { assertCheckoutTendersAvailable, assertConfiguredTenders } from '../services/tenderAvailability.service';
-import { publicStoreSettings, storeSettingsView } from '../validators/storeSettings.validator';
+import { cashRoundingMode as storeCashRounding, publicStoreSettings, storeSettingsView } from '../validators/storeSettings.validator';
+import { CashRoundingMode, saleCashRounding } from '../utils/cashRounding';
 import { z } from 'zod';
 import { requireTransactionApproval, discountApprovalHash } from '../services/managerApproval.service';
 import { Response } from 'express';
@@ -47,7 +48,7 @@ function calculateLoyaltyTier(points: number): string {
  * POST /api/sales
  */
 export const createSale = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { customerId, items, paymentMethod, amountPaid, notes, receiptEmail, payments, pointsRedeemed, idempotencyKey, ageVerification, offlineCreatedAt, offlineShiftId, expectedTotal } = req.body;
+  const { customerId, items, paymentMethod, amountPaid, notes, receiptEmail, payments, pointsRedeemed, idempotencyKey, ageVerification, offlineCreatedAt, offlineShiftId, expectedTotal, cashRoundingMode } = req.body;
 
   if (!req.user) {
     throw new AppError('User not authenticated', 401);
@@ -299,17 +300,6 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
     if (typeof expectedTotal === 'number' && Math.abs(total - expectedTotal) > 0.005) {
       throw new AppError(offlineCreatedAt ? 'Queued sale total differs from current pricing. Manager reconciliation is required; sale remains queued.' : 'Prices or tax changed. Reopen checkout to review the current total before taking payment.', 409);
     }
-    const changeDue = Math.round((amountPaid - total) * 100) / 100;
-
-    if (toCents(amountPaid) < toCents(total)) {
-      throw new AppError(
-        `Insufficient payment: received $${amountPaid.toFixed(2)} but total is $${total.toFixed(2)}${surcharge > 0 ? ` (includes $${surcharge.toFixed(2)} card surcharge)` : ''}. Short by $${(total - amountPaid).toFixed(2)}`,
-        400
-      );
-    }
-
-
-
     // Build split payment records if provided. For the single-payment fallback,
     // non-cash tenders are charged the sale total — change is never drawn from a
     // gift card or store credit balance.
@@ -328,6 +318,20 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
             reference: null,
           }];
 
+    // Cash rounding to 5 cents (utils/cashRounding.ts), as this register applied it: only the cash that
+    // finishes the sale, never the exact cents. The total stays exact; the cash due and the change move.
+    const roundingMode: CashRoundingMode = cashRoundingMode ?? 'OFF';
+    if (!offlineCreatedAt && roundingMode !== 'OFF' && roundingMode !== storeCashRounding(currentLocation.settings))
+      throw new AppError('Cash rounding was changed in Settings. Review the payment and charge again.', 409);
+    const cashRounding = dollars(saleCashRounding(toCents(total), paymentRecords.map(payment => ({ method: payment.paymentMethod, cents: toCents(payment.amount) })), roundingMode));
+    const amountDue = dollars(toCents(total) + toCents(cashRounding));
+    const changeDue = dollars(toCents(amountPaid) - toCents(amountDue));
+    if (toCents(amountPaid) < toCents(amountDue)) {
+      throw new AppError(
+        `Insufficient payment: received $${amountPaid.toFixed(2)} but ${cashRounding ? `the cash due is $${amountDue.toFixed(2)} (rounded from $${total.toFixed(2)})` : `total is $${total.toFixed(2)}`}${surcharge > 0 ? ` (includes $${surcharge.toFixed(2)} card surcharge)` : ''}. Short by $${dollars(toCents(amountDue) - toCents(amountPaid)).toFixed(2)}`,
+        400
+      );
+    }
     if (paymentRecords.some(payment => payment.amount === 0 && (total > 0 || payment.paymentMethod !== 'CASH'))) throw new AppError('Zero payment entries are only valid for a fully paid points purchase with cash settlement', 400);
     const cardReferences = paymentRecords.filter(payment => payment.paymentMethod === 'CARD' && payment.reference?.trim()).map(payment => payment.reference!.trim());
     if (new Set(cardReferences).size !== cardReferences.length) throw new AppError('A terminal approval cannot be counted twice in the same sale.', 400);
@@ -377,6 +381,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
         paymentMethod: paymentMethod as PaymentMethod,
         amountPaid,
         changeDue,
+        cashRounding,
         status: SaleStatus.COMPLETED,
         notes,
         receiptEmail,
@@ -777,7 +782,7 @@ export const getSale = asyncHandler(async (req: AuthRequest, res: Response) => {
  */
 export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { sale, refund, replayed } = await prisma.$transaction(tx => refundSaleInTransaction(req, tx));
-  res.json({ success: true, data: sale, refund: { id: refund.id, amount: refund.amount, pointsRestored: refund.pointsRestored, pointsReversed: refund.pointsReversed, taxAmount: refund.taxAmount,method:refund.method,reference:refund.reference,tenders:refund.tenders }, replayed, message: replayed ? 'Saved refund confirmed' : 'Sale refunded successfully' });
+  res.json({ success: true, data: sale, refund: { id: refund.id, amount: refund.amount, pointsRestored: refund.pointsRestored, pointsReversed: refund.pointsReversed, taxAmount: refund.taxAmount,method:refund.method,reference:refund.reference,tenders:refund.tenders, cashRounding: refund.cashRounding }, replayed, message: replayed ? 'Saved refund confirmed' : 'Sale refunded successfully' });
   // The owners hear about a large refund at once (a retry is the same refund: one alert).
   afterResponse(() => alertRefund(sale.locationId, req.user!.id, { id: refund.id, amount: Number(refund.amount), method: refund.method, saleNumber: sale.saleNumber }));
 });
@@ -895,6 +900,7 @@ export const emailReceipt = asyncHandler(async (req: AuthRequest, res: Response)
         ${Number(sale.discount) > 0 ? `<tr><td>Discount</td><td style="text-align:right;">-$${sale.discount.toFixed(2)}</td></tr>` : ''}
         ${Number(sale.surcharge) > 0 ? `<tr><td>Card Surcharge</td><td style="text-align:right;">$${sale.surcharge.toFixed(2)}</td></tr>` : ''}
         <tr class="grand-total"><td>Total</td><td style="text-align:right;">$${sale.total.toFixed(2)}</td></tr>
+        ${Number(sale.cashRounding) !== 0 ? `<tr><td>Cash rounding</td><td style="text-align:right;">${Number(sale.cashRounding) < 0 ? '-' : ''}$${Math.abs(Number(sale.cashRounding)).toFixed(2)}</td></tr>` : ''}
         <tr><td>Paid (${paymentInfo})</td><td style="text-align:right;">$${sale.amountPaid.toFixed(2)}</td></tr>
         ${Number(sale.changeDue) > 0 ? `<tr><td>Change</td><td style="text-align:right;">$${sale.changeDue.toFixed(2)}</td></tr>` : ''}
       </table>

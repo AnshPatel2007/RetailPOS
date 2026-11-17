@@ -1,6 +1,7 @@
 import { receiptFromSale } from '@/services/receiptFromSale';
 import { isSaleReference, normalizeSaleReference } from '@/lib/receiptReference';
-import { lineMoney, roundMoney, taxMoney } from '@/lib/money';
+import { lineMoney, roundMoney, taxMoney, toCents } from '@/lib/money';
+import { saleCashRounding } from '@/lib/cashRounding';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ModalOverlay, Modal as AriaModal, Dialog } from 'react-aria-components';
@@ -778,6 +779,7 @@ export const POS: React.FC = () => {
       ? Math.round(Math.min(pointsRedeemed / 100, total) * 100) / 100
       : 0;
     const amountDue = Math.round((total - pointsValue) * 100) / 100;
+    const cashRoundingMode = useStoreSettingsStore.getState().cashControl.cashRounding ?? 'OFF';
     const primaryPayment = payments.reduce((a, b) => (a.amount >= b.amount ? a : b));
     const hasCashPayment = payments.some((p) => p.paymentMethod === 'CASH');
     setIsProcessing(true);
@@ -808,6 +810,8 @@ export const POS: React.FC = () => {
         paymentMethod: primaryPayment.paymentMethod,
         amountPaid: totalPaid,
         expectedTotal: confirmedTotal,
+        // Cash rounding as this register applies it (Settings > Taxes & Payments); none is sent as none.
+        ...(cashRoundingMode !== 'OFF' ? { cashRoundingMode } : {}),
         payments: payments.map((p) => ({
           paymentMethod: p.paymentMethod,
           amount: p.amount,
@@ -883,7 +887,8 @@ export const POS: React.FC = () => {
         hardware.drawer.open();
       }
 
-      const change = Math.max(0, Math.round((totalPaid - chargedTotal) * 100) / 100);
+      // The server's change: cash rounding may move it from paid minus total.
+      const change = Math.max(0, Math.round(Number(createdSale.changeDue ?? totalPaid - chargedTotal) * 100) / 100);
 
       // Thank-you splash on the customer display
       publishDisplayState({
@@ -893,7 +898,7 @@ export const POS: React.FC = () => {
         promoSavings: 0,
         tax: 0,
         total: 0,
-        completed: { total: chargedTotal, change: Math.max(0, Math.round((totalPaid - chargedTotal) * 100) / 100) },
+        completed: { total: chargedTotal, change },
       });
 
       localStorage.removeItem('pos-checkout-attempt');
@@ -949,7 +954,9 @@ export const POS: React.FC = () => {
             snapshot: { subtotal: roundMoney(originalLines.reduce((sum, item) => sum + lineMoney(item.price, item.quantity), 0)), tax: getTax(), discount: roundMoney(originalLines.reduce((sum, item) => sum + item.discount, 0)) }, expectedTotal: amountDue });
           if (paymentSession) await finishPaymentSession(paymentSession.id, 'offline:' + attempt!.key);
           localStorage.removeItem('pos-checkout-attempt');
-          const change = Math.max(0, Math.round((totalPaid - total) * 100) / 100);
+          // The same cash rounding the server will book when this sale syncs.
+          const rounding = saleCashRounding(toCents(amountDue), payments.map(p => ({ method: p.paymentMethod, cents: toCents(p.amount) })), saleData.cashRoundingMode ?? 'OFF');
+          const change = Math.max(0, toCents(totalPaid) - toCents(amountDue) - rounding) / 100;
           setCompletedSale({ receipt: null, saleId: null, total, paid: totalPaid, change, paymentLabel: 'Cash', offline: true,
             customerName: linkedCustomer ? `${linkedCustomer.firstName} ${linkedCustomer.lastName}` : undefined });
           setScanStatus(null);

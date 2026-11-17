@@ -44,6 +44,8 @@ export const createSaleSchema = z.object({
     offlineShiftId: z.string().uuid().optional(),
     expectedShiftId: z.string().uuid().optional(),
     expectedTotal: z.number().finite().min(0).optional(),
+    // The cash rounding this register applied (utils/cashRounding.ts); absent: none.
+    cashRoundingMode: z.enum(['OFF', 'NEAREST', 'CUSTOMER']).optional(),
   }),
 });
 
@@ -70,6 +72,8 @@ export const refundSaleSchema = z.object({
       method: z.enum(['CASH', 'CARD', 'GIFT_CARD', 'STORE_CREDIT', 'HOUSE_ACCOUNT']),
       amount: z.number().finite().positive().multipleOf(0.01), reference: z.string().trim().max(150).optional(),
     }).strict()).max(20).optional(),
+    // The cash rounding the register applies to the cash paid back; absent: none.
+    cashRoundingMode: z.enum(['OFF', 'NEAREST', 'CUSTOMER']).optional(),
   }).refine(
     (data) => data.amount !== undefined || (data.items && data.items.length > 0),
     { message: 'Either a refund amount or refund items must be provided' }

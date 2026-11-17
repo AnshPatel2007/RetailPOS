@@ -281,6 +281,8 @@ export interface Receipt {
   paymentMethod: string;
   amountPaid: number;
   change: number;
+  /** Cash rounding to 5 cents (negative: the customer paid less than the total). */
+  cashRounding?: number;
   employeeName: string;
   customerName?: string;
   loyaltyPoints?: number;
@@ -459,6 +461,7 @@ class ReceiptPrinter {
     </table>
     ${receipt.savings && receipt.savings > 0 ? `<div class="center" style="margin:4px 0;font-weight:bold;">*** You saved ${formatCurrency(receipt.savings)} today! ***</div>` : ''}
     <table>
+      ${receipt.cashRounding ? `<tr><td>Cash rounding:</td><td class="right">${receipt.cashRounding < 0 ? '-' : ''}${formatCurrency(Math.abs(receipt.cashRounding))}</td></tr>` : ''}
       <tr><td>Paid (${esc(receipt.paymentMethod)}):</td><td class="right">${formatCurrency(receipt.amountPaid)}</td></tr>
       ${receipt.change > 0 ? `<tr><td>Change:</td><td class="right">${formatCurrency(receipt.change)}</td></tr>` : ''}
     </table>

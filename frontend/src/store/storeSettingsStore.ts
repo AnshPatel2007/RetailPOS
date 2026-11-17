@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { locationService } from '@/services/api';
 import { hardware } from '@/services/hardware';
+import type { CashRoundingMode } from '@/lib/cashRounding';
 
 export interface StoreInfo {
   taxRate?: number;
@@ -33,9 +34,10 @@ export interface NotificationSettings {
   notificationEmail: string;
 }
 
-/** Cash handling rules. Blind close: cashiers count the drawer before seeing the expected amount. */
+/** Cash handling rules. Blind close: cashiers count the drawer before seeing the expected amount. Cash rounding: lib/cashRounding. */
 export interface CashControlSettings {
   blindClose: boolean;
+  cashRounding?: CashRoundingMode;
 }
 
 /** Purchasing checks: a delivery cost rise of at least this percent is flagged. */
@@ -107,7 +109,7 @@ const defaultNotificationSettings: NotificationSettings = {
 
 let generation = 0;
 let pending: { locationId: string; promise: Promise<void> } | null = null;
-const defaultCashControl: CashControlSettings = { blindClose: true };
+const defaultCashControl: CashControlSettings = { blindClose: true, cashRounding: 'OFF' };
 const defaultPurchasing: PurchasingSettings = { costChangeAlertPercent: 3 };
 const defaults = () => ({ timezone: null as string | null, cashControl: defaultCashControl, purchasing: defaultPurchasing, storeInfo: defaultStoreInfo, receiptSettings: defaultReceiptSettings, paymentMethods: defaultPaymentMethods, notificationSettings: defaultNotificationSettings });
 

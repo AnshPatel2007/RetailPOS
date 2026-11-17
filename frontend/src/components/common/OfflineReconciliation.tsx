@@ -50,7 +50,8 @@ export function OfflineReconciliation({ cash, terminal }: { cash: PendingSale[];
       references: choice.kind === 'TERMINAL' ? (record as TerminalCheckout).references : [],
       ...(disposition === 'BOOK_CASH' ? { receipt: { subtotal: roundMoney(verified.reduce((sum, item) => sum + lineMoney(item.price, item.quantity), 0)),
         tax: roundMoney(verified.reduce((sum, item) => sum + item.tax, 0)), discount: roundMoney(verified.reduce((sum, item) => sum + item.discount, 0)), amountPaid: queued.amountPaid,
-        changeDue: queued.changeDue, pointsEarned: verified.reduce((sum, item) => sum + item.pointsEarned, 0), ageVerified, items: verified } } : {}),
+        changeDue: queued.changeDue, ...(queued.cashRounding ? { cashRounding: queued.cashRounding } : {}),
+        pointsEarned: verified.reduce((sum, item) => sum + item.pointsEarned, 0), ageVerified, items: verified } } : {}),
     } });
   };
   return <section className="space-y-3 border-t pt-4">

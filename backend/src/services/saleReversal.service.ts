@@ -11,6 +11,8 @@ import { z } from 'zod';
 import { assertReversalTendersAvailable } from './tenderAvailability.service';
 import { queueWebhook } from './webhook.service';
 import { planRefundTenders, creditRefundTenders } from './refundTenders.service';
+import { CashRoundingMode, isCashRoundingMode, refundCashRounding } from '../utils/cashRounding';
+import { cashRoundingMode as storeCashRounding } from '../validators/storeSettings.validator';
 import { effectiveEntry, portion, postNonstockCost, decimal } from './inventoryCost.service';
 import { restoreSealedPackages } from './productSellingUnit.service';
 
@@ -22,6 +24,15 @@ const tierForPoints = (points: number) => points >= businessConfig.customer.loya
 export const lockSale = async (tx: Prisma.TransactionClient, id: string) => {
   await tx.$queryRaw`SELECT id FROM sales WHERE id = ${id} FOR UPDATE`;
 };
+
+/** The cash rounding a refund request applies: none unless the register declares the store's own setting. */
+async function refundRounding(tx: Prisma.TransactionClient, locationId: string | null, declared: unknown): Promise<CashRoundingMode> {
+  if (declared === undefined || declared === 'OFF') return 'OFF';
+  if (!isCashRoundingMode(declared)) throw new AppError('Choose a valid cash rounding.', 400);
+  const store = locationId ? await tx.location.findUnique({ where: { id: locationId }, select: { settings: true } }) : null;
+  if (declared !== storeCashRounding(store?.settings)) throw new AppError('Cash rounding was changed in Settings. Review the refund and pay again.', 409);
+  return declared;
+}
 
 export const refundSaleInTransaction = async (req: AuthRequest, tx: Prisma.TransactionClient) => {
   const { id } = req.params;
@@ -141,7 +152,10 @@ export const refundSaleInTransaction = async (req: AuthRequest, tx: Prisma.Trans
     );
   }
   const tenders = planRefundTenders(sale, refundAmount, req.body);
-  const cashRefund = dollars(tenders.filter(part => part.method === 'CASH').reduce((sum, part) => sum + cents(part.amount), 0));
+  // The amount and tenders stay exact; the cash handed back is rounded as the register applies it.
+  const cashValue = tenders.filter(part => part.method === 'CASH').reduce((sum, part) => sum + cents(part.amount), 0);
+  const cashRounding = dollars(refundCashRounding(cashValue, await refundRounding(tx, sale.locationId, req.body.cashRoundingMode)));
+  const cashRefund = dollars(cashValue + cents(cashRounding));
   const refundMethod = [...new Set(tenders.map(part => part.method))].length > 1 ? 'SPLIT' : tenders[0]?.method || 'NONE';
   const reference = tenders.length === 1 ? tenders[0].reference : undefined;
   if (cashRefund > 0 && !payingShift) throw new AppError('Clock in before issuing a cash refund. The payout must belong to your current drawer.', 400);
@@ -163,6 +177,7 @@ export const refundSaleInTransaction = async (req: AuthRequest, tx: Prisma.Trans
       pointsRestored, pointsReversed,
       taxAmount: sale.pricingVersion ? dollars(refundLines.reduce((n, line) => n + cents(line.taxAmount || 0), 0)) : null,
       amount: refundAmount,
+      cashRounding,
       tenders: tenders as Prisma.InputJsonValue,
       reason,
       notes,

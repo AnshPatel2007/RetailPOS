@@ -145,6 +145,12 @@ const prisma = new PrismaClient({ datasources: { db: { url: target.toString() } 
   await prisma.user.create({ data: { email: 'pulse-manager@example.test', password, firstName: 'Paula', lastName: 'Manager', role: 'MANAGER', locationId: pulseStore.id } });
   await prisma.storeAlert.create({ data: { locationId: pulseStore.id, key: 'pulse:not-open:fixture', kind: 'PULSE_NOT_OPEN', severity: 'high', audience: 'LEADS',
     sentence: 'Nobody had clocked in by 6:25 AM. On Mondays the store usually opens by 6:00 AM.', href: '/team-time/shifts' } });
+  // Cash rounding spec: rounding@example.test owns a store no other spec uses (the spec turns
+  // rounding on there), with an open drawer and a $12.42 item without tax.
+  const roundingStore = await prisma.location.create({ data: { name: 'Rounding Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'rounding-store@example.test', timezone: 'America/Chicago' } });
+  const roundingOwner = await prisma.user.create({ data: { email: 'rounding@example.test', password, firstName: 'Rounding', lastName: 'Owner', role: 'ADMIN', locationId: roundingStore.id } });
+  await prisma.shift.create({ data: { userId: roundingOwner.id, locationId: roundingStore.id, clockInAt: new Date(), startingCash: 100 } });
+  await prisma.product.create({ data: { name: 'Penny Candy Jar', sku: 'PENNY-JAR', price: 12.42, cost: 5, stockQuantity: 20, isTaxable: false, locationId: roundingStore.id } });
   const digestOwner = await prisma.user.findUniqueOrThrow({ where: { email: 'owner@example.test' } });
   await prisma.emailDelivery.create({ data: { locationId: stores[0].id, recipientId: digestOwner.id, recipientEmail: digestOwner.email, idempotencyKey: 'digest-review-fixture', subject: 'Fixture uncertain daily digest', html: '<p>Fixture totals</p>', status: 'REVIEW', errorCode: 'DELIVERY_UNKNOWN', attempts: 1 } });
   await prisma.activityLog.createMany({ data: [

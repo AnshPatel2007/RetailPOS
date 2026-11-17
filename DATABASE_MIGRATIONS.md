@@ -147,6 +147,12 @@ replace them. Integration tests exercise them.
 
 ## Recent changes
 
+- **`20261116030000_cash_rounding` (2026-11-16).** Cash rounding to 5 cents, additive: `sales.cashRounding` and
+  `refunds.cashRounding`, `DECIMAL(14,2) NOT NULL DEFAULT 0` (existing rows read 0; nothing is rewritten). Unlike the
+  two before it, this one adds columns to tables every request reads: **apply it before starting an API on this
+  version**, or sales, refunds and reports fail until it is applied. Apply `20261116010000_store_alerts`,
+  `20261116020000_store_pulse` and this one together, after the usual backup.
+
 - **`20261116020000_store_pulse` (2026-11-16).** Store Pulse, purely additive; apply after
   `20261116010000_store_alerts`. New table `register_heartbeats` (when each computer set up as a
   register was last heard from and the session signed in on it; deleted with the register) and six

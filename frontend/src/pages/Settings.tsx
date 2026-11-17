@@ -1,5 +1,6 @@
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Select } from '@/components/ui/Select';
+import type { CashRoundingMode } from '@/lib/cashRounding';
 import { useLegacyPageRefresh } from '@/hooks/useLegacyPageRefresh';
 import { PageTabs } from '@/components/common/PageTabs';
 import { Alert } from '@/components/ui/Alert';
@@ -347,7 +348,14 @@ export const Settings: React.FC = () => {
             <Checkbox label="Cashiers count the drawer before seeing the expected amount"
               description="A cashier closing their drawer enters what they counted first; the expected amount and any difference show afterwards. Managers and owners always see the expected amount."
               checked={cashControl.blindClose} disabled={!canFinance}
-              onChange={(e) => { dirty.current.cash = true; setCashControl({ blindClose: e.target.checked }); }} />
+              onChange={(e) => { dirty.current.cash = true; setCashControl({ ...cashControl, blindClose: e.target.checked }); }} />
+            <Select label="Cash rounding to 5 cents" value={cashControl.cashRounding ?? 'OFF'} disabled={!canFinance}
+              description="Only cash that finishes a sale is rounded, and the exact cents are always accepted; cards and other payments are charged exactly. Sales figures stay exact and the rounding shows on its own line. Check your state's rules first."
+              onChange={(e) => { dirty.current.cash = true; setCashControl({ ...cashControl, cashRounding: e.target.value as CashRoundingMode }); }}>
+              <option value="OFF">Off: charge the exact cents</option>
+              <option value="NEAREST">To the nearest 5 cents (1 or 2 cents down, 3 or 4 up)</option>
+              <option value="CUSTOMER">Always in the customer's favor (sales down, refunds up)</option>
+            </Select>
             <Button variant="primary" className="settings-save" onClick={saveCashControl} disabled={!editable || !canFinance}>Save Changes</Button>
           </CardContent>
         </Card>

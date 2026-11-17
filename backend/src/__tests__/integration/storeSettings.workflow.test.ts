@@ -64,7 +64,7 @@ describe('Store settings ownership, validation and concurrent updates', () => {
     expect(result.body.data.activeShifts).toEqual([expect.objectContaining({ id: own.id })]);
     for (const key of ['users', 'recentSales', 'totalRevenue', '_count']) expect(result.body.data).not.toHaveProperty(key);
     // Supported settings only; the cash-control and purchasing rules are always stated so every screen uses one default.
-    expect(result.body.data.settings).toEqual({ receiptSettings: receipt, cashControl: { blindClose: true }, purchasing: { costChangeAlertPercent: 3 } });
+    expect(result.body.data.settings).toEqual({ receiptSettings: receipt, cashControl: { blindClose: true, cashRounding: 'OFF' }, purchasing: { costChangeAlertPercent: 3 } });
     expect(JSON.stringify(result.body)).not.toContain('privateToken');
   });
 

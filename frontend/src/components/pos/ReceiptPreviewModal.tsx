@@ -148,6 +148,12 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
               </div>
             )}
             <div className="border-t border-gray-800 my-1" />
+            {!!receipt.cashRounding && (
+              <div className="flex justify-between">
+                <span>Cash rounding</span>
+                <span>{receipt.cashRounding < 0 ? '-' : ''}{formatCurrency(Math.abs(receipt.cashRounding))}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span>Paid ({formatEnumLabel(receipt.paymentMethod)})</span>
               <span>{formatCurrency(receipt.amountPaid)}</span>

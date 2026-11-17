@@ -207,6 +207,8 @@ function syncFixture() {
     './sessionGeneration': { sessionGeneration: () => 0 },
     './storeContextGeneration': { storeContextGeneration: () => 0 },
     './connection': { isOffline: () => true, subscribeConnection: () => () => {} },
+    '@/lib/money': load('../../backend/src/utils/moneyNumbers.ts'),
+    '@/lib/cashRounding': load('../../backend/src/utils/cashRounding.ts'),
   }, { navigator: { onLine: false }, window: { addEventListener() {}, setInterval() {}, clearInterval() {} } });
   return { syncService, pending, submitted, setUser: value => { user = value; }, setRequestError: value => { requestError = value; }, failures: () => failures };
 }
@@ -215,6 +217,24 @@ const cashCheckout = () => ({
   userId: 'cashier-a', locationId: 'store-a', shiftId: 'original-shift', createdAt: 1000, expectedTotal: 11,
   snapshot: { subtotal: 10, tax: 1, discount: 0 },
   payload: { idempotencyKey: 'original-key', items: [{ productId: 'product', quantity: 1, price: 10, priceOverride: true }], paymentMethod: 'CASH', payments: [{ paymentMethod: 'CASH', amount: 20 }], amountPaid: 20, ageVerification: { method: 'MANUAL_DOB', birthDate: '1980-01-01' } },
+});
+
+test("an offline cash sale keeps the cash rounding the register applied, for its change and a manager's booking", async () => {
+  const fixture = syncFixture();
+  const rounded = cashCheckout();
+  rounded.expectedTotal = 12.42;
+  rounded.payload = { ...rounded.payload, cashRoundingMode: 'NEAREST' };
+  await fixture.syncService.queueCheckout(rounded);
+  assert.equal(fixture.pending[0].cashRounding, -0.02);
+  assert.equal(fixture.pending[0].changeDue, 7.6);
+  // The server books the same rounding when the sale syncs.
+  assert.equal(fixture.pending[0].payload.cashRoundingMode, 'NEAREST');
+  // A register with rounding off keeps the exact change.
+  const exact = syncFixture(), plain = cashCheckout();
+  plain.expectedTotal = 12.42;
+  await exact.syncService.queueCheckout(plain);
+  assert.equal(exact.pending[0].cashRounding, 0);
+  assert.equal(exact.pending[0].changeDue, 7.58);
 });
 
 test('a session change during offline replay retains the sale and its retry budget', async () => {

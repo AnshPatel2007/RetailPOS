@@ -71,6 +71,8 @@ export interface PendingSale {
   paymentMethod: string;
   amountPaid: number;
   changeDue: number;
+  /** Cash rounding the register applied (lib/cashRounding); absent on older records. */
+  cashRounding?: number;
   notes?: string;
   createdAt: number;
   synced: boolean;

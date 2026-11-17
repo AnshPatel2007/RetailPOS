@@ -6,6 +6,9 @@ import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { saleService } from '@/services/api';
 import { formatCurrency, formatDateTime, formatEnumLabel } from '@/lib/utils';
+import { toCents } from '@/lib/money';
+import { refundCashRounding } from '@/lib/cashRounding';
+import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { Search, AlertTriangle, RotateCcw, Minus, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
@@ -97,6 +100,8 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
   const [refundAmount, setRefundAmount] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [mode, setMode] = useState<RefundMode>('items');
+  // Cash rounding to 5 cents (Settings > Taxes & Payments): the cash handed back is rounded on its own.
+  const cashRoundingMode = useStoreSettingsStore(state => state.cashControl.cashRounding) ?? 'OFF';
   const [refundQtys, setRefundQtys] = useState<Record<string, number>>({});
   const [restock, setRestock] = useState(true);
   // Pack lines whose packs came back opened (default: returned unopened).
@@ -149,7 +154,9 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
       if (!current()) return;
       setPending(readPending()); invalidateScopedQueries();
       const savedRefund = result.data.refund || result.data.data?.refund;
-      toast.success(`Return recorded: ${formatCurrency(operation.amount)}${savedRefund?.pointsRestored != null ? `, ${savedRefund.pointsRestored} points restored` : ''}. Pay the customer only once.`);
+      const cashBack = toCents(Number(savedRefund?.cashRounding || 0)) + (Array.isArray(savedRefund?.tenders) ? savedRefund.tenders : [])
+        .filter((part: { method: string }) => part.method === 'CASH').reduce((sum: number, part: { amount: number }) => sum + toCents(part.amount), 0);
+      toast.success(`Return recorded: ${formatCurrency(operation.amount)}${savedRefund?.pointsRestored != null ? `, ${savedRefund.pointsRestored} points restored` : ''}.${Number(savedRefund?.cashRounding) ? ` Give back ${formatCurrency(cashBack / 100)} in cash.` : ''} Pay the customer only once.`);
       onRefundComplete?.(); handleReset(); onClose();
     } catch (error: any) {
       if (!current()) return;
@@ -279,7 +286,10 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
 
     if (sale.refundTenderError || tenderSelection.invalid) { toast.error(sale.refundTenderError || 'Review original-tender amounts and terminal references'); return; }
     const methodLabel = tenderSelection.tenders.map(part => formatEnumLabel(part.method)).join(' and ') || 'no monetary payout';
-    if (!(await confirm({ title: `Refund ${formatCurrency(effectiveAmount)}?`, message: `Paid back to ${methodLabel.toLowerCase()} for sale #${sale.saleNumber}.`, confirmLabel: 'Refund', cancelLabel: 'Go back' }))) {
+    const cashCents = tenderSelection.tenders.filter(part => part.method === 'CASH').reduce((sum, part) => sum + toCents(part.amount), 0);
+    const rounding = refundCashRounding(cashCents, cashRoundingMode);
+    const cashNote = rounding ? ` Give back ${formatCurrency((cashCents + rounding) / 100)} in cash (rounded from ${formatCurrency(cashCents / 100)}).` : '';
+    if (!(await confirm({ title: `Refund ${formatCurrency(effectiveAmount)}?`, message: `Paid back to ${methodLabel.toLowerCase()} for sale #${sale.saleNumber}.${cashNote}`, confirmLabel: 'Refund', cancelLabel: 'Go back' }))) {
       return;
     }
 
@@ -288,6 +298,7 @@ export const QuickRefundModal: React.FC<QuickRefundModalProps> = ({
         reason: refundReason || 'Refund from POS',
         refundTenders: tenderSelection.tenders,
         idempotencyKey: crypto.randomUUID(),
+        ...(cashCents > 0 && cashRoundingMode !== 'OFF' ? { cashRoundingMode } : {}),
       };
       if (mode === 'items') {
         payload.items = Object.entries(refundQtys)

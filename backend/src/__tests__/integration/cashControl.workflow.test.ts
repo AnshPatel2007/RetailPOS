@@ -29,7 +29,7 @@ describe('blind drawer close', () => {
 
   it('is on by default and shows a cashier their shift without any figure for what the drawer should hold', async () => {
     const settings = await api.get('/api/locations/my-settings').withAuth(cashier).expectSuccess();
-    expect(settings.body.data.settings.cashControl).toEqual({ blindClose: true });
+    expect(settings.body.data.settings.cashControl).toEqual({ blindClose: true, cashRounding: 'OFF' });
     await cashSale(cashier);
     const shift = await current(cashier);
     expect(shift).toMatchObject({ blindClose: true, startingCash: 100, totalSales: 11, totalTransactions: 1, isClosed: false });
@@ -78,7 +78,7 @@ describe('blind drawer close', () => {
     await api.put('/api/locations/my-settings').withAuth(owner).withBody({ cashControl: { blindClose: 'no' } }).expectError(400);
 
     const saved = await api.put('/api/locations/my-settings').withAuth(owner).withBody({ cashControl: { blindClose: false } }).expectSuccess();
-    expect(saved.body.data.settings.cashControl).toEqual({ blindClose: false });
+    expect(saved.body.data.settings.cashControl).toEqual({ blindClose: false, cashRounding: 'OFF' });
     await cashSale(cashier);
     const shift = await current(cashier);
     expect(shift.blindClose).toBeUndefined();

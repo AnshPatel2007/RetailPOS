@@ -31,6 +31,7 @@ import { useCheckoutQuote } from '@/hooks/useCheckoutQuote';
 import type { CheckoutItem } from '@/types/checkout';
 import { amountToComplete, paymentTotal, type CheckoutPayment as Payment, type CheckoutPaymentMethod as PaymentMethod, type PaymentSession } from '@/services/paymentSession';
 import { toCents } from '@/lib/money';
+import { roundedCashDue, saleCashRounding } from '@/lib/cashRounding';
 import { Spinner } from '@/components/ui/LoadingState';
 import { useConfirm } from '@/components/ui/useConfirm';
 
@@ -223,21 +224,30 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   const quoteReady = quote.online ? !!quote.data : offlineCashOnly;
   const getTotalPaid = () => paymentTotal(payments);
   const getRemainingBalance = () => Math.max(0, toCents(dueTotal) - toCents(getTotalPaid())) / 100;
-  const getChange = () => Math.max(0, toCents(getTotalPaid()) + (paymentMethod === 'CASH' && Number.isFinite(enteredAmount) ? toCents(enteredAmount) : 0) - toCents(dueTotal)) / 100;
+  // Cash rounding to 5 cents (Settings > Taxes & Payments): only the cash that finishes the sale, never the exact cents.
+  const roundingMode = useStoreSettingsStore(state => state.cashControl.cashRounding) ?? 'OFF';
+  const owedBy = (tenders: Payment[]) => (toCents(dueTotal) + saleCashRounding(toCents(dueTotal), tenders.map(tender => ({ method: tender.paymentMethod, cents: toCents(tender.amount) })), roundingMode)) / 100;
+  const coveredBy = (tenders: Payment[]) => tenders.length > 0 && toCents(paymentTotal(tenders)) >= toCents(owedBy(tenders));
+  const enteredCash: Payment[] = paymentMethod === 'CASH' && Number.isFinite(enteredAmount) && enteredAmount > 0 ? [{ paymentMethod: 'CASH', amount: enteredAmount }] : [];
+  const getChange = () => Math.max(0, toCents(paymentTotal([...payments, ...enteredCash])) - toCents(owedBy([...payments, ...enteredCash]))) / 100;
   const exactAmount = amountToComplete(effectiveTotal, rate, payments, paymentMethod);
+  /** What cash would pay now: the rest, rounded when cash finishes the sale. */
+  const cashDue = paymentMethod === 'CASH' ? roundedCashDue(toCents(exactAmount), roundingMode) : null;
+  const suggestedAmount = cashDue ? cashDue.cents / 100 : exactAmount;
+  const roundedFrom = cashDue && cashDue.rounding !== 0 ? exactAmount : null;
   // The customer display shows the amount actually being charged while paying.
   const shownSurcharge = session?.status === 'SUBMITTED' ? 0 : getSurcharge();
   const shownPoints = getPointsDiscount();
   const paidSoFar = getTotalPaid();
   useEffect(() => {
     if (!isOpen) { publishDisplayPayment(null); return; }
-    publishDisplayPayment({ surcharge: shownSurcharge, pointsDiscount: shownPoints, due: dueTotal, paid: paidSoFar });
-  }, [isOpen, shownSurcharge, shownPoints, dueTotal, paidSoFar]);
+    publishDisplayPayment({ surcharge: shownSurcharge, pointsDiscount: shownPoints, due: dueTotal, paid: paidSoFar, ...(roundedFrom !== null ? { cashDue: suggestedAmount } : {}) });
+  }, [isOpen, shownSurcharge, shownPoints, dueTotal, paidSoFar, roundedFrom, suggestedAmount]);
   const locked = payments.length > 0;
 
   useEffect(() => {
-    if (isOpen && !amountEdited.current) setAmountInput(exactAmount.toFixed(2));
-  }, [exactAmount, isOpen, paymentMethod, step]);
+    if (isOpen && !amountEdited.current) setAmountInput(suggestedAmount.toFixed(2));
+  }, [suggestedAmount, isOpen, paymentMethod, step]);
   const handleQuickAmount = (amount: number) => { amountEdited.current = true; setAmountInput(amount.toFixed(2)); };
   const getTenderError = (method: PaymentMethod, reference?: string): string | null => {
     if (method === 'CARD' && !reference?.trim()) return 'Enter the approval reference from your separate terminal';
@@ -275,7 +285,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
     }
     if (!quoteReady) return;
     const redeemed = quote.data?.redeemedPoints ?? 0;
-    const alreadyCovered = payments.length > 0 && getRemainingBalance() === 0;
+    const alreadyCovered = coveredBy(payments);
     const amount = dueTotal === 0 ? 0 : enteredAmount;
     if (!alreadyCovered && (!Number.isFinite(amount) || amount < 0 || (amount === 0 && dueTotal > 0))) return;
     const error = alreadyCovered || dueTotal === 0 ? null : getTenderError(paymentMethod, referenceInput) || getEbtError(amount);
@@ -289,7 +299,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
       const saved = await onSavePayments(next, redeemed, dueTotal, { at: Date.now(), action: alreadyCovered ? 'REVIEWED' : 'ADDED', payment: alreadyCovered ? undefined : payment }, draftRevision);
       setDraftRevision(saved.revision); setUnsavedPayment(false);
       setPayments(next); setReferenceInput(''); setAmountInput(''); amountEdited.current = false;
-      if (toCents(paymentTotal(next)) >= toCents(dueTotal)) {
+      if (coveredBy(next)) {
         const reviewed = await onComplete(next, paymentTotal(next), redeemed || undefined, dueTotal, saved);
         if (reviewed) { setPayments(reviewed.payments); setDraftRevision(reviewed.revision); }
       }
@@ -322,7 +332,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
 
   const paymentMethods = allPaymentMethods.filter((m) => m.enabled);
 
-  const covered = payments.length > 0 && getRemainingBalance() === 0;
+  const covered = coveredBy(payments);
   const canSubmit = session?.status === 'SUBMITTED' || quoteReady && (covered || dueTotal === 0 ||
     Number.isFinite(enteredAmount) && enteredAmount > 0 && payments.length < 20 &&
     !getTenderError(paymentMethod, referenceInput) && !getEbtError(enteredAmount) &&
@@ -340,10 +350,11 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
   return (<>
     <Modal isOpen={isOpen} onClose={requestClose} title={step === 'customer' ? 'Link Customer' : 'Payment'} size="lg" className="pos-payment-dialog" footer={step === 'payment' ? (
       <div className="space-y-3" data-payment-busy={saving || isProcessing ? 'true' : undefined}>
-        <div role="status" aria-label="Payment balance" aria-live="polite" className={getRemainingBalance() > 0 ? (payments.length ? 'text-warning font-semibold' : 'text-muted-foreground font-medium') : 'text-success font-semibold'}>
-          {session?.status === 'SUBMITTED' ? 'Payment received — sale confirmation pending' : chargeQueued ? 'Checking total… charging as soon as it is confirmed' : getRemainingBalance() > 0
+        <div role="status" aria-label="Payment balance" aria-live="polite" className={!covered && getRemainingBalance() > 0 ? (payments.length ? 'text-warning font-semibold' : 'text-muted-foreground font-medium') : 'text-success font-semibold'}>
+          {session?.status === 'SUBMITTED' ? 'Payment received — sale confirmation pending' : chargeQueued ? 'Checking total… charging as soon as it is confirmed' : !covered && getRemainingBalance() > 0
             // Nothing taken yet is the normal start, not a warning.
-            ? (payments.length ? 'Payment incomplete · ' : '') + formatCurrency(getRemainingBalance()) + ' still due' + (!payments.length && paymentMethod === 'CASH' ? ' · press Enter to charge' : '')
+            ? (payments.length ? 'Payment incomplete · ' : '') + formatCurrency(roundedFrom !== null ? suggestedAmount : getRemainingBalance()) + ' still due'
+              + (roundedFrom !== null ? ' in cash (rounded from ' + formatCurrency(roundedFrom) + ')' : '') + (!payments.length && paymentMethod === 'CASH' ? ' · press Enter to charge' : '')
             : 'Balance covered — confirming sale'}
         </div>
         {getChange() > 0 && <p className="font-semibold">Change: {formatCurrency(getChange())}</p>}
@@ -599,7 +610,9 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
             <div className="grid grid-cols-3 gap-2" aria-label="Payment totals">
               <Card className="p-3"><p className="text-xs text-muted-foreground">Total</p><p className="text-lg font-bold tabular-nums">{formatCurrency(dueTotal)}</p></Card>
               <Card className="p-3"><p className="text-xs text-muted-foreground">Recorded</p><p className="text-lg font-bold tabular-nums">{formatCurrency(getTotalPaid())}</p></Card>
-              <Card className="payment-remaining p-3 border-primary bg-primary/5"><p className="text-xs text-muted-foreground">Remaining</p><p className="text-lg font-bold tabular-nums">{formatCurrency(getRemainingBalance())}</p></Card>
+              <Card className="payment-remaining p-3 border-primary bg-primary/5"><p className="text-xs text-muted-foreground">{roundedFrom !== null ? 'Remaining in cash' : 'Remaining'}</p>
+                <p className="text-lg font-bold tabular-nums">{formatCurrency(covered ? 0 : roundedFrom !== null ? suggestedAmount : getRemainingBalance())}</p>
+                {roundedFrom !== null && !covered && <p className="text-xs text-muted-foreground">Rounded from {formatCurrency(roundedFrom)}</p>}</Card>
             </div>
             {payments.length > 0 && <div className="space-y-2" aria-label="Recorded payments">
               {payments.map((payment, index) => <div key={index} className="flex items-center justify-between gap-2 rounded border p-2">
@@ -686,7 +699,7 @@ export const EnhancedPaymentModal: React.FC<EnhancedPaymentModalProps> = ({
                 )}
 
                 <div className="flex gap-2 flex-wrap">
-                  {paymentMethod === 'CASH' ? getCashSuggestions(exactAmount).map((amount, index) => (
+                  {paymentMethod === 'CASH' ? getCashSuggestions(suggestedAmount).map((amount, index) => (
                     <Button key={amount} variant="outline" onClick={() => handleQuickAmount(amount)} className="flex-1 min-w-[64px] h-10 tabular-nums">{index === 0 ? 'Exact' : formatCurrency(amount)}</Button>
                   )) : <Button variant="outline" onClick={() => handleQuickAmount(exactAmount)}>Remaining ({formatCurrency(exactAmount)})</Button>}
                 </div>

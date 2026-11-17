@@ -599,7 +599,7 @@ export const getProfitAndLoss = asyncHandler(async (req: AuthRequest, res: Respo
     costCompleteness: metrics.costCompleteness, receivedInventoryPurchases: metrics.receivedInventoryPurchases,
     operatingExpenses: { total: metrics.expenses, byCategory: expensesByCategory.filter(e => !isInventoryPurchase(e.category)).map(e => ({ category: e.category, amount: rc(Number(e._sum.amount || 0)) })) },
     inventoryPurchases: metrics.inventoryPurchases, recordedExpenses: metrics.recordedExpenses,
-    otherIncome: metrics.otherIncome, lotteryEarnings: metrics.lotteryEarnings, earningsCompleteness: metrics.earningsCompleteness,
+    otherIncome: metrics.otherIncome, lotteryEarnings: metrics.lotteryEarnings, earningsCompleteness: metrics.earningsCompleteness, cashRounding: metrics.cashRounding,
     netIncome: metrics.netProfit, margins: { gross: metrics.grossMargin, net: metrics.netProfit !== null && metrics.netSales ? rc(metrics.netProfit / metrics.netSales * 100) : null },
     costBasis: metrics.costBasis, unavailableReason: metrics.unavailableReason, provisionalReason: metrics.provisionalReason, historyWarning: metrics.historyWarning,
     estimate: null, defaultCostView: 'recorded',

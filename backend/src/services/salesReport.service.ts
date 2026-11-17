@@ -138,7 +138,7 @@ export async function getSalesReportData(req: AuthRequest, options: { forExport?
   return { sales, refunds, voids: voids.map(event => ({ ...event, amount: Number(event.amount), taxAmount: Number(event.taxAmount) })), employees, entries, entriesPartial, pagination, period, paymentBreakdown, employeeBreakdown, dailyBreakdown,
     historyWarning: metrics.historyWarning,
     summary: { totalSales: metrics.netCollected, grossCollected: metrics.grossCollected, refunds: metrics.refunds, refundCount: metrics.refundCount,
-      voids: metrics.voids, voidCount: metrics.voidCount,
+      voids: metrics.voids, voidCount: metrics.voidCount, cashRounding: metrics.cashRounding,
       historicalSummaries: metrics.historicalSummaries, totalTransactions: metrics.transactions, averageOrderValue: metrics.transactions === null ? null : metrics.transactions ? round(metrics.grossCollected / metrics.transactions) : 0,
       totalTax: metrics.netTax, netSales: metrics.netSales, totalDiscount: metrics.discounts },
   };

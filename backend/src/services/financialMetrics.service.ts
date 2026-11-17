@@ -56,7 +56,7 @@ export const saleScope = (scope: Scope) => Prisma.sql`
 export async function getFinancialMetrics(scope: Scope, range?: MetricRange, db: QueryClient = prisma) {
   const [row] = await db.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
     WITH sold AS (
-      SELECT s.id, s."locationId", s."createdAt", s."sourceType", s.total::numeric, s.tax::numeric, s.discount::numeric
+      SELECT s.id, s."locationId", s."createdAt", s."sourceType", s.total::numeric, s.tax::numeric, s.discount::numeric, s."cashRounding"::numeric
       FROM sales s WHERE ${recordedSaleSql} AND ${saleScope(scope)}
         AND ${dateCondition(Prisma.sql`s."createdAt"`, range)}
     ), sold_lines AS MATERIALIZED (
@@ -74,7 +74,7 @@ export async function getFinancialMetrics(scope: Scope, range?: MetricRange, db:
       WHERE s.status IN ('COMPLETED', 'REFUNDED') AND ${saleScope(scope)}
         AND ${dateCondition(Prisma.sql`r."createdAt"`, range)}
     ), voided AS (
-      SELECT v.* FROM sale_voids v JOIN sales s ON s.id = v."saleId"
+      SELECT v.*, s."cashRounding" AS "saleCashRounding" FROM sale_voids v JOIN sales s ON s.id = v."saleId"
       WHERE ${saleScope(scope)} AND ${dateCondition(Prisma.sql`v."createdAt"`, range)}
     ), returned_costs AS (
       SELECT r.id, CASE WHEN e.id IS NOT NULL THEN -e."cogsAmount" ELSE i."costReturned" END AS cost
@@ -161,6 +161,9 @@ export async function getFinancialMetrics(scope: Scope, range?: MetricRange, db:
       (SELECT COALESCE(SUM(amount), 0) FROM obligations WHERE category::text <> ${inventoryPurchaseCategory}) AS expenses,
       (SELECT COALESCE(SUM(amount), 0) FROM obligations WHERE category::text = ${inventoryPurchaseCategory}) AS "inventoryPurchases",
       (SELECT COALESCE(SUM(amount), 0) FROM voided) AS voids,
+      -- Cash rounding to 5 cents, each on its own day: sales' rounding, less refunds' and voided sales'.
+      (SELECT COALESCE(SUM("cashRounding"), 0) FROM sold) - (SELECT COALESCE(SUM("cashRounding"), 0) FROM returned)
+        - (SELECT COALESCE(SUM("saleCashRounding"), 0) FROM voided) AS "cashRounding",
       (SELECT COUNT(*) FROM voided) AS "voidCount",
       (SELECT COALESCE(SUM("taxAmount"), 0) FROM voided) AS "voidTax",
       (SELECT COALESCE(SUM(cost), 0) FROM void_costs) AS "voidCost",
@@ -203,11 +206,14 @@ export function summarizeFinancialMetrics(row: Record<string, unknown>) {
   const operatingProfit = grossProfit === null ? null : money(grossProfit - expenses);
   const lotteryEarnings = money(value(row.lotteryEarnings)), missingLotteryDays = value(row.missingLotteryDays);
   const otherIncome = money(value(row.otherIncome) + lotteryEarnings);
+  // Cash taken or given back beyond the exact amounts (cash rounding to 5 cents): real money, never sales.
+  const cashRounding = money(value(row.cashRounding));
   const margin = (profit: number | null) => profit !== null && netSales !== null && netSales > 0 ? money(profit / netSales * 100) : null;
   const provisional = pendingStockProblems > 0 && grossProfit !== null;
   const costBasis: CostBasis = costIncomplete || legacyVoids ? 'UNAVAILABLE' : pendingStockProblems ? 'PROVISIONAL' : costEstimated ? 'ESTIMATED' : 'HISTORICAL';
   return {
     grossCollected, netCollected: money(grossCollected - refunds - voids), grossSales, refunds, refundsBeforeTax,
+    cashRounding,
     voids, voidTax, voidsBeforeTax, voidCount: value(row.voidCount), legacyVoids,
     historyWarning: [legacyVoids ? 'Older voids have no recorded reversal date and are excluded from these figures. Their periods require review.' : '',
       historicalSummaries ? `${historicalSummaries} historical daily summaries are included. Receipt counts, order averages, discounts, item costs, staff and hourly allocations were not supplied.` : ''].filter(Boolean).join(' ') || null,
@@ -224,7 +230,7 @@ export function summarizeFinancialMetrics(row: Record<string, unknown>) {
     grossProfit, expenses, operatingExpenses: expenses, inventoryPurchases, recordedExpenses: money(expenses + inventoryPurchases),
     operatingProfit, otherIncome, lotteryEarnings,
     earningsCompleteness: { complete: !missingLotteryDays, pendingDays: missingLotteryDays, reviewPath: '/lottery?tab=reports', label: missingLotteryDays ? 'Lottery earnings pending' : 'Confirmed earnings' },
-    netProfit: operatingProfit === null || missingLotteryDays ? null : money(operatingProfit + otherIncome),
+    netProfit: operatingProfit === null || missingLotteryDays ? null : money(operatingProfit + otherIncome + cashRounding),
     grossMargin: margin(grossProfit), operatingMargin: margin(operatingProfit),
     // PROVISIONAL: every cost is known, but part of it is an estimate still awaiting a manager's review.
     costBasis,
@@ -285,6 +291,11 @@ export async function getFinancialBreakdowns(scope: Scope, range: MetricRange, t
         CASE WHEN COALESCE(jsonb_array_length(r.tenders), 0) > 0 THEN r.tenders
         ELSE jsonb_build_array(jsonb_build_object('method', COALESCE(r.method, 'UNAVAILABLE'), 'amount', r.amount)) END
       ) part WHERE s.status IN ('COMPLETED', 'REFUNDED') AND ${saleScope(scope)} AND ${dateCondition(Prisma.sql`r."createdAt"`, range)}
+      UNION ALL
+      -- A refund's cash rounding: the cash handed back differs from its exact cash allocation.
+      SELECT 'CASH', -r."cashRounding"::numeric, 0::numeric, 0
+      FROM refunds r JOIN sales s ON s.id = r."saleId"
+      WHERE r."cashRounding" <> 0 AND s.status IN ('COMPLETED', 'REFUNDED') AND ${saleScope(scope)} AND ${dateCondition(Prisma.sql`r."createdAt"`, range)}
       UNION ALL
       SELECT tender.key, -tender.value::numeric, 0::numeric, 0
       FROM sale_voids v JOIN sales s ON s.id = v."saleId" CROSS JOIN LATERAL jsonb_each_text(v.tenders) tender

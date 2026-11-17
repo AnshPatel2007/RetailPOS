@@ -5,6 +5,8 @@ import { useAdminViewStore } from '../store/adminViewStore';
 import { sessionGeneration } from './sessionGeneration';
 import { storeContextGeneration } from './storeContextGeneration';
 import { isOffline, subscribeConnection } from './connection';
+import { toCents } from '@/lib/money';
+import { saleCashRounding } from '@/lib/cashRounding';
 
 function currentCacheScope() {
   const user = useAuthStore.getState().user;
@@ -223,13 +225,17 @@ class SyncService {
     if (payload.paymentMethod !== 'CASH' || payload.payments?.some((p: any) => p.paymentMethod !== 'CASH') || payload.pointsRedeemed) {
       throw new Error('Offline checkout supports cash only without loyalty redemption');
     }
+    const cashRounding = saleCashRounding(toCents(expectedTotal), (payload.payments?.length ? payload.payments : [{ paymentMethod: 'CASH', amount: payload.amountPaid }])
+      .map((p: { paymentMethod: string; amount: number }) => ({ method: p.paymentMethod, cents: toCents(p.amount) })), payload.cashRoundingMode ?? 'OFF');
     const pending: Omit<PendingSale, 'id'> = {
       localId: payload.idempotencyKey, userId: data.userId, locationId: data.locationId,
       originalReceipt: data.originalReceipt,
       payload: { ...payload, offlineCreatedAt: new Date(data.createdAt).toISOString(), offlineShiftId: data.shiftId, expectedTotal },
       customerId: payload.customerId, items: payload.items, ...data.snapshot,
       total: expectedTotal, paymentMethod: 'CASH', amountPaid: payload.amountPaid,
-      changeDue: Math.max(0, payload.amountPaid - expectedTotal), notes: payload.notes,
+      // Cash rounding the register applied: the change and the drawer follow it (lib/cashRounding).
+      cashRounding: cashRounding / 100,
+      changeDue: Math.max(0, toCents(payload.amountPaid) - toCents(expectedTotal) - cashRounding) / 100, notes: payload.notes,
       createdAt: data.createdAt, synced: false, syncAttempts: 0,
     };
     const id = await offlineDb.savePendingSale(pending);

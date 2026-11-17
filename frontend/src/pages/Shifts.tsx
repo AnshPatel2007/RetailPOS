@@ -179,6 +179,7 @@ export const Shifts: React.FC = () => {
         <table>
           ${line('Starting Cash', money(z.startingCash))}
           ${line('Cash Sales (after change)', money(z.cashSales))}
+          ${z.cashRounding ? line('Cash Rounding (included above)', money(z.cashRounding)) : ''}
           ${line('Cash Refunds', money(z.cashRefunds == null ? null : -z.cashRefunds))}
           ${line('Cash Voids', money(z.cashVoids == null ? null : -z.cashVoids))}
           ${line('Gift Card Cash Funding', money(z.cashGiftFunding))}
@@ -312,6 +313,7 @@ export const Shifts: React.FC = () => {
               : <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t pt-4 mt-4">
               <div><p className="text-sm text-muted-foreground">Gift Card Cash Funding</p><p className="font-bold tabular-nums">{formatCurrency(currentShift.cashGiftFunding || 0)}</p></div>
               <div><p className="text-sm text-muted-foreground">House Account Cash Payments</p><p className="font-bold tabular-nums">{formatCurrency(currentShift.cashHousePayments || 0)}</p></div>
+              {!!currentShift.cashRounding && <div><p className="text-sm text-muted-foreground">Cash Rounding (in the cash sales)</p><p className="font-bold tabular-nums">{formatCurrency(currentShift.cashRounding)}</p></div>}
             </div>}
             {/* Cash movements this shift */}
             {((currentShift as any).cashMovements?.length ?? 0) > 0 && (

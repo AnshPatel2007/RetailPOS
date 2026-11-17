@@ -127,6 +127,12 @@ export const CustomerDisplay: React.FC = () => {
             <span>Total</span>
             <span className="tabular-nums">{formatCurrency(state!.payment?.due ?? state!.total)}</span>
           </div>
+          {state!.payment?.cashDue !== undefined && (
+            <div className="flex justify-between text-2xl font-semibold">
+              <span>In cash, rounded to 5¢</span>
+              <span className="tabular-nums">{formatCurrency(state!.payment.cashDue)}</span>
+            </div>
+          )}
           {!!state!.payment?.paid && (
             <>
               <div className="flex justify-between text-muted-foreground">
