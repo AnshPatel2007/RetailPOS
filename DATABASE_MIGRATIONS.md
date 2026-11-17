@@ -151,7 +151,10 @@ replace them. Integration tests exercise them.
   `refunds.cashRounding`, `DECIMAL(14,2) NOT NULL DEFAULT 0` (existing rows read 0; nothing is rewritten). Unlike the
   two before it, this one adds columns to tables every request reads: **apply it before starting an API on this
   version**, or sales, refunds and reports fail until it is applied. Apply `20261116010000_store_alerts`,
-  `20261116020000_store_pulse` and this one together, after the usual backup.
+  `20261116020000_store_pulse` and this one together, after the usual backup. Applied to the local store database
+  on 2026-11-16 with those two, after the backup in `.local/backups/pre-alerts-pulse-rounding-20261116-205912/`
+  (dump checked: 99 table data entries; uploads copied). Sales, products, users, suppliers, stores and expenses
+  were identical before and after, and `check` reported no difference.
 
 - **`20261116020000_store_pulse` (2026-11-16).** Store Pulse, purely additive; apply after
   `20261116010000_store_alerts`. New table `register_heartbeats` (when each computer set up as a
