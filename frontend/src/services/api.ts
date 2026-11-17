@@ -88,7 +88,7 @@ api.interceptors.response.use(
     const method = response.config.method?.toUpperCase() || 'GET';
     const path = response.config.url?.split('?')[0] || '';
     if (!['GET', 'HEAD', 'OPTIONS'].includes(method)
-      && !/\/(quote|preview|what-if|chat|search)(\/|$)/.test(path)
+      && !/\/(quote|preview|what-if|chat|search|heartbeat)(\/|$)/.test(path)
       && !/^\/auth\/refresh(\/|$)/.test(path)) invalidateScopedQueries();
     return response;
   },
@@ -687,11 +687,17 @@ export const financialService = {
 /** Phone alerts: this person's devices, a test alert, and (owners) the alert amounts. */
 export const pulseService = {
   getSettings: (signal?: AbortSignal) => api.get('/pulse/settings', { signal }),
-  updateSettings: (data: { refundAlertOver?: number | null; drawerAlertOver?: number | null }) => api.put('/pulse/settings', data),
+  updateSettings: (data: { refundAlertOver?: number | null; drawerAlertOver?: number | null; pulse?: Partial<Record<'notOpen' | 'quiet' | 'register' | 'leftOpen', boolean>> }) =>
+    api.put('/pulse/settings', data),
   subscribe: (data: { endpoint: string; keys: { p256dh: string; auth: string }; deviceLabel?: string }) => api.post('/pulse/push/subscribe', data),
   /** A token can be passed while signing out, after the stored one is gone. */
   unsubscribe: (endpoint: string, token?: string | null) => api.delete('/pulse/push/subscribe', { data: { endpoint }, ...(token ? { headers: { Authorization: 'Bearer ' + token } } : {}) }),
   test: () => api.post('/pulse/push/test'),
+  /** Store Pulse: open since, last sale, open alerts (owners and managers). */
+  getStatus: (signal?: AbortSignal) => api.get('/pulse/status', { signal }),
+  setClosedToday: (closed: boolean) => api.post('/pulse/closed-today', { closed }),
+  /** A computer set up as a register reports in (once a minute). */
+  heartbeat: (deviceToken: string) => api.post('/pulse/heartbeat', { deviceToken }),
 };
 
 /**

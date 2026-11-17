@@ -153,6 +153,7 @@ model User {
   pinLockoutUntil            DateTime?
   registerDevicesCreated     RegisterDevice[]     @relation("RegisterDeviceCreator")
   pushSubscriptions          PushSubscription[]
+  registerHeartbeats         RegisterHeartbeat[]
   activityLogs               ActivityLog[]
   expenses                   Expense[]
   refreshTokens              RefreshToken[]
@@ -325,6 +326,7 @@ model RegisterDevice {
   revokedAt   DateTime?
   location    Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
   createdBy   User?     @relation("RegisterDeviceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  heartbeat   RegisterHeartbeat?
 
   @@index([locationId])
   @@map("register_devices")
@@ -1701,11 +1703,35 @@ model StoreAlertSetting {
   refundAlertOver Decimal? @default(50) @db.Decimal(14, 2)
   /// A drawer that closes off by at least this much is sent to the owners; null turns it off.
   drawerAlertOver Decimal? @default(5) @db.Decimal(14, 2)
+  /// Store Pulse switches (owners and managers hear them): nobody on the register in the usual hours,
+  /// a quiet register, a register not heard from, a drawer left open after the usual closing.
+  pulseNotOpen    Boolean  @default(true)
+  pulseQuiet      Boolean  @default(true)
+  pulseRegister   Boolean  @default(true)
+  pulseLeftOpen   Boolean  @default(true)
+  /// "The store is closed today" (a store day, YYYY-MM-DD): no opening or quiet alerts that day.
+  closedDay       String?
+  closedById      String?
   updatedById     String?
   updatedAt       DateTime @updatedAt
   location        Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
   @@map("store_alert_settings")
+}
+
+/// Store Pulse: when a computer set up as a register was last heard from (once a minute while
+/// someone is signed in on it), and whose session that was.
+model RegisterHeartbeat {
+  registerDeviceId String         @id
+  lastSeenAt       DateTime
+  userId           String?
+  /// The refresh session signed in on it; signing out ends it, so a register left signed out is never "lost".
+  sessionId        String?
+  registerDevice   RegisterDevice @relation(fields: [registerDeviceId], references: [id], onDelete: Cascade)
+  user             User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("register_heartbeats")
 }
 
 /// Money the owner expects that no record shows (a loan payment, an owner draw, a tax refund).

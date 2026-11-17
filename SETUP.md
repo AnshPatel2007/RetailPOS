@@ -169,8 +169,8 @@ a designated test recipient before enabling delivery. Set APP_URL to the deploye
 frontend URL so links point to the correct application.
 
 For local development keep BACKGROUND_WORKER_DISABLED=true,
-EMAIL_DELIVERY_WORKER_DISABLED=true, OWNER_BRIEF_DISABLED=true and
-BIRTHDAY_EMAILS_DISABLED=true. The first flag disables the durable email, export
+EMAIL_DELIVERY_WORKER_DISABLED=true, OWNER_BRIEF_DISABLED=true,
+BIRTHDAY_EMAILS_DISABLED=true and STORE_PULSE_DISABLED=true. The first flag disables the durable email, export
 and webhook worker. The second disables the separate owner-email delivery worker;
 the remaining flags stop the morning brief and birthday schedulers. The morning
 brief goes to each store's owners from OWNER_BRIEF_HOUR (store-local, default 7)
@@ -189,6 +189,12 @@ turns alerts on in Settings > Profile & Security on their own phone. Alerts need
 installed app served over HTTPS (the deployed site; not `npm run dev`); on an iPhone, add
 the POS to the Home Screen first. An urgent alert is emailed to owners who have no phone
 with alerts on, so the email worker must be on for that.
+
+**Store Pulse** checks every store once a minute (unless STORE_PULSE_DISABLED=true) and
+alerts owners and managers when a store is not running the way it usually does: nobody on
+the register after the usual opening, a long quiet spell, a register not heard from while
+its drawer is open, a drawer left open after closing. Keep the API awake around the clock:
+a host that sleeps when idle never notices a store that did not open.
 
 PAYROLL_SCHEDULER_DISABLED=true also prevents automatic expense generation on a
 local preview. Enable the scheduler only in the intended store deployment after

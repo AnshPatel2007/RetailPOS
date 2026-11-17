@@ -22,6 +22,7 @@ import { missedSales } from './missedSales.service';
 import { effectiveStatus } from './deliveryInvoice.service';
 import { cashPlanForAlerts } from './cashPlan.service';
 import { tightSentence } from './cashPlan';
+import { PULSE_KINDS, PulseKind } from './storePulse';
 
 export type Severity = 'high' | 'medium' | 'low';
 export interface Finding {
@@ -305,10 +306,34 @@ export const cashTight: AttentionRule = async ({ locationId, now, role }) => {
     sentence: tightSentence(plan.tight, plan.today) };
 };
 
+/**
+ * Store Pulse alerts still open (raised and closed once a minute by storePulse.service.ts),
+ * read once for the four rules below. One left without a scheduler to close it stops
+ * showing after a day, except a drawer that is still open.
+ */
+const openPulse = new WeakMap<AttentionContext, Promise<{ kind: string; severity: string; sentence: string; href: string }[]>>();
+const pulseRule = (kind: PulseKind, key: string): AttentionRule => async context => {
+  let alerts = openPulse.get(context);
+  if (!alerts) {
+    alerts = prisma.storeAlert.findMany({
+      where: { locationId: context.locationId, resolvedAt: null, kind: { in: PULSE_KINDS },
+        OR: [{ kind: 'PULSE_LEFT_OPEN' }, { createdAt: { gte: new Date(context.now.getTime() - 24 * 3600000) } }] },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { kind: true, severity: true, sentence: true, href: true } });
+    openPulse.set(context, alerts);
+  }
+  const these = (await alerts).filter(alert => alert.kind === kind);
+  if (!these.length) return null;
+  return { key, severity: these[0].severity === 'high' ? 'high' : 'medium', sentence: these[0].sentence, href: these[0].href, ...(these.length > 1 ? { count: these.length } : {}) };
+};
+export const nobodyOnRegister = pulseRule('PULSE_NOT_OPEN', 'nobody-on-register');
+export const quietRegister = pulseRule('PULSE_QUIET', 'quiet-register');
+export const registerNotHeard = pulseRule('PULSE_REGISTER', 'register-not-heard');
+export const drawerLeftOpen = pulseRule('PULSE_LEFT_OPEN', 'drawer-left-open');
+
 /** Shown in this order within one severity. Later packages append their rules here. */
 export const attentionRules: AttentionRule[] = [stockExceptions, profitNotConfirmed, drawerDifferences, pricesBelowTarget, billsDueSoon,
   ordersOverdue, refundsUnusuallyHigh, deliveriesWithoutInvoice, jobFailures, unusualSalesDay, costsWentUp, supplierCreditsOutstanding, labelsOutOfDate, supplierOrderDueTomorrow, likelyMixUp, emptyShelves,
-  invoicesToConfirm, cashTight];
+  invoicesToConfirm, cashTight, nobodyOnRegister, registerNotHeard, quietRegister, drawerLeftOpen];
 const rank: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
 /**

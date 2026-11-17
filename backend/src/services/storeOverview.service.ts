@@ -4,6 +4,7 @@ import { getFinancialMetrics } from './financialMetrics.service';
 import { reportCalendar } from './reportDates.service';
 import { salesTrend, todayRanges } from './dashboardReport.service';
 import { collectAttention } from './attention.service';
+import { pulseStatus } from './storePulse.service';
 import { AppError } from '../utils/errorHandler';
 
 const openExceptions = ['OPEN', 'RECOUNT_REQUESTED'];
@@ -48,6 +49,8 @@ export async function getStoresOverview(userId: string, currentLocationId: strin
   for (const [index, store] of stores.entries()) {
     const { today, sameTimeYesterday, yesterday, date, exceptions, lastDrawer } = figures[index];
     const attention = await collectAttention(store.id, now, 'ADMIN');
+    // Open since, last sale, or what is not running as usual; a failure never hides the card.
+    const pulse = await pulseStatus(store.id, store.timezone, now).catch(() => null);
     cards.push({
       locationId: store.id,
       name: store.name,
@@ -61,6 +64,7 @@ export async function getStoresOverview(userId: string, currentLocationId: strin
       openStockExceptions: exceptions,
       attentionCount: attention.items.length,
       attentionIncomplete: attention.incomplete,
+      pulse,
       lastDrawer: lastDrawer && {
         difference: Number(lastDrawer.cashDifference),
         closedAt: lastDrawer.clockOutAt,

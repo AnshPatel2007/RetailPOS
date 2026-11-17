@@ -147,6 +147,14 @@ replace them. Integration tests exercise them.
 
 ## Recent changes
 
+- **`20261116020000_store_pulse` (2026-11-16).** Store Pulse, purely additive; apply after
+  `20261116010000_store_alerts`. New table `register_heartbeats` (when each computer set up as a
+  register was last heard from and the session signed in on it; deleted with the register) and six
+  columns on `store_alert_settings`: the four pulse switches (all on by default), `closedDay` and
+  `closedById` ("the store is closed today"). No existing table changes, so an API on the previous
+  client keeps working before it is applied; this version's once-a-minute check logs one warning an
+  hour until it is.
+
 - **`20261116010000_store_alerts` (2026-11-16).** Phone alerts, purely additive: new tables
   `push_subscriptions` (a device where someone turned alerts on; deleted with the person),
   `store_alerts` (each alert once per store and key, so a retry or a second server never

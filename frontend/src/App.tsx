@@ -12,6 +12,7 @@ import { GlobalAssistant } from './components/assistant/GlobalAssistant';
 import { RegisterLockLayer } from './components/register/RegisterLock';
 import { AppUpdateNotice } from './components/common/AppUpdateNotice';
 import { PushAlertRouter } from './components/common/PushAlertRouter';
+import { RegisterHeartbeat } from './components/common/RegisterHeartbeat';
 import { WorkflowNavigation, PreserveRedirect, StockControlNavigation, PurchasingNavigation, PRICE_REVIEW, SHARED_CATALOG, SUPPLIER_CREDITS, accountViews, TeamNavigation, ShiftRedirect } from './components/common/WorkflowNavigation';
 import { changeSessionGeneration } from './services/sessionGeneration';
 
@@ -163,6 +164,7 @@ function App() {
       <RegisterLockLayer />
       <AppUpdateNotice />
       <PushAlertRouter />
+      <RegisterHeartbeat />
       {import.meta.env.PROD && <VercelAnalytics />}
       <Toaster
         position="top-right"

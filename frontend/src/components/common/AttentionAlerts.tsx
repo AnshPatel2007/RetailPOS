@@ -36,6 +36,7 @@ const action: Record<string, string> = {
   'stock-exceptions': 'Count items', 'profit-not-confirmed': 'Review', 'drawer-difference': 'See shifts', 'prices-below-target': 'Review prices',
   'bills-due': 'See bills', 'orders-overdue': 'See orders', 'refunds-high': 'See refunds', 'deliveries-without-invoice': 'Match invoices',
   'job-failures': 'See jobs', 'unusual-sales-day': 'See report', 'invoices-to-confirm': 'Check invoices', 'cash-tight': 'See Money Ahead',
+  'nobody-on-register': 'See shifts', 'register-not-heard': 'See shifts', 'quiet-register': 'See shifts', 'drawer-left-open': 'See shifts',
 };
 
 /*

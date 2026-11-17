@@ -15,8 +15,10 @@ test('owners set alert amounts and see the phone alerts card; a tapped alert ope
   const refund = page.getByLabel('Refund or void of at least ($)', { exact: true });
   await expect(refund).toHaveValue('50');
   await refund.fill('75');
+  // Store Pulse switches sit beside the amounts, all on until the owner turns one off.
+  await expect(page.getByLabel('A register not heard from while its drawer is open', { exact: true })).toBeChecked();
   await page.getByRole('button', { name: 'Save Changes', exact: true }).last().click();
-  await expect(page.getByText('Alert amounts saved', { exact: true })).toBeVisible();
+  await expect(page.getByText('Store alerts saved', { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByLabel('Refund or void of at least ($)', { exact: true })).toHaveValue('75');
 
@@ -33,7 +35,7 @@ test('cashiers get no phone alerts and never see the amounts', async ({ page }) 
   await page.goto('/settings?section=profile');
   await expect(page.getByText('User Profile', { exact: true })).toBeVisible();
   await expect(page.getByText('Alerts On This Phone', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Phone Alert Amounts', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Store Alerts', { exact: true })).toHaveCount(0);
   const token = await page.evaluate(() => localStorage.getItem('token'));
   expect((await page.request.get('/api/pulse/settings', { headers: { Authorization: 'Bearer ' + token } })).status()).toBe(403);
 });

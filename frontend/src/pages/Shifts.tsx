@@ -34,6 +34,7 @@ import { currentPaymentSession } from '@/services/paymentSession';
 import { Spinner } from '@/components/ui/LoadingState';
 import { Alert } from '@/components/ui/Alert';
 import { DrawerCountHelper } from '@/components/shifts/DrawerCountHelper';
+import { StorePulseCard } from '@/components/shifts/StorePulseCard';
 
 /** Drawer over/short colors: even is green, over is amber, short is red. */
 const overShortTone = (difference: number) => Math.abs(difference) < 0.005 ? 'text-success' : difference > 0 ? 'text-warning' : 'text-destructive';
@@ -251,6 +252,7 @@ export const Shifts: React.FC = () => {
         )}
       />
       {autoRefresh.notice}
+      <StorePulseCard />
       {pendingMovement && <div role="status" className="mb-4 p-3 rounded-lg border border-warning/40 bg-warning/10 space-y-2">
         <p>Saved cash movement: {formatEnumLabel(pendingMovement.label)} {formatCurrency(pendingMovement.amount)}. Retry to confirm the recorded result. Do not move the cash twice.</p>
         <Button onClick={() => submitCashMovement(pendingMovement)} disabled={movementSubmitting}>Retry saved cash movement</Button>

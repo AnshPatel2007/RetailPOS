@@ -174,6 +174,18 @@ node scripts/verify-pos.cjs browser [specs] --project=chromium   # Playwright on
   at least theirs (`store_alert_settings`, $50/$5 by default, owner-only, never in store settings). Raise them with
   `afterResponse` after the transaction; they must never fail or delay the request. A tap opens
   `/alerts/open?store=&to=` (switches to that store first; only paths of this app).
+- **Store Pulse** (pure `services/storePulse.ts`, loader and once-a-minute scheduler `storePulse.service.ts`,
+  `/api/pulse/status`, `/heartbeat`, `/closed-today`): each weekday's pattern from the last six weeks (first
+  drawer opened, last drawer of that day closed, sales per local hour; medians; under three open days of a
+  weekday = still learning, silent). Four alerts to owners and managers (`raiseStoreAlert`, `LEADS`, once per
+  stretch by key, closed when the condition clears): nobody on the register 20 minutes after the usual opening;
+  no sale for as long as five of the hour's usual sales take (20 to 90 minutes, hours with 3+ usual sales, 3 a
+  day); a register computer (`register_heartbeats`, once a minute while someone is signed in) not heard from for
+  5 minutes while that session is live and its person's drawer is open; a drawer open an hour after its day's
+  usual closing with no sale for 30 minutes. "The Store Is Closed Today" (Shifts page; `closedDay`) silences the
+  first two for the store day; owners switch each off in Settings > Notifications. The bell shows them through
+  four attention rules and My Stores shows each store's line. `STORE_PULSE_DISABLED=true` stops the scheduler;
+  it never runs in tests. The heartbeat POST never invalidates cached reads.
 - **Attention list and morning brief** (`services/attention.service.ts`,
   `services/ownerBrief.service.ts`): one rule per exported function returns one plain
   sentence with its amount and the page that fixes it; the Dashboard (owners and

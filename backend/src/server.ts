@@ -227,6 +227,9 @@ if (config.nodeEnv !== 'test') {
     startOwnerBriefScheduler();
   });
 
+  // Store Pulse: is each store running the way it usually does? (services/storePulse.service.ts)
+  import('./services/storePulse.service').then(({ startStorePulseScheduler }) => startStorePulseScheduler());
+
   // Daily birthday emails (see services/marketing.service.ts)
   import('./services/marketing.service').then(({ startMarketingScheduler }) => {
     startMarketingScheduler();

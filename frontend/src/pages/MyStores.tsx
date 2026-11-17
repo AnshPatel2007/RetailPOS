@@ -14,6 +14,7 @@ import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { apiErrorMessage, organizationService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
+import { pulseLine, PulseStatus } from '@/lib/storePulse';
 
 interface StoreCard {
   locationId: string;
@@ -27,6 +28,8 @@ interface StoreCard {
   attentionCount: number;
   attentionIncomplete: boolean;
   lastDrawer: { difference: number; closedAt: string; employeeName: string } | null;
+  /** How the store is running right now (null when it could not be read). */
+  pulse: PulseStatus | null;
 }
 
 function Figure({ label, value, detail, tone }: { label: string; value: React.ReactNode; detail?: React.ReactNode; tone?: 'warning' | 'danger' }) {
@@ -102,6 +105,10 @@ export function MyStores() {
             </div>
           </CardHeader>
           <CardContent className="flex flex-1 flex-col gap-4">
+            {store.pulse && (() => {
+              const line = pulseLine(store.pulse, store.timezone);
+              return <p className={`text-sm ${line.tone === 'warning' ? 'font-medium text-warning' : line.tone === 'success' ? 'text-success' : 'text-muted-foreground'}`}>{line.text}</p>;
+            })()}
             <div className="grid grid-cols-2 gap-4">
               <Figure label="Sales today" value={formatCurrency(store.today.sales)} detail={<>
                 {store.today.transactions ?? 0} {store.today.transactions === 1 ? 'sale' : 'sales'}

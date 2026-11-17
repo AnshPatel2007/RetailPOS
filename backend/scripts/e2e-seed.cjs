@@ -135,6 +135,16 @@ const prisma = new PrismaClient({ datasources: { db: { url: target.toString() } 
   const forecastCalendar = reportCalendar('America/Chicago');
   for (let day = -28; day < 0; day += 2) await prisma.sale.create({ data: { saleNumber: 'FORECAST-' + Math.abs(day), userId: forecastUser.id, locationId: forecastStore.id,
     createdAt: new Date(forecastCalendar.day(day).getTime() + 3600000), subtotal: 20, total: 22, tax: 2, paymentMethod: 'CASH', amountPaid: 22, pricingVersion: 1 } });
+  // Store Pulse spec: pulse@example.test owns Pulse Street (an open "nobody has clocked in" alert)
+  // and Quiet Street (nothing open); pulse-manager@example.test manages Pulse Street.
+  const pulseStore = await prisma.location.create({ data: { name: 'Pulse Street Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'pulse-store@example.test', timezone: 'America/Chicago' } });
+  const quietStore = await prisma.location.create({ data: { name: 'Quiet Street Store', address: 'Test', city: 'Test', state: 'IL', zipCode: '60000', phone: '555', email: 'quiet-store@example.test', timezone: 'America/Chicago', organizationId: pulseStore.organizationId } });
+  const pulseOwner = await prisma.user.create({ data: { email: 'pulse@example.test', password, firstName: 'Pulse', lastName: 'Owner', role: 'ADMIN', locationId: pulseStore.id } });
+  await prisma.organizationOwner.create({ data: { organizationId: pulseStore.organizationId, userId: pulseOwner.id } });
+  await prisma.userStoreAccess.create({ data: { userId: pulseOwner.id, locationId: quietStore.id, role: 'ADMIN' } });
+  await prisma.user.create({ data: { email: 'pulse-manager@example.test', password, firstName: 'Paula', lastName: 'Manager', role: 'MANAGER', locationId: pulseStore.id } });
+  await prisma.storeAlert.create({ data: { locationId: pulseStore.id, key: 'pulse:not-open:fixture', kind: 'PULSE_NOT_OPEN', severity: 'high', audience: 'LEADS',
+    sentence: 'Nobody had clocked in by 6:25 AM. On Mondays the store usually opens by 6:00 AM.', href: '/team-time/shifts' } });
   const digestOwner = await prisma.user.findUniqueOrThrow({ where: { email: 'owner@example.test' } });
   await prisma.emailDelivery.create({ data: { locationId: stores[0].id, recipientId: digestOwner.id, recipientEmail: digestOwner.email, idempotencyKey: 'digest-review-fixture', subject: 'Fixture uncertain daily digest', html: '<p>Fixture totals</p>', status: 'REVIEW', errorCode: 'DELIVERY_UNKNOWN', attempts: 1 } });
   await prisma.activityLog.createMany({ data: [
