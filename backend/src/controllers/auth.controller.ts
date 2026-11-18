@@ -1,14 +1,22 @@
 import { Request, Response } from 'express';
+import type { Prisma, User } from '@prisma/client';
+import { resolveUserAssignment } from '../utils/userPermissions';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { asyncHandler, AppError } from '../utils/errorHandler';
-import { generateToken, generateRefreshToken } from '../utils/jwt';
+import { generateToken, generateRefreshToken, verifyToken } from '../utils/jwt';
+import { createLoginSession, sessionUser } from '../services/session.service';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { verifyTOTPCode } from './twoFactor.controller';
-import { sendPasswordResetEmail, sendAccountLockoutEmail } from '../utils/email';
+import {queueSecurityEmail} from '../services/securityEmail.service';
+
+const refreshCookieOptions = {
+  httpOnly: true, secure: config.nodeEnv === 'production',
+  sameSite: (config.nodeEnv === 'production' ? 'none' : 'lax') as 'none' | 'lax', path: '/',
+};
 
 /**
  * Check and handle account lockout
@@ -39,46 +47,19 @@ const checkAccountLockout = async (user: any): Promise<void> => {
 /**
  * Handle failed login attempt
  */
-const handleFailedLogin = async (user: any): Promise<void> => {
-  const attempts = user.failedLoginAttempts + 1;
-
-  if (attempts >= config.security.maxLoginAttempts) {
-    const lockoutUntil = new Date(
-      Date.now() + config.security.lockoutDuration * 60000
-    );
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        failedLoginAttempts: attempts,
-        lockoutUntil,
-      },
-    });
-
-    // Send lockout notification email
-    try {
-      await sendAccountLockoutEmail(
-        user.email,
-        user.firstName,
-        config.security.lockoutDuration
-      );
-    } catch (error) {
-      logger.error('Failed to send lockout email:', error);
-    }
-
-    logger.warn(`Account locked for user: ${user.email}`);
-    throw new AppError(
-      `Account locked due to too many failed attempts. Try again in ${config.security.lockoutDuration} minutes.`,
-      423
-    );
-  }
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      failedLoginAttempts: attempts,
-    },
+const handleFailedLogin = async(user:any):Promise<void>=>{
+  const locked=await prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT id FROM users WHERE id=${user.id} FOR UPDATE`;
+    const current=await tx.user.findUnique({where:{id:user.id}});
+    if(!current)return false;
+    if(current.lockoutUntil && current.lockoutUntil>new Date())return true;
+    const attempts=(current.failedLoginAttempts||0)+1,locked=attempts>=config.security.maxLoginAttempts;
+    const until=locked?new Date(Date.now()+config.security.lockoutDuration*60000):null;
+    await tx.user.update({where:{id:user.id},data:{failedLoginAttempts:attempts,lockoutUntil:until}});
+    if(locked)await queueSecurityEmail(tx,current,'ACCOUNT_LOCKED',until!.toISOString());
+    return locked;
   });
+  if(locked)throw new AppError('Account locked due to too many failed attempts. Try again in '+config.security.lockoutDuration+' minutes.',423);
 };
 
 /**
@@ -140,24 +121,22 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
-  // Generate tokens
+  await completeSignIn(req, res, user);
+});
+
+/**
+ * Start a session for a verified user: refresh cookie, access token, last login and
+ * the LOGIN activity entry. Shared by password and register PIN sign-in. A PIN
+ * sign-in on another store's register starts the session in that store.
+ */
+export const completeSignIn = async (req: Request, res: Response, user: User, details?: Prisma.InputJsonValue, activeLocationId: string | null = null) => {
+  const refreshToken = generateRefreshToken();
+  const session = await createLoginSession(user, refreshToken, req.headers['user-agent'] || 'Unknown', req.ip, activeLocationId);
   const token = generateToken({
+    sessionId: session.id,
     userId: user.id,
     email: user.email,
     role: user.role,
-  });
-
-  const refreshToken = generateRefreshToken();
-
-  // Store refresh token
-  await prisma.refreshToken.create({
-    data: {
-      token: refreshToken,
-      userId: user.id,
-      deviceInfo: req.headers['user-agent'] || 'Unknown',
-      ipAddress: req.ip,
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-    },
   });
 
   // Update last login
@@ -175,7 +154,8 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
       entityId: user.id,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
-      locationId: user.locationId,
+      locationId: session.activeLocationId ?? user.locationId,
+      ...(details !== undefined ? { details } : {}),
     },
   });
 
@@ -183,28 +163,15 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 
   // Set refresh token as httpOnly cookie
   res.cookie('refreshToken', refreshToken, {
-    httpOnly: true,
-    secure: config.nodeEnv === 'production',
-    sameSite: 'strict',
+    ...refreshCookieOptions,
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
   });
 
   res.json({
     success: true,
-    data: {
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        location: user.location,
-        twoFactorEnabled: user.twoFactorEnabled,
-      },
-    },
+    data: { token, user: await sessionUser(user.id, session.activeLocationId) },
   });
-});
+};
 
 /**
  * Refresh access token
@@ -241,16 +208,18 @@ export const refreshAccessToken = asyncHandler(async (req: Request, res: Respons
 
   // Generate new access token
   const token = generateToken({
+    sessionId: storedToken.id,
     userId: storedToken.user.id,
     email: storedToken.user.email,
     role: storedToken.user.role,
   });
 
   // Update last used
-  await prisma.refreshToken.update({
-    where: { id: storedToken.id },
+  const renewed = await prisma.refreshToken.updateMany({
+    where: { id: storedToken.id, isRevoked: false, expiresAt: { gt: new Date() } },
     data: { lastUsedAt: new Date() },
   });
+  if (!renewed.count) throw new AppError('Session expired or revoked', 401);
 
   res.json({
     success: true,
@@ -266,47 +235,56 @@ export const getCurrentUser = asyncHandler(async (req: AuthRequest, res: Respons
   if (!req.user) {
     throw new AppError('User not authenticated', 401);
   }
+  // The acting store was resolved by authenticate (home, or the store switched to).
+  res.json({ success: true, data: await sessionUser(req.user.id, req.user.locationId) });
+});
 
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-    select: {
-      id: true,
-      email: true,
-      firstName: true,
-      lastName: true,
-      role: true,
-      isActive: true,
-      locationId: true,
-      twoFactorEnabled: true,
-      location: {
-        select: {
-          id: true,
-          name: true,
-          address: true,
-          city: true,
-          state: true,
-        },
-      },
-      createdAt: true,
-      lastLoginAt: true,
-    },
-  });
+/**
+ * The stores the signed-in person may work in.
+ * GET /api/auth/stores
+ */
+export const getStores = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: (await sessionUser(req.user!.id, req.user!.locationId)).stores });
+});
 
-  if (!user) {
-    throw new AppError('User not found', 404);
+/**
+ * Work in another store this person has access to, in this sign-in only. The role
+ * there comes from their access to that store. An open drawer at the current store
+ * must be closed first, so its cash and sales never mix with the other store's.
+ * POST /api/auth/switch-store { locationId }
+ */
+export const switchStore = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const actor = req.user!;
+  const locationId = typeof req.body?.locationId === 'string' ? req.body.locationId : '';
+  if (!locationId) throw new AppError('Choose a store', 400);
+  if (actor.role === 'SUPER_ADMIN') throw new AppError('Platform admins open stores from the store list.', 403);
+  if (locationId === actor.locationId) {
+    res.json({ success: true, data: { user: await sessionUser(actor.id, actor.locationId) } });
+    return;
   }
-
-  res.json({
-    success: true,
-    data: user,
+  const active = locationId === actor.homeLocationId ? null : locationId;
+  await prisma.$transaction(async tx => {
+    // Clock-in locks the same row, so a drawer cannot open at the old store mid-switch.
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${actor.id} FOR UPDATE`;
+    if (!await tx.userStoreAccess.findUnique({ where: { userId_locationId: { userId: actor.id, locationId } }, select: { id: true } })) {
+      throw new AppError('You do not have access to that store.', 403);
+    }
+    if (actor.locationId && await tx.shift.findFirst({ where: { userId: actor.id, locationId: actor.locationId, isClosed: false }, select: { id: true } })) {
+      throw new AppError('Clock out before switching stores.', 409);
+    }
+    const moved = await tx.refreshToken.updateMany({ where: { id: req.sessionId, userId: actor.id, isRevoked: false }, data: { activeLocationId: active } });
+    if (!moved.count) throw new AppError('Session expired or revoked. Sign in again.', 401);
+    await tx.activityLog.create({ data: { userId: actor.id, action: 'STORE_SWITCHED', entity: 'USER', entityId: actor.id, locationId,
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], details: { fromLocationId: actor.locationId } } });
   });
+  res.json({ success: true, data: { user: await sessionUser(actor.id, active) } });
 });
 
 /**
  * Register new user (Admin only)
  * POST /api/auth/register
  */
-export const register = asyncHandler(async (req: Request, res: Response) => {
+export const register = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { email, password, firstName, lastName, role, locationId } = req.body;
 
   // Check if user already exists
@@ -339,6 +317,8 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
     throw new AppError('Password must contain at least one special character', 400);
   }
 
+  const assignment = resolveUserAssignment(req, role, locationId);
+
   // Hash password
   const hashedPassword = await bcrypt.hash(password, 12);
 
@@ -349,8 +329,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
       password: hashedPassword,
       firstName,
       lastName,
-      role: role || 'CASHIER',
-      locationId,
+      ...assignment,
     },
     select: {
       id: true,
@@ -376,30 +355,32 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
  * POST /api/auth/logout
  */
 export const logout = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const refreshToken = req.cookies.refreshToken;
-
-  if (refreshToken) {
-    // Revoke refresh token
-    await prisma.refreshToken.updateMany({
-      where: { token: refreshToken },
-      data: { isRevoked: true },
-    });
-  }
-
-  if (req.user) {
-    await prisma.activityLog.create({
+  // An expired access token must not prevent revoking its refresh cookie.
+  let sessionId: string | undefined;
+  let userId: string | undefined;
+  const bearer = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : undefined;
+  if (bearer) { try { const decoded = verifyToken(bearer); sessionId = decoded.sessionId; userId = decoded.userId; } catch { /* Fall back to the HttpOnly cookie. */ } }
+  const cookie = req.cookies.refreshToken;
+  const session = sessionId ? await prisma.refreshToken.findUnique({ where: { id: sessionId }, include: { user: true } })
+    : typeof cookie === 'string' ? await prisma.refreshToken.findUnique({ where: { token: cookie }, include: { user: true } }) : null;
+  if (!session || (sessionId && session.userId !== userId)) { res.clearCookie('refreshToken', refreshCookieOptions); throw new AppError('No valid session provided', 401); }
+  await prisma.$transaction(async tx => {
+    const revoked = await tx.refreshToken.updateMany({ where: { id: session.id, isRevoked: false }, data: { isRevoked: true } });
+    if (revoked.count) {
+    await tx.activityLog.create({
       data: {
-        userId: req.user.id,
+        userId: session.userId,
         action: 'LOGOUT',
         entity: 'USER',
-        entityId: req.user.id,
-        locationId: req.user.locationId,
+        entityId: session.userId,
+        locationId: session.activeLocationId ?? session.user.locationId,
       },
     });
-  }
+    }
+  });
 
   // Clear refresh token cookie
-  res.clearCookie('refreshToken');
+  res.clearCookie('refreshToken', refreshCookieOptions);
 
   res.json({
     success: true,
@@ -433,7 +414,7 @@ export const logoutAll = asyncHandler(async (req: AuthRequest, res: Response) =>
   });
 
   // Clear refresh token cookie
-  res.clearCookie('refreshToken');
+  res.clearCookie('refreshToken', refreshCookieOptions);
 
   logger.info(`User logged out from all devices: ${req.user.email}`);
 
@@ -511,62 +492,20 @@ export const revokeSession = asyncHandler(async (req: AuthRequest, res: Response
  * Request password reset
  * POST /api/auth/forgot-password
  */
-export const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
-  const { email } = req.body;
-
-  const user = await prisma.user.findUnique({
-    where: { email },
+export const forgotPassword = asyncHandler(async (req: Request,res:Response)=>{
+  const message='If an account exists with this email, password reset instructions will be emailed.';
+  const user=await prisma.user.findUnique({where:{email:req.body.email}});
+  if(!user || !user.isActive){res.json({success:true,message});return;}
+  const resetToken=crypto.randomBytes(32).toString('hex'),hashedToken=crypto.createHash('sha256').update(resetToken).digest('hex');
+  const expiresAt=new Date(Date.now()+config.security.passwordResetExpiry*60000);
+  await prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`;
+    const current=await tx.user.findUnique({where:{id:user.id}});
+    if(!current?.isActive || current.email!==user.email)return;
+    await tx.user.update({where:{id:user.id},data:{passwordResetToken:hashedToken,passwordResetExpires:expiresAt}});
+    await queueSecurityEmail(tx,current,'PASSWORD_RESET_REQUESTED',hashedToken,{resetToken,tokenHash:hashedToken,expiresAt});
   });
-
-  // Always return success to prevent email enumeration
-  if (!user) {
-    res.json({
-      success: true,
-      message: 'If an account exists with this email, a password reset link has been sent.',
-    });
-    return;
-  }
-
-  // Generate reset token
-  const resetToken = crypto.randomBytes(32).toString('hex');
-  const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-
-  // Store hashed token with expiry
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      passwordResetToken: hashedToken,
-      passwordResetExpires: new Date(
-        Date.now() + config.security.passwordResetExpiry * 60000
-      ),
-    },
-  });
-
-  // Send reset email
-  try {
-    await sendPasswordResetEmail(user.email, resetToken, user.firstName);
-    logger.info(`Password reset email sent to: ${user.email}`);
-  } catch (error) {
-    // The underlying SMTP error is swallowed by sendEmail's generic rethrow —
-    // log it here too so the real cause (auth failure, timeout, etc.) is
-    // visible next to the request that triggered it, not just buried under
-    // email.ts's own "Error sending email:" log line.
-    logger.error(`Failed to send password reset email to ${user.email}:`, error);
-    // Clear token on email failure
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        passwordResetToken: null,
-        passwordResetExpires: null,
-      },
-    });
-    throw new AppError('Failed to send password reset email', 500);
-  }
-
-  res.json({
-    success: true,
-    message: 'If an account exists with this email, a password reset link has been sent.',
-  });
+  res.json({success:true,message});
 });
 
 /**
@@ -619,9 +558,10 @@ export const resetPassword = asyncHandler(async (req: Request, res: Response) =>
   // Hash new password
   const hashedPassword = await bcrypt.hash(password, 12);
 
-  // Update password and clear reset token
-  await prisma.user.update({
-    where: { id: user.id },
+  // Consume the reset token once, with password/session changes in the same transaction.
+  await prisma.$transaction(async tx => {
+  const changed = await tx.user.updateMany({
+    where: { id: user.id, passwordResetToken: hashedToken, passwordResetExpires: { gt: new Date() } },
     data: {
       password: hashedPassword,
       passwordResetToken: null,
@@ -630,15 +570,11 @@ export const resetPassword = asyncHandler(async (req: Request, res: Response) =>
       lockoutUntil: null,
     },
   });
-
-  // Revoke all refresh tokens (force re-login)
-  await prisma.refreshToken.updateMany({
-    where: { userId: user.id },
-    data: { isRevoked: true },
-  });
+  if (!changed.count) throw new AppError('Invalid or expired reset token', 400);
+  await queueSecurityEmail(tx,user,'PASSWORD_RESET_COMPLETED',hashedToken);
 
   // Log activity
-  await prisma.activityLog.create({
+  await tx.activityLog.create({
     data: {
       userId: user.id,
       action: 'PASSWORD_RESET',
@@ -646,6 +582,7 @@ export const resetPassword = asyncHandler(async (req: Request, res: Response) =>
       entityId: user.id,
       locationId: user.locationId,
     },
+  });
   });
 
   logger.info(`Password reset successful for: ${user.email}`);
@@ -666,6 +603,7 @@ export const changePassword = asyncHandler(async (req: AuthRequest, res: Respons
   }
 
   const { currentPassword, newPassword } = req.body;
+  if (req.body.confirmPassword !== undefined && req.body.confirmPassword !== newPassword) throw new AppError('New passwords do not match', 400);
 
   if (!currentPassword || !newPassword) {
     throw new AppError('Current password and new password are required', 400);
@@ -715,21 +653,25 @@ export const changePassword = asyncHandler(async (req: AuthRequest, res: Respons
   // Hash new password
   const hashedPassword = await bcrypt.hash(newPassword, 12);
 
-  // Update password
-  await prisma.user.update({
-    where: { id: user.id },
+  await prisma.$transaction(async tx => {
+  // Reject a competing password change instead of overwriting its credentials.
+  const changed = await tx.user.updateMany({
+    where: { id: user.id, password: user.password, isActive: true },
     data: { password: hashedPassword },
   });
+  if (!changed.count) throw new AppError('Account access changed. Sign in again.', 409);
+  await queueSecurityEmail(tx,user,'PASSWORD_CHANGED',crypto.randomUUID());
 
   // Log activity
-  await prisma.activityLog.create({
+  await tx.activityLog.create({
     data: {
       userId: user.id,
       action: 'PASSWORD_CHANGED',
       entity: 'USER',
       entityId: user.id,
-      locationId: user.locationId,
+      locationId: req.user!.locationId,
     },
+  });
   });
 
   logger.info(`Password changed for user: ${user.email}`);

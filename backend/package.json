@@ -12,14 +12,17 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:ci": "jest --ci --coverage --watchAll=false",
-    "db:migrate": "prisma migrate dev",
-    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate": "node scripts/migrate.cjs deploy",
+    "db:migrate:deploy": "node scripts/migrate.cjs deploy",
     "db:seed": "ts-node prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
     "test:unit": "jest --testPathIgnorePatterns=integration",
-    "test:integration": "jest src/__tests__/integration"
+    "test:integration": "jest src/__tests__/integration",
+    "db:bridge": "node scripts/migrate.cjs bridge",
+    "db:baseline": "node scripts/migrate.cjs baseline",
+    "db:check": "node scripts/migrate.cjs check",
+    "db:status": "node scripts/migrate.cjs status"
   },
   "keywords": [
     "pos",
@@ -60,6 +63,7 @@
     "prisma": "^5.7.1",
     "qrcode": "^1.5.4",
     "typescript": "^5.3.3",
+    "web-push": "^3.6.7",
     "xss": "^1.0.15",
     "zod": "^3.22.4"
   },
@@ -69,6 +73,7 @@
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/supertest": "^6.0.3",
+    "@types/web-push": "^3.6.4",
     "jest": "^30.2.0",
     "nodemon": "^3.0.2",
     "supertest": "^7.1.4",

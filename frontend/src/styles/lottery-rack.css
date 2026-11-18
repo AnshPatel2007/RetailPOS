@@ -1,0 +1,28 @@
+.lottery-rack-instructions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.lottery-count-progress { flex-shrink: 0; font-weight: 500; color: hsl(var(--foreground)); background: hsl(var(--muted)); border-radius: 6px; padding: 4px 8px; }
+.lottery-rack-table { container: lottery-rack / inline-size; border: 1px solid hsl(var(--border)); border-radius: 8px; overflow: hidden; background: hsl(var(--card)); }
+.lottery-rack-table table { table-layout: auto; }
+.lottery-game-cell { min-width: 140px; }
+.lottery-game-cell p { overflow-wrap: anywhere; }
+.lottery-closing-control { display: flex; min-width: 256px; align-items: start; gap: 4px; }
+.lottery-closing-input { width: 112px; flex-shrink: 0; }
+.lottery-closing-actions { display: flex; align-items: center; gap: 4px; }
+.lottery-mobile-label { display: none; }
+.lottery-rack-row:focus-within { background: hsl(var(--primary) / .04); box-shadow: inset 3px 0 hsl(var(--primary)); }
+@container lottery-rack (max-width: 850px) {
+  .lottery-rack-table table, .lottery-rack-table tbody { display: block; width: 100%; }
+  .lottery-rack-table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .lottery-rack-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-areas: 'bin game game game game game' 'opening opening closing closing closing closing' 'sold sold price price total total'; gap: 16px 12px; padding: 16px; }
+  .lottery-rack-row td { display: block; min-width: 0; padding: 0; text-align: left; }
+  .lottery-rack-row .lottery-bin-cell { grid-area: bin; }
+  .lottery-rack-row .lottery-game-cell { grid-area: game; align-self: center; }
+  .lottery-rack-row .lottery-opening-cell { grid-area: opening; }
+  .lottery-rack-row .lottery-closing-cell { grid-area: closing; }
+  .lottery-rack-row .lottery-sold-cell { grid-area: sold; }
+  .lottery-rack-row .lottery-price-cell { grid-area: price; text-align: center; }
+  .lottery-rack-row .lottery-total-cell { grid-area: total; text-align: right; }
+  .lottery-mobile-label { display: block; font-size: 12px; font-weight: 400; line-height: 18px; margin-bottom: 4px; color: hsl(var(--muted-foreground)); }
+  .lottery-closing-control { display: flex; flex-wrap: wrap; min-width: 0; gap: 4px; }
+  .lottery-closing-input { width: 100%; }
+  .lottery-closing-actions { width: 100%; justify-content: flex-end; }
+}

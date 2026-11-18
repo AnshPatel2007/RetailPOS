@@ -6,7 +6,12 @@
  */
 
 import prisma from '../config/database';
-import { sendEmail } from '../utils/email';
+import { AuthRequest } from '../types';
+import { Prisma } from '@prisma/client';
+import { queueEmail } from './queuedEmail.service';
+import { enqueueJobManifest } from './jobQueue.service';
+import { recordOperation } from './operationReceipt.service';
+import { getReportCalendar } from './reportDates.service';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 
@@ -31,68 +36,40 @@ const wrapEmail = (title: string, bodyHtml: string): string => `<!DOCTYPE html>
  * Send birthday emails to opted-in customers whose birthday is today.
  * One per customer per year (lastBirthdayEmailAt guard).
  */
-export const sendBirthdayEmails = async (): Promise<number> => {
-  const today = new Date();
-  const month = today.getMonth() + 1;
-  const day = today.getDate();
-  const year = today.getFullYear();
-
-  const candidates = await prisma.$queryRaw<
-    { id: string; firstName: string; email: string; lastBirthdayEmailAt: Date | null }[]
-  >`
-    SELECT id, "firstName", email, "lastBirthdayEmailAt"
-    FROM customers
-    WHERE "emailMarketing" = true
-      AND email IS NOT NULL
-      AND "isActive" = true
-      AND "birthDate" IS NOT NULL
-      AND EXTRACT(MONTH FROM "birthDate") = ${month}
-      AND EXTRACT(DAY FROM "birthDate") = ${day}
-  `;
-
-  const due = candidates.filter(
-    (c) => !c.lastBirthdayEmailAt || new Date(c.lastBirthdayEmailAt).getFullYear() < year
-  );
-
-  const perk =
-    process.env.BIRTHDAY_PERK_TEXT ||
-    'Come in today and mention this email for a birthday treat on us!';
-
-  let sent = 0;
-  for (const c of due) {
-    try {
-      await sendEmail({
-        to: c.email,
-        subject: `🎂 Happy Birthday, ${c.firstName}!`,
-        html: wrapEmail(
-          `Happy Birthday, ${esc(c.firstName)}! 🎉`,
-          `<p style="font-size:15px;line-height:1.6;">We hope you have a wonderful day.</p>
-           <p style="font-size:15px;line-height:1.6;background:#f6f5ff;border-left:3px solid #6c5ce7;padding:12px 14px;border-radius:0 8px 8px 0;">
-             ${esc(perk)}
-           </p>`
-        ),
+export const sendBirthdayEmails = async (now = new Date(), onlyDueHour = false): Promise<number> => {
+  const stores = await prisma.location.findMany({ where: { isActive: true }, select: { id:true } }); let queued = 0;
+  const hour = Math.min(23, Math.max(0, Number(process.env.BIRTHDAY_EMAIL_HOUR || 9)));
+  for (const store of stores) {
+    const calendar = await getReportCalendar({ locationId: store.id }, now);
+    if (onlyDueHour && Number(new Intl.DateTimeFormat('en-US', { timeZone: calendar.timezone, hour:'numeric', hourCycle:'h23' }).format(now)) !== hour) continue;
+    const candidates = await prisma.$queryRaw<{ id:string; firstName:string; email:string; lastBirthdayEmailAt:Date|null }[]>      `SELECT id,"firstName",email,"lastBirthdayEmailAt" FROM customers WHERE "locationId" = ${store.id} AND "emailMarketing" = true AND "isActive" = true AND email IS NOT NULL
+        AND EXTRACT(MONTH FROM "birthDate") = ${calendar.month} AND EXTRACT(DAY FROM "birthDate") = ${calendar.dayOfMonth}`;
+    for (const customer of candidates) {
+      if (customer.lastBirthdayEmailAt && Number(customer.lastBirthdayEmailAt.toLocaleDateString('en-CA', {timeZone:calendar.timezone}).slice(0,4)) >= calendar.year) continue;
+      const key = 'birthday:' + store.id + ':' + customer.id + ':' + calendar.year;
+      const added = await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT 1::int AS locked FROM pg_advisory_xact_lock(hashtext(${key}))`;
+        if (await tx.backgroundJob.findUnique({where:{idempotencyKey:'email:'+key},select:{id:true}})) return false;
+        const perk = process.env.BIRTHDAY_PERK_TEXT || 'Visit us today. We hope you have a wonderful birthday.';
+        await queueEmail(tx, store.id, null, key, {type:'BIRTHDAY',recipientId:customer.id,to:customer.email,year:calendar.year,
+          subject:'Happy Birthday, '+customer.firstName+'!',html:wrapEmail('Happy Birthday, '+esc(customer.firstName)+'!', '<p>'+esc(perk)+'</p>')}); return true;
       });
-      await prisma.customer.update({
-        where: { id: c.id },
-        data: { lastBirthdayEmailAt: new Date() },
-      });
-      sent++;
-    } catch (err: any) {
-      logger.warn(`Birthday email to ${c.email} failed: ${err?.message || err}`);
+      if (added) queued++;
     }
   }
-
-  if (sent > 0) logger.info(`Birthday emails sent: ${sent}`);
-  return sent;
+  return queued;
 };
 
 export type CampaignSegment = 'all' | 'lapsed30' | 'lapsed60' | 'top20' | `tag:${string}`;
 
 /** Resolve a segment to its opted-in recipients */
 export const resolveSegment = async (
-  segment: string
+  segment: string,
+  locationId: string,
+  db: Pick<Prisma.TransactionClient, 'customer'> = prisma
 ): Promise<{ id: string; firstName: string; email: string }[]> => {
-  const optedIn = { emailMarketing: true, isActive: true, email: { not: null } } as const;
+  if (!locationId) throw new Error('Campaigns require an assigned store');
+  const optedIn = { locationId, emailMarketing: true, isActive: true, email: { not: null } } as const;
 
   const daysAgo = (n: number) => {
     const d = new Date();
@@ -120,7 +97,7 @@ export const resolveSegment = async (
     return [];
   }
 
-  const customers = await prisma.customer.findMany({
+  const customers = await db.customer.findMany({
     where,
     orderBy,
     take,
@@ -133,54 +110,26 @@ export const resolveSegment = async (
  * Send a campaign email to a segment. Plain-text message becomes a simple
  * branded HTML email; {firstName} in subject/message is personalized.
  */
-export const sendCampaign = async (
-  segment: string,
-  subject: string,
-  message: string
-): Promise<{ matched: number; sent: number; failed: number }> => {
-  const recipients = await resolveSegment(segment);
-  let sent = 0;
-  let failed = 0;
+export const sendCampaign = async (req: AuthRequest, segment: string, subject: string, message: string, key: string) =>
+  recordOperation(req, 'CAMPAIGN_QUEUED', segment, key, { segment, subject, message }, async tx => {
+    const recipients = await resolveSegment(segment, req.user!.locationId!, tx);
+    const jobs = recipients.map(recipient => {
+      const personal = (value: string) => value.replace(/\{firstName\}/g, recipient.firstName);
+      return { kind: 'EMAIL' as const, idempotencyKey: 'campaign:' + key + ':' + recipient.id, locationId: req.user!.locationId!, requestedBy: req.user!.id,
+        label: 'MARKETING', payload: { type: 'MARKETING', recipientId: recipient.id, to: recipient.email, subject: personal(subject),
+          html: wrapEmail(esc(personal(subject)), '<p style="white-space:pre-wrap">' + esc(personal(message)) + '</p>') } };
+    });
+    await enqueueJobManifest(tx, jobs);
+    return { matched: recipients.length, queued: jobs.length, sent: 0, failed: 0, campaignId: key };
+  });
 
-  for (const r of recipients) {
-    const personal = (s: string) => s.replace(/\{firstName\}/g, r.firstName);
-    try {
-      await sendEmail({
-        to: r.email,
-        subject: personal(subject),
-        html: wrapEmail(
-          esc(personal(subject)),
-          `<p style="font-size:15px;line-height:1.6;white-space:pre-wrap;">${esc(personal(message))}</p>`
-        ),
-      });
-      sent++;
-    } catch {
-      failed++;
-    }
-  }
 
-  logger.info(`Campaign "${subject}" → segment ${segment}: ${sent} sent, ${failed} failed of ${recipients.length}`);
-  return { matched: recipients.length, sent, failed };
-};
-
-let lastBirthdayRun: string | null = null;
 
 /** Daily birthday check at BIRTHDAY_EMAIL_HOUR (default 9:00 server time) */
 export const startMarketingScheduler = (): void => {
-  if (process.env.BIRTHDAY_EMAILS_DISABLED === 'true') {
-    logger.info('Birthday email scheduler disabled');
-    return;
-  }
-  const hour = Math.min(23, Math.max(0, parseInt(process.env.BIRTHDAY_EMAIL_HOUR || '9', 10) || 9));
-
-  setInterval(() => {
-    const now = new Date();
-    const today = now.toISOString().slice(0, 10);
-    if (now.getHours() === hour && lastBirthdayRun !== today) {
-      lastBirthdayRun = today;
-      sendBirthdayEmails().catch((err) => logger.error('Birthday emails failed:', err));
-    }
-  }, 60 * 1000);
-
-  logger.info(`Birthday email scheduler started (runs at ${hour}:00 server time)`);
+  if (process.env.BIRTHDAY_EMAILS_DISABLED === 'true') return;
+  let running = false;
+  const timer = setInterval(() => { if (running) return; running = true;
+    void sendBirthdayEmails(new Date(), true).catch(() => logger.error('Birthday enqueue failed; durable keys allow retry')).finally(() => {running=false;});
+  }, 60000); timer.unref();
 };

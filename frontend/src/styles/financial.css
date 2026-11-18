@@ -1,0 +1,26 @@
+.financial-statement-view { display: grid; gap: 16px; min-width: 0; }
+.financial-status { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding: 14px 16px; border: 1px solid hsl(var(--border)); border-radius: 10px; background: hsl(var(--card)); font-size: 14px; }
+.financial-status > svg { margin-top: 2px; }
+.financial-statement-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid hsl(var(--border)); }
+.financial-statement-panel .pnl-statement { padding: 0 20px; }
+.statement-section { padding: 16px 0; border-bottom: 1px solid hsl(var(--border)); }
+.statement-section h4 { margin-bottom: 8px; color: hsl(var(--muted-foreground)); font-size: 12px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; }
+.statement-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(110px, auto); gap: 16px; padding: 7px 0; align-items: baseline; font-size: 14px; }
+.statement-row dt { min-width: 0; overflow-wrap: anywhere; }
+.statement-row dd { text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.statement-subtotal { padding-top: 10px; margin-top: 5px; border-top: 1px solid hsl(var(--border) / .7); font-weight: 600; }
+.statement-results { padding-top: 8px; }
+.statement-final { margin-top: 12px; padding: 14px 16px; border: 1px solid hsl(var(--primary) / .18); background: hsl(var(--primary) / .05); border-radius: 8px; font-size: 18px; font-weight: 600; }
+.statement-margins { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 16px 0; gap: 16px; font-size: 12px; }
+.statement-margins > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.statement-margins dt { color: hsl(var(--muted-foreground)); }
+.statement-margins dd { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.financial-statement-reference { padding: 0 20px 16px; }
+@media (max-width: 639px) {
+  .financial-statement-heading { padding: 14px; }
+  .financial-statement-panel .pnl-statement { padding: 0 14px; }
+  .financial-statement-reference { padding: 0 14px 14px; }
+  .statement-row { grid-template-columns: minmax(0, 1fr) minmax(100px, 42%); gap: 12px; }
+  .statement-final { padding: 12px; font-size: 18px; }
+  .statement-margins { grid-template-columns: 1fr; gap: 8px; }
+}

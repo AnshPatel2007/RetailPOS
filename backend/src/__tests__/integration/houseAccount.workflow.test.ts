@@ -1,3 +1,4 @@
+import { numeric } from '../../utils/money';
 /**
  * House Account Integration Tests
  *
@@ -80,7 +81,7 @@ describe('House Account Integration Tests', () => {
       where: { id: accountId },
       include: { transactions: true },
     });
-    expect(account!.balance).toBe(21.99);
+    expect(numeric(account!.balance)).toBe(21.99);
     expect(account!.transactions).toHaveLength(1);
     expect(account!.transactions[0].type).toBe('CHARGE');
     expect(account!.transactions[0].saleId).not.toBeNull();
@@ -97,15 +98,16 @@ describe('House Account Integration Tests', () => {
     assertResponse.error(over, 'credit limit exceeded');
 
     account = await prisma.houseAccount.findUnique({ where: { id: accountId }, include: { transactions: true } });
-    expect(account!.balance).toBe(21.99);
+    expect(numeric(account!.balance)).toBe(21.99);
     const stockAfter = (await prisma.product.findUnique({ where: { id: testData.product.id } }))!.stockQuantity;
     expect(stockAfter).toBe(stockBefore);
 
     // Customer pays $15 at the counter
+    await api.post('/api/shifts/clock-in').withAuth(adminToken).withBody({ startingCash: 100 }).expectStatus(201).execute();
     const payment = await api
       .post(`/api/house-accounts/${accountId}/payment`)
       .withAuth(adminToken)
-      .withBody({ amount: 15, notes: 'Cash payment' })
+      .withBody({ amount: 15, notes: 'Cash payment', paymentMethod: 'CASH', idempotencyKey: randomUUID() })
       .expectStatus(200)
       .execute();
     expect(payment.body.data.balance).toBe(6.99);
@@ -119,7 +121,7 @@ describe('House Account Integration Tests', () => {
       .execute();
 
     const finalAccount = await prisma.houseAccount.findUnique({ where: { id: accountId } });
-    expect(finalAccount!.balance).toBe(28.98);
+    expect(numeric(finalAccount!.balance)).toBe(28.98);
   });
 
   it('should refuse charges on a frozen account', async () => {

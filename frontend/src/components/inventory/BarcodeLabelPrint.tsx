@@ -1,7 +1,8 @@
+import { formatCurrency } from '@/lib/utils';
 import React, { useState } from 'react';
 import JsBarcode from 'jsbarcode';
 import { Modal } from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
 import { Product } from '@/types';
 import { Printer, Minus, Plus } from 'lucide-react';
@@ -32,6 +33,11 @@ interface BarcodeLabelPrintProps {
   isOpen: boolean;
   onClose: () => void;
   products: Product[];
+  /**
+   * Labels to print after price changes: once the print window opens, ask
+   * whether they printed and, if so, mark these items printed.
+   */
+  onPrinted?: (printed: Product[]) => Promise<void>;
 }
 
 interface LabelItem {
@@ -43,16 +49,29 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
   isOpen,
   onClose,
   products,
+  onPrinted,
 }) => {
   const [labelItems, setLabelItems] = useState<LabelItem[]>(() =>
     products.map((p) => ({ product: p, quantity: 1 }))
   );
+  const [printed, setPrinted] = useState<Product[] | null>(null);
+  const [marking, setMarking] = useState(false);
+  const [problem, setProblem] = useState('');
   const [labelSize, setLabelSize] = useState<'small' | 'medium' | 'large'>('medium');
 
   // Update quantities when products prop changes
   React.useEffect(() => {
     setLabelItems(products.map((p) => ({ product: p, quantity: 1 })));
+    setPrinted(null); setProblem('');
   }, [products]);
+
+  const confirmPrinted = async () => {
+    if (!printed || !onPrinted) return;
+    setMarking(true); setProblem('');
+    try { await onPrinted(printed); }
+    catch (failure) { setProblem((failure as { response?: { data?: { error?: string } } }).response?.data?.error || 'The labels were not marked printed. Try again.'); }
+    finally { setMarking(false); }
+  };
 
   const updateQuantity = (index: number, qty: number) => {
     setLabelItems((prev) =>
@@ -85,7 +104,7 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
             <div class="product-name">${esc(item.product.name)}</div>
             <div class="barcode">${svg}</div>
             <div class="code-text">${esc(code)}</div>
-            <div class="price">$${item.product.price.toFixed(2)}</div>
+            <div class="price">${formatCurrency(Number(item.product.price))}</div>
           </div>
         `);
       })
@@ -160,15 +179,34 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
     if (printWindow) {
       printWindow.document.write(html);
       printWindow.document.close();
-    }
+      setProblem('');
+      if (onPrinted) setPrinted(labelsToprint.map(item => item.product));
+    } else setProblem('The print window was blocked. Allow pop-ups for this site, then print again.');
   };
 
+  if (printed && onPrinted) return (
+    <Modal isOpen={isOpen} onClose={() => { if (!marking) onClose(); }} title="Did the labels print?" size="sm"
+      footer={<DialogActions onCancel={() => setPrinted(null)} cancelLabel="Not yet" confirmLabel="Yes, mark printed" onConfirm={() => void confirmPrinted()} loading={marking} />}>
+      <div className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Mark {printed.length === 1 ? 'this item' : `these ${printed.length} items`} printed once the new labels are on the shelf.
+          {' '}They leave Labels to print until their price changes again.
+        </p>
+        {problem && <p role="alert" className="text-sm text-destructive">{problem}</p>}
+      </div>
+    </Modal>
+  );
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Print Barcode Labels" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title="Print Barcode Labels" size="lg"
+      footer={<div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-sm text-muted-foreground">{totalLabels} label{totalLabels !== 1 ? 's' : ''} to print</span>
+        <DialogActions onCancel={onClose} confirmLabel={<><Printer aria-hidden="true" />Print Labels</>} onConfirm={handlePrint} disabled={totalLabels === 0} />
+      </div>}>
       <div className="space-y-4">
         {/* Label size selector */}
         <div>
-          <label className="block text-sm font-medium mb-1">Label Size</label>
+          <label className="field-label block text-sm font-medium mb-1">Label Size</label>
           <div className="flex gap-2">
             {(['small', 'medium', 'large'] as const).map((s) => (
               <button
@@ -193,42 +231,31 @@ export const BarcodeLabelPrint: React.FC<BarcodeLabelPrintProps> = ({
                 <p className="text-xs text-muted-foreground">{item.product.sku} {item.product.barcode ? `| ${item.product.barcode}` : ''}</p>
               </div>
               <div className="flex items-center gap-1 ml-3">
-                <button
+                <button aria-label="Decrease label quantity"
                   onClick={() => updateQuantity(index, item.quantity - 1)}
-                  className="p-1 rounded hover:bg-accent"
+                  className="dialog-close inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <Minus className="h-3 w-3" />
+                  <Minus className="h-4 w-4" />
                 </button>
                 <Input
                   type="number"
                   min="0"
                   value={item.quantity}
                   onChange={(e) => updateQuantity(index, parseInt(e.target.value) || 0)}
-                  className="w-14 text-center text-sm h-7"
+                  aria-label="Label quantity" className="w-14 text-center text-sm"
                 />
-                <button
+                <button aria-label="Increase label quantity"
                   onClick={() => updateQuantity(index, item.quantity + 1)}
-                  className="p-1 rounded hover:bg-accent"
+                  className="dialog-close inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <Plus className="h-3 w-3" />
+                  <Plus className="h-4 w-4" />
                 </button>
               </div>
             </div>
           ))}
         </div>
 
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-sm text-muted-foreground">
-            {totalLabels} label{totalLabels !== 1 ? 's' : ''} to print
-          </span>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button variant="primary" onClick={handlePrint} disabled={totalLabels === 0}>
-              <Printer className="h-4 w-4 mr-2" />
-              Print Labels
-            </Button>
-          </div>
-        </div>
+        {problem && <p role="alert" className="text-sm text-destructive">{problem}</p>}
       </div>
     </Modal>
   );

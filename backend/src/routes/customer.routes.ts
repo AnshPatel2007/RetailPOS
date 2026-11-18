@@ -22,7 +22,7 @@ router.get('/', customerController.getCustomers);
  */
 router.get(
   '/campaign/preview',
-  authorize('ADMIN'),
+  authorize('SUPER_ADMIN', 'ADMIN'),
   customerController.previewCampaignSegment
 );
 router.post(

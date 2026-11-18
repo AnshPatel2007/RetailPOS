@@ -177,7 +177,7 @@ describe('Product API Integration Tests', () => {
       const res = await api
         .post(`/api/products/${testData.product.id}/adjust-inventory`)
         .withAuth(adminToken)
-        .withBody({ quantity: -10, type: 'ADJUSTMENT', notes: 'Damaged goods' })
+        .withBody({ quantity: -10, type: 'DAMAGED', notes: 'Damaged goods' })
         .expectStatus(200)
         .execute();
 
@@ -186,7 +186,7 @@ describe('Product API Integration Tests', () => {
       });
 
       const log = await prisma.inventoryLog.findFirst({
-        where: { productId: testData.product.id, type: 'ADJUSTMENT' },
+        where: { productId: testData.product.id, type: 'DAMAGED' },
       });
       expect(log).not.toBeNull();
       expect(log!.quantity).toBe(-10);
@@ -198,7 +198,7 @@ describe('Product API Integration Tests', () => {
       const res = await api
         .post(`/api/products/${testData.product.id}/adjust-inventory`)
         .withAuth(adminToken)
-        .withBody({ quantity: -500 })
+        .withBody({ quantity: -500, type: 'DAMAGED' })
         .expectStatus(400)
         .execute();
 

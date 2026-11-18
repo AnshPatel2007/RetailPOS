@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Delete } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 
 interface QuantityNumpadProps {
   initialQty?: number;
@@ -17,10 +18,11 @@ export const QuantityNumpad: React.FC<QuantityNumpadProps> = ({
   productName,
 }) => {
   const [value, setValue] = useState(String(initialQty));
-  const overlayRef = useRef<HTMLDivElement>(null);
+  const replaceOnNextDigit = useRef(true);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (['Escape', 'Enter', 'Backspace'].includes(e.key) || /^\d$/.test(e.key)) e.preventDefault();
       if (e.key === 'Escape') { onCancel(); return; }
       if (e.key === 'Enter') { handleConfirm(); return; }
       if (e.key === 'Backspace') { handleBackspace(); return; }
@@ -28,12 +30,13 @@ export const QuantityNumpad: React.FC<QuantityNumpadProps> = ({
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   const handleDigit = (d: string) => {
+    const replace = replaceOnNextDigit.current;
+    replaceOnNextDigit.current = false;
     setValue((prev) => {
-      const next = prev === '0' ? d : prev + d;
+      const next = replace || prev === '0' ? d : prev + d;
       // Max 3 digits
       if (next.length > 3) return prev;
       return next;
@@ -41,38 +44,30 @@ export const QuantityNumpad: React.FC<QuantityNumpadProps> = ({
   };
 
   const handleBackspace = () => {
-    setValue((prev) => (prev.length <= 1 ? '1' : prev.slice(0, -1)));
+    replaceOnNextDigit.current = false;
+    setValue((prev) => (prev.length <= 1 ? '0' : prev.slice(0, -1)));
   };
 
   const handleConfirm = () => {
     const qty = parseInt(value, 10);
     if (!qty || qty < 1) return;
-    if (maxQty !== undefined && qty > maxQty) {
-      onConfirm(maxQty);
-    } else {
-      onConfirm(qty);
-    }
+    if (maxQty !== undefined && qty > maxQty) return;
+    onConfirm(qty);
   };
 
   const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
 
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={(e) => { if (e.target === overlayRef.current) onCancel(); }}
-    >
-      <div className="absolute inset-0 bg-black/60" onClick={onCancel} />
-      <div className="relative bg-card border border-border rounded-xl shadow-2xl p-5 w-72 z-10">
-        <p className="text-sm font-medium text-center mb-1 truncate text-foreground">{productName}</p>
+    <Modal isOpen onClose={onCancel} title={`Quantity for ${productName}`} size="sm" className="pos-quantity-dialog">
         {maxQty !== undefined && (
           <p className="text-xs text-center text-muted-foreground mb-2">{maxQty} in stock</p>
         )}
 
         {/* Display */}
         <div className="bg-muted rounded-lg p-3 text-center mb-3">
-          <span className="text-3xl font-bold tabular-nums">{value}</span>
+          <output aria-label="Quantity" className="text-3xl font-bold tabular-nums">{value}</output>
         </div>
+        {maxQty !== undefined && Number(value) > maxQty && <p role="alert" className="text-sm text-destructive mb-2">Only {maxQty} available.</p>}
 
         {/* Grid */}
         <div className="grid grid-cols-3 gap-2">
@@ -88,6 +83,7 @@ export const QuantityNumpad: React.FC<QuantityNumpadProps> = ({
           {/* Bottom row: backspace, 0, confirm */}
           <button
             onClick={handleBackspace}
+            aria-label="Delete last digit"
             className="h-14 rounded-lg bg-background border border-border flex items-center justify-center hover:bg-accent transition-colors active:scale-95"
           >
             <Delete className="h-5 w-5" />
@@ -100,6 +96,7 @@ export const QuantityNumpad: React.FC<QuantityNumpadProps> = ({
           </button>
           <button
             onClick={handleConfirm}
+            disabled={Number(value) < 1 || (maxQty !== undefined && Number(value) > maxQty)}
             className="h-14 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors active:scale-95"
           >
             OK
@@ -112,7 +109,6 @@ export const QuantityNumpad: React.FC<QuantityNumpadProps> = ({
         >
           Cancel (Esc)
         </button>
-      </div>
-    </div>
+    </Modal>
   );
 };

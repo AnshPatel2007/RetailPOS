@@ -187,7 +187,8 @@ describe('Customer Controller', () => {
         body: { firstName: 'Jane', lastName: 'Doe', email: 'taken@example.com' },
       });
 
-      (prisma.customer.findUnique as jest.Mock).mockResolvedValue(mockCustomer);
+      // The duplicate check looks within the customer's own store.
+      (prisma.customer.findFirst as jest.Mock).mockResolvedValueOnce(mockCustomer);
 
       await customerController.createCustomer(
         mockRequest as AuthRequest,
@@ -198,6 +199,7 @@ describe('Customer Controller', () => {
       expect(mockNext).toHaveBeenCalledWith(
         expect.objectContaining({ message: 'Customer with this email already exists' })
       );
+      expect(prisma.customer.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ email: 'taken@example.com', locationId: mockRequest.user!.locationId }) }));
       expect(prisma.customer.create).not.toHaveBeenCalled();
     });
   });
@@ -259,9 +261,8 @@ describe('Customer Controller', () => {
         body: { email: 'taken@example.com' },
       });
 
-      (prisma.customer.findUnique as jest.Mock)
-        .mockResolvedValueOnce(mockCustomer) // target customer
-        .mockResolvedValueOnce({ id: 'other-customer' }); // email owner
+      (prisma.customer.findUnique as jest.Mock).mockResolvedValueOnce(mockCustomer); // target customer
+      (prisma.customer.findFirst as jest.Mock).mockResolvedValueOnce({ id: 'other-customer' }); // email owner in the same store
 
       await customerController.updateCustomer(
         mockRequest as AuthRequest,

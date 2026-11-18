@@ -137,11 +137,11 @@ describe('Public API & Webhooks Integration Tests', () => {
     });
 
     it('should not break sales when a webhook endpoint is unreachable', async () => {
-      // Dead endpoint on a closed local port
+      // Delivery is deferred; registering an unreachable public URL cannot block checkout.
       await api
         .post('/api/developer/webhooks')
         .withAuth(superAdminToken)
-        .withBody({ url: 'http://127.0.0.1:59999/hook', events: ['sale.completed'] })
+        .withBody({ url: 'https://unreachable.invalid/hook', events: ['sale.completed'] })
         .expectStatus(201)
         .execute();
 

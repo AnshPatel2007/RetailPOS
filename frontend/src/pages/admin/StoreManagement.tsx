@@ -1,11 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { locationService } from '@/services/api';
-import { formatCurrency, CHART_COLORS } from '@/lib/utils';
+import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
+import { Select } from '@/components/ui/Select';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
+import { useNavigate } from 'react-router-dom';
+import { useAdminViewStore } from '@/store/adminViewStore';
+import { StoreConnections } from '@/components/StoreConnections';
+import { StoreBusiness } from '@/components/admin/StoreBusiness';
+import { LotteryConfiguration } from '@/components/lottery/LotteryConfiguration';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useFocusTrap, isTopFocusTrap } from '@/hooks/useFocusTrap';
+import { locationService, apiErrorMessage } from '@/services/api';
+import { formatCurrency, CHART_COLORS, formatDateTime } from '@/lib/utils';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { RowActions } from '@/components/common/RowActions';
+import { DialogActions } from '@/components/ui/DialogActions';
+import { FormSection } from '@/components/common/Workspace';
 import { Badge } from '@/components/ui/Badge';
 import {
   Table,
@@ -20,13 +33,13 @@ import {
   Edit,
   Trash2,
   Store,
-  Users,
   DollarSign,
   TrendingUp,
   ShoppingCart,
   Package,
-  Eye,
+  Link2,
   X,
+  Building2,
 } from 'lucide-react';
 import {
   BarChart,
@@ -41,6 +54,8 @@ import {
   Cell,
 } from 'recharts';
 import toast from 'react-hot-toast';
+import { Spinner } from '@/components/ui/LoadingState';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface Location {
   id: string;
@@ -56,6 +71,8 @@ interface Location {
   currency: string;
   timezone: string;
   isActive: boolean;
+  /** The business the store belongs to; its owners run all of its stores. */
+  organization?: { id: string; name: string } | null;
   _count: {
     users: number;
     products: number;
@@ -71,12 +88,26 @@ interface StoreDetails {
 }
 
 const COLORS = CHART_COLORS;
+const STORE_TIMEZONES = [
+  { value: 'America/New_York', label: 'Eastern' },
+  { value: 'America/Chicago', label: 'Central' },
+  { value: 'America/Denver', label: 'Mountain' },
+  { value: 'America/Phoenix', label: 'Mountain (Arizona, no daylight saving)' },
+  { value: 'America/Los_Angeles', label: 'Pacific' },
+  { value: 'America/Anchorage', label: 'Alaska' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii' },
+  { value: 'America/Puerto_Rico', label: 'Atlantic (Puerto Rico)' },
+];
 
 export const StoreManagement: React.FC = () => {
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [confirm, confirmDialog] = useConfirm();
+  const navigate = useNavigate();
+  const enterAdminView = useAdminViewStore(state => state.enterAdminView);
   const [showModal, setShowModal] = useState(false);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
+  const [connectionStore, setConnectionStore] = useState<Location | null>(null);
+  const [lotteryStore, setLotteryStore] = useState<Location | null>(null);
+  const [businessStore, setBusinessStore] = useState<Location | null>(null);
 
   // Store detail modal state
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -84,6 +115,19 @@ export const StoreManagement: React.FC = () => {
   const [storeDetails, setStoreDetails] = useState<StoreDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [detailPeriod, setDetailPeriod] = useState(30);
+  const [detailError, setDetailError] = useState('');
+  const detailVersion = useRef(0);
+  const detailRef = useFocusTrap(showDetailModal);
+  const closeDetails = useCallback(() => {
+    detailVersion.current++; setShowDetailModal(false); setStoreDetails(null); setDetailError('');
+  }, []);
+  useEffect(() => {
+    if (!showDetailModal) return;
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && isTopFocusTrap(detailRef.current)) { event.preventDefault(); closeDetails(); } };
+    document.addEventListener('keydown', escape);
+    return () => document.removeEventListener('keydown', escape);
+  }, [showDetailModal, closeDetails]);
+  useEffect(() => () => { detailVersion.current++; }, []);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -100,39 +144,28 @@ export const StoreManagement: React.FC = () => {
     timezone: 'America/New_York',
   });
 
-  useEffect(() => {
-    loadLocations();
-  }, []);
 
-  const loadLocations = async () => {
-    setIsLoading(true);
-    try {
-      const response = await locationService.getAll();
-      setLocations(response.data.data);
-    } catch (error) {
-      console.error('Failed to load locations:', error);
-      toast.error('Failed to load stores');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const query = useScopedQuery<Location[]>(['admin-stores'], async signal => (await locationService.getAllWithStats(signal)).data.data);
+  const locations = query.data || [], isLoading = query.loading, loadLocations = query.refresh;
+  const loadError = query.stale ? '' : query.error;
 
   const loadStoreDetails = async (store: Location, period: number = detailPeriod) => {
-    setIsLoadingDetails(true);
+    const version = ++detailVersion.current;
+    setIsLoadingDetails(true); setStoreDetails(null); setDetailError('');
     try {
       const [locationResponse, statsResponse] = await Promise.all([
         locationService.getById(store.id),
         locationService.getStats(store.id, period),
       ]);
+      if (version !== detailVersion.current) return;
       setStoreDetails({
         location: locationResponse.data.data,
         stats: statsResponse.data.data,
       });
     } catch (error) {
-      console.error('Failed to load store details:', error);
-      toast.error('Failed to load store details');
+      if (version === detailVersion.current) setDetailError('Unable to load this store and period. Retry when connected.');
     } finally {
-      setIsLoadingDetails(false);
+      if (version === detailVersion.current) setIsLoadingDetails(false);
     }
   };
 
@@ -195,7 +228,7 @@ export const StoreManagement: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to deactivate this store?')) return;
+    if (!await confirm({ title: 'Deactivate this store?', message: 'Its sales history stays available, but no new sales or changes can be made there. Staff must be moved or deactivated first.', confirmLabel: 'Deactivate', destructive: true })) return;
 
     try {
       await locationService.delete(id);
@@ -203,6 +236,17 @@ export const StoreManagement: React.FC = () => {
       loadLocations();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to deactivate store');
+    }
+  };
+
+  const handleReactivate = async (location: Location) => {
+    if (!await confirm({ title: 'Reactivate this store?', message: 'Staff assigned to it can sign in and sell there again.', confirmLabel: 'Reactivate' })) return;
+    try {
+      await locationService.update(location.id, { isActive: true });
+      toast.success('Store reactivated');
+      loadLocations();
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Failed to reactivate store'));
     }
   };
 
@@ -229,67 +273,33 @@ export const StoreManagement: React.FC = () => {
     setShowModal(true);
   };
 
+
   return (
-    <div className="space-y-6">
+    <>
+      {confirmDialog}
+    <ManagementPage className="space-y-6">
       <PageHeader
         title="Store Management"
         subtitle="Manage all store locations"
         actions={
-          <Button onClick={openCreateModal}>
+          <Button variant="primary" onClick={openCreateModal}>
             <Plus className="h-4 w-4 mr-2" />
             Add Store
           </Button>
         }
       />
+      <AutoRefreshStatus state={query} />
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded-lg">
-                <Store className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Stores</p>
-                <p className="text-2xl font-bold">{locations.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {connectionStore && <StoreConnections key={connectionStore.id} stores={locations} store={connectionStore} onClose={() => setConnectionStore(null)} />}
+      {lotteryStore && <LotteryConfiguration key={lotteryStore.id} store={lotteryStore} onClose={() => setLotteryStore(null)} />}
+      {businessStore && <StoreBusiness key={businessStore.id} store={businessStore} onClose={() => setBusinessStore(null)} onChanged={loadLocations} />}
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-success/10 rounded-lg">
-                <Store className="h-5 w-5 text-success" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Active Stores</p>
-                <p className="text-2xl font-bold">
-                  {locations.filter(l => l.isActive).length}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-info/10 rounded-lg">
-                <Users className="h-5 w-5 text-info" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Users</p>
-                <p className="text-2xl font-bold">
-                  {locations.reduce((sum, l) => sum + l._count.users, 0)}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Summary */}
+      <SummaryStrip items={[
+        { label: 'Total stores', value: locations.length },
+        { label: 'Active stores', value: locations.filter(l => l.isActive).length },
+        { label: 'Total users', value: locations.reduce((sum, l) => sum + l._count.users, 0) },
+      ]} />
 
       {/* Stores Table */}
       <Card>
@@ -298,27 +308,28 @@ export const StoreManagement: React.FC = () => {
         </CardHeader>
         {isLoading ? (
           <div className="p-8 text-center">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
+            <Spinner size="lg" className="mx-auto" />
           </div>
-        ) : locations.length === 0 ? (
+        ) : loadError ? (<div role="alert" className="p-4 space-y-3"><p>Stores could not be loaded.</p><Button variant="outline" onClick={loadLocations}>Retry</Button></div>) : locations.length === 0 ? (
           <div className="p-12 text-center">
             <Store className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-2">No stores yet</h3>
             <p className="text-muted-foreground mb-4">Create your first store to get started</p>
-            <Button onClick={openCreateModal}>
+            <Button variant="primary" onClick={openCreateModal}>
               <Plus className="h-4 w-4 mr-2" />
               Add Store
             </Button>
           </div>
         ) : (
-          <Table>
+          <Table scrollLabel="Store Management records">
             <TableHeader>
               <TableRow>
                 <TableHead>Store Name</TableHead>
+                <TableHead>Business</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>Contact</TableHead>
-                <TableHead>Users</TableHead>
-                <TableHead>Revenue</TableHead>
+                <TableHead className="text-right">Users</TableHead>
+                <TableHead className="text-right">Sales After Refunds</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -337,6 +348,9 @@ export const StoreManagement: React.FC = () => {
                     </p>
                   </TableCell>
                   <TableCell>
+                    <p className="break-words">{location.organization?.name || '—'}</p>
+                  </TableCell>
+                  <TableCell>
                     <p>{location.address}</p>
                     <p className="text-sm text-muted-foreground">
                       {location.city}, {location.state} {location.zipCode}
@@ -346,11 +360,11 @@ export const StoreManagement: React.FC = () => {
                     <p>{location.phone}</p>
                     <p className="text-sm text-muted-foreground">{location.email}</p>
                   </TableCell>
-                  <TableCell>{location._count.users}</TableCell>
-                  <TableCell>
+                  <TableCell className="text-right">{location._count.users}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap">
                     <p className="font-medium">{formatCurrency(location.totalRevenue)}</p>
                     <p className="text-sm text-muted-foreground">
-                      Today: {formatCurrency(location.todayRevenue)}
+                      Today: {formatCurrency(location.todayRevenue ?? 0)}
                     </p>
                   </TableCell>
                   <TableCell>
@@ -360,42 +374,17 @@ export const StoreManagement: React.FC = () => {
                       <Badge variant="secondary">Inactive</Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleViewDetails(location);
-                        }}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEdit(location);
-                        }}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      {location.isActive && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(location.id);
-                          }}
-                          className="text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
+                  {/* Clicks inside the actions (and their menu) never also open the row's details. */}
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <RowActions name={location.name} primary={{ label: 'Details', onAction: () => handleViewDetails(location) }} items={[
+                      { id: 'edit', label: 'Edit store', icon: <Edit size={16} />, onAction: () => handleEdit(location) },
+                      { id: 'lottery', label: 'Lottery', onAction: () => setLotteryStore(location) },
+                      { id: 'business', label: 'Business and owners', icon: <Building2 size={16} />, onAction: () => setBusinessStore(location) },
+                      { id: 'connections', label: 'Connections', icon: <Link2 size={16} />, onAction: () => setConnectionStore(location) },
+                      location.isActive
+                        ? { id: 'deactivate', label: 'Deactivate store', icon: <Trash2 size={16} />, destructive: true, onAction: () => void handleDelete(location.id) }
+                        : { id: 'reactivate', label: 'Reactivate store', onAction: () => void handleReactivate(location) },
+                    ]} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -413,114 +402,98 @@ export const StoreManagement: React.FC = () => {
         }}
         title={editingLocation ? 'Edit Store' : 'Create New Store'}
         size="lg"
+        footer={<DialogActions form="store-form" confirmLabel={editingLocation ? 'Update Store' : 'Create Store'} onCancel={() => { setShowModal(false); resetForm(); }} />}
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            label="Store Name"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-          />
+        <form id="store-form" onSubmit={handleSubmit} className="space-y-4">
+          <FormSection title="Store">
+            <Input
+              label="Store Name"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
+              autoFocus
+            />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input
+                label="Phone"
+                type="tel"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                required
+              />
+              <Input
+                label="Email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                required
+              />
+            </div>
+          </FormSection>
 
-          <Input
-            label="Address"
-            value={formData.address}
-            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-            required
-          />
+          <FormSection title="Address">
+            <Input
+              label="Street address"
+              value={formData.address}
+              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+              required
+            />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[2fr_1fr_1fr]">
+              <Input
+                label="City"
+                value={formData.city}
+                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                required
+              />
+              <Input
+                label="State"
+                value={formData.state}
+                onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                required
+              />
+              <Input
+                label="ZIP Code"
+                value={formData.zipCode}
+                onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
+                required
+              />
+            </div>
+          </FormSection>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Input
-              label="City"
-              value={formData.city}
-              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-              required
-            />
-            <Input
-              label="State"
-              value={formData.state}
-              onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-              required
-            />
-            <Input
-              label="ZIP Code"
-              value={formData.zipCode}
-              onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Phone"
-              type="tel"
-              value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-              required
-            />
-            <Input
-              label="Email"
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Input
-              label="Tax Rate (%)"
-              type="number"
-              step="0.001"
-              value={formData.taxRate}
-              onChange={(e) => setFormData({ ...formData, taxRate: e.target.value })}
-            />
-            <Input
-              label="Card Surcharge (%)"
-              type="number"
-              step="0.1"
-              min="0"
-              max="10"
-              value={formData.cardSurchargePercent}
-              onChange={(e) => setFormData({ ...formData, cardSurchargePercent: e.target.value })}
-              title="Cash-discount program: % added to card-paid amounts (0 = off)"
-            />
-            <Input
-              label="Currency"
-              value={formData.currency}
-              onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-            />
-            <div>
-              <label className="block text-sm font-medium mb-1">Timezone</label>
-              <select
+          <FormSection title="Tax, money & time" description="Sales tax, card fees, and the time zone that decides when the store's business day starts.">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input
+                label="Tax Rate (%)"
+                type="number"
+                step="0.001"
+                value={formData.taxRate}
+                onChange={(e) => setFormData({ ...formData, taxRate: e.target.value })}
+              />
+              <Input
+                label="Card Surcharge (%)"
+                description="Added to card payments for a cash-discount program. 0 = off."
+                type="number"
+                step="0.1"
+                min="0"
+                max="10"
+                value={formData.cardSurchargePercent}
+                onChange={(e) => setFormData({ ...formData, cardSurchargePercent: e.target.value })}
+              />
+              <Select
+                label="Timezone"
                 value={formData.timezone}
                 onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
-                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
               >
-                <option value="America/New_York">Eastern</option>
-                <option value="America/Chicago">Central</option>
-                <option value="America/Denver">Mountain</option>
-                <option value="America/Los_Angeles">Pacific</option>
-              </select>
+                {!STORE_TIMEZONES.some(zone => zone.value === formData.timezone) && formData.timezone && <option value={formData.timezone}>{formData.timezone}</option>}
+                {STORE_TIMEZONES.map(zone => <option key={zone.value} value={zone.value}>{zone.label}</option>)}
+              </Select>
+              <Input
+                label="Currency"
+                value={formData.currency}
+                onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+              />
             </div>
-          </div>
-
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowModal(false);
-                resetForm();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" className="flex-1">
-              {editingLocation ? 'Update Store' : 'Create Store'}
-            </Button>
-          </div>
+          </FormSection>
         </form>
       </Modal>
 
@@ -529,23 +502,24 @@ export const StoreManagement: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
             className="absolute inset-0 bg-black/50"
-            onClick={() => setShowDetailModal(false)}
+            onClick={closeDetails}
           />
-          <div className="relative bg-background rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto m-4">
+          <div ref={detailRef} role="dialog" aria-modal="true" aria-label="Store Details" className="relative bg-background rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto m-4">
             {/* Header */}
-            <div className="sticky top-0 bg-background border-b p-4 flex justify-between items-center">
+            <div className="sticky top-0 bg-background border-b p-4 flex flex-wrap gap-3 justify-between items-center">
               <div>
                 <h2 className="text-2xl font-bold">{selectedStore.name}</h2>
                 <p className="text-muted-foreground">
                   {selectedStore.city}, {selectedStore.state}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 max-w-full">
+                <Button variant="outline" onClick={() => { enterAdminView(selectedStore.id, selectedStore.name); closeDetails(); navigate('/dashboard'); }}>Preview store</Button>
                 {[7, 30, 90].map((p) => (
                   <Button
                     key={p}
-                    variant={detailPeriod === p ? 'primary' : 'outline'}
-                    size="sm"
+                    variant={detailPeriod === p ? 'secondary' : 'outline'}
+                    aria-pressed={detailPeriod === p}
                     onClick={() => handleDetailPeriodChange(p)}
                   >
                     {p}d
@@ -553,8 +527,8 @@ export const StoreManagement: React.FC = () => {
                 ))}
                 <Button
                   variant="ghost"
-                  size="sm"
-                  onClick={() => setShowDetailModal(false)}
+                  onClick={closeDetails}
+                  aria-label="Close store details"
                 >
                   <X className="h-5 w-5" />
                 </Button>
@@ -563,10 +537,10 @@ export const StoreManagement: React.FC = () => {
 
             {isLoadingDetails ? (
               <div className="p-12 text-center">
-                <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
+                <Spinner size="lg" className="mx-auto" />
                 <p className="mt-4 text-muted-foreground">Loading store details...</p>
               </div>
-            ) : storeDetails ? (
+            ) : detailError ? <div role="alert" className="p-6 space-y-3"><p>{detailError}</p><Button onClick={() => void loadStoreDetails(selectedStore)}>Retry store details</Button></div> : storeDetails ? (
               <div className="p-6 space-y-6">
                 {/* Key Metrics */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -576,8 +550,8 @@ export const StoreManagement: React.FC = () => {
                         <DollarSign className="h-8 w-8 text-success" />
                         <div>
                           <p className="text-sm text-muted-foreground">Revenue</p>
-                          <p className="text-2xl font-bold">
-                            {formatCurrency(storeDetails.stats?.periodRevenue || 0)}
+                          <p className="metric-value text-2xl font-semibold">
+                            {formatCurrency(storeDetails.stats?.periodRevenue ?? 0)}
                           </p>
                         </div>
                       </div>
@@ -590,9 +564,11 @@ export const StoreManagement: React.FC = () => {
                         <TrendingUp className="h-8 w-8 text-success" />
                         <div>
                           <p className="text-sm text-muted-foreground">Profit</p>
-                          <p className="text-2xl font-bold">
-                            {formatCurrency(storeDetails.stats?.periodProfit || 0)}
+                          <p className="metric-value text-2xl font-semibold">
+                            {typeof storeDetails.stats?.periodProfit === 'number' ? formatCurrency(storeDetails.stats.periodProfit) : 'Unavailable'}
                           </p>
+                          {storeDetails.stats?.profitUnavailableReason && <p className="text-xs text-muted-foreground">{storeDetails.stats.profitUnavailableReason}</p>}
+                          {storeDetails.stats?.profitProvisionalReason && <p className="text-xs text-muted-foreground">Not final. {storeDetails.stats.profitProvisionalReason}</p>}
                         </div>
                       </div>
                     </CardContent>
@@ -604,8 +580,8 @@ export const StoreManagement: React.FC = () => {
                         <ShoppingCart className="h-8 w-8 text-info" />
                         <div>
                           <p className="text-sm text-muted-foreground">Transactions</p>
-                          <p className="text-2xl font-bold">
-                            {storeDetails.stats?.periodTransactions || 0}
+                          <p className="metric-value text-2xl font-semibold">
+                            {storeDetails.stats?.periodTransactions ?? '—'}
                           </p>
                         </div>
                       </div>
@@ -618,7 +594,7 @@ export const StoreManagement: React.FC = () => {
                         <Package className="h-8 w-8 text-primary" />
                         <div>
                           <p className="text-sm text-muted-foreground">Products</p>
-                          <p className="text-2xl font-bold">
+                          <p className="metric-value text-2xl font-semibold">
                             {storeDetails.location?._count?.products || 0}
                           </p>
                         </div>
@@ -633,23 +609,23 @@ export const StoreManagement: React.FC = () => {
                     <CardContent className="p-4">
                       <p className="text-sm text-muted-foreground">Expenses</p>
                       <p className="text-xl font-bold text-destructive">
-                        {formatCurrency(storeDetails.stats?.periodExpenses || 0)}
+                        {formatCurrency(storeDetails.stats?.periodExpenses ?? 0)}
                       </p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <p className="text-sm text-muted-foreground">Total Revenue (All Time)</p>
+                      <p className="text-sm text-muted-foreground">Sales After Refunds (All Time)</p>
                       <p className="text-xl font-bold">
-                        {formatCurrency(storeDetails.location?.totalRevenue || 0)}
+                        {formatCurrency(storeDetails.stats?.totalRevenue ?? 0)}
                       </p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <p className="text-sm text-muted-foreground">Avg Order Value</p>
+                      <p className="text-sm text-muted-foreground">Average Sale</p>
                       <p className="text-xl font-bold">
-                        {formatCurrency(storeDetails.location?.averageOrderValue || 0)}
+                        {typeof storeDetails.stats?.averageOrderValue === 'number' ? formatCurrency(storeDetails.stats.averageOrderValue) : '—'}
                       </p>
                     </CardContent>
                   </Card>
@@ -671,7 +647,7 @@ export const StoreManagement: React.FC = () => {
                               <XAxis dataKey="name" fontSize={10} />
                               <YAxis fontSize={12} />
                               <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                              <Bar dataKey="totalRevenue" fill="#3b82f6" name="Revenue" />
+                              <Bar dataKey="revenue" fill="hsl(var(--primary))" name="Sales" />
                             </BarChart>
                           </ResponsiveContainer>
                         </div>
@@ -683,7 +659,7 @@ export const StoreManagement: React.FC = () => {
                   {storeDetails.stats?.userPerformance && storeDetails.stats.userPerformance.length > 0 && (
                     <Card>
                       <CardHeader>
-                        <CardTitle>User Performance</CardTitle>
+                        <CardTitle>Sales by Employee</CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="h-64">
@@ -691,7 +667,7 @@ export const StoreManagement: React.FC = () => {
                             <PieChart>
                               <Pie
                                 data={storeDetails.stats.userPerformance}
-                                dataKey="totalSales"
+                                dataKey="total"
                                 nameKey="userName"
                                 cx="50%"
                                 cy="50%"
@@ -721,7 +697,7 @@ export const StoreManagement: React.FC = () => {
                       <CardTitle>Store Users ({storeDetails.location.users.length})</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <Table>
+                      <Table scrollLabel="Store Management records">
                         <TableHeader>
                           <TableRow>
                             <TableHead>Name</TableHead>
@@ -762,7 +738,7 @@ export const StoreManagement: React.FC = () => {
                       <CardTitle>Recent Sales</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <Table>
+                      <Table scrollLabel="Store Management records">
                         <TableHeader>
                           <TableRow>
                             <TableHead>Sale #</TableHead>
@@ -781,7 +757,7 @@ export const StoreManagement: React.FC = () => {
                                   : 'Walk-in'}
                               </TableCell>
                               <TableCell>
-                                {new Date(sale.createdAt).toLocaleString()}
+                                {formatDateTime(sale.createdAt)}
                               </TableCell>
                               <TableCell className="text-right font-medium">
                                 {formatCurrency(sale.total)}
@@ -831,6 +807,7 @@ export const StoreManagement: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </ManagementPage>
+    </>
   );
 };

@@ -84,3 +84,7 @@ node_modules_2/
 # Junk files
 virus.*
 *.backup
+.local/
+frontend/playwright-report/
+frontend/test-results/
+backend/prisma/reconciled/schema.prisma

@@ -10,7 +10,7 @@ export const Card: React.FC<CardProps> = ({ children, className }) => {
   return (
     <div
       className={cn(
-        'rounded-lg border text-card-foreground shadow-sm bg-card',
+        'app-card rounded-lg border text-card-foreground bg-card',
         className
       )}
     >
@@ -26,7 +26,7 @@ interface CardHeaderProps {
 
 export const CardHeader: React.FC<CardHeaderProps> = ({ children, className }) => {
   return (
-    <div className={cn('flex flex-col space-y-1.5 p-6', className)}>
+    <div className={cn('flex flex-col space-y-1.5 p-4', className)}>
       {children}
     </div>
   );
@@ -39,7 +39,7 @@ interface CardTitleProps {
 
 export const CardTitle: React.FC<CardTitleProps> = ({ children, className }) => {
   return (
-    <h3 className={cn('text-2xl font-semibold leading-none tracking-tight', className)}>
+    <h3 className={cn('text-lg font-semibold leading-7 tracking-tight', className)}>
       {children}
     </h3>
   );
@@ -51,5 +51,5 @@ interface CardContentProps {
 }
 
 export const CardContent: React.FC<CardContentProps> = ({ children, className }) => {
-  return <div className={cn('p-6 pt-0', className)}>{children}</div>;
+  return <div className={cn('p-4 pt-0', className)}>{children}</div>;
 };

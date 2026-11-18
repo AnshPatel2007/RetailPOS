@@ -1,10 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { today } from '@internationalized/date';
+import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
+import { formatEnumLabel } from '@/lib/utils';
+import { Select } from '@/components/ui/Select';
+import React, { useState, useEffect, useId } from 'react';
 import { financialService } from '@/services/api';
-import { Button } from '@/components/ui/Button';
+import { useAuthStore } from '@/store/authStore';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 import toast from 'react-hot-toast';
+import { Checkbox } from '@/components/ui/Checkbox';
 
 interface RecurringExpense {
   id: string;
@@ -55,12 +60,16 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
   onSuccess,
   recurringExpense,
 }) => {
+  const timezone = useCalendarTimezone();
+  // Payroll is the store owner's to set up, as on the single-expense form.
+  const role = useAuthStore(state => state.user?.role);
+  const formId = useId();
   const [formData, setFormData] = useState({
     description: '',
     category: '',
     amount: '',
     frequency: 'MONTHLY',
-    nextDueDate: new Date().toISOString().split('T')[0],
+    nextDueDate: today(timezone).toString(),
     vendor: '',
     isActive: true,
   });
@@ -85,7 +94,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
         category: '',
         amount: '',
         frequency: 'MONTHLY',
-        nextDueDate: new Date().toISOString().split('T')[0],
+        nextDueDate: today(timezone).toString(),
         vendor: '',
         isActive: true,
       });
@@ -132,19 +141,9 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>{recurringExpense ? 'Edit Recurring Expense' : 'Add Recurring Expense'}</CardTitle>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting) onClose(); }} title={recurringExpense ? 'Edit Recurring Expense' : 'Add Recurring Expense'} size="sm" footer={<DialogActions form={formId} confirmLabel={recurringExpense ? 'Update' : 'Create'} loading={isSubmitting} onCancel={onClose} />}>
+      <div className="space-y-4">
+          <form id={formId} onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
                 {error}
@@ -153,7 +152,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
             {/* Description */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="field-label block text-sm font-medium mb-1">
                 Description <span className="text-destructive">*</span>
               </label>
               <Input
@@ -167,28 +166,28 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
             {/* Category */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="field-label block text-sm font-medium mb-1">
                 Category <span className="text-destructive">*</span>
               </label>
-              <select
+              <Select
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
                 required
               >
                 <option value="">Select category</option>
-                {EXPENSE_CATEGORIES.map((cat) => (
+                {EXPENSE_CATEGORIES.filter(cat => cat !== 'PAYROLL' || role === 'ADMIN' || formData.category === 'PAYROLL').map((cat) => (
                   <option key={cat} value={cat}>
-                    {cat.replace(/_/g, ' ')}
+                    {formatEnumLabel(cat)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               {/* Amount */}
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label className="field-label block text-sm font-medium mb-1">
                   Amount <span className="text-destructive">*</span>
                 </label>
                 <Input
@@ -203,10 +202,10 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
               {/* Frequency */}
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label className="field-label block text-sm font-medium mb-1">
                   Frequency <span className="text-destructive">*</span>
                 </label>
-                <select
+                <Select
                   value={formData.frequency}
                   onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}
                   className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -217,13 +216,13 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
                       {freq.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
             </div>
 
             {/* Vendor */}
             <div>
-              <label className="block text-sm font-medium mb-1">Vendor</label>
+              <label className="field-label block text-sm font-medium mb-1">Vendor</label>
               <Input
                 type="text"
                 value={formData.vendor}
@@ -234,7 +233,7 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
             {/* Next Due Date */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="field-label block text-sm font-medium mb-1">
                 Next Due Date <span className="text-destructive">*</span>
               </label>
               <Input
@@ -245,34 +244,12 @@ export const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
               />
             </div>
 
-            {/* Active Status */}
-            <div>
-              <label className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={formData.isActive}
-                  onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                  className="rounded border-input"
-                />
-                <span className="text-sm">Active</span>
-              </label>
-              <p className="text-xs text-muted-foreground mt-1">
-                Inactive recurring expenses won't generate new expenses
-              </p>
-            </div>
+            {/* Pausing only matters for one that already exists; new ones always start active. */}
+            {recurringExpense && <Checkbox label="Active" description="Paused recurring expenses don't create new expenses."
+              checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} />}
 
-            {/* Actions */}
-            <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Saving...' : recurringExpense ? 'Update' : 'Create'}
-              </Button>
-            </div>
           </form>
-        </CardContent>
-      </Card>
-    </div>
+              </div>
+    </Modal>
   );
 };

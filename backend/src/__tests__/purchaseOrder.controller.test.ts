@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { Prisma } from '@prisma/client';
 import * as purchaseOrderController from '../controllers/purchaseOrder.controller';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
@@ -20,7 +21,16 @@ jest.mock('../config/database', () => ({
     purchaseOrderItem: {
       deleteMany: jest.fn(),
       createMany: jest.fn(),
+      update: jest.fn(),
     },
+    purchaseReceipt: { findUnique: jest.fn(), create: jest.fn(), count: jest.fn() },
+    purchaseReceiptItem: { update: jest.fn() },
+    // Store packs matching a case size, offered when receiving.
+    productSellingUnit: { findMany: jest.fn().mockResolvedValue([]) },
+    inventoryValuation: { findUnique: jest.fn(), update: jest.fn() },
+    inventoryValueEntry: { create: jest.fn() },
+    activityLog: { create: jest.fn() },
+    $queryRaw: jest.fn(),
     product: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
@@ -65,7 +75,17 @@ describe('Purchase Order Controller', () => {
     mockResponse = createMockResponse();
     mockNext = createMockNext();
     jest.clearAllMocks();
-    (prisma.$transaction as jest.Mock).mockResolvedValue([]);
+    (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ value: 100001n }]);
+    (prisma.$transaction as jest.Mock).mockImplementation(callback => callback(prisma));
+    (prisma.purchaseReceipt.findUnique as jest.Mock).mockResolvedValue(null);
+    (prisma.purchaseReceipt.count as jest.Mock).mockResolvedValue(0);
+    (prisma.purchaseReceipt.create as jest.Mock).mockResolvedValue({ id: 'receipt-1', items: [{ id: 'receipt-line', purchaseOrderItemId: 'poi-1' }] });
+    (prisma.inventoryValuation.findUnique as jest.Mock).mockResolvedValue({ quantity: 5, value: null });
+    (prisma.inventoryValueEntry.create as jest.Mock).mockImplementation(async ({ data }) => ({ id: 'value-entry', ...data }));
+    const product = { id: 'product-1', stockQuantity: 5, trackInventory: true, locationId: 'location-123', stockVersion: 0 };
+    (prisma.product.findMany as jest.Mock).mockResolvedValue([product]);
+    (prisma.product.findUnique as jest.Mock).mockResolvedValue(product);
+    (prisma.product.update as jest.Mock).mockResolvedValue({ ...product, stockVersion: 1 });
   });
 
   describe('getPurchaseOrders', () => {
@@ -299,83 +319,21 @@ describe('Purchase Order Controller', () => {
           sku: 'SKU001',
           productName: 'Product 1',
           quantity: 10,
-          cost: 5.0,
+          receivedQty: 0,
+          damagedQty: 0,
+          rejectedQty: 0,
+          cost: new Prisma.Decimal(5),
           total: 50.0,
         },
       ],
     };
 
-    it('should update inventory and mark order received', async () => {
-      const mockRequest = createMockAuthRequest({
-        params: { id: 'po-123' },
-        body: {},
-      });
-
-      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(orderWithItems);
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue({
-        id: 'product-1',
-        stockQuantity: 5,
-      });
-
-      await purchaseOrderController.receivePurchaseOrder(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      // Stock incremented by received quantity (5 + 10)
-      expect(prisma.product.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'product-1' },
-          data: { stockQuantity: 15 },
-        })
-      );
-      expect(prisma.inventoryLog.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            productId: 'product-1',
-            type: 'PURCHASE',
-            quantity: 10,
-          }),
-        })
-      );
-      expect(prisma.$transaction).toHaveBeenCalled();
-      expect(mockResponse.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: true,
-          message: 'Purchase order received and inventory updated',
-        })
-      );
-    });
-
-    it('should report variances when received quantity differs', async () => {
-      const mockRequest = createMockAuthRequest({
-        params: { id: 'po-123' },
-        body: { receivedItems: [{ productId: 'product-1', quantity: 8 }] },
-      });
-
-      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(orderWithItems);
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue({
-        id: 'product-1',
-        stockQuantity: 5,
-      });
-
-      await purchaseOrderController.receivePurchaseOrder(
-        mockRequest as AuthRequest,
-        mockResponse as Response,
-        mockNext
-      );
-
-      expect(mockResponse.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            variances: [
-              expect.objectContaining({ ordered: 10, received: 8, variance: -2 }),
-            ],
-          }),
-        })
-      );
-    });
+    // Receiving runs inside purchaseReceiving.service with row locks, the cost
+    // ledger and package snapshots; mocked-Prisma assertions on product.update no
+    // longer describe it. Full and partial deliveries, landed cost, receiving into
+    // negative stock and idempotency are covered against a real database in
+    // integration/purchaseReceiving.workflow.test.ts, inventoryCost.workflow.test.ts
+    // and retailInventory.acceptance.test.ts (scenarios 15 and 16).
 
     it('should reject receiving an already-received order', async () => {
       const mockRequest = createMockAuthRequest({ params: { id: 'po-123' }, body: {} });

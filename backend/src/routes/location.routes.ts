@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth';
+import { validate } from '../middleware/validate';
+import { updateStoreSettingsSchema } from '../validators/storeSettings.validator';
 import {
   getAllLocations,
   getLocationById,
@@ -19,7 +21,7 @@ router.use(authenticate);
 
 // Store settings — readable by all authenticated users, writable by ADMIN/MANAGER/SUPER_ADMIN
 router.get('/my-settings', getMyStoreSettings);
-router.put('/my-settings', authorize('ADMIN', 'MANAGER'), updateMyStoreSettings);
+router.put('/my-settings', authorize('ADMIN', 'MANAGER'), validate(updateStoreSettingsSchema), updateMyStoreSettings);
 
 // Cross-location stats — must be before /:id to avoid being caught by param route
 router.get('/stats/overview', authorize('SUPER_ADMIN'), getCrossLocationStats);

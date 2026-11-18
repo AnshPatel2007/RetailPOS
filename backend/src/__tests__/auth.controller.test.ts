@@ -4,6 +4,7 @@ import * as authController from '../controllers/auth.controller';
 import prisma from '../config/database';
 import { generateToken } from '../utils/jwt';
 import { AuthRequest } from '../types';
+jest.mock('../services/securityEmail.service',()=>({queueSecurityEmail:jest.fn().mockResolvedValue({id:'security-notice'})}));
 
 // Mock Prisma
 jest.mock('../config/database', () => ({
@@ -14,6 +15,7 @@ jest.mock('../config/database', () => ({
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     refreshToken: {
       create: jest.fn(),
@@ -27,6 +29,8 @@ jest.mock('../config/database', () => ({
     activityLog: {
       create: jest.fn(),
     },
+    $transaction: jest.fn(),
+    $queryRaw:jest.fn().mockResolvedValue([]),
   },
 }));
 
@@ -41,6 +45,12 @@ jest.mock('../utils/jwt', () => ({
   generateToken: jest.fn(),
   generateRefreshToken: jest.fn(),
   verifyRefreshToken: jest.fn(),
+  verifyToken: jest.fn(),
+}));
+jest.mock('../services/session.service', () => ({
+  createLoginSession: jest.fn(),
+  // The signed-in person as the app sees them (built from the database in session.service); set in beforeEach.
+  sessionUser: jest.fn(),
 }));
 
 // Mock 2FA verification
@@ -73,6 +83,10 @@ describe('Auth Controller', () => {
 
     // Reset all mocks
     jest.clearAllMocks();
+    (prisma.$transaction as jest.Mock).mockImplementation((action: (tx: typeof prisma) => unknown) => action(prisma));
+    (prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+    require('../services/session.service').createLoginSession.mockResolvedValue({ id: 'session', activeLocationId: null });
+    require('../services/session.service').sessionUser.mockImplementation(async (id: string, locationId: string | null) => ({ id, email: 'test@example.com', locationId: locationId ?? 'store-1' }));
   });
 
   describe('login', () => {
@@ -87,7 +101,8 @@ describe('Auth Controller', () => {
       twoFactorEnabled: false,
       failedLoginAttempts: 0,
       lockoutUntil: null,
-      location: null,
+      locationId: 'store-1',
+      location: { id: 'store-1', name: 'Test Store' },
     };
 
     it('should login successfully with valid credentials', async () => {
@@ -119,6 +134,7 @@ describe('Auth Controller', () => {
             token: 'access-token',
             user: expect.objectContaining({
               email: 'test@example.com',
+              locationId: 'store-1',
             }),
           }),
         })
@@ -263,6 +279,8 @@ describe('Auth Controller', () => {
         mockNext
       );
 
+      // The store resolved by authenticate (here none) decides what the payload describes.
+      expect(require('../services/session.service').sessionUser).toHaveBeenCalledWith('123', null);
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: true,
@@ -291,6 +309,9 @@ describe('Auth Controller', () => {
   });
 
   describe('register', () => {
+    beforeEach(() => {
+      (mockRequest as Partial<AuthRequest>).user = { id: 'admin', email: 'admin@example.com', role: 'ADMIN', locationId: 'store-1' };
+    });
     it('should register new user with valid data', async () => {
       mockRequest.body = {
         email: 'new@example.com',
@@ -376,6 +397,7 @@ describe('Auth Controller', () => {
       } as AuthRequest;
 
       (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (prisma.refreshToken.findUnique as jest.Mock).mockResolvedValue({ id: 'session', userId: '123', isRevoked: false, user: { locationId: null } });
       (prisma.activityLog.create as jest.Mock).mockResolvedValue({});
 
       await authController.logout(
@@ -384,7 +406,7 @@ describe('Auth Controller', () => {
         mockNext
       );
 
-      expect(mockResponse.clearCookie).toHaveBeenCalledWith('refreshToken');
+      expect(mockResponse.clearCookie).toHaveBeenCalledWith('refreshToken', expect.objectContaining({ httpOnly: true, path: '/' }));
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: true,
@@ -431,6 +453,7 @@ describe('Auth Controller', () => {
         id: '123',
         email: 'test@example.com',
         firstName: 'Test',
+        isActive:true,
       });
       (prisma.user.update as jest.Mock).mockResolvedValue({});
 
@@ -443,7 +466,7 @@ describe('Auth Controller', () => {
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: true,
-          message: 'If an account exists with this email, a password reset link has been sent.',
+          message: 'If an account exists with this email, password reset instructions will be emailed.',
         })
       );
     });
@@ -463,7 +486,7 @@ describe('Auth Controller', () => {
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: true,
-          message: 'If an account exists with this email, a password reset link has been sent.',
+          message: 'If an account exists with this email, password reset instructions will be emailed.',
         })
       );
     });

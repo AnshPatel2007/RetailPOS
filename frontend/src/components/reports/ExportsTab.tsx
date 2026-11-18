@@ -1,5 +1,13 @@
+import { presetRange, previousFullWeek } from '@/lib/calendarDates';
+import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
+import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import React, { useState, useEffect, useCallback } from 'react';
-import { financialService, reportService, categoryService } from '@/services/api';
+import { Link } from 'react-router-dom';
+import { useAuthStore } from '@/store/authStore';
+import { api, financialService, reportService } from '@/services/api';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
+import { AboutNumbers } from '@/components/common/AboutNumbers';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -11,7 +19,10 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { buildCsv, downloadCsv } from '@/lib/utils';
+import { buildCsv, downloadCsv, formatDate, formatDateTime, formatEnumLabel } from '@/lib/utils';
+import { apiErrorMessage } from '@/services/api';
+import { Alert } from '@/components/ui/Alert';
+import { LoadingState } from '@/components/ui/LoadingState';
 import { Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -20,22 +31,23 @@ import toast from 'react-hot-toast';
  * manufacturer scan-data CSVs, and the export history. Self-contained tab —
  * moved here from the Financial page during the report consolidation.
  */
-export const ExportsTab: React.FC = () => {
-  const [exportHistory, setExportHistory] = useState<any[]>([]);
+export const ExportsTab: React.FC<{ onActions?: (actions: React.ReactNode) => void }> = ({ onActions }) => {
+  const role = useAuthStore(state=>state.user?.role);
+  const history = useScopedQuery<any[]>(['export-history'], async signal => (await api.get('/financial/exports', { signal })).data.data || []);
+  const exportHistory = history.data || [];
+  const loadHistory = history.refresh;
+  const [busy, setBusy] = useState(false);
+  // The accounting journals export exactly the store days chosen here.
+  const timezone = useCalendarTimezone();
+  const [journalStart, setJournalStart] = useState(() => presetRange('thisMonth', timezone)!.startDate);
+  const [journalEnd, setJournalEnd] = useState(() => presetRange('thisMonth', timezone)!.endDate);
+  const journalPeriod = { startDate: journalStart, endDate: journalEnd };
+  const journalFile = (name: string) => `${name}-${journalStart}-to-${journalEnd}.csv`;
 
-  const loadHistory = useCallback(() => {
-    financialService.getExportHistory()
-      .then((res) => setExportHistory(res.data.data || []))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
-
-  const handleExportSales = async () => {
+  const handleExportSales = useCallback(async () => {
+    setBusy(true);
     try {
-      const response = await financialService.exportSales();
+      const response = await financialService.exportSales({ startDate: journalStart, endDate: journalEnd });
       const data = response.data.data;
       const entries = data.entries || [];
       const csv = buildCsv(
@@ -44,17 +56,18 @@ export const ExportsTab: React.FC = () => {
           e.date, e.reference, e.description, e.debitAccount, e.creditAccount, e.amount, e.taxAmount, e.paymentMethod,
         ])
       );
-      downloadCsv(csv, `sales-journal-${new Date().toISOString().split('T')[0]}.csv`);
+      downloadCsv(csv, journalFile('sales-journal'));
       toast.success(`Exported ${data.recordCount} sales records`);
       loadHistory();
-    } catch {
-      toast.error('Failed to export sales');
-    }
-  };
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Failed to export sales'));
+    } finally { setBusy(false); }
+  }, [loadHistory, journalStart, journalEnd]);
 
-  const handleExportExpenses = async () => {
+  const handleExportExpenses = useCallback(async () => {
+    setBusy(true);
     try {
-      const response = await financialService.exportExpenses();
+      const response = await financialService.exportExpenses({ startDate: journalStart, endDate: journalEnd });
       const data = response.data.data;
       const entries = data.entries || [];
       const csv = buildCsv(
@@ -63,37 +76,24 @@ export const ExportsTab: React.FC = () => {
           e.date, e.reference, e.description, e.debitAccount, e.creditAccount, e.amount, e.vendor, e.category,
         ])
       );
-      downloadCsv(csv, `expenses-journal-${new Date().toISOString().split('T')[0]}.csv`);
+      downloadCsv(csv, journalFile('expenses-journal'));
       toast.success(`Exported ${data.recordCount} expense records`);
       loadHistory();
-    } catch {
-      toast.error('Failed to export expenses');
-    }
-  };
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Failed to export expenses'));
+    } finally { setBusy(false); }
+  }, [loadHistory, journalStart, journalEnd]);
 
   // ─── Tobacco / manufacturer scan-data export ───
-  const lastWeekMonday = () => {
-    const d = new Date();
-    const day = d.getDay() || 7; // Mon=1..Sun=7
-    d.setDate(d.getDate() - day - 6); // Monday of the previous full week
-    return d.toISOString().slice(0, 10);
-  };
-  const lastWeekSunday = () => {
-    const d = new Date(lastWeekMonday() + 'T00:00:00');
-    d.setDate(d.getDate() + 6);
-    return d.toISOString().slice(0, 10);
-  };
-  const [scanDataStart, setScanDataStart] = useState(lastWeekMonday());
-  const [scanDataEnd, setScanDataEnd] = useState(lastWeekSunday());
+  const [scanDataStart, setScanDataStart] = useState(() => previousFullWeek(timezone).startDate);
+  const [scanDataEnd, setScanDataEnd] = useState(() => previousFullWeek(timezone).endDate);
   const [scanDataCategories, setScanDataCategories] = useState<string[]>([]);
-  const [allCategories, setAllCategories] = useState<{ id: string; name: string }[]>([]);
+  const categories = useScopedQuery<{ id: string; name: string }[]>(['export-categories'], async signal => (await api.get('/categories', { signal })).data.data || []);
+  const allCategories = categories.data || [];
   const [scanDataExporting, setScanDataExporting] = useState(false);
 
-  useEffect(() => {
-    categoryService.getAll().then((res) => setAllCategories(res.data.data || [])).catch(() => {});
-  }, []);
 
-  const handleExportScanData = async () => {
+  const handleExportScanData = useCallback(async () => {
     if (scanDataCategories.length === 0) {
       toast.error('Select at least one category (e.g. Tobacco, Cigarettes)');
       return;
@@ -112,64 +112,45 @@ export const ExportsTab: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      toast.success('Scan data exported — upload it to your manufacturer portal');
+      window.URL.revokeObjectURL(url);
+      toast.success('Scan data exported. Check that your program accepts this layout before uploading it.');
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to export scan data');
+      toast.error(apiErrorMessage(error, 'Failed to export scan data'));
     } finally {
       setScanDataExporting(false);
     }
-  };
+  }, [scanDataStart, scanDataEnd, scanDataCategories]);
+
+  useEffect(() => {
+    onActions?.(<>
+      {role === 'ADMIN' && <Link className="page-action" to="/settings/jobs">Saved exports</Link>}
+      <Button variant="outline" onClick={() => void handleExportSales()} disabled={busy || scanDataExporting}><Download />Export Sales</Button>
+      <Button variant="outline" onClick={() => void handleExportExpenses()} disabled={busy || scanDataExporting}><Download />Export Expenses</Button>
+      <Button variant="primary" onClick={() => void handleExportScanData()} disabled={busy || scanDataExporting || !scanDataCategories.length}><Download />{scanDataExporting ? 'Exporting...' : 'Export Scan Data CSV'}</Button>
+    </>);
+    return () => onActions?.(null);
+  }, [onActions, role, busy, scanDataExporting, scanDataCategories.length, handleExportSales, handleExportExpenses, handleExportScanData]);
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
-        <Card className="p-6">
-          <h3 className="font-medium mb-4">Export Sales Data</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Export sales transactions in accounting format (journal entries)
-          </p>
-          <Button onClick={handleExportSales}>
-            <Download className="w-4 h-4 mr-2" />
-            Export Sales
-          </Button>
+      <AutoRefreshStatus state={history} />
+      <AutoRefreshStatus state={categories} />
+      {categories.error && !categories.data && <Alert tone="error" title="Categories are unavailable." action={<Button variant="outline" onClick={categories.refresh}>Retry categories</Button>} />}
+        <Card className="p-4">
+          <h3 className="font-medium mb-1">Accounting Journals</h3>
+          <p className="text-sm text-muted-foreground mb-4">Export Sales and Export Expenses cover these store days.</p>
+          <DateRangePicker label="Journal dates" startDate={journalPeriod.startDate} endDate={journalPeriod.endDate} allowOpenRange={false}
+            onChange={range => { setJournalStart(range.startDate); setJournalEnd(range.endDate); }} />
         </Card>
-        <Card className="p-6">
-          <h3 className="font-medium mb-4">Export Expenses Data</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Export expenses in accounting format (journal entries)
-          </p>
-          <Button onClick={handleExportExpenses}>
-            <Download className="w-4 h-4 mr-2" />
-            Export Expenses
-          </Button>
-        </Card>
-
-        <Card className="p-6 col-span-2">
+        <Card className="p-4">
           <h3 className="font-medium mb-1">Tobacco / Manufacturer Scan Data</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Weekly line-item sales for scan-data programs (Altria, RJR buydown reporting) —
-            upload the CSV to the manufacturer portal to get paid for your reported sales.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-            <div>
-              <label className="block text-xs font-medium mb-1 text-muted-foreground">Week start</label>
-              <input
-                type="date"
-                value={scanDataStart}
-                onChange={(e) => setScanDataStart(e.target.value)}
-                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1 text-muted-foreground">Week end</label>
-              <input
-                type="date"
-                value={scanDataEnd}
-                onChange={(e) => setScanDataEnd(e.target.value)}
-                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
-              />
-            </div>
-          </div>
+          <p className="text-sm text-muted-foreground mb-2">Choose store dates and program categories.</p>
+          <AboutNumbers className="mb-4">
+            <p>One row for each item sold, and a negative row for each item returned or voided, on the day the return or void happened.</p>
+            <p>A pack or carton is listed with its own barcode and the number of units in it. Dates and times are the store&apos;s.</p>
+            <p>This is a general layout. The Altria and RJR program file layouts are not built yet: check that your program accepts this file before you upload it.</p>
+          </AboutNumbers>
+          <div className="mb-4"><DateRangePicker label="Scan data dates" startDate={scanDataStart} endDate={scanDataEnd} allowOpenRange={false} onChange={range => { setScanDataStart(range.startDate); setScanDataEnd(range.endDate); }} /></div>
           <div className="mb-4">
             <label className="block text-xs font-medium mb-1.5 text-muted-foreground">
               Program categories
@@ -178,12 +159,14 @@ export const ExportsTab: React.FC = () => {
               {allCategories.map((c) => (
                 <button
                   key={c.id}
+                  type="button"
+                  aria-pressed={scanDataCategories.includes(c.id)}
                   onClick={() =>
                     setScanDataCategories((prev) =>
                       prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]
                     )
                   }
-                  className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+                  className={`page-tab inline-flex items-center px-3 text-sm rounded-md border transition-colors ${
                     scanDataCategories.includes(c.id)
                       ? 'bg-primary text-primary-foreground border-primary'
                       : 'bg-background hover:bg-muted border-input'
@@ -197,14 +180,11 @@ export const ExportsTab: React.FC = () => {
               )}
             </div>
           </div>
-          <Button onClick={handleExportScanData} disabled={scanDataExporting || scanDataCategories.length === 0}>
-            <Download className="w-4 h-4 mr-2" />
-            {scanDataExporting ? 'Exporting...' : 'Export Scan Data CSV'}
-          </Button>
         </Card>
-      </div>
 
       {/* Export History */}
+      {history.loading && <LoadingState label="Loading export history…" />}
+      {history.error && !history.data && <Alert tone="error" title="Export history is unavailable." action={<Button variant="outline" onClick={history.refresh}>Retry history</Button>} />}
       <Card>
         <div className="p-4 border-b">
           <h3 className="font-medium">Export History</h3>
@@ -216,11 +196,11 @@ export const ExportsTab: React.FC = () => {
               <TableHead>Type</TableHead>
               <TableHead>Format</TableHead>
               <TableHead>Period</TableHead>
-              <TableHead>Records</TableHead>
+              <TableHead className="text-right">Records</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {exportHistory.length === 0 ? (
+            {history.data && exportHistory.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center text-muted-foreground">
                   No exports yet
@@ -229,15 +209,15 @@ export const ExportsTab: React.FC = () => {
             ) : (
               exportHistory.map((exp) => (
                 <TableRow key={exp.id}>
-                  <TableCell>{new Date(exp.createdAt).toLocaleString()}</TableCell>
+                  <TableCell>{formatDateTime(exp.createdAt, timezone)}</TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{exp.type}</Badge>
+                    <Badge variant="secondary">{formatEnumLabel(exp.type)}</Badge>
                   </TableCell>
                   <TableCell>{exp.format}</TableCell>
                   <TableCell>
-                    {new Date(exp.startDate).toLocaleDateString()} - {new Date(exp.endDate).toLocaleDateString()}
+                    {formatDate(exp.startDate, timezone)} – {formatDate(exp.endDate, timezone)}
                   </TableCell>
-                  <TableCell>{exp.recordCount}</TableCell>
+                  <TableCell className="text-right tabular-nums">{exp.recordCount}</TableCell>
                 </TableRow>
               ))
             )}

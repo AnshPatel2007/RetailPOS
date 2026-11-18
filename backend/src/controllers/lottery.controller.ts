@@ -5,6 +5,7 @@ import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { LotteryBatchStatus, LotteryTransactionStatus } from '@prisma/client';
 import { getLocationFilter, assertOwnsRecord } from '../utils/locationFilter.util';
+import { getReportRange } from '../services/reportDates.service';
 
 /**
  * LOTTERY BATCH CONTROLLERS
@@ -335,13 +336,7 @@ export const getTransactions = asyncHandler(async (req: AuthRequest, res: Respon
   }
 
   if (startDate || endDate) {
-    where.transactionDate = {};
-    if (startDate) {
-      where.transactionDate.gte = new Date(startDate as string);
-    }
-    if (endDate) {
-      where.transactionDate.lte = new Date(endDate as string);
-    }
+    where.transactionDate = (await getReportRange(locationFilter, startDate, endDate)).range;
   }
 
   if (status) {
@@ -831,13 +826,7 @@ export const getDailySummary = asyncHandler(async (req: AuthRequest, res: Respon
   }
 
   if (startDate || endDate) {
-    where.transactionDate = {};
-    if (startDate) {
-      where.transactionDate.gte = new Date(startDate as string);
-    }
-    if (endDate) {
-      where.transactionDate.lte = new Date(endDate as string);
-    }
+    where.transactionDate = (await getReportRange(locationFilter, startDate, endDate)).range;
   }
 
   const summary = await prisma.lotteryTransaction.aggregate({
@@ -853,10 +842,30 @@ export const getDailySummary = asyncHandler(async (req: AuthRequest, res: Respon
     _count: true,
   });
 
+  const sourceRows = await prisma.sale.findMany({ where: { ...locationFilter, sourceType: 'DAILY_SUMMARY', createdAt: where.transactionDate },
+    select: { id: true, sourceData: true }, orderBy: { createdAt: 'asc' } });
+  const historicalNetDaily = sourceRows.flatMap(row => {
+    const source = row.sourceData as { businessDate?: string; lotteryNetCents?: number | null } | null;
+    return source?.businessDate && Number.isSafeInteger(source.lotteryNetCents)
+      ? [{ id: row.id, date: source.businessDate, netAmount: source.lotteryNetCents! / 100 }] : [];
+  });
+  const historicalNetCents = historicalNetDaily.reduce((sum, row) => sum + Math.round(row.netAmount * 100), 0);
+  const missingNetDays = sourceRows.length - historicalNetDaily.length;
+
   res.json({
     success: true,
     data: {
       totalDays: summary._count,
+      historicalNetDaily,
+      historicalDays: sourceRows.length,
+      missingNetDays,
+      historicalNet: historicalNetCents / 100,
+      totalNetAmount: missingNetDays ? null : (Math.round(Number(summary._sum.netAmount || 0) * 100) + historicalNetCents) / 100,
+      totalOnlineSalesAmount: Number(summary._sum.onlineSalesAmount || 0),
+      totalOfflineSalesAmount: Number(summary._sum.offlineSalesAmount || 0),
+      totalCashoutAmount: Number(summary._sum.cashoutAmount || 0),
+      totalOnlineSalesCount: summary._sum.onlineSalesCount || 0,
+      totalOfflineSalesCount: summary._sum.offlineSalesCount || 0,
       totalOnlineTickets: summary._sum.onlineSalesCount || 0,
       totalOnlineSales: summary._sum.onlineSalesAmount || 0,
       totalOfflineTickets: summary._sum.offlineSalesCount || 0,
@@ -864,7 +873,7 @@ export const getDailySummary = asyncHandler(async (req: AuthRequest, res: Respon
       totalCashout: summary._sum.cashoutAmount || 0,
       totalNet: summary._sum.netAmount || 0,
       totalTickets: (summary._sum.onlineSalesCount || 0) + (summary._sum.offlineSalesCount || 0),
-      totalSales: (summary._sum.onlineSalesAmount || 0) + (summary._sum.offlineSalesAmount || 0),
+      totalSales: Number((summary._sum.onlineSalesAmount || 0)) + Number((summary._sum.offlineSalesAmount || 0)),
     },
   });
 });

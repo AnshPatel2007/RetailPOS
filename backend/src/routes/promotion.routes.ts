@@ -12,8 +12,8 @@ router.use(authenticate);
 router.get('/active', promotionController.getActivePromotions);
 
 // Managing promotions is manager+
-router.get('/', authorize('ADMIN', 'MANAGER'), promotionController.getPromotions);
-router.get('/:id', authorize('ADMIN', 'MANAGER'), promotionController.getPromotion);
+router.get('/', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), promotionController.getPromotions);
+router.get('/:id', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), promotionController.getPromotion);
 router.post('/', authorize('ADMIN', 'MANAGER'), validate(createPromotionSchema), promotionController.createPromotion);
 router.put('/:id', authorize('ADMIN', 'MANAGER'), validate(updatePromotionSchema), promotionController.updatePromotion);
 router.post('/:id/toggle', authorize('ADMIN', 'MANAGER'), promotionController.togglePromotion);

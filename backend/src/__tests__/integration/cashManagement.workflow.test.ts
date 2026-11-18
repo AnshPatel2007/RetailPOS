@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { seedTestData, TestData } from './setup';
+import { prisma, seedTestData, TestData } from './setup';
 import { api, assertResponse, loginUser } from './helpers';
 
 describe('Cash Management Integration Tests', () => {
@@ -15,6 +15,9 @@ describe('Cash Management Integration Tests', () => {
 
   beforeEach(async () => {
     testData = await seedTestData();
+    // These tests check the drawer arithmetic through a cashier's own figures, so
+    // the store has blind close turned off (cashControl.workflow.test.ts covers it on).
+    await prisma.location.update({ where: { id: testData.location.id }, data: { settings: { cashControl: { blindClose: false } } } });
     cashierToken = await loginUser('cashier@test.com', 'Admin123!');
   });
 

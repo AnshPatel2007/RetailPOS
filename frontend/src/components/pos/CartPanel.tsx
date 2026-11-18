@@ -1,48 +1,57 @@
 import React, { useState } from 'react';
 import { useCartStore } from '@/store/cartStore';
+import { CartItem } from '@/types';
+import { lineKey } from '@/lib/cartLines';
 import { useAuthStore } from '@/store/authStore';
 import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { CartItemCard } from '@/components/pos/CartItemCard';
-import { CustomerLinkSection, LinkedCustomer } from '@/components/pos/CustomerLinkSection';
-import { RecentTransactions } from '@/components/pos/RecentTransactions';
 import { Receipt } from '@/services/hardware';
 import { hardware } from '@/services/hardware';
+import { useConfirm } from '@/components/ui/useConfirm';
+import { Kbd } from '@/components/ui/Kbd';
+import { SaleComplete, type CompletedSale } from '@/components/pos/SaleComplete';
 import {
-  Trash2,
-  Printer,
-  List,
-  RotateCcw,
   PauseCircle,
   StickyNote,
   ShoppingCart,
+  X,
 } from 'lucide-react';
 
 interface CartPanelProps {
+  /** Opens the full keyboard shortcut list. */
+  onShowShortcuts?: () => void;
+  onEditQuantity: (line: CartItem) => void;
   lastReceipt: Receipt | null;
   onPrintReceipt: () => void;
   onShowHeldSales: () => void;
   onShowRefund: () => void;
   onCheckout: () => void;
   onHoldSale: () => void;
-  linkedCustomer: LinkedCustomer | null;
-  onCustomerChange: (customer: LinkedCustomer | null) => void;
-  onViewRecentReceipt?: (saleId: string) => void;
-  refreshTrigger?: number;
+  onClose?: () => void;
+  /** The sale that just finished: change due and receipt options until the next item. */
+  completedSale?: CompletedSale | null;
+  onViewReceipt?: () => void;
+  onEmailReceipt?: (email: string) => Promise<void>;
+  onDismissCompleted?: () => void;
 }
 
 export const CartPanel: React.FC<CartPanelProps> = ({
+  onShowShortcuts,
+  onEditQuantity,
   lastReceipt,
   onPrintReceipt,
   onShowHeldSales,
   onShowRefund,
   onCheckout,
   onHoldSale,
-  linkedCustomer,
-  onCustomerChange,
-  onViewRecentReceipt,
-  refreshTrigger,
+  onClose,
+  completedSale,
+  onViewReceipt,
+  onEmailReceipt,
+  onDismissCompleted,
 }) => {
+  const [confirm, confirmDialog] = useConfirm();
   const {
     items,
     removeItem,
@@ -64,85 +73,61 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   const lineBreakdown = getLineBreakdown();
 
   const { user } = useAuthStore();
-  const canOverridePrice = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
-  const isManagerOrAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const canOverridePrice = ['ADMIN', 'MANAGER', 'CASHIER'].includes(user?.role || '');
+  const canRequestRefund = ['ADMIN', 'MANAGER', 'CASHIER'].includes(user?.role || '');
   const [showNotes, setShowNotes] = useState(false);
 
   return (
-    <div className="w-full md:w-80 lg:w-96 bg-card md:border-l border-border flex flex-col">
+    <div data-sale-cart className="pos-cart">
+      {confirmDialog}
       {/* Cart header */}
-      <div className="p-4 border-b border-border">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xl font-bold">Current Sale</h2>
-          <div className="flex gap-1 items-center">
-            {/* Held sales button */}
-            <button
-              onClick={onShowHeldSales}
-              className="relative h-9 w-9 flex items-center justify-center rounded hover:bg-accent transition-colors"
-              title="Held sales (F6)"
-            >
-              <List className="h-4 w-4 text-muted-foreground" />
-              {heldSales.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 bg-warning text-warning-foreground text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
-                  {heldSales.length}
-                </span>
-              )}
-            </button>
-
-            {isManagerOrAdmin && (
-              <button
-                onClick={onShowRefund}
-                className="h-9 w-9 flex items-center justify-center rounded hover:bg-accent transition-colors"
-                title="Quick refund"
-              >
-                <RotateCcw className="h-4 w-4 text-muted-foreground" />
-              </button>
+      <div className="pos-cart-header">
+        <div className="flex items-center justify-between gap-2">
+          <div className="pos-cart-heading">
+            <h2 className="text-base font-semibold whitespace-nowrap">Current Sale</h2>
+            <span className="text-xs text-muted-foreground whitespace-nowrap">{getItemCount()} {getItemCount() === 1 ? 'item' : 'items'}</span>
+          </div>
+          {/* Every tool is a word, not only an icon. */}
+          <div className="pos-cart-tools">
+            <Button variant="ghost" className={heldSales.length > 0 ? 'pos-cart-tool has-held' : 'pos-cart-tool'} onClick={onShowHeldSales} title="Held sales (F6)">
+              {heldSales.length > 0 ? `Held (${heldSales.length})` : 'Held'}
+            </Button>
+            {canRequestRefund && (
+              <Button variant="ghost" className="pos-cart-tool" onClick={onShowRefund} title="Quick refund" aria-label="Quick refund">Refund</Button>
             )}
-
             {lastReceipt && hardware.printer.isEnabled() && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onPrintReceipt}
-                title="Print last receipt"
-              >
-                <Printer className="h-4 w-4" />
-              </Button>
+              <Button variant="ghost" className="pos-cart-tool" onClick={onPrintReceipt} title="Print last receipt">Reprint</Button>
             )}
             {items.length > 0 && (
               <Button
                 variant="ghost"
-                size="sm"
-                onClick={() => {
-                  if (window.confirm(`Clear all ${getItemCount()} item${getItemCount() > 1 ? 's' : ''} from cart?`)) {
-                    clearCart();
-                  }
+                onClick={async () => {
+                  const count = getItemCount();
+                  if (await confirm({ title: `Clear all ${count} item${count > 1 ? 's' : ''}?`, message: 'The sale starts over. Hold the sale instead to keep it for later.', confirmLabel: 'Clear cart', cancelLabel: 'Keep items', destructive: true })) clearCart();
                 }}
-                className="text-destructive"
+                className="pos-cart-tool is-danger"
                 title="Clear cart"
+                aria-label="Clear cart"
               >
-                <Trash2 className="h-4 w-4 mr-1" />
                 Clear
               </Button>
             )}
+            {onClose && <button type="button" onClick={onClose} aria-label="Close sale cart" className="pos-cart-close"><X size={18} /></button>}
           </div>
         </div>
-        <p className="text-sm text-muted-foreground">
-          {getItemCount()} {getItemCount() === 1 ? 'item' : 'items'}
-        </p>
-      </div>
-
-      {/* Customer link */}
-      <div className="px-4 py-3 border-b border-border">
-        <CustomerLinkSection
-          linkedCustomer={linkedCustomer}
-          onCustomerChange={onCustomerChange}
-        />
       </div>
 
       {/* Cart items */}
-      <div className="flex-1 overflow-auto p-4 space-y-3">
-        {items.length === 0 ? (
+      <div data-cart-items className="pos-cart-items">
+        {items.length === 0 && completedSale ? (
+          <SaleComplete
+            sale={completedSale}
+            onPrint={onPrintReceipt}
+            onViewReceipt={onViewReceipt}
+            onEmail={onEmailReceipt}
+            onDismiss={() => onDismissCompleted?.()}
+          />
+        ) : items.length === 0 ? (
           <div className="text-center py-10">
             <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
               <ShoppingCart className="h-6 w-6 text-muted-foreground" />
@@ -163,7 +148,8 @@ export const CartPanel: React.FC<CartPanelProps> = ({
         ) : (
           items.map((item) => (
             <CartItemCard
-              key={item.product.id}
+              onEditQuantity={() => onEditQuantity(item)}
+              key={lineKey(item)}
               item={item}
               onUpdateQuantity={updateQuantity}
               onRemove={removeItem}
@@ -171,27 +157,21 @@ export const CartPanel: React.FC<CartPanelProps> = ({
               onUpdateNotes={updateNotes}
               onUpdatePrice={updatePrice}
               canOverridePrice={canOverridePrice}
-              promoDiscount={lineBreakdown[item.product.id]?.promoDiscount || 0}
-              promoName={lineBreakdown[item.product.id]?.promotionName}
+              promoDiscount={lineBreakdown[lineKey(item)]?.promoDiscount || 0}
+              promoName={lineBreakdown[lineKey(item)]?.promotionName}
             />
           ))
         )}
       </div>
 
-      {/* Recent transactions (collapsed by default) */}
-      <RecentTransactions
-        refreshTrigger={refreshTrigger}
-        onViewReceipt={onViewRecentReceipt}
-      />
-
       {/* Cart footer */}
-      <div className="border-t border-border p-4 space-y-3">
+      <div data-assistant-avoid className="pos-cart-footer">
         {/* Notes toggle */}
         {items.length > 0 && (
           <div>
             <button
               onClick={() => setShowNotes(!showNotes)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="pos-sale-note flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               <StickyNote className="h-3.5 w-3.5" />
               {notes ? 'Edit note' : 'Add note'}
@@ -242,7 +222,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                 <span className="text-muted-foreground">Tax</span>
                 <span className="font-medium tabular-nums">{formatCurrency(getTax())}</span>
               </div>
-              <div className="flex justify-between text-lg font-bold pt-2 border-t">
+              <div className="pos-cart-total flex justify-between pt-2 border-t">
                 <span>Total</span>
                 <span className="tabular-nums">{formatCurrency(getTotal())}</span>
               </div>
@@ -272,8 +252,9 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             {items.length > 0 ? <>Charge {formatCurrency(getTotal())}</> : 'Charge'}
           </Button>
         </div>
-        <p className="text-[11px] text-center text-muted-foreground">
-          F1 Cash · F2 Card · F4 Checkout · F5 Hold · F7 Misc
+        <p className="pos-shortcuts flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span><Kbd>F1</Kbd> Cash</span><span><Kbd>F2</Kbd> Card</span><span><Kbd>F5</Kbd> Hold</span><span><Kbd>F7</Kbd> Misc</span>
+          {onShowShortcuts && <button type="button" onClick={onShowShortcuts} className="underline-offset-2 hover:text-foreground hover:underline"><Kbd>?</Kbd> All shortcuts</button>}
         </p>
       </div>
     </div>

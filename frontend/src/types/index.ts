@@ -13,6 +13,35 @@ export interface User {
   location?: Location;
   createdAt: string;
   lastLoginAt: string | null;
+  twoFactorEnabled?: boolean;
+  /** A register PIN is set (the PIN itself never reaches the browser). */
+  hasPin?: boolean;
+  /**
+   * `role`, `locationId` and `location` describe the store this sign-in works in.
+   * A person with more than one store may switch; their own store is `homeLocationId`.
+   */
+  homeLocationId?: string | null;
+  homeRole?: User['role'];
+  stores?: StoreAccess[];
+  organization?: UserOrganization | null;
+}
+
+/** A store the signed-in person may work in, with their role there. */
+export interface StoreAccess {
+  locationId: string;
+  name: string;
+  role: User['role'];
+  isActive: boolean;
+  isHome: boolean;
+  isCurrent: boolean;
+}
+
+/** The business that owns the current store. */
+export interface UserOrganization {
+  id: string;
+  name: string;
+  storeCount: number;
+  isOwner: boolean;
 }
 
 export interface Location {
@@ -26,9 +55,20 @@ export interface Location {
   phone: string;
   email: string;
   taxRate: number;
+  timezone?: string;
 }
 
 export interface Product {
+  /** Selling formats share one underlying inventory product. */
+  inventoryProductId?: string;
+  sellingUnitId?: string;
+  unitsPerPackage?: number;
+  baseStockQuantity?: number;
+  looseStockQuantity?: number;
+  baseUnitName?: string;
+  sellingUnits?: ProductSellingUnit[];
+  inventoryValue?: number | null;
+  averageCost?: number | null;
   id: string;
   sku: string;
   name: string;
@@ -40,17 +80,57 @@ export interface Product {
   compareAtPrice: number | null;
   trackInventory: boolean;
   stockQuantity: number;
+  stockVersion: number;
   lowStockAlert: number;
   barcode: string | null;
   image: string | null;
   isActive: boolean;
   isTaxable: boolean;
   allowBackorder: boolean;
+  /** Recall / prohibited-sale hold. Recorded stock never blocks a sale; this does. */
+  saleBlockedReason?: string | null;
+  provisionalUnitCost?: number | null;
+  brand?: string | null;
+  productFamily?: string | null;
+  variant?: string | null;
+  size?: string | null;
   minimumAge?: number | null;
   ebtEligible?: boolean;
   priceEmbedded?: boolean;
+  /**
+   * Shared catalog: an item linked to the owner's shared item takes its name, barcode and
+   * selling rules from there; while `priceFollowsCatalog`, its price too.
+   */
+  catalogItemId?: string | null;
+  priceFollowsCatalog?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProductSellingUnit {
+  id: string;
+  productId: string;
+  locationId: string;
+  name: string;
+  sku: string | null;
+  barcode: string;
+  price: number;
+  unitsPerPackage: number;
+  sealedQuantity: number;
+  isActive: boolean;
+  version: number;
+  /** A shared pack: its name, SKU and barcode are set in the Shared Catalog. */
+  catalogPackId?: string | null;
+  priceFollowsCatalog?: boolean;
+}
+
+export interface ProductPackaging {
+  productId: string;
+  baseUnitName: string;
+  stockQuantity: number;
+  looseStockQuantity: number;
+  stockVersion: number;
+  sellingUnits: ProductSellingUnit[];
 }
 
 export interface Category {
@@ -86,6 +166,13 @@ export interface Customer {
 }
 
 export interface Sale {
+  sourceType?: 'RECEIPT' | 'DAILY_SUMMARY';
+  sourceData?: { businessDate?: string; register1Cents?: number | null; register2Cents?: number | null; cardCents?: number | null; lotteryNetCents?: number | null; sourceTitle?: string; caveats?: string[] } | null;
+  voidEvent?: { id: string; createdAt: string; reason: string } | null;
+  pricingVersion?: number | null;
+  pointsEarned?: number | null;
+  pointsRedeemed?: number | null;
+  loyaltyDiscount?: number | string | null;
   id: string;
   saleNumber: string;
   customerId: string | null;
@@ -156,9 +243,21 @@ export interface CartItem {
   discount: number;
   notes: string;
   priceOverride?: boolean;
+  /** Set on a price-label line (deli, scale): a line of its own beside the product's other lines. See lib/cartLines. */
+  lineId?: string;
 }
 
 export interface Shift {
+  /** Blind close: this cashier counts the drawer before seeing what it should hold, so the cash figures are not sent. */
+  blindClose?: boolean;
+  cashRefunds?: number;
+  cashGiftFunding?: number;
+  cashHousePayments?: number;
+  /** Cash rounding to 5 cents through this drawer (already inside its cash figures). */
+  cashRounding?: number;
+  cashVoids?: number;
+  reconciliationWarning?: string | null;
+  drawerHistoryComplete?: boolean;
   id: string;
   userId: string;
   user?: {
@@ -177,6 +276,15 @@ export interface Shift {
 }
 
 export interface DashboardMetrics {
+  period: { timezone: string; asOf: string; today: string; week: string; month: string; hourlyStart: string };
+  historyWarning: string | null;
+  productWarning: string | null;
+  unallocatedProductTotal: number;
+  hourlyData: { timestamp: number; total: number }[];
+  topProducts: { productId: string; name: string; qty: number; revenue: number }[];
+  activeShifts: { id: string; employeeName: string; clockInAt: string; totalSales: number; totalTransactions: number }[];
+  todayVoids: number;
+  todayVoidCount: number;
   todaySales: number;
   todayTransactions: number;
   todayTrend: number | null;
@@ -192,8 +300,10 @@ export interface DashboardMetrics {
   totalProducts: number;
   totalCustomers: number;
   activeEmployees: number;
-  recentSales: { id: string; saleNumber: string; total: number; paymentMethod: string; createdAt: string; customerName: string | null }[];
-  paymentBreakdown: { method: string; total: number; count: number }[];
+  recentSales: { id: string; status: string; saleNumber: string; total: number; paymentMethod: string; createdAt: string; customerName: string | null }[];
+  paymentBreakdown: { method: string; total: number; count: number; percentage: number | null }[];
+  /** Blind close: a cashier's own payment totals are withheld until their drawer is counted. */
+  paymentBreakdownHidden?: boolean;
 }
 
 export interface ApiResponse<T = any> {
@@ -240,6 +350,7 @@ export enum ExpenseStatus {
 }
 
 export interface Expense {
+  inventoryReceiptId?: string | null;
   id: string;
   expenseNumber: string;
   category: ExpenseCategory;
@@ -260,6 +371,7 @@ export interface Expense {
   };
   location?: {
     name: string;
+    timezone?: string;
   };
   approvedBy?: string;
   createdAt: string;
@@ -268,6 +380,7 @@ export interface Expense {
 
 export interface ExpenseReportData {
   expenses: Expense[];
+  period: { timezone: string };
   summary: {
     totalExpenses: number;
     pendingExpenses: number;
@@ -300,12 +413,34 @@ export interface SalesFilters {
 
 export interface SalesReportData {
   sales: Sale[];
+  employees: { id: string; firstName: string; lastName: string }[];
+  entriesPartial: boolean;
+  pagination: {
+    sales: { page: number; pageSize: number; total: number; totalPages: number };
+    refunds: { page: number; pageSize: number; total: number; totalPages: number };
+    voids: { page: number; pageSize: number; total: number; totalPages: number };
+    entries: { page: number; pageSize: number; total: number; totalPages: number };
+    entryCount: number;
+  };
+  refunds: { id: string; createdAt: string; amount: number; taxAmount: number | null; method: string | null; tenders: { method: string; amount: number; reference?: string }[] | null; reason: string; sale: Sale }[];
+  voids: { id: string; createdAt: string; amount: number; taxAmount: number; reason: string; sale: Sale }[];
+  historyWarning?: string | null;
+  entries: { sourceType?: string; storeDate?: string; id: string; saleNumber: string; kind: string; createdAt: string; employee: string; customer: string; method: string; total: number; tax: number | null }[];
+  period: { timezone: string };
   summary: {
     totalSales: number;
-    totalTransactions: number;
-    averageOrderValue: number;
-    totalTax: number;
-    totalDiscount: number;
+    grossCollected: number;
+    refunds: number;
+    refundCount: number;
+    voids: number;
+    voidCount: number;
+    /** Cash rounding to 5 cents in the period (sales figures stay exact). */
+    cashRounding?: number;
+    netSales: number | null;
+    totalTransactions: number | null;
+    averageOrderValue: number | null;
+    totalTax: number | null;
+    totalDiscount: number | null;
   };
   paymentBreakdown: {
     [method: string]: {
@@ -343,35 +478,6 @@ export interface InventoryReportData {
     totalRetailValue: number;
     potentialProfit: number;
     lowStockCount: number;
-  };
-}
-
-// ============================================
-// EMPLOYEE PERFORMANCE TYPES
-// ============================================
-
-export interface EmployeePerformance {
-  id: string;
-  name: string;
-  role: string;
-  totalSales: number;
-  totalTransactions: number;
-  totalHoursWorked: number;
-  totalCashDifference: number;
-  averageOrderValue: number;
-  salesPerHour: number;
-  cashAccuracy: number;
-  shiftCount: number;
-  itemsSold: number;
-}
-
-export interface EmployeePerformanceData {
-  performance: EmployeePerformance[];
-  summary: {
-    totalEmployees: number;
-    totalSales: number;
-    totalTransactions: number;
-    totalHoursWorked: number;
   };
 }
 

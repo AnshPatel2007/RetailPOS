@@ -10,7 +10,7 @@ import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { hashApiKey } from '../middleware/apiKeyAuth';
-import { WEBHOOK_EVENTS, sendTestWebhook } from '../services/webhook.service';
+import { WEBHOOK_EVENTS, sendTestWebhook, validateWebhookUrl } from '../services/webhook.service';
 
 // ─── API keys ───
 
@@ -97,6 +97,7 @@ export const listWebhooks = asyncHandler(async (_req: AuthRequest, res: Response
 
 export const createWebhook = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { url, events } = req.body;
+  validateWebhookUrl(String(url));
 
   if (!url || !/^https?:\/\/.+/.test(String(url))) {
     throw new AppError('A valid http(s) URL is required', 400);
@@ -127,6 +128,7 @@ export const updateWebhook = asyncHandler(async (req: AuthRequest, res: Response
 
   const data: any = {};
   if (url !== undefined) {
+    validateWebhookUrl(String(url));
     if (!/^https?:\/\/.+/.test(String(url))) throw new AppError('Invalid URL', 400);
     data.url = String(url);
   }
@@ -167,8 +169,6 @@ export const testWebhook = asyncHandler(async (req: AuthRequest, res: Response) 
   res.json({
     success: true,
     data: result,
-    message: result.delivered
-      ? `Ping delivered (HTTP ${result.status})`
-      : `Delivery failed${result.status ? ` (HTTP ${result.status})` : ' (network error or timeout)'}`,
+    message: 'Ping queued. Review delivery jobs for its result.',
   });
 });

@@ -1,7 +1,9 @@
+import { lineMoney, roundMoney } from '@/lib/money';
+import { lineKey } from '@/lib/cartLines';
 import React, { useState } from 'react';
 import { CartItem } from '@/types';
 import { formatCurrency } from '@/lib/utils';
-import { Card } from '@/components/ui/Card';
+import { ActionMenu } from '@/components/ui/ActionMenu';
 import {
   X,
   Plus,
@@ -11,15 +13,16 @@ import {
   Pencil,
   Tag,
 } from 'lucide-react';
-import toast from 'react-hot-toast';
 
 interface CartItemCardProps {
+  onEditQuantity: () => void;
   item: CartItem;
-  onUpdateQuantity: (productId: string, quantity: number) => void;
-  onRemove: (productId: string) => void;
-  onUpdateDiscount: (productId: string, discount: number) => void;
-  onUpdateNotes: (productId: string, notes: string) => void;
-  onUpdatePrice?: (productId: string, price: number) => void;
+  // Each takes the line's key (lib/cartLines): a deli item can have one line per price label.
+  onUpdateQuantity: (line: string, quantity: number) => void;
+  onRemove: (line: string) => void;
+  onUpdateDiscount: (line: string, discount: number) => void;
+  onUpdateNotes: (line: string, notes: string) => void;
+  onUpdatePrice?: (line: string, price: number) => void;
   canOverridePrice?: boolean;
   /** Automatic promotion applied to this line (display only — server recomputes) */
   promoDiscount?: number;
@@ -27,6 +30,7 @@ interface CartItemCardProps {
 }
 
 export const CartItemCard: React.FC<CartItemCardProps> = ({
+  onEditQuantity,
   item,
   onUpdateQuantity,
   onRemove,
@@ -45,14 +49,15 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
   const [priceInput, setPriceInput] = useState('');
   const [noteInput, setNoteInput] = useState(item.notes || '');
 
-  const lineTotal = item.product.price * item.quantity;
+  const line = lineKey(item);
+  const lineTotal = lineMoney(item.product.price, item.quantity);
   const effectiveDiscount = Math.min(item.discount + promoDiscount, lineTotal);
-  const discountedTotal = Math.round((lineTotal - effectiveDiscount) * 100) / 100;
+  const discountedTotal = roundMoney(lineTotal - effectiveDiscount);
 
   const handleApplyDiscount = () => {
     const val = parseFloat(discountInput);
     if (!val || val <= 0) {
-      onUpdateDiscount(item.product.id, 0);
+      onUpdateDiscount(line, 0);
       setShowDiscount(false);
       setDiscountInput('');
       return;
@@ -65,13 +70,13 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
       discountAmount = Math.min(val, lineTotal);
     }
 
-    onUpdateDiscount(item.product.id, Math.round(discountAmount * 100) / 100);
+    onUpdateDiscount(line, roundMoney(discountAmount));
     setShowDiscount(false);
     setDiscountInput('');
   };
 
   const handleClearDiscount = () => {
-    onUpdateDiscount(item.product.id, 0);
+    onUpdateDiscount(line, 0);
     setShowDiscount(false);
     setDiscountInput('');
   };
@@ -82,112 +87,68 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
       setEditingPrice(false);
       return;
     }
-    onUpdatePrice?.(item.product.id, val);
+    onUpdatePrice?.(line, val);
     setEditingPrice(false);
   };
 
   const handleSaveNotes = () => {
-    onUpdateNotes(item.product.id, noteInput);
+    onUpdateNotes(line, noteInput);
     setShowNotes(false);
   };
 
   return (
-    <Card className="p-3 animate-slideUp">
-      <div className="flex justify-between items-start mb-2">
-        <div className="flex-1 min-w-0">
-          <h4 className="font-medium text-sm truncate">{item.product.name}</h4>
-          <p className="text-xs text-muted-foreground">{item.product.sku}</p>
+    <div className="pos-cart-line" data-cart-line>
+      <div className="pos-cart-line-main">
+        <div className="pos-cart-line-name">
+          <h4>{item.product.name}</h4>
         </div>
-        <div className="flex items-center gap-0.5 ml-2 shrink-0">
+        <div className="pos-quantity" aria-label={`Quantity for ${item.product.name}`}>
           <button
-            onClick={() => setShowNotes(!showNotes)}
-            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-accent transition-colors ${item.notes ? 'text-primary' : 'text-muted-foreground/50'}`}
-            title="Item notes"
-          >
-            <StickyNote className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => setShowDiscount(!showDiscount)}
-            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-accent transition-colors ${item.discount > 0 ? 'text-primary' : 'text-muted-foreground/50'}`}
-            title="Item discount"
-          >
-            <Percent className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => onRemove(item.product.id)}
-            className="h-7 w-7 flex items-center justify-center hover:bg-destructive/10 rounded"
-            title="Remove item"
-          >
-            <X className="h-4 w-4 text-destructive" />
-          </button>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => onUpdateQuantity(item.product.id, item.quantity - 1)}
-            className="h-8 w-8 flex items-center justify-center border rounded-md hover:bg-accent active:scale-95 transition-transform"
+            onClick={() => onUpdateQuantity(line, item.quantity - 1)}
+            className="pos-quantity-button"
             title="Decrease quantity"
           >
             <Minus className="h-4 w-4" />
           </button>
-          <span className="w-10 text-center font-semibold tabular-nums">{item.quantity}</span>
+          <button type="button" onClick={onEditQuantity} aria-label={`Change quantity for ${item.product.name}`}
+            className="pos-quantity-button pos-quantity-value tabular-nums">{item.quantity}</button>
           <button
-            onClick={() => {
-              if (item.product.trackInventory && item.quantity + 1 > item.product.stockQuantity) {
-                toast.error(`Only ${item.product.stockQuantity} in stock`);
-                return;
-              }
-              onUpdateQuantity(item.product.id, item.quantity + 1);
-            }}
-            className="h-8 w-8 flex items-center justify-center border rounded-md hover:bg-accent active:scale-95 transition-transform"
+            onClick={() => onUpdateQuantity(line, item.quantity + 1)}
+            className="pos-quantity-button"
             title="Increase quantity"
           >
             <Plus className="h-4 w-4" />
           </button>
         </div>
-        <div className="text-right">
+        <div className="pos-cart-line-amount tabular-nums">
           {effectiveDiscount > 0 ? (
             <>
               <p className="text-xs text-muted-foreground line-through">{formatCurrency(lineTotal)}</p>
-              <p className="font-bold text-primary">{formatCurrency(discountedTotal)}</p>
+              <p className="font-semibold">{formatCurrency(discountedTotal)}</p>
             </>
           ) : (
-            <p className="font-bold">{formatCurrency(lineTotal)}</p>
+            <p className="font-semibold">{formatCurrency(lineTotal)}</p>
           )}
           <div className="flex items-center justify-end gap-1">
-            {editingPrice ? (
-              <div className="flex items-center gap-1 mt-0.5">
-                <input
-                  type="number"
-                  value={priceInput}
-                  onChange={(e) => setPriceInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleApplyPrice(); if (e.key === 'Escape') setEditingPrice(false); }}
-                  className="w-16 text-xs px-1 py-0.5 border rounded text-right bg-background"
-                  autoFocus
-                  step="0.01"
-                />
-                <button onClick={handleApplyPrice} className="text-xs text-primary hover:underline">OK</button>
-              </div>
-            ) : (
-              <button
-                onClick={() => {
-                  if (!canOverridePrice) return;
-                  setPriceInput(item.product.price.toFixed(2));
-                  setEditingPrice(true);
-                }}
-                className={`text-xs text-muted-foreground ${canOverridePrice ? 'hover:text-primary cursor-pointer' : ''}`}
-                title={canOverridePrice ? 'Click to override price' : undefined}
-                disabled={!canOverridePrice}
-              >
-                {formatCurrency(item.product.price)} each
-                {canOverridePrice && <Pencil className="h-2.5 w-2.5 inline ml-0.5" />}
-              </button>
-            )}
+            <span className="text-xs text-muted-foreground">{formatCurrency(item.product.price)} each</span>
           </div>
         </div>
+        <ActionMenu iconOnly label={`Actions for ${item.product.name}`} items={[
+          { id: 'notes', label: 'Item notes', icon: <StickyNote size={16} />, onAction: () => setShowNotes(!showNotes) },
+          { id: 'discount', label: 'Item discount', icon: <Percent size={16} />, onAction: () => setShowDiscount(!showDiscount) },
+          ...(canOverridePrice ? [{ id: 'price', label: 'Override price', icon: <Pencil size={16} />, onAction: () => { setPriceInput(item.product.price.toFixed(2)); setEditingPrice(true); } }] : []),
+          { id: 'remove', label: 'Remove item', icon: <X size={16} />, destructive: true, onAction: () => onRemove(line) },
+        ]} />
       </div>
+
+      {editingPrice && <div className="pos-line-editor flex items-center gap-2">
+        <label className="text-xs" htmlFor={`price-${line}`}>Unit price</label>
+        <input id={`price-${line}`} type="number" value={priceInput} aria-label={`Unit price for ${item.product.name}`}
+          onChange={e => setPriceInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleApplyPrice(); if (e.key === 'Escape') { e.stopPropagation(); setEditingPrice(false); } }}
+          className="min-w-0 flex-1 text-sm px-2 border rounded bg-background" autoFocus step="0.01" />
+        <button type="button" onClick={handleApplyPrice} className="text-sm text-primary">Apply</button>
+        <button type="button" onClick={() => setEditingPrice(false)} className="text-sm text-muted-foreground">Cancel</button>
+      </div>}
 
       {/* Automatic promotion badge */}
       {promoDiscount > 0 && promoName && (
@@ -200,7 +161,7 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
 
       {/* Inline discount editor */}
       {showDiscount && (
-        <div className="mt-2 pt-2 border-t border-border space-y-2">
+        <div className="pos-line-editor mt-2 pt-2 border-t border-border space-y-2">
           <div className="flex items-center gap-2">
             <div className="flex border rounded overflow-hidden">
               <button
@@ -219,6 +180,7 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
             <input
               type="number"
               value={discountInput}
+              aria-label="Item discount amount"
               onChange={(e) => setDiscountInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleApplyDiscount(); }}
               placeholder={discountMode === '$' ? '0.00' : '0'}
@@ -239,11 +201,12 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
 
       {/* Inline notes editor */}
       {showNotes && (
-        <div className="mt-2 pt-2 border-t border-border">
+        <div className="pos-line-editor mt-2 pt-2 border-t border-border">
           <div className="flex gap-2">
             <input
               type="text"
               value={noteInput}
+              aria-label={`Note for ${item.product.name}`}
               onChange={(e) => setNoteInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleSaveNotes(); }}
               placeholder="Item note..."
@@ -259,6 +222,6 @@ export const CartItemCard: React.FC<CartItemCardProps> = ({
       {!showNotes && item.notes && (
         <p className="mt-1 text-xs text-muted-foreground italic truncate">Note: {item.notes}</p>
       )}
-    </Card>
+    </div>
   );
 };

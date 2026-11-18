@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
-import { X, FileText, CheckCircle, XCircle, Trash2, Edit } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { FileText, CheckCircle, XCircle, Edit } from 'lucide-react';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Expense } from '@/types';
 import { Button } from '@/components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { Modal } from '@/components/ui/Modal';
+import { formatCurrency, formatEnumLabel } from '@/lib/utils';
+import { displayStoreDate } from '@/lib/storeDates';
 import { expenseService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface ExpenseDetailsModalProps {
   isOpen: boolean;
@@ -13,6 +17,7 @@ interface ExpenseDetailsModalProps {
   expense: Expense | null;
   onSuccess: () => void;
   onEdit: (expense: Expense) => void;
+  timezone: string;
 }
 
 export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
@@ -21,15 +26,18 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
   expense,
   onSuccess,
   onEdit,
+  timezone,
 }) => {
+  const [confirm, confirmDialog] = useConfirm();
   const { user } = useAuthStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
   if (!isOpen || !expense) return null;
+  const formatDate = (value: string) => displayStoreDate(value, expense.location?.timezone || timezone);
 
   const handleApprove = async () => {
-    if (!confirm('Are you sure you want to approve this expense?')) return;
+    if (!await confirm({ title: 'Approve this expense?', confirmLabel: 'Approve' })) return;
 
     setIsLoading(true);
     setError('');
@@ -45,7 +53,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
   };
 
   const handleReject = async () => {
-    if (!confirm('Are you sure you want to reject this expense?')) return;
+    if (!await confirm({ title: 'Reject this expense?', confirmLabel: 'Reject', destructive: true })) return;
 
     setIsLoading(true);
     setError('');
@@ -61,7 +69,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
   };
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this expense? This action cannot be undone.')) return;
+    if (!await confirm({ title: 'Delete this expense?', message: 'This cannot be undone.', confirmLabel: 'Delete', destructive: true })) return;
 
     setIsLoading(true);
     setError('');
@@ -76,23 +84,35 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
     }
   };
 
-  const canEdit = expense.status === 'PENDING';
-  const canApprove = expense.status === 'PENDING' && (user?.role === 'ADMIN' || user?.role === 'MANAGER');
-  const canDelete = user?.role === 'ADMIN';
+  const handleReceipt = async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      const filename = expense.receiptUrl?.split('/').pop();
+      if (!filename) throw new Error('Receipt not found');
+      const response = await expenseService.downloadReceipt(filename);
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url; link.download = filename; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch { setError('Unable to download this receipt. Check your access and try again.'); }
+    finally { setIsLoading(false); }
+  };
+  const canEdit = expense.category !== 'PAYROLL' && expense.status === 'PENDING' && (user?.role === 'ADMIN' || user?.role === 'MANAGER');
+  const canApprove = expense.category !== 'PAYROLL' && expense.status === 'PENDING' && (user?.role === 'ADMIN' || user?.role === 'MANAGER');
+  const canDelete = expense.category !== 'PAYROLL' && user?.role === 'ADMIN';
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Expense Details</CardTitle>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </CardHeader>
-        <CardContent className="space-y-6">
+    <Modal isOpen={isOpen} onClose={() => { if (!isLoading) onClose(); }} title="Expense Details" size="lg"
+      footer={(canApprove || canEdit || canDelete) && <DialogActions loading={isLoading}
+        {...(canApprove ? { confirmLabel: <><CheckCircle aria-hidden="true" />Approve</>, onConfirm: () => void handleApprove() }
+          : canEdit ? { confirmLabel: <><Edit aria-hidden="true" />Edit</>, onConfirm: () => { onEdit(expense); onClose(); } } : {})}
+        remove={canDelete ? { label: 'Delete', onClick: () => void handleDelete() } : undefined}>
+        {canApprove && canEdit && <Button disabled={isLoading} onClick={() => { onEdit(expense); onClose(); }}><Edit aria-hidden="true" />Edit</Button>}
+        {canApprove && <Button className="text-destructive" disabled={isLoading} onClick={() => void handleReject()}><XCircle aria-hidden="true" />Reject</Button>}
+      </DialogActions>}>
+      {confirmDialog}
+      <div className="space-y-6">
           {error && (
             <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
               {error}
@@ -124,7 +144,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-muted-foreground">Category</p>
-              <p className="font-medium">{expense.category.replace(/_/g, ' ')}</p>
+              <p className="font-medium">{formatEnumLabel(expense.category)}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Expense Date</p>
@@ -178,15 +198,7 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
           {expense.receiptUrl && (
             <div>
               <p className="text-sm text-muted-foreground mb-2">Receipt</p>
-              <a
-                href={expense.receiptUrl.startsWith('http') ? expense.receiptUrl : `http://localhost:5000${expense.receiptUrl}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-primary hover:underline"
-              >
-                <FileText className="h-4 w-4" />
-                View Receipt
-              </a>
+              <button type="button" onClick={handleReceipt} disabled={isLoading} className="inline-flex items-center gap-2 text-primary hover:underline disabled:opacity-50"><FileText className="h-4 w-4" />Download Receipt</button>
             </div>
           )}
 
@@ -196,56 +208,8 @@ export const ExpenseDetailsModal: React.FC<ExpenseDetailsModalProps> = ({
             <p>Last Updated: {formatDate(expense.updatedAt)}</p>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-wrap gap-2 pt-4">
-            {canEdit && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  onEdit(expense);
-                  onClose();
-                }}
-                disabled={isLoading}
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Edit
-              </Button>
-            )}
-            {canApprove && (
-              <>
-                <Button
-                  variant="default"
-                  onClick={handleApprove}
-                  disabled={isLoading}
-                  className="bg-success hover:bg-success/90"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Approve
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={handleReject}
-                  disabled={isLoading}
-                >
-                  <XCircle className="h-4 w-4 mr-2" />
-                  Reject
-                </Button>
-              </>
-            )}
-            {canDelete && (
-              <Button
-                variant="destructive"
-                onClick={handleDelete}
-                disabled={isLoading}
-                className="ml-auto"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+          {expense.category === 'PAYROLL' && user?.role === 'ADMIN' && <Link className="text-primary underline" to={`/team-time/payroll?record=${expense.id}`}>Review payroll and payment</Link>}
+              </div>
+    </Modal>
   );
 };

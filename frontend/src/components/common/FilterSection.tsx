@@ -22,8 +22,9 @@ export const FilterSection: React.FC<FilterSectionProps> = ({
     <div className={`border-b border-border pb-2 ${className}`}>
       <button
         type="button"
+        aria-expanded={isOpen}
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between py-1 text-sm font-medium hover:text-primary transition-colors"
+        className="filter-section-toggle w-full flex items-center justify-between min-h-9 py-1 text-sm font-medium hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
       >
         <div className="flex flex-col items-start gap-1">
           <span>{title}</span>

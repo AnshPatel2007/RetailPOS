@@ -1,10 +1,17 @@
 import { Router } from 'express';
+import { previewInventoryImport, applyInventoryImport } from '../services/inventoryImport.service';
+import { asyncHandler } from '../utils/errorHandler';
+import { AuthRequest } from '../types';
 import * as productController from '../controllers/product.controller';
-import { identifyProduct } from '../controllers/productIdentify.controller';
+import { identifyProduct, productIdentifyLimiter } from '../controllers/productIdentify.controller';
+import { getInventoryHistory } from '../controllers/inventoryHistory.controller';
 import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { createProductSchema, updateProductSchema } from '../validators/product.validator';
-import { upload } from '../middleware/upload';
+import * as sellingUnitController from '../controllers/sellingUnit.controller';
+import * as bundleController from '../controllers/productBundle.controller';
+import * as packMergeController from '../controllers/packMerge.controller';
+import * as packCatalogController from '../controllers/packCatalog.controller';
 
 const router = Router();
 
@@ -16,16 +23,20 @@ router.use(authenticate);
 /**
  * Static routes MUST come before /:id to avoid being caught by the param route
  */
+router.post('/imports/csv/preview', authorize('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: import('express').Response) => res.json({ success: true, data: await previewInventoryImport(req, 'CSV') })));
+router.post('/imports/receipt/preview', authorize('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: import('express').Response) => res.json({ success: true, data: await previewInventoryImport(req, 'RECEIPT') })));
+router.post('/imports/:id/apply', authorize('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: import('express').Response) => res.json({ success: true, data: await applyInventoryImport(req) })));
 router.get('/low-stock', productController.getLowStockProducts);
-router.get('/stats', productController.getProductStats);
+router.get('/resolve-barcode', productController.resolveBarcode);
+router.get('/movements', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), getInventoryHistory);
+router.get('/stats', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), productController.getProductStats);
+// Shelf labels that no longer show the price (above /:id).
+router.get('/labels/pending', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), productController.pendingLabels);
+router.post('/labels/printed', authorize('ADMIN', 'MANAGER'), productController.labelsPrinted);
+// Inventory > Packs: packs of one item and variety packs, listed on their own.
+router.get('/packs', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), packCatalogController.getPacks);
 
-router.post(
-  '/scan-receipt',
-  authorize('ADMIN', 'MANAGER'),
-  upload.single('receipt'),
-  productController.scanReceipt
-);
-
+// Invoice photos are read and received through /api/delivery-invoices.
 router.post(
   '/apply-receipt',
   authorize('ADMIN', 'MANAGER'),
@@ -35,6 +46,7 @@ router.post(
 router.post(
   '/identify',
   authorize('ADMIN', 'MANAGER'),
+  productIdentifyLimiter,
   identifyProduct
 );
 
@@ -87,6 +99,20 @@ router.delete(
   authorize('ADMIN', 'MANAGER'),
   productController.deleteProduct
 );
+
+// Connected packaging: packs (e.g. a 12-pack) that share this product's stock.
+router.get('/:id/selling-units', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), sellingUnitController.getPackaging);
+router.post('/:id/selling-units', authorize('ADMIN', 'MANAGER'), sellingUnitController.createSellingUnit);
+router.patch('/:id/selling-units', authorize('ADMIN', 'MANAGER'), sellingUnitController.updateBaseUnitName);
+router.put('/:id/selling-units/:unitId', authorize('ADMIN', 'MANAGER'), sellingUnitController.updateSellingUnit);
+router.post('/:id/selling-units/:unitId/packaging', authorize('ADMIN', 'MANAGER'), sellingUnitController.changePackaging);
+// A standalone product (e.g. a carton) merged into a pack of another product.
+router.post('/:id/merge-into-pack/preview', authorize('ADMIN', 'MANAGER'), packMergeController.previewMerge);
+router.post('/:id/merge-into-pack', authorize('ADMIN', 'MANAGER'), packMergeController.merge);
+// Variety packs: contents, and opening packs into them.
+router.get('/:id/bundle', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), bundleController.getBundleContents);
+router.put('/:id/bundle', authorize('ADMIN', 'MANAGER'), bundleController.updateBundleContents);
+router.post('/:id/open-bundle', authorize('ADMIN', 'MANAGER'), bundleController.openBundlePacks);
 
 router.post(
   '/:id/adjust-inventory',

@@ -11,6 +11,8 @@ export const createSupplierSchema = z.object({
     paymentTerms: z.string().optional().nullable(),
     leadTimeDays: z.number().int().min(0).optional().nullable(),
     minimumOrder: z.number().min(0).optional().nullable(),
+    // Weekdays the supplier delivers: 0 = Sunday ... 6 = Saturday.
+    deliveryDays: z.array(z.number().int().min(0).max(6)).max(7).transform(days => [...new Set(days)].sort((a, b) => a - b)).optional(),
   }),
 });
 
@@ -26,6 +28,8 @@ export const updateSupplierSchema = z.object({
     paymentTerms: z.string().optional().nullable(),
     leadTimeDays: z.number().int().min(0).optional().nullable(),
     minimumOrder: z.number().min(0).optional().nullable(),
+    // Weekdays the supplier delivers: 0 = Sunday ... 6 = Saturday.
+    deliveryDays: z.array(z.number().int().min(0).max(6)).max(7).transform(days => [...new Set(days)].sort((a, b) => a - b)).optional(),
   }),
 });
 
@@ -36,6 +40,10 @@ export const linkProductSchema = z.object({
     cost: z.number().min(0, 'Cost must be non-negative').optional().nullable(),
     leadTime: z.number().int().min(0).optional().nullable(),
     minOrder: z.number().int().min(1).optional().nullable(),
+    // How the supplier sells it, e.g. a case of 24 for $36.00.
+    packSize: z.number().int().min(1).max(100000).optional(),
+    packCost: z.number().min(0).optional().nullable(),
+    packBarcode: z.string().trim().max(100).optional().nullable(),
   }),
 });
 
@@ -45,6 +53,10 @@ export const updateProductLinkSchema = z.object({
     cost: z.number().min(0, 'Cost must be non-negative').optional().nullable(),
     leadTime: z.number().int().min(0).optional().nullable(),
     minOrder: z.number().int().min(1).optional().nullable(),
+    // How the supplier sells it, e.g. a case of 24 for $36.00.
+    packSize: z.number().int().min(1).max(100000).optional(),
+    packCost: z.number().min(0).optional().nullable(),
+    packBarcode: z.string().trim().max(100).optional().nullable(),
   }),
 });
 
@@ -55,6 +67,10 @@ export const createPurchaseOrderSchema = z.object({
       productId: z.string().uuid('Invalid product ID'),
       quantity: z.number().int().min(1, 'Quantity must be at least 1'),
       cost: z.number().min(0, 'Cost must be non-negative'),
+      // Ordered in supplier cases: quantity = packQuantity x packSize (units).
+      packSize: z.number().int().min(1).max(100000).optional(),
+      packQuantity: z.number().int().min(1).optional().nullable(),
+      packCost: z.number().min(0).optional().nullable(),
     })).min(1, 'At least one item is required'),
     notes: z.string().optional().nullable(),
     expectedAt: z.string().optional().nullable(),
@@ -69,6 +85,10 @@ export const updatePurchaseOrderSchema = z.object({
       productId: z.string().uuid('Invalid product ID'),
       quantity: z.number().int().min(1, 'Quantity must be at least 1'),
       cost: z.number().min(0, 'Cost must be non-negative'),
+      // Ordered in supplier cases: quantity = packQuantity x packSize (units).
+      packSize: z.number().int().min(1).max(100000).optional(),
+      packQuantity: z.number().int().min(1).optional().nullable(),
+      packCost: z.number().min(0).optional().nullable(),
     })).optional(),
   }),
 });
@@ -81,9 +101,30 @@ export const updateStatusSchema = z.object({
 
 export const receivePurchaseOrderSchema = z.object({
   body: z.object({
+    invoiceNumber: z.string().trim().min(1).max(100).optional(),
+    invoiceDate: z.string().datetime().optional(),
+    freight: z.number().finite().min(0).max(1000000).default(0),
+    acquisitionTax: z.number().finite().min(0).max(1000000).default(0),
+    invoiceDiscount: z.number().finite().min(0).max(1000000).default(0),
     receivedItems: z.array(z.object({
-      productId: z.string().uuid('Invalid product ID'),
-      quantity: z.number().int().min(0, 'Quantity must be non-negative'),
-    })).optional(),
+      unitCost: z.number().finite().min(0).max(1000000).optional(),
+      zeroCostConfirmed: z.boolean().default(false),
+      packSize: z.number().int().min(1).max(100000).default(1),
+      packQuantity: z.number().int().min(0).max(1000000).optional(),
+      sellingUnitId: z.string().uuid().optional(),
+      receivedPackageQuantity: z.number().int().min(0).max(1000000).optional(),
+      lineDiscount: z.number().finite().min(0).max(1000000).default(0),
+      productId: z.string().min(1).optional(),
+      purchaseOrderItemId: z.string().min(1).optional(),
+      quantity: z.number().int().min(0).max(2147483647),
+      damagedQty: z.number().int().min(0).max(2147483647).default(0),
+      rejectedQty: z.number().int().min(0).max(2147483647).default(0),
+    }).refine(item => !!item.productId || !!item.purchaseOrderItemId, { message: 'Select an order item' })).max(1000).optional(),
+    idempotencyKey: z.string().uuid().optional(),
+    finalDelivery: z.boolean().default(false),
+    notes: z.string().trim().max(2000).optional(),
+    // The invoice still charged for damaged or rejected goods, so the supplier owes a credit.
+    // Unset: assumed when an invoice number is entered.
+    supplierBilledForProblems: z.boolean().optional(),
   }),
 });

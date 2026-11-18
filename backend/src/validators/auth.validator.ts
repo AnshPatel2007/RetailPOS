@@ -55,6 +55,7 @@ export const changePasswordSchema = z.object({
   body: z.object({
     currentPassword: z.string().min(1, 'Current password is required'),
     newPassword: passwordSchema,
+    confirmPassword: z.string().optional(),
   }),
 });
 
@@ -67,6 +68,6 @@ export const twoFactorVerifySchema = z.object({
 export const twoFactorDisableSchema = z.object({
   body: z.object({
     password: z.string().min(1, 'Password is required'),
-    code: z.string().optional(),
+    code: z.string().trim().min(6).max(64),
   }),
 });

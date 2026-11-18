@@ -7,14 +7,19 @@ import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { ShoppingCart, ShieldCheck, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useRegisterStore } from '@/store/registerStore';
+import { StaffSignIn } from '@/components/register/StaffSignIn';
 
-type LoginStep = 'credentials' | 'twoFactor' | 'forgot';
+type LoginStep = 'staff' | 'credentials' | 'twoFactor' | 'forgot';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
   const { login, error, isLoading, clearError } = useAuthStore();
 
-  const [step, setStep] = useState<LoginStep>('credentials');
+  // A computer set up as a register opens on "tap your name, enter your PIN".
+  const device = useRegisterStore(state => state.device);
+  const [step, setStep] = useState<LoginStep>(device ? 'staff' : 'credentials');
+  const [notice, setNotice] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [twoFactorCode, setTwoFactorCode] = useState('');
@@ -89,9 +94,9 @@ export const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <Card className="w-full max-w-md mx-4 shadow-lg">
-        <CardHeader className="text-center">
+    <div className="auth-page min-h-screen flex items-center justify-center py-10">
+      <Card className="w-full max-w-md mx-4">
+        <CardHeader className="text-center p-6 pb-4">
           <div className="flex justify-center mb-4">
             <div className="p-3 bg-primary rounded-full">
               {step === 'twoFactor' ? (
@@ -101,18 +106,31 @@ export const Login: React.FC = () => {
               )}
             </div>
           </div>
-          <CardTitle className="text-3xl">POS System</CardTitle>
+          <CardTitle className="text-2xl font-semibold">POS System</CardTitle>
           <p className="text-muted-foreground mt-2">
+            {step === 'staff' && device && `${device.storeName} · ${device.name}`}
             {step === 'credentials' && 'Sign in to your account'}
             {step === 'twoFactor' && 'Two-factor authentication'}
             {step === 'forgot' && 'Reset your password'}
           </p>
         </CardHeader>
 
-        <CardContent>
-          {error && (
-            <div className="p-3 mb-4 bg-destructive/10 border border-destructive rounded-md">
+        <CardContent className="px-6 pb-6">
+          {error && step !== 'staff' && (
+            <div role="alert" className="p-3 mb-4 bg-destructive/10 border border-destructive rounded-md">
               <p className="text-sm text-destructive">{error}</p>
+            </div>
+          )}
+          {notice && step === 'credentials' && <p role="status" className="p-3 mb-4 rounded-md bg-muted text-sm">{notice}</p>}
+
+          {step === 'staff' && device && (
+            <div className="space-y-4">
+              <StaffSignIn onSignedIn={() => navigate('/pos')} onUnavailable={reason => { setNotice(reason); setStep('credentials'); }} />
+              <div className="text-center">
+                <button type="button" className="text-sm text-primary hover:underline" onClick={() => { clearError(); setStep('credentials'); }}>
+                  Sign in with email instead
+                </button>
+              </div>
             </div>
           )}
 
@@ -158,6 +176,11 @@ export const Login: React.FC = () => {
                 >
                   Forgot password?
                 </button>
+                {device && (
+                  <button type="button" className="block mx-auto mt-2 text-sm text-primary hover:underline" onClick={() => { clearError(); setNotice(''); setStep('staff'); }}>
+                    Sign in with your PIN
+                  </button>
+                )}
               </div>
             </form>
           )}
@@ -166,7 +189,7 @@ export const Login: React.FC = () => {
             <form onSubmit={handleTwoFactorSubmit} className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Enter the 6-digit code from your authenticator app, or one of
-                your 8-character backup codes.
+                your backup codes.
               </p>
 
               <Input
@@ -177,7 +200,7 @@ export const Login: React.FC = () => {
                 onChange={(e) => setTwoFactorCode(e.target.value)}
                 autoComplete="one-time-code"
                 inputMode="text"
-                maxLength={8}
+                maxLength={64}
                 required
                 autoFocus
               />

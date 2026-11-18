@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POS UX Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout: summary band, then flows, findings and per-role page tours, each scannable top to bottom. */
+  --ink: #17202b; --muted: #556270; --line: #d9dee5; --paper: #f6f7f9; --card: #ffffff;
+  --accent: #2357d9; --p1: #c2410c; --p2: #a16207; --p3: #4b5563; --ok: #15803d; --bad: #b91c1c;
+  --display: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --ink: #e6eaf0; --muted: #9aa6b4; --line: #2c3541; --paper: #11161d; --card: #181f28;
+  --accent: #7ea2ff; --p1: #fb923c; --p2: #facc15; --p3: #9ca3af; --ok: #4ade80; --bad: #f87171; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --ink: #e6eaf0; --muted: #9aa6b4; --line: #2c3541; --paper: #11161d; --card: #181f28;
+  --accent: #7ea2ff; --p1: #fb923c; --p2: #facc15; --p3: #9ca3af; --ok: #4ade80; --bad: #f87171; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.55 var(--body); }
+main { max-width: 1240px; margin: 0 auto; padding: 32px 20px 80px; display: grid; gap: 40px; }
+main > * { min-width: 0; }
+h1, h2, h3, h4 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h1 { font-size: 30px; font-weight: 600; } h2 { font-size: 21px; font-weight: 600; margin-bottom: 14px; }
+h4 { font-size: 16px; font-weight: 600; }
+p { margin: 0; max-width: 72ch; }
+code { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+a { color: var(--accent); }
+.lede { color: var(--muted); margin-top: 6px; }
+.band { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-top: 20px; }
+.band div { background: var(--card); padding: 14px 16px; }
+.band b { display: block; font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.band span { color: var(--muted); font-size: 13px; }
+.pains { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 16px; }
+.pains article { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.pains h4 { margin-bottom: 4px; }
+.pains p { color: var(--muted); font-size: 14px; }
+table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 14px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 500; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.table-wrap { overflow-x: auto; }
+.ok { color: var(--ok); font-weight: 500; } .bad { color: var(--bad); font-weight: 500; }
+.sev-head { display: flex; align-items: center; gap: 10px; font-size: 17px; margin: 22px 0 10px; }
+.sev-head span { font-size: 13px; color: var(--muted); font-weight: 400; }
+.sev-head.sev-P1 { color: var(--p1); } .sev-head.sev-P2 { color: var(--p2); } .sev-head.sev-P3 { color: var(--p3); }
+.finding { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--p3); border-radius: 10px; padding: 14px 16px; display: grid; gap: 8px; margin-bottom: 10px; }
+.finding.sev-P1 { border-left-color: var(--p1); } .finding.sev-P2 { border-left-color: var(--p2); }
+.finding header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.area { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.finding h4 { flex: 1 1 320px; }
+.chip { font-size: 12px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); }
+.fix { font-size: 14px; } .where { font: 12px var(--mono); color: var(--muted); }
+.thumbs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.thumb { border: 1px solid var(--line); border-radius: 6px; padding: 0; background: var(--paper); cursor: zoom-in; flex: none; }
+.thumbs .thumb img { display: block; height: 150px; width: auto; border-radius: 6px; }
+.thumb:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.flow { margin-top: 18px; } .flow h4 small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.strip { display: flex; gap: 10px; overflow-x: auto; padding: 8px 0; }
+.strip figure { margin: 0; width: 220px; flex: none; }
+.strip img { width: 220px; display: block; border-radius: 6px; }
+.strip figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.strip figcaption b { color: var(--ink); }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.tabs button { font: 500 14px var(--body); color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.tabs button span { color: var(--muted); font-weight: 400; margin-left: 4px; }
+.tabs button[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
+.tour[hidden] { display: none; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.page { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.page .thumb { border: 0; border-radius: 0; width: 100%; display: block; }
+.page img { width: 100%; display: block; aspect-ratio: 1366/768; object-fit: cover; object-position: top; }
+.page figcaption { padding: 10px 12px; display: grid; gap: 4px; font-size: 13px; }
+.page figcaption div { display: flex; flex-wrap: wrap; gap: 4px; }
+.flag { font-size: 11px; border-radius: 4px; padding: 1px 6px; background: var(--paper); color: var(--muted); border: 1px solid var(--line); }
+.flag.bad { color: var(--bad); border-color: currentColor; } .flag.warn { color: var(--p2); }
+dialog { border: 0; padding: 0; background: transparent; max-width: 96vw; max-height: 94vh; }
+dialog::backdrop { background: rgb(0 0 0 / .75); }
+dialog img { max-width: 96vw; max-height: 90vh; display: block; border-radius: 6px; }
+dialog button { position: fixed; top: 14px; right: 18px; font: 600 14px var(--body); background: var(--card); color: var(--ink); border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.method { color: var(--muted); font-size: 14px; display: grid; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>POS UX Audit</h1>
+  <p class="lede">Every screen for cashier, manager, admin and super admin, opened in Edge on a 1366×768 register, 1920×1080, a 1024px laptop and in dark mode, with the main checkout and back-office jobs recorded click by click. November 3, 2026, on demo data in the test store.</p>
+  <div class="band">
+    <div><b>{{PAGES}}</b><span>screens checked</span></div>
+    <div><b>{{SHOTS}}</b><span>screenshots</span></div>
+    <div><b>{{FLOWS}}</b><span>tasks recorded</span></div>
+    <div><b>{{P1}}</b><span>fix first</span></div>
+    <div><b>{{P2}}</b><span>fix next</span></div>
+    <div><b>{{P3}}</b><span>polish</span></div>
+    <div><b>{{CONTRAST}}</b><span>low-contrast elements</span></div>
+  </div>
+  <div class="pains">
+    <article><h4>Looks inconsistent</h4><p>Four styles of number cards, about 20 hand-built spinners, 15+ error banner styles, 19 browser pop-ups and unlabeled icon buttons make each page feel different.</p></article>
+    <article><h4>Checkout takes too many steps</h4><p>A cash sale is 7 actions through 3 pop-ups, it cannot be finished from the keyboard, and a scan into a focused search box is lost.</p></article>
+    <article><h4>Hard to find things</h4><p>Reports live across 30+ tabs in three places, the super admin has a separate menu, and pages open with accounting fine print.</p></article>
+  </div>
+</header>
+
+<section>
+  <h2>Checkout and back-office tasks</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Task</th><th>Role</th><th class="num">Clicks</th><th class="num">Keys</th><th class="num">Typed</th><th class="num">Scans</th><th class="num">Total</th><th class="num">Pop-ups</th><th>Result</th></tr></thead>
+    <tbody>{{FLOW_ROWS}}</tbody>
+  </table></div>
+  {{FLOW_STRIPS}}
+</section>
+
+<section>
+  <h2>Findings</h2>
+  {{FINDINGS}}
+</section>
+
+<section>
+  <h2>Every screen, by role</h2>
+  <div class="tabs" role="tablist" aria-label="Roles">{{TOUR_TABS}}</div>
+  {{TOUR_PANELS}}
+</section>
+
+<section class="method">
+  <h2>How this was checked</h2>
+  <p>An automated browser signed in as each role on an isolated test database seeded with a realistic store (34 products, a carton pack, a variety pack, customers, a morning of sales, a refund, a void, expenses and a promotion). It opened every page that role can reach, took screenshots, measured overflow and control sizes, and ran an accessibility scan (WCAG 2 A/AA). Tasks were driven the way a cashier or owner would, counting each click, key, typed entry and scan. {{UNLABELED}} form fields without labels were also found.</p>
+  <p>Manager screens were checked too (56 pages). They match the admin screens shown here, except Staff, Payroll, Reconciliation and Background Jobs, which managers cannot open, so they are not repeated in the gallery.</p>
+  <p>Screens marked "low-contrast" fail the contrast check in at least one place; most share the same few elements, so one color change fixes most of them.</p>
+</section>
+</main>
+
+<dialog id="viewer"><button type="button" id="close">Close</button><img alt="" id="viewer-img"></dialog>
+<script>
+const viewer = document.getElementById('viewer'), viewerImg = document.getElementById('viewer-img');
+document.addEventListener('click', event => {
+  const thumb = event.target.closest('.thumb');
+  if (thumb) { viewerImg.src = thumb.dataset.full; viewer.showModal(); }
+});
+document.getElementById('close').addEventListener('click', () => viewer.close());
+viewer.addEventListener('click', event => { if (event.target === viewer) viewer.close(); });
+const tabs = [...document.querySelectorAll('[role="tab"]')], panels = [...document.querySelectorAll('[role="tabpanel"]')];
+function show(name) {
+  tabs.forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.tab === name)));
+  panels.forEach(panel => { panel.hidden = panel.dataset.panel !== name; });
+}
+tabs.forEach(tab => tab.addEventListener('click', () => show(tab.dataset.tab)));
+if (tabs.length) show(tabs[0].dataset.tab);
+</script>
+</body>
+</html>

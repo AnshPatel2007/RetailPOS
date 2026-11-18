@@ -10,6 +10,7 @@ export const createProductSchema = z.object({
     price: z.number().gt(0, 'Price must be greater than 0'),
     compareAtPrice: z.number().min(0).optional(),
     trackInventory: z.boolean().optional(),
+    isActive: z.boolean().optional(),
     stockQuantity: z.number().int().min(0).optional(),
     lowStockAlert: z.number().int().min(0).optional(),
     barcode: z.string().optional(),
@@ -19,15 +20,28 @@ export const createProductSchema = z.object({
     minimumAge: z.number().int().min(1).max(99).optional().nullable(),
     ebtEligible: z.boolean().optional(),
     priceEmbedded: z.boolean().optional(),
+    // Recall / prohibited-sale hold; null clears it. Recorded stock never blocks a sale.
+    saleBlockedReason: z.string().trim().min(3).max(200).optional().nullable(),
+    // Owner-authorized fallback cost for sales beyond recorded stock.
+    provisionalUnitCost: z.number().gt(0).optional().nullable(),
+    brand: z.string().trim().max(80).optional().nullable(),
+    productFamily: z.string().trim().max(80).optional().nullable(),
+    variant: z.string().trim().max(80).optional().nullable(),
+    size: z.string().trim().max(40).optional().nullable(),
     locationId: z.string().uuid().optional(),
   }),
 });
 
 export const updateProductSchema = z.object({
   body: z.object({
+    expectedStockVersion: z.number().int().min(0).optional(),
+    // Required by the controller whenever stockQuantity changes.
+    stockAdjustmentReason: z.string().max(50).optional(),
+    stockAdjustmentNotes: z.string().max(2000).optional(),
     sku: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
-    description: z.string().optional(),
+    // null clears the description when it is emptied on the edit form.
+    description: z.string().optional().nullable(),
     categoryId: z.string().uuid().optional().nullable(),
     cost: z.number().min(0).optional(),
     price: z.number().gt(0, 'Price must be greater than 0').optional(),
@@ -43,5 +57,15 @@ export const updateProductSchema = z.object({
     minimumAge: z.number().int().min(1).max(99).optional().nullable(),
     ebtEligible: z.boolean().optional(),
     priceEmbedded: z.boolean().optional(),
+    // Recall / prohibited-sale hold; null clears it. Recorded stock never blocks a sale.
+    saleBlockedReason: z.string().trim().min(3).max(200).optional().nullable(),
+    // Owner-authorized fallback cost for sales beyond recorded stock.
+    provisionalUnitCost: z.number().gt(0).optional().nullable(),
+    brand: z.string().trim().max(80).optional().nullable(),
+    productFamily: z.string().trim().max(80).optional().nullable(),
+    variant: z.string().trim().max(80).optional().nullable(),
+    size: z.string().trim().max(40).optional().nullable(),
+    // Shared catalog: the store price follows the shared price (owner or store admin only).
+    priceFollowsCatalog: z.boolean().optional(),
   }),
 });

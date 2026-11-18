@@ -1,9 +1,14 @@
 import { PrismaClient, UserRole } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { assertSeedAllowed } from '../src/utils/seedGuard';
 
 const prisma = new PrismaClient();
 
 async function main() {
+  // Demo accounts have published passwords: never add them to a database that is in use.
+  const [{ name }] = await prisma.$queryRaw<{ name: string }[]>`SELECT current_database() AS name`;
+  assertSeedAllowed(name, { stores: await prisma.location.count(), users: await prisma.user.count() });
+
   console.log('🌱 Starting database seed...');
 
   // Create default location

@@ -1,0 +1,44 @@
+import request from 'supertest';
+import app from '../../server';
+import {prisma,seedTestData} from './setup';
+import {createTestToken} from './helpers';
+import {jobPayload,processNextBackgroundJob} from '../../services/jobQueue.service';
+import {executeBackgroundJob} from '../../services/backgroundWorker.service';
+import {sendEmail} from '../../utils/email';
+jest.mock('../../utils/email',()=>({sendEmail:jest.fn().mockResolvedValue(undefined)}));
+describe('security events commit with encrypted durable notifications',()=>{
+  beforeEach(()=>{jest.mocked(sendEmail).mockClear();});
+  it('keeps reset tokens private, invalidates superseded mail and queues the password-change notice atomically',async()=>{
+    const data=await seedTestData(),token=await createTestToken(data.adminUser.id,'ADMIN');
+    const forgot=()=>request(app).post('/api/auth/forgot-password').send({email:data.adminUser.email});
+    const first=(await forgot().expect(200)).body;
+    expect((await request(app).post('/api/auth/forgot-password').send({email:'unknown@example.test'}).expect(200)).body).toEqual(first);
+    await forgot().expect(200);expect(sendEmail).not.toHaveBeenCalled();
+    const jobs=await prisma.backgroundJob.findMany({where:{label:'ACCOUNT SECURITY'},orderBy:{createdAt:'asc'}});
+    expect(jobs).toHaveLength(2);expect(jobs.every(job=>!job.payload.includes('reset-password'))).toBe(true);
+    await processNextBackgroundJob(executeBackgroundJob,new Date(Date.now()+1000));
+    expect((await prisma.backgroundJob.findUniqueOrThrow({where:{id:jobs[0].id}})).status).toBe('CANCELLED');
+    expect(sendEmail).not.toHaveBeenCalled();
+    await processNextBackgroundJob(executeBackgroundJob,new Date(Date.now()+1000));
+    expect(sendEmail).toHaveBeenCalledTimes(1);expect(jest.mocked(sendEmail).mock.calls[0][0].correlationId).toBe(jobs[1].id);
+    const own=await request(app).get('/api/auth/security-notifications').set('Authorization','Bearer '+token).expect(200);
+    expect(own.body.data.records).toHaveLength(2);expect(JSON.stringify(own.body)).not.toMatch(/tokenHash|reset-password|payload|email/);
+    const original=jobPayload(jobs[0]).html.match(/token=([a-f0-9]{64})/)![1];
+    await request(app).post('/api/auth/reset-password').send({token:original,password:'ChangedPassword456!'}).expect(400);
+    const current=jobPayload(jobs[1]).html.match(/token=([a-f0-9]{64})/)![1];
+    await request(app).post('/api/auth/reset-password').send({token:current,password:'ChangedPassword456!'}).expect(200);
+    await request(app).post('/api/auth/reset-password').send({token:current,password:'AnotherPassword789!'}).expect(400);
+    expect(await prisma.backgroundJob.count({where:{label:'ACCOUNT SECURITY'}})).toBe(3);
+    expect((await prisma.user.findUniqueOrThrow({where:{id:data.adminUser.id}})).passwordResetToken).toBeNull();
+  });
+  it('serializes failed-login counters and queues a single lockout notice',async()=>{
+    const data=await seedTestData();
+    const attempts=await Promise.all(Array.from({length:5},()=>request(app).post('/api/auth/login').send({email:data.adminUser.email,password:'WrongPassword123!'})));
+    expect(attempts.every(response=>[401,423].includes(response.status))).toBe(true);
+    expect((await prisma.user.findUniqueOrThrow({where:{id:data.adminUser.id}})).failedLoginAttempts).toBe(5);
+    const jobs=await prisma.backgroundJob.findMany({where:{label:'ACCOUNT SECURITY'}});expect(jobs).toHaveLength(1);
+    expect(jobPayload(jobs[0]).subject).toBe('ACCOUNT LOCKED');expect(sendEmail).not.toHaveBeenCalled();
+    const cashierToken=await createTestToken(data.cashierUser.id,'CASHIER');
+    const visible=await request(app).get('/api/auth/security-notifications').set('Authorization','Bearer '+cashierToken).expect(200);expect(visible.body.data.records).toEqual([]);
+  });
+});

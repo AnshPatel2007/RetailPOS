@@ -1,11 +1,15 @@
+import { formatTime } from '@/lib/utils';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertTriangle, Sun, Moon, MonitorSmartphone } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Sun, Moon, MonitorSmartphone, Lock, Truck } from 'lucide-react';
 import { shiftService } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
 import { OfflineIndicator } from '@/components/common/OfflineIndicator';
+import { useRegisterStore, canLockRegister } from '@/store/registerStore';
+import { InvoiceCapture } from '@/components/deliveries/InvoiceCapture';
+import { can } from '@/lib/capabilities';
 
 interface CurrentShift {
   clockInAt: string;
@@ -21,10 +25,14 @@ export const POSTopBar: React.FC = () => {
   const { user } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
   const storeName = useStoreSettingsStore((s) => s.storeInfo.storeName);
+  const registerDevice = useRegisterStore((s) => s.device);
+  const lockRegister = useRegisterStore((s) => s.lock);
 
   // undefined = loading/unknown, null = not clocked in
   const [currentShift, setCurrentShift] = useState<CurrentShift | null | undefined>(undefined);
   const [now, setNow] = useState(new Date());
+  // A delivery arrived: anyone at the register can photograph the invoice for the owner.
+  const [sendingInvoice, setSendingInvoice] = useState(false);
 
   // The backend rejects sales without an open shift, so surface it up front
   useEffect(() => {
@@ -43,29 +51,29 @@ export const POSTopBar: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const formatTime = (d: Date | string) =>
-    new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   return (
-    <header className="relative h-12 shrink-0 flex items-center px-2 sm:px-3 border-b border-border bg-card">
+    <header className="pos-topbar min-h-14 shrink-0 flex flex-wrap items-center gap-x-2 gap-y-1 py-1 px-2 sm:px-3 border-b border-border bg-card">
       {/* Left: navigation + store identity + shift status */}
-      <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1 basis-full sm:basis-64">
         <button
           onClick={() => navigate('/dashboard')}
-          className="h-9 w-9 shrink-0 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
-          title="Back to Dashboard (Esc)"
+          className="h-11 min-w-11 shrink-0 flex items-center justify-center gap-1.5 px-2 sm:px-3 rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+          title="Back to Dashboard"
+          aria-label="Back to Dashboard"
         >
-          <ArrowLeft className="h-[18px] w-[18px]" />
+          <ArrowLeft className="h-[18px] w-[18px]" aria-hidden="true" />
+          <span className="hidden sm:inline text-sm font-medium">Dashboard</span>
         </button>
 
-        <span className="font-semibold text-sm truncate">{storeName || 'POS System'}</span>
+        <span className="font-semibold text-sm break-words min-w-0 max-w-48">{storeName || 'POS System'}</span>
 
         <div className="hidden sm:block h-5 w-px bg-border mx-1" />
 
         {currentShift !== undefined && (
           <button
             onClick={() => navigate('/shifts')}
-            className={`h-7 shrink-0 flex items-center gap-1.5 px-2 rounded-md text-[11px] font-medium transition-colors ${
+            className={`min-h-11 shrink-0 flex items-center gap-1.5 px-2 rounded-md text-xs font-medium transition-colors ${
               currentShift
                 ? 'text-success hover:bg-success/10'
                 : 'text-warning bg-warning/10 hover:bg-warning/20'
@@ -88,12 +96,12 @@ export const POSTopBar: React.FC = () => {
       </div>
 
       {/* Center: clock */}
-      <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 hidden md:inline text-sm font-medium tabular-nums text-muted-foreground">
+      <span className="hidden xl:inline shrink-0 px-2 text-sm font-medium tabular-nums text-muted-foreground">
         {formatTime(now)}
       </span>
 
       {/* Right: connectivity + cashier + theme */}
-      <div className="ml-auto flex items-center gap-2 sm:gap-3">
+      <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
         <OfflineIndicator variant="badge" showDetails />
 
         {user && (
@@ -101,25 +109,50 @@ export const POSTopBar: React.FC = () => {
             <div className="hidden md:block h-5 w-px bg-border" />
             <div className="hidden md:flex flex-col items-end leading-tight">
               <span className="text-xs font-medium">{user.firstName} {user.lastName}</span>
-              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
-                {user.role.replace(/_/g, ' ')}
+              <span className="text-xs text-muted-foreground">
+                {user.role === 'ADMIN' ? 'Owner' : user.role === 'SUPER_ADMIN' ? 'Platform administrator' : user.role === 'MANAGER' ? 'Manager' : 'Cashier'}
               </span>
             </div>
           </>
         )}
 
+        {can(user?.role, 'checkout.complete') && (
+          <button
+            onClick={() => setSendingInvoice(true)}
+            className="h-11 min-w-11 shrink-0 flex items-center justify-center gap-1.5 px-2 rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+            aria-label="Delivery: photograph the invoice"
+            title="A delivery arrived: photograph its invoice for the owner"
+          >
+            <Truck className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline text-sm font-medium">Delivery</span>
+          </button>
+        )}
+        <InvoiceCapture isOpen={sendingInvoice} onClose={() => setSendingInvoice(false)} />
+
         <button
           onClick={() => window.open('/customer-display', 'customerDisplay', 'width=1024,height=768')}
-          className="h-9 w-9 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
+          className="h-11 min-w-11 shrink-0 flex items-center justify-center gap-1.5 px-2 rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
           aria-label="Open customer display"
           title="Open customer display (drag to the second monitor)"
         >
-          <MonitorSmartphone className="h-4 w-4" />
+          <MonitorSmartphone className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden xl:inline text-sm font-medium">Display</span>
         </button>
+
+        {user && canLockRegister(user, registerDevice) && (
+          <button
+            onClick={() => lockRegister(user.id)}
+            className="h-11 shrink-0 flex items-center gap-1.5 px-3 rounded-md hover:bg-accent transition-colors text-sm font-medium"
+            title="Lock the register between customers; your PIN unlocks it"
+          >
+            <Lock className="h-4 w-4" aria-hidden="true" />
+            Lock
+          </button>
+        )}
 
         <button
           onClick={toggleTheme}
-          className="h-9 w-9 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
+          className="h-11 w-11 shrink-0 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
           aria-label="Toggle theme"
           title="Toggle theme"
         >

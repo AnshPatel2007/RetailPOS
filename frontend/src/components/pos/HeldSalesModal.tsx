@@ -1,11 +1,13 @@
+import { lineMoney, roundMoney } from '@/lib/money';
 import React from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
-import { X, PauseCircle, Clock } from 'lucide-react';
+import { PauseCircle, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { CartItem, Customer } from '@/types';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface HeldSale {
   id: string;
@@ -30,8 +32,10 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
   onRestore,
   onDiscard,
 }) => {
+  const [confirm, confirmDialog] = useConfirm();
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Held Sales" size="md">
+      {confirmDialog}
       <div className="space-y-3">
         {heldSales.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
@@ -41,10 +45,11 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
           </div>
         ) : (
           heldSales.map((held) => {
-            const total = held.items.reduce(
-              (sum, i) => sum + i.product.price * i.quantity - i.discount,
+            // Item prices less manual discounts; deals and tax are worked out again when the sale is recalled.
+            const total = roundMoney(held.items.reduce(
+              (sum, i) => sum + lineMoney(i.product.price, i.quantity) - (i.discount || 0),
               0
-            );
+            ));
             const itemCount = held.items.reduce((c, i) => c + i.quantity, 0);
             const elapsedMins = Math.max(0, Math.round((Date.now() - new Date(held.heldAt).getTime()) / 60000));
             const elapsed = elapsedMins >= 60
@@ -66,29 +71,26 @@ export const HeldSalesModal: React.FC<HeldSalesModalProps> = ({
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {itemCount} item{itemCount !== 1 ? 's' : ''} · {formatCurrency(total)}
+                      {itemCount} item{itemCount !== 1 ? 's' : ''} · {formatCurrency(total)} before tax and deals
                     </p>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
                       {held.items.map((i) => i.product.name).join(', ')}
                     </p>
                   </div>
                   <div className="flex gap-2 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (window.confirm(`Discard this held sale (${itemCount} item${itemCount !== 1 ? 's' : ''}, ${formatCurrency(total)})?`)) {
+                    <Button aria-label="Discard held sale"
+                      variant="ghost"
+                      onClick={async () => {
+                        if (await confirm({ title: 'Discard this held sale?', message: `${itemCount} item${itemCount !== 1 ? 's' : ''}, ${formatCurrency(total)}. It can't be recalled afterwards.`, confirmLabel: 'Discard', cancelLabel: 'Keep it', destructive: true })) {
                           onDiscard(held.id);
                           toast.success('Held sale discarded');
                         }
                       }}
-                      className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                      className="text-destructive"
                     >
-                      <X className="h-3.5 w-3.5" />
+                      Discard
                     </Button>
                     <Button
-                      variant="primary"
-                      size="sm"
                       onClick={() => onRestore(held.id)}
                     >
                       Restore

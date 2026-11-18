@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth';
+import { validate } from '../middleware/validate';
+import { changePasswordSchema } from '../validators/auth.validator';
 import {
   getAllUsers,
   createUser,
@@ -21,7 +23,7 @@ router.use(authenticate);
 // Current user profile routes (no authorization needed - all authenticated users)
 router.get('/profile', getProfile);
 router.put('/profile', updateProfile);
-router.post('/change-password', changePassword);
+router.post('/change-password', validate(changePasswordSchema), changePassword);
 
 // Get all users (admins see their location, super-admin sees all)
 router.get('/', authorize('ADMIN', 'MANAGER', 'SUPER_ADMIN'), getAllUsers);

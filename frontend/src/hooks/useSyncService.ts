@@ -21,8 +21,9 @@ export function useSyncService() {
     await syncService.manualSync();
   }, []);
 
+  // Asked for by a person: download everything again, not just changes.
   const cacheData = useCallback(async () => {
-    await syncService.cacheAllData();
+    await syncService.cacheAllData(true);
   }, []);
 
   const getStats = useCallback(async () => {

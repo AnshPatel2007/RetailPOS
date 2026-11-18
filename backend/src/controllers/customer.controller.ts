@@ -1,10 +1,25 @@
 import { Response } from 'express';
+import { z } from 'zod';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { businessConfig } from '../config/business.config';
-import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
+import { assertOwnsRecord, assertCanReadRecord, getLocationFilter, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
+import { Prisma } from '@prisma/client';
+
+/**
+ * An email or phone identifies one customer within a store. Another store may
+ * have the same person as its own customer, and is never told about this one.
+ */
+async function assertContactAvailable(locationId: string | null, contact: { email?: string | null; phone?: string | null }, exceptCustomerId?: string) {
+  for (const [field, label] of [['email', 'email'], ['phone', 'phone number']] as const) {
+    const value = contact[field];
+    if (!value) continue;
+    const existing = await prisma.customer.findFirst({ where: { [field]: value, locationId, ...(exceptCustomerId ? { id: { not: exceptCustomerId } } : {}) }, select: { id: true } });
+    if (existing) throw new AppError(`Customer with this ${label} already exists`, 400);
+  }
+}
 
 /**
  * Calculate loyalty tier based on points
@@ -145,19 +160,12 @@ export const createCustomer = asyncHandler(async (req: AuthRequest, res: Respons
   if (data.birthDate === '') data.birthDate = null;
   if (typeof data.birthDate === 'string') data.birthDate = new Date(`${data.birthDate}T00:00:00`);
 
-  // Check if email already exists
-  if (data.email) {
-    const existing = await prisma.customer.findUnique({
-      where: { email: data.email },
-    });
-
-    if (existing) {
-      throw new AppError('Customer with this email already exists', 400);
-    }
-  }
-
   // Non-SUPER_ADMIN is always forced to their own store, regardless of body
   data.locationId = isSuperAdmin(req) ? (data.locationId ?? null) : (req.user?.locationId ?? null);
+
+  // An email or phone identifies one customer within a store; another store may
+  // have the same person as its own customer.
+  await assertContactAvailable(data.locationId, { email: data.email, phone: data.phone });
 
   const customer = await prisma.customer.create({
     data,
@@ -191,6 +199,9 @@ export const createCustomer = asyncHandler(async (req: AuthRequest, res: Respons
 export const updateCustomer = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const data = req.body;
+  if (req.user?.role === 'CASHIER' && (data.loyaltyPoints !== undefined || data.isActive !== undefined)) {
+    throw new AppError('Manager permission is required to change loyalty balances or customer status', 403);
+  }
 
   // Blank email must be stored as NULL (unique column — '' would collide)
   if (data.email === '') {
@@ -212,16 +223,11 @@ export const updateCustomer = asyncHandler(async (req: AuthRequest, res: Respons
     data.locationId = customer.locationId;
   }
 
-  // Check email uniqueness if changing
-  if (data.email && data.email !== customer.email) {
-    const existing = await prisma.customer.findUnique({
-      where: { email: data.email },
-    });
-
-    if (existing) {
-      throw new AppError('Customer with this email already exists', 400);
-    }
-  }
+  // Email and phone stay unique within the customer's store
+  await assertContactAvailable(data.locationId ?? customer.locationId, {
+    email: data.email && data.email !== customer.email ? data.email : null,
+    phone: data.phone && data.phone !== customer.phone ? data.phone : null,
+  }, id);
 
   const updatedCustomer = await prisma.customer.update({
     where: { id },
@@ -364,10 +370,16 @@ export const searchByPhone = asyncHandler(async (req: AuthRequest, res: Response
     locationId: true,
   } as const;
 
-  // Exact match first — fast path using the unique index
-  let customer = await prisma.customer.findUnique({
-    where: { phone },
+  // Only this store's customers are searched: another store's customer with the
+  // same number (or the same last four digits) is neither linked nor counted.
+  const { locationId } = getLocationFilter(req, req.query.locationId as string);
+  const store = locationId ? Prisma.sql`"locationId" = ${locationId}` : Prisma.sql`TRUE`;
+
+  // Exact match first — fast path using the store's unique index
+  let customer = await prisma.customer.findFirst({
+    where: { phone, ...(locationId ? { locationId } : {}) },
     select: customerSelect,
+    orderBy: { id: 'asc' },
   });
 
   // Fallback: formatting-insensitive partial match (digits only, e.g. last 4),
@@ -376,7 +388,7 @@ export const searchByPhone = asyncHandler(async (req: AuthRequest, res: Response
   if (!customer && digits.length >= 4) {
     const matches = await prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM customers
-      WHERE regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${'%' + digits + '%'}
+      WHERE ${store} AND regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${'%' + digits + '%'}
       LIMIT 2
     `;
     if (matches.length === 1) {
@@ -388,7 +400,7 @@ export const searchByPhone = asyncHandler(async (req: AuthRequest, res: Response
   }
 
   // A store shouldn't link a checkout to another store's private customer
-  if (customer && !isSuperAdmin(req) && customer.locationId !== null && customer.locationId !== req.user!.locationId) {
+  if (customer && !isSuperAdmin(req) && customer.locationId !== req.user!.locationId) {
     customer = null;
   }
 
@@ -403,14 +415,14 @@ export const searchByPhone = asyncHandler(async (req: AuthRequest, res: Response
  * POST /api/customers/campaign  { segment, subject, message }
  */
 export const sendCustomerCampaign = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { segment, subject, message } = req.body;
+  const { segment, subject, message, idempotencyKey } = z.object({ segment:z.string().trim().min(1).max(100),subject:z.string().trim().min(1).max(200),message:z.string().trim().min(1).max(10000),idempotencyKey:z.string().uuid() }).strict().parse(req.body);
 
   if (!segment || !subject?.trim() || !message?.trim()) {
     throw new AppError('Segment, subject, and message are required', 400);
   }
 
   const { sendCampaign } = await import('../services/marketing.service');
-  const result = await sendCampaign(String(segment), String(subject).trim(), String(message).trim());
+  const result = await sendCampaign(req, segment, subject, message, idempotencyKey);
 
   await prisma.activityLog.create({
     data: {
@@ -424,11 +436,8 @@ export const sendCustomerCampaign = asyncHandler(async (req: AuthRequest, res: R
 
   res.json({
     success: true,
-    data: result,
-    message:
-      result.matched === 0
-        ? 'No opted-in customers matched this segment'
-        : `Sent to ${result.sent} of ${result.matched} matched customer${result.matched !== 1 ? 's' : ''}${result.failed > 0 ? ` (${result.failed} failed)` : ''}`,
+    ...result,
+    message: 'Campaign queued. Review delivery jobs for provider results.',
   });
 });
 
@@ -442,6 +451,6 @@ export const previewCampaignSegment = asyncHandler(async (req: AuthRequest, res:
     throw new AppError('Segment is required', 400);
   }
   const { resolveSegment } = await import('../services/marketing.service');
-  const recipients = await resolveSegment(String(segment));
+  const recipients = await resolveSegment(String(segment), req.user!.locationId!);
   res.json({ success: true, data: { matched: recipients.length } });
 });

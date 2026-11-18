@@ -31,9 +31,9 @@ export const CustomerDisplay: React.FC = () => {
   // ─── Thank-you splash after checkout ───
   if (state?.completed) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-background text-center px-8">
+      <div className="customer-welcome min-h-dvh flex flex-col items-center justify-center text-center p-8">
         <CheckCircle2 className="h-24 w-24 text-success mb-6" />
-        <h1 className="text-5xl font-bold mb-3">Thank you!</h1>
+        <h1 className="text-3xl sm:text-5xl font-semibold mb-3">Thank you!</h1>
         <p className="text-2xl text-muted-foreground mb-8">{storeName}</p>
         <div className="text-3xl font-semibold tabular-nums">
           Paid {formatCurrency(state.completed.total)}
@@ -50,9 +50,9 @@ export const CustomerDisplay: React.FC = () => {
   // ─── Idle / welcome ───
   if (!hasItems) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-background text-center px-8">
+      <div className="customer-welcome min-h-dvh flex flex-col items-center justify-center text-center p-8">
         <ShoppingBag className="h-20 w-20 text-primary/40 mb-6" />
-        <h1 className="text-5xl font-bold mb-3">{storeName}</h1>
+        <h1 className="text-3xl sm:text-5xl font-semibold mb-3">{storeName}</h1>
         <p className="text-2xl text-muted-foreground">Welcome!</p>
       </div>
     );
@@ -60,7 +60,7 @@ export const CustomerDisplay: React.FC = () => {
 
   // ─── Live cart ───
   return (
-    <div className="h-screen flex flex-col bg-background">
+    <div className="h-dvh min-h-0 flex flex-col bg-card">
       <header className="px-8 py-5 border-b flex items-center justify-between">
         <h1 className="text-2xl font-bold">{storeName}</h1>
         <span className="text-muted-foreground text-lg">
@@ -69,7 +69,7 @@ export const CustomerDisplay: React.FC = () => {
         </span>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-8 py-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-4">
         <table className="w-full text-xl">
           <tbody>
             {state!.lines.map((line, i) => (
@@ -95,7 +95,7 @@ export const CustomerDisplay: React.FC = () => {
         </table>
       </div>
 
-      <footer className="px-8 py-6 border-t bg-card">
+      <footer className="customer-totals px-4 sm:px-8 py-6 border-t bg-card">
         <div className="max-w-md ml-auto space-y-2 text-xl">
           <div className="flex justify-between text-muted-foreground">
             <span>Subtotal</span>
@@ -111,10 +111,40 @@ export const CustomerDisplay: React.FC = () => {
             <span>Tax</span>
             <span className="tabular-nums">{formatCurrency(state!.tax)}</span>
           </div>
+          {!!state!.payment?.pointsDiscount && (
+            <div className="flex justify-between text-success">
+              <span>Points used</span>
+              <span className="tabular-nums">-{formatCurrency(state!.payment.pointsDiscount)}</span>
+            </div>
+          )}
+          {!!state!.payment?.surcharge && (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Card surcharge</span>
+              <span className="tabular-nums">{formatCurrency(state!.payment.surcharge)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-4xl font-bold pt-3 border-t">
             <span>Total</span>
-            <span className="tabular-nums">{formatCurrency(state!.total)}</span>
+            <span className="tabular-nums">{formatCurrency(state!.payment?.due ?? state!.total)}</span>
           </div>
+          {state!.payment?.cashDue !== undefined && (
+            <div className="flex justify-between text-2xl font-semibold">
+              <span>In cash, rounded to 5¢</span>
+              <span className="tabular-nums">{formatCurrency(state!.payment.cashDue)}</span>
+            </div>
+          )}
+          {!!state!.payment?.paid && (
+            <>
+              <div className="flex justify-between text-muted-foreground">
+                <span>Paid</span>
+                <span className="tabular-nums">{formatCurrency(state!.payment.paid)}</span>
+              </div>
+              <div className="flex justify-between text-2xl font-semibold">
+                <span>Remaining</span>
+                <span className="tabular-nums">{formatCurrency(Math.max(0, Math.round((state!.payment.due - state!.payment.paid) * 100) / 100))}</span>
+              </div>
+            </>
+          )}
         </div>
       </footer>
     </div>

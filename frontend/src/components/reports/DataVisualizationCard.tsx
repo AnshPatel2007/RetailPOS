@@ -1,5 +1,5 @@
 import React from 'react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, ReferenceLine } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
 
@@ -42,6 +42,7 @@ export const DataVisualizationCard: React.FC<DataVisualizationCardProps> = ({
   }));
 
   const total = data.reduce((sum, item) => sum + item.value, 0);
+  const signed = data.some(item => item.value < 0) || total <= 0;
 
   return (
     <Card>
@@ -57,6 +58,7 @@ export const DataVisualizationCard: React.FC<DataVisualizationCardProps> = ({
           <>
             {/* Pie Chart */}
             <ResponsiveContainer width="100%" height={300}>
+              {signed ? <BarChart data={chartData}><XAxis dataKey="name" /><YAxis /><ReferenceLine y={0} stroke="currentColor" /><Tooltip formatter={(value: number) => valueFormatter(value)} /><Bar dataKey="value" fill="#3b82f6" /></BarChart> :
               <PieChart>
                 <Pie
                   data={chartData}
@@ -78,7 +80,7 @@ export const DataVisualizationCard: React.FC<DataVisualizationCardProps> = ({
                   formatter={(value: number) => valueFormatter(value)}
                 />
                 <Legend />
-              </PieChart>
+              </PieChart>}
             </ResponsiveContainer>
 
             {/* Breakdown Table */}
@@ -97,7 +99,7 @@ export const DataVisualizationCard: React.FC<DataVisualizationCardProps> = ({
                   </thead>
                   <tbody>
                     {chartData.map((item, index) => {
-                      const percentage = ((item.value / total) * 100).toFixed(1);
+                      const percentage = signed ? '—' : ((item.value / total) * 100).toFixed(1) + '%';
                       return (
                         <tr key={index} className="border-b last:border-0">
                           <td className="py-2 flex items-center gap-2">
@@ -114,7 +116,7 @@ export const DataVisualizationCard: React.FC<DataVisualizationCardProps> = ({
                             {valueFormatter(item.value)}
                           </td>
                           <td className="text-right py-2 text-muted-foreground">
-                            {percentage}%
+                            {percentage}
                           </td>
                         </tr>
                       );
@@ -129,7 +131,7 @@ export const DataVisualizationCard: React.FC<DataVisualizationCardProps> = ({
                       <td className="text-right pt-2 font-mono">
                         {valueFormatter(total)}
                       </td>
-                      <td className="text-right pt-2">100%</td>
+                      <td className="text-right pt-2">{signed ? '—' : '100%'}</td>
                     </tr>
                   </tbody>
                 </table>

@@ -1,9 +1,17 @@
+import { formatEnumLabel } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { ManagementPage } from '@/components/common/Workspace';
+import { Select } from '@/components/ui/Select';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
 import React, { useState, useEffect, useRef } from 'react';
 import { userService, locationService } from '@/services/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { RowActions } from '@/components/common/RowActions';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Badge } from '@/components/ui/Badge';
 import {
   Table,
@@ -13,10 +21,12 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/Table';
-import { Search, Edit, Trash2, Key, Users, UserCheck, UserX, Plus } from 'lucide-react';
+import { Search, Trash2, Key, Users, UserCheck, UserX, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
+import { Spinner } from '@/components/ui/LoadingState';
+import { useConfirm } from '@/components/ui/useConfirm';
 
 interface User {
   id: string;
@@ -44,9 +54,7 @@ interface Location {
 }
 
 export const UserManagement: React.FC = () => {
-  const [users, setUsers] = useState<User[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [confirm, confirmDialog] = useConfirm();
   const [search, setSearch] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
   const [filterRole, setFilterRole] = useState('');
@@ -77,30 +85,13 @@ export const UserManagement: React.FC = () => {
     return () => clearTimeout(searchTimer.current);
   }, [search]);
 
-  useEffect(() => {
-    loadData();
-  }, [debouncedSearch, filterLocation, filterRole]);
 
-  const loadData = async () => {
-    setIsLoading(true);
-    try {
-      const [usersResponse, locationsResponse] = await Promise.all([
-        userService.getAll({
-          search: debouncedSearch,
-          locationId: filterLocation || undefined,
-          role: filterRole || undefined,
-        }),
-        locationService.getAll(),
-      ]);
-      setUsers(usersResponse.data.data);
-      setLocations(locationsResponse.data.data);
-    } catch (error) {
-      console.error('Failed to load data:', error);
-      toast.error('Failed to load users');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const query = useScopedQuery<{ users: User[]; locations: Location[] }>(['admin-users', debouncedSearch, filterLocation, filterRole], async signal => {
+    const [users, locations] = await Promise.all([userService.getAll({ search: debouncedSearch, locationId: filterLocation || undefined, role: filterRole || undefined }, signal), locationService.getAll(signal)]);
+    return { users: users.data.data, locations: locations.data.data };
+  });
+  const users = query.data?.users || [], locations = query.data?.locations || [], isLoading = query.loading, loadData = query.refresh;
+  const loadError = query.stale ? '' : query.error;
 
   const handleEdit = (user: User) => {
     setEditingUser(user);
@@ -132,8 +123,9 @@ export const UserManagement: React.FC = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.password || formData.password.length < 6) {
-      toast.error('Password must be at least 6 characters');
+    // The same rule as the store's Team page and the server: 8 or more characters.
+    if (!formData.password || formData.password.length < 8) {
+      toast.error('Password must be at least 8 characters');
       return;
     }
 
@@ -178,7 +170,7 @@ export const UserManagement: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to deactivate this user?')) return;
+    if (!await confirm({ title: 'Deactivate this user?', message: 'They can no longer sign in until reactivated.', confirmLabel: 'Deactivate', destructive: true })) return;
 
     try {
       await userService.delete(id);
@@ -208,18 +200,62 @@ export const UserManagement: React.FC = () => {
     }
   };
 
+
   return (
-    <div className="space-y-6">
+    <>
+      {confirmDialog}
+    <ManagementPage className="space-y-6">
       <PageHeader
         title="User Management"
         subtitle="Manage users across all stores"
         actions={
-          <Button onClick={openCreateModal}>
+          <Button variant="primary" onClick={openCreateModal}>
             <Plus className="h-4 w-4 mr-2" />
             Add User
           </Button>
         }
       />
+      <AutoRefreshStatus state={query} />
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-wrap gap-4">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search users..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select
+              aria-label="Store filter"
+              value={filterLocation}
+              onChange={(e) => setFilterLocation(e.target.value)}
+              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
+            >
+              <option value="">All Stores</option>
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name}
+                </option>
+              ))}
+            </Select>
+            <Select
+              aria-label="Role filter"
+              value={filterRole}
+              onChange={(e) => setFilterRole(e.target.value)}
+              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
+            >
+              <option value="">All Roles</option>
+              <option value="SUPER_ADMIN">Super Admin</option>
+              <option value="ADMIN">Admin</option>
+              <option value="MANAGER">Manager</option>
+              <option value="CASHIER">Cashier</option>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -271,44 +307,7 @@ export const UserManagement: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-4">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search users..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <select
-              value={filterLocation}
-              onChange={(e) => setFilterLocation(e.target.value)}
-              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
-            >
-              <option value="">All Stores</option>
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name}
-                </option>
-              ))}
-            </select>
-            <select
-              value={filterRole}
-              onChange={(e) => setFilterRole(e.target.value)}
-              className="px-3 py-2 border border-input rounded-md bg-background text-foreground min-w-[150px]"
-            >
-              <option value="">All Roles</option>
-              <option value="SUPER_ADMIN">Super Admin</option>
-              <option value="ADMIN">Admin</option>
-              <option value="MANAGER">Manager</option>
-              <option value="CASHIER">Cashier</option>
-            </select>
-          </div>
-        </CardContent>
-      </Card>
+
 
       {/* Users Table */}
       <Card>
@@ -317,16 +316,16 @@ export const UserManagement: React.FC = () => {
         </CardHeader>
         {isLoading ? (
           <div className="p-8 text-center">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
+            <Spinner size="lg" className="mx-auto" />
           </div>
-        ) : users.length === 0 ? (
+        ) : loadError ? (<div role="alert" className="p-4 space-y-3"><p>Users could not be loaded.</p><Button variant="outline" onClick={loadData}>Retry</Button></div>) : users.length === 0 ? (
           <EmptyState
             icon={Users}
             title="No users found"
             hint="Try adjusting your filters"
           />
         ) : (
-          <Table>
+          <Table scrollLabel="User Management records">
             <TableHeader>
               <TableRow>
                 <TableHead>User</TableHead>
@@ -355,7 +354,7 @@ export const UserManagement: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <Badge variant={getRoleBadgeVariant(user.role)}>
-                      {user.role.replace(/_/g, ' ')}
+                      {formatEnumLabel(user.role)}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -372,33 +371,10 @@ export const UserManagement: React.FC = () => {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openPasswordModal(user)}
-                        title="Reset Password"
-                      >
-                        <Key className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEdit(user)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      {user.isActive && user.role !== 'SUPER_ADMIN' && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDelete(user.id)}
-                          className="text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
+                    <RowActions name={`${user.firstName} ${user.lastName}`} primary={{ label: 'Edit', onAction: () => handleEdit(user) }} items={[
+                      { id: 'password', label: 'Reset password', icon: <Key size={16} />, onAction: () => openPasswordModal(user) },
+                      user.isActive && user.role !== 'SUPER_ADMIN' && { id: 'deactivate', label: 'Deactivate', icon: <Trash2 size={16} />, destructive: true, onAction: () => void handleDelete(user.id) },
+                    ]} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -415,8 +391,9 @@ export const UserManagement: React.FC = () => {
           setEditingUser(null);
         }}
         title="Edit User"
+        footer={<DialogActions form="edit-user-form" confirmLabel="Save Changes" onCancel={() => { setShowEditModal(false); setEditingUser(null); }} />}
       >
-        <form onSubmit={handleSaveUser} className="space-y-4">
+        <form id="edit-user-form" onSubmit={handleSaveUser} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Input
               label="First Name"
@@ -442,8 +419,8 @@ export const UserManagement: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Role</label>
-              <select
+              <label className="field-label block text-sm font-medium mb-1">Role</label>
+              <Select
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -455,11 +432,11 @@ export const UserManagement: React.FC = () => {
                 {editingUser?.role === 'SUPER_ADMIN' && (
                   <option value="SUPER_ADMIN">Super Admin</option>
                 )}
-              </select>
+              </Select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Store</label>
-              <select
+              <label className="field-label block text-sm font-medium mb-1">Store</label>
+              <Select
                 value={formData.locationId}
                 onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -470,36 +447,11 @@ export const UserManagement: React.FC = () => {
                     {loc.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           </div>
 
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={formData.isActive}
-              onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-              className="rounded border-input"
-            />
-            <span className="text-sm">Active</span>
-          </label>
-
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowEditModal(false);
-                setEditingUser(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" className="flex-1">
-              Save Changes
-            </Button>
-          </div>
+          <Checkbox label="Active" checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} />
         </form>
       </Modal>
 
@@ -512,8 +464,9 @@ export const UserManagement: React.FC = () => {
           setNewPassword('');
         }}
         title="Reset Password"
+        footer={<DialogActions form="reset-user-password-form" confirmLabel="Reset Password" onCancel={() => { setShowPasswordModal(false); setEditingUser(null); setNewPassword(''); }} />}
       >
-        <form onSubmit={handleResetPassword} className="space-y-4">
+        <form id="reset-user-password-form" onSubmit={handleResetPassword} className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Reset password for {editingUser?.firstName} {editingUser?.lastName}
           </p>
@@ -525,26 +478,8 @@ export const UserManagement: React.FC = () => {
             onChange={(e) => setNewPassword(e.target.value)}
             placeholder="Enter new password"
             required
-            minLength={6}
+            minLength={8}
           />
-
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowPasswordModal(false);
-                setEditingUser(null);
-                setNewPassword('');
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" className="flex-1">
-              Reset Password
-            </Button>
-          </div>
         </form>
       </Modal>
 
@@ -553,8 +488,9 @@ export const UserManagement: React.FC = () => {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         title="Create New User"
+        footer={<DialogActions form="create-user-form" confirmLabel="Create User" onCancel={() => setShowCreateModal(false)} />}
       >
-        <form onSubmit={handleCreateUser} className="space-y-4">
+        <form id="create-user-form" onSubmit={handleCreateUser} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Input
               label="First Name"
@@ -583,15 +519,15 @@ export const UserManagement: React.FC = () => {
             type="password"
             value={formData.password}
             onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-            placeholder="Minimum 6 characters"
+            placeholder="Min. 8 characters, upper/lower/number/symbol"
             required
-            minLength={6}
+            minLength={8}
           />
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Role</label>
-              <select
+              <label className="field-label block text-sm font-medium mb-1">Role</label>
+              <Select
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -600,11 +536,11 @@ export const UserManagement: React.FC = () => {
                 <option value="MANAGER">Manager</option>
                 <option value="ADMIN">Admin</option>
                 <option value="SUPER_ADMIN">Super Admin</option>
-              </select>
+              </Select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Store</label>
-              <select
+              <label className="field-label block text-sm font-medium mb-1">Store</label>
+              <Select
                 value={formData.locationId}
                 onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -615,25 +551,12 @@ export const UserManagement: React.FC = () => {
                     {loc.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
-          </div>
-
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => setShowCreateModal(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" className="flex-1">
-              Create User
-            </Button>
           </div>
         </form>
       </Modal>
-    </div>
+    </ManagementPage>
+    </>
   );
 };

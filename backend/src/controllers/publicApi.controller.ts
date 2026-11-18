@@ -8,7 +8,7 @@ import { asyncHandler } from '../utils/errorHandler';
 import prisma from '../config/database';
 import { SaleStatus } from '@prisma/client';
 import { ApiKeyRequest } from '../middleware/apiKeyAuth';
-import { createDateFilter } from '../utils/dateFilter.util';
+import { storeDateRange } from '../services/reportDates.service';
 
 const paginate = (req: ApiKeyRequest) => {
   const page = Math.max(1, parseInt(String(req.query.page || 1), 10) || 1);
@@ -78,7 +78,8 @@ export const listSales = asyncHandler(async (req: ApiKeyRequest, res: Response) 
   const { startDate, endDate, status } = req.query;
 
   const where: any = {};
-  const dateFilter = createDateFilter(String(startDate || ''), String(endDate || ''));
+  // Keys cover every store, so a calendar day here is a UTC day (or send a timestamp with its zone).
+  const { range: dateFilter } = await storeDateRange({}, startDate || undefined, endDate || undefined);
   if (dateFilter) where.createdAt = dateFilter;
   if (status) where.status = String(status);
 
@@ -180,7 +181,7 @@ export const getSummary = asyncHandler(async (_req: ApiKeyRequest, res: Response
     success: true,
     data: {
       date: todayStart.toISOString().slice(0, 10),
-      netRevenue: Math.round(((sales._sum.total || 0) - (refunds._sum.amount || 0)) * 100) / 100,
+      netRevenue: Math.round((Number((sales._sum.total || 0)) - Number((refunds._sum.amount || 0))) * 100) / 100,
       transactions: sales._count,
       lowStockProducts: Number(lowStock[0]?.count ?? 0),
     },

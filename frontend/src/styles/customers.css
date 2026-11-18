@@ -1,0 +1,42 @@
+.customer-directory-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.customer-directory-search { position: relative; width: min(100%, 440px); }
+.customer-directory-search > svg { position: absolute; left: 12px; top: 10px; width: 16px; height: 16px; color: hsl(var(--muted-foreground)); pointer-events: none; }
+.customer-directory-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.customer-directory-footer nav { margin-top: 0; }
+.customer-directory-table { container: customer-directory / inline-size; }
+.customer-directory-table table { table-layout: fixed; }
+.customer-directory-table th:nth-child(1), .customer-directory-table th:nth-child(2) { width: 22%; }
+.customer-directory-table th:nth-child(3) { width: 13%; }
+.customer-directory-table th:nth-child(4) { width: 12%; }
+.customer-directory-table th:nth-child(5) { width: 7%; }
+.customer-directory-table th:nth-child(6) { width: 12%; }
+.customer-directory-table th:nth-child(7) { width: 12%; }
+.customer-directory-row td { padding-top: 12px; padding-bottom: 12px; overflow-wrap: anywhere; }
+.customer-directory-row .customer-contact-cell { font-size: 12px; }
+.customer-tags { font-size: 12px; line-height: 18px; color: hsl(var(--muted-foreground)); margin-top: 2px; }
+.customer-row-actions { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
+.customer-mobile-label { display: none; }
+@container customer-directory (max-width: 850px) {
+  .customer-directory-table table, .customer-directory-table tbody { display: block; width: 100%; }
+  .customer-directory-table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .customer-directory-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: 'name name actions' 'contact contact contact' 'loyalty spend visits' 'last last last'; gap: 12px 8px; padding: 16px; }
+  .customer-directory-row td { display: block; padding: 0; min-width: 0; text-align: left; }
+  .customer-name-cell { grid-area: name; align-self: center; }
+  .customer-contact-cell { grid-area: contact; }
+  .customer-loyalty-cell { grid-area: loyalty; }
+  .customer-spend-cell { grid-area: spend; }
+  .customer-visits-cell { grid-area: visits; }
+  .customer-last-visit-cell { grid-area: last; display: flex !important; align-items: center; gap: 8px; font-size: 12px; }
+  .customer-actions-cell { grid-area: actions; }
+  .customer-mobile-label { display: block; font-size: 12px; font-weight: 400; color: hsl(var(--muted-foreground)); margin-bottom: 2px; }
+  .customer-last-visit-cell .customer-mobile-label { margin-bottom: 0; }
+}
+@media (max-width: 639px), (pointer: coarse) {
+  .customer-directory-search > svg { top: 14px; }
+}
+@media (max-width: 639px) {
+  .customer-directory-toolbar { align-items: stretch; }
+  .customer-directory-search { flex: 1 1 100%; }
+  .customer-directory-footer { justify-content: center; text-align: center; }
+  .customer-form > .grid { grid-template-columns: minmax(0, 1fr); }
+}

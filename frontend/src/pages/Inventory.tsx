@@ -1,55 +1,116 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { productService, categoryService } from '@/services/api';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { MarginPricing } from '@/components/inventory/MarginPricing';
+import { ProductPacksSection } from '@/components/inventory/ProductPacksSection';
+import { SupplierCasesEditor } from '@/components/inventory/SupplierCasesEditor';
+import { PackForm, PackFormTarget } from '@/components/inventory/PackForm';
+import { PackCatalog } from '@/components/inventory/PackCatalog';
+import { ProductTabs, SHARED_CATALOG } from '@/components/common/WorkflowNavigation';
+import { useProductPackaging } from '@/hooks/useProductPackaging';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ADJUSTMENT_REASONS } from '@/components/inventory/StockAdjustmentModal';
+import { Select } from '@/components/ui/Select';
+import { Alert } from '@/components/ui/Alert';
+import React, { useState, useEffect, useRef, useCallback, useId } from 'react';
+import { api, productService, categoryService, catalogService, apiErrorMessage } from '@/services/api';
+import { useConfirm } from '@/components/ui/useConfirm';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import { useAuthStore } from '@/store/authStore';
+import { can } from '@/lib/capabilities';
+import { managesSharedCatalog } from '@/lib/navigation';
+import { suggestedCatalogCategory } from '@/lib/catalogCategory';
 import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PageHeader } from '@/components/common/PageHeader';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
+import { useProductIdentification } from '@/hooks/useProductIdentification';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
 import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
-import { Badge } from '@/components/ui/Badge';
+import { DataPanel, FormSection, ManagementPage, SummaryStrip } from '@/components/common/Workspace';
+import { ProductCatalogTable } from '@/components/inventory/ProductCatalogTable';
 import toast from 'react-hot-toast';
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from '@/components/ui/Table';
-import { Plus, Search, Edit, Trash2, AlertTriangle, Package, FolderPlus, RotateCcw, DollarSign, TrendingDown, Camera, Tag, Upload, Wand2 } from 'lucide-react';
+import { Plus, Search, AlertTriangle, Package, FolderPlus, Tag, Upload, X } from 'lucide-react';
 import { StockAdjustmentModal } from '@/components/inventory/StockAdjustmentModal';
-import { ReceiptScanModal } from '@/components/inventory/ReceiptScanModal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { BarcodeLabelPrint } from '@/components/inventory/BarcodeLabelPrint';
+import { ShelfLabelsDialog } from '@/components/inventory/ShelfLabelsDialog';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
 import { CSVImportModal } from '@/components/inventory/CSVImportModal';
+import '@/styles/products.css';
+import { Spinner } from '@/components/ui/LoadingState';
+
+/** What a shared item takes from the Shared Catalog: the item form shows them but never sends them. */
+const SHARED_FORM_FIELDS = ['sku', 'name', 'description', 'categoryId', 'barcode', 'isTaxable', 'saleBlockedReason', 'brand', 'productFamily',
+  'variant', 'size', 'minimumAge', 'ebtEligible', 'priceEmbedded'] as const;
 
 export const Inventory: React.FC = () => {
+  const [confirm, confirmDialog] = useConfirm();
+  const { locationId, isReadOnly } = useEffectiveLocation();
+  const role = useAuthStore(state => state.user?.role);
+  const userId = useAuthStore(state => state.user?.id);
+  const ownsSharedCatalog = useAuthStore(state => managesSharedCatalog(state.user));
+  const canManage = !isReadOnly && can(role, 'inventory.manage');
+  const productRequest = useRef<AbortController | null>(null);
+  const statsRequest = useRef<AbortController | null>(null);
+  const categoryRequest = useRef<AbortController | null>(null);
+  const productDetailsRequest = useRef<AbortController | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [statsError, setStatsError] = useState('');
+  const [categoriesError, setCategoriesError] = useState('');
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const productFormId = useId();
+  const savingProduct = useRef(false);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [showStockAdjustModal, setShowStockAdjustModal] = useState(false);
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null);
-  const [showReceiptScanModal, setShowReceiptScanModal] = useState(false);
   const [showLabelPrintModal, setShowLabelPrintModal] = useState(false);
+  const [showLabelChoice, setShowLabelChoice] = useState(false);
   const [showCSVImportModal, setShowCSVImportModal] = useState(false);
   const [selectedForLabels, setSelectedForLabels] = useState<Product[]>([]);
+  // Inventory is split into single items and packs (cartons, 12-packs, variety packs).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get('view') === 'packs' ? 'packs' : 'singles';
+  // Shelf labels showing an old price; the attention list links here with ?labels=pending.
+  const [showShelfLabels, setShowShelfLabels] = useState(false);
+  const labelsToPrint = useScopedQuery<number>(['shelf-labels-pending', locationId], async signal => (await productService.pendingLabels(signal)).data.data.total, canManage && !!locationId);
+  useEffect(() => {
+    if (searchParams.get('labels') !== 'pending') return;
+    if (canManage) setShowShelfLabels(true);
+    setSearchParams(params => { const next = new URLSearchParams(params); next.delete('labels'); return next; }, { replace: true });
+  }, [searchParams, setSearchParams, canManage]);
+  // Quick-find links here with ?search=…; take it into the search box, then tidy the address.
+  const linkedSearch = searchParams.get('search');
+  useEffect(() => {
+    if (linkedSearch === null) return;
+    setSearch(linkedSearch);
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete('search'); return next; }, { replace: true });
+  }, [linkedSearch, setSearchParams]);
+  const [packTarget, setPackTarget] = useState<PackFormTarget | null>(null);
+  const [packsRefresh, setPacksRefresh] = useState(0);
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStatus, setFilterStatus] = useState<'' | 'true' | 'false'>('');
-  const [lowStockCount, setLowStockCount] = useState(0);
-  const [outOfStockCount, setOutOfStockCount] = useState(0);
-  const [inventoryValue, setInventoryValue] = useState(0);
+  const [lowStockCount, setLowStockCount] = useState<number | null>(null);
+  const [outOfStockCount, setOutOfStockCount] = useState<number | null>(null);
+  const [inventoryValue, setInventoryValue] = useState<number | null>(null);
+  const [unvaluedCount, setUnvaluedCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [totalProducts, setTotalProducts] = useState(0);
+  const [totalProducts, setTotalProducts] = useState<number | null>(null);
   const ITEMS_PER_PAGE = 20;
   const [formData, setFormData] = useState({
     sku: '',
@@ -66,80 +127,37 @@ export const Inventory: React.FC = () => {
     isActive: true,
     trackInventory: true,
     allowBackorder: false,
+    saleBlockedReason: '',
+    provisionalUnitCost: '',
+    stockAdjustmentReason: 'MANUAL_COUNT',
+    brand: '',
+    productFamily: '',
+    variant: '',
+    size: '',
     minimumAge: '',
     ebtEligible: false,
     priceEmbedded: false,
     categoryId: '',
+    priceFollowsCatalog: false,
   });
+  // The edit form as opened, to tell whether it has unsaved changes.
+  const [openedForm, setOpenedForm] = useState('');
+  const [addingToCatalog, setAddingToCatalog] = useState(false);
 
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  // Auto-fill product details from the barcode database and/or a label photo
-  const [identifying, setIdentifying] = useState(false);
-
-  /** Downscale a photo client-side so the upload stays small */
-  const compressImage = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        const MAX = 1024;
-        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
-        URL.revokeObjectURL(url);
-        resolve(canvas.toDataURL('image/jpeg', 0.85));
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read image')); };
-      img.src = url;
-    });
-
-  const handleIdentify = async (photoFile?: File) => {
-    if (!formData.barcode && !photoFile) {
-      toast.error('Enter/scan a barcode or take a photo first');
-      return;
-    }
-    setIdentifying(true);
-    try {
-      const payload: { barcode?: string; image?: string } = {};
-      if (formData.barcode) payload.barcode = formData.barcode;
-      if (photoFile) payload.image = await compressImage(photoFile);
-
-      const res = await productService.identify(payload);
-      const info = res.data.data;
-      if (!info.found) {
-        toast(res.data.message || 'Product not recognized', { icon: '🤷' });
-        return;
-      }
-
-      // Match the suggested category against existing ones by name
-      const categoryMatch = info.category
-        ? categories.find(
-            (c: any) =>
-              c.name.toLowerCase() === info.category.toLowerCase() ||
-              c.name.toLowerCase().includes(info.category.toLowerCase()) ||
-              info.category.toLowerCase().includes(c.name.toLowerCase())
-          )
-        : null;
-
-      setFormData((prev) => ({
-        ...prev,
-        name: info.name || prev.name,
-        description: info.description || prev.description,
-        categoryId: categoryMatch?.id || prev.categoryId,
-      }));
-
-      const via = info.source.includes('barcode_db') ? 'product database' : 'photo';
-      toast.success(`Filled from ${via}: ${info.name}${categoryMatch ? ` (${categoryMatch.name})` : ''}`);
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Identification failed');
-    } finally {
-      setIdentifying(false);
-    }
-  };
+  const lookup = useProductIdentification({
+    open: showModal, enabled: canManage, editing: !!editingProduct,
+    contextKey: `${userId}:${role}:${locationId}`, draft: formData, setDraft: setFormData, categories,
+  });
+  const duplicateProductId = !editingProduct ? lookup.state.info?.existingProductId : undefined;
+  // The edited item's packs and supplier cases, for its "Packs" and "How you buy it" sections.
+  const packaging = useProductPackaging(showModal ? editingProduct?.id : null);
+  const suggestedCategory = suggestedCatalogCategory([
+    ...(lookup.state.info?.categoryCandidates || []),
+    ...(lookup.state.info?.category ? [lookup.state.info.category] : []),
+  ]);
 
   // Debounce search input and reset page
   useEffect(() => {
@@ -150,45 +168,55 @@ export const Inventory: React.FC = () => {
     return () => clearTimeout(debounceTimer.current);
   }, [search]);
 
-  useEffect(() => {
-    loadCategories();
-    loadLowStockCount();
-  }, []);
-
-  const loadLowStockCount = async () => {
+  const loadLowStockCount = useCallback(async (quiet = false, active: () => boolean = () => true) => {
+    statsRequest.current?.abort();
+    const request = new AbortController(); statsRequest.current = request;
+    const current = () => !request.signal.aborted && statsRequest.current === request && active();
+    if (!quiet) { setStatsLoading(true); setStatsError(''); setLowStockCount(null); setOutOfStockCount(null); setInventoryValue(null); setUnvaluedCount(0); }
     try {
-      const response = await productService.getStats();
+      const response = await api.get('/products/stats', { params: { locationId: locationId || undefined }, signal: request.signal });
+      if (!current()) return;
       const stats = response.data.data;
-      setLowStockCount(stats.lowStockCount || 0);
-      setOutOfStockCount(stats.outOfStockCount || 0);
-      setInventoryValue(stats.inventoryValue || 0);
+      setStatsError('');
+      setLowStockCount(stats.lowStockCount ?? null);
+      setOutOfStockCount(stats.outOfStockCount ?? null);
+      setInventoryValue(stats.inventoryValue ?? null);
+      setUnvaluedCount(stats.unvaluedCount ?? 0);
     } catch (error) {
-      console.error('Failed to load product stats:', error);
-    }
-  };
+      if (quiet) throw error;
+      if (current()) setStatsError('Inventory summary is unavailable. Try again.');
+    } finally { if (current()) setStatsLoading(false); }
+  }, [locationId]);
 
-  useEffect(() => {
-    loadProducts();
-  }, [debouncedSearch, currentPage, filterCategory, filterStatus]);
-
-  const loadCategories = async () => {
+  const loadCategories = useCallback(async (quiet = false, active: () => boolean = () => true) => {
+    categoryRequest.current?.abort();
+    const request = new AbortController(); categoryRequest.current = request;
+    const current = () => !request.signal.aborted && categoryRequest.current === request && active();
+    if (!quiet) { setCategoriesLoading(true); setCategoriesError(''); setCategories([]); }
     try {
-      const response = await categoryService.getAll();
+      const response = await api.get('/categories', { params: { locationId: locationId || undefined }, signal: request.signal });
+      if (!current()) return;
       setCategories(response.data.data || []);
+      setCategoriesError('');
     } catch (error) {
-      console.error('Failed to load categories:', error);
-    }
-  };
+      if (quiet) throw error;
+      if (current()) setCategoriesError('Categories are unavailable. Try again.');
+    } finally { if (current()) setCategoriesLoading(false); }
+  }, [locationId]);
+
+  const categoryUpdates = useAutoRefresh(ctx => loadCategories(ctx.quiet, ctx.current), { key: ['product-categories', locationId] });
+  const summaryUpdates = useAutoRefresh(ctx => loadLowStockCount(ctx.quiet, ctx.current), { key: ['product-summary', locationId] });
 
   const handleCreateCategory = async () => {
+    if (!canManage) return;
     if (!newCategoryName.trim()) return;
 
     setIsCreatingCategory(true);
     try {
       const response = await categoryService.create({ name: newCategoryName.trim() });
       const newCategory = response.data.data;
-      setCategories([...categories, newCategory]);
-      setFormData({ ...formData, categoryId: newCategory.id });
+      setCategories(previous => [...previous, newCategory]);
+      lookup.editIdentity('categoryId', newCategory.id);
       setNewCategoryName('');
       setShowNewCategoryInput(false);
       toast.success('Category created');
@@ -199,54 +227,87 @@ export const Inventory: React.FC = () => {
     }
   };
 
-  const loadProducts = async () => {
-    setIsLoading(true);
+  const loadProducts = useCallback(async (quiet = false, active: () => boolean = () => true) => {
+    productRequest.current?.abort();
+    const request = new AbortController(); productRequest.current = request;
+    const current = () => !request.signal.aborted && productRequest.current === request && active();
+    if (!quiet) { setIsLoading(true); setLoadError(''); setProducts([]); setTotalProducts(null); setTotalPages(1); }
     try {
       const params: any = {
+        locationId: locationId || undefined,
         search: debouncedSearch,
         page: currentPage,
         limit: ITEMS_PER_PAGE,
+        excludeVarietyPacks: true,
       };
       if (filterCategory) params.categoryId = filterCategory;
       if (filterStatus) params.isActive = filterStatus;
-      const response = await productService.getAll(params);
+      const response = await productService.getAll(params, request.signal);
+      if (!current()) return;
       setProducts(response.data.data);
+      setLoadError('');
       setTotalPages(response.data.pagination?.totalPages || 1);
-      setTotalProducts(response.data.pagination?.total || response.data.data.length);
+      setTotalProducts(response.data.pagination?.total ?? response.data.data.length);
     } catch (error) {
-      console.error('Failed to load products:', error);
-      toast.error('Failed to load products');
+      if (quiet) throw error;
+      if (current()) setLoadError('Unable to load products. Try again.');
     } finally {
-      setIsLoading(false);
+      if (current()) setIsLoading(false);
     }
-  };
+  }, [locationId, debouncedSearch, currentPage, filterCategory, filterStatus]);
+
+  const productUpdates = useAutoRefresh(ctx => loadProducts(ctx.quiet, ctx.current), { key: ['products', locationId, debouncedSearch, currentPage, filterCategory, filterStatus] });
+  useEffect(() => () => { productRequest.current?.abort(); statsRequest.current?.abort(); categoryRequest.current?.abort(); productDetailsRequest.current?.abort(); }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManage || savingProduct.current || duplicateProductId) return;
+    lookup.reset();
+    savingProduct.current = true;
+    setIsSavingProduct(true);
+    setSaveError('');
 
     try {
+      // An emptied field on the edit form clears the saved value; a new product just leaves it out.
+      const blank = editingProduct ? null : undefined;
       const data: any = {
         sku: formData.sku,
         name: formData.name,
-        description: formData.description || undefined,
-        categoryId: formData.categoryId || undefined,
+        description: formData.description || blank,
+        categoryId: formData.categoryId || blank,
         cost: parseFloat(formData.cost),
         price: parseFloat(formData.price),
-        compareAtPrice: formData.compareAtPrice ? parseFloat(formData.compareAtPrice) : undefined,
+        compareAtPrice: formData.compareAtPrice ? parseFloat(formData.compareAtPrice) : blank,
         stockQuantity: parseInt(formData.stockQuantity) || 0,
         lowStockAlert: parseInt(formData.lowStockAlert) || 0,
-        barcode: formData.barcode || undefined,
-        image: formData.image || undefined,
+        barcode: formData.barcode || blank,
+        image: formData.image || blank,
         isTaxable: formData.isTaxable,
         isActive: formData.isActive,
         trackInventory: formData.trackInventory,
         allowBackorder: formData.allowBackorder,
+        saleBlockedReason: formData.saleBlockedReason.trim() || null,
+        provisionalUnitCost: formData.provisionalUnitCost ? parseFloat(formData.provisionalUnitCost) : null,
+        brand: formData.brand.trim() || null,
+        productFamily: formData.productFamily.trim() || null,
+        variant: formData.variant.trim() || null,
+        size: formData.size.trim() || null,
         minimumAge: formData.minimumAge ? parseInt(formData.minimumAge) : null,
         ebtEligible: formData.ebtEligible,
         priceEmbedded: formData.priceEmbedded,
       };
 
       if (editingProduct) {
+        if (!data.trackInventory || data.stockQuantity === editingProduct.stockQuantity) delete data.stockQuantity;
+        else { data.expectedStockVersion = editingProduct.stockVersion; data.stockAdjustmentReason = formData.stockAdjustmentReason; }
+        // Shared catalog: the shared fields are not this store's to change, so they are not sent;
+        // a price that follows the shared one is set there (turning Follow on sets it on save).
+        if (editingProduct.catalogItemId) {
+          for (const field of SHARED_FORM_FIELDS) delete data[field];
+          const following = !!editingProduct.priceFollowsCatalog;
+          if (formData.priceFollowsCatalog !== following) data.priceFollowsCatalog = formData.priceFollowsCatalog;
+          else if (following) delete data.price;
+        }
         await productService.update(editingProduct.id, data);
       } else {
         await productService.create(data);
@@ -254,17 +315,24 @@ export const Inventory: React.FC = () => {
 
       setShowModal(false);
       resetForm();
-      loadProducts();
-      loadLowStockCount();
+      productUpdates.refresh();
+      summaryUpdates.refresh();
       toast.success(editingProduct ? 'Product updated' : 'Product created');
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to save product');
+      setSaveError(error.response?.data?.error || 'Unable to save the product. Your changes are still here. Try again.');
+    } finally {
+      savingProduct.current = false;
+      setIsSavingProduct(false);
     }
   };
 
   const handleEdit = (product: Product) => {
+    if (!canManage) return;
+    productDetailsRequest.current?.abort();
+    lookup.reset();
+    setSaveError('');
     setEditingProduct(product);
-    setFormData({
+    const opened = {
       sku: product.sku,
       name: product.name,
       description: product.description || '',
@@ -279,30 +347,75 @@ export const Inventory: React.FC = () => {
       isActive: product.isActive,
       trackInventory: product.trackInventory,
       allowBackorder: product.allowBackorder,
+      saleBlockedReason: product.saleBlockedReason || '',
+      stockAdjustmentReason: 'MANUAL_COUNT',
+      provisionalUnitCost: product.provisionalUnitCost?.toString() || '',
+      brand: product.brand || '',
+      productFamily: product.productFamily || '',
+      variant: product.variant || '',
+      size: product.size || '',
       minimumAge: product.minimumAge?.toString() || '',
       ebtEligible: product.ebtEligible ?? false,
       priceEmbedded: product.priceEmbedded ?? false,
       categoryId: product.categoryId || '',
-    });
+      priceFollowsCatalog: product.priceFollowsCatalog ?? false,
+    };
+    setFormData(opened);
+    setOpenedForm(JSON.stringify(opened));
     setShowNewCategoryInput(false);
     setNewCategoryName('');
     setShowModal(true);
   };
 
+  // Shared catalog: start a shared item from this store's item (owners of several stores).
+  const addToSharedCatalog = async () => {
+    if (!editingProduct || addingToCatalog) return;
+    setAddingToCatalog(true);
+    try {
+      await catalogService.fromProduct(editingProduct.id);
+      const fresh: Product = (await productService.getById(editingProduct.id)).data.data;
+      handleEdit(fresh);
+      productUpdates.refresh();
+      toast.success(`${fresh.name} is in the Shared Catalog. Add it to your other stores there.`);
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Could not add it to the Shared Catalog. Try again.'));
+    } finally {
+      setAddingToCatalog(false);
+    }
+  };
+
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   const handleDelete = async (id: string) => {
+    if (!canManage) return;
     try {
       await productService.delete(id);
-      loadProducts();
-      loadLowStockCount();
+      productUpdates.refresh();
+      summaryUpdates.refresh();
       toast.success('Product deleted');
     } catch (error) {
-      toast.error('Failed to delete product');
+      // A product with sales or stock history cannot be deleted; offer to archive it instead.
+      if ((error as { response?: { status?: number } }).response?.status === 409) {
+        const archive = await confirm({ title: 'Archive this product instead?', message: apiErrorMessage(error, 'This product has history and cannot be deleted.') + ' Archiving hides it from the register and lists but keeps its records.', confirmLabel: 'Archive' });
+        if (!archive) return;
+        try {
+          await productService.update(id, { isActive: false });
+          productUpdates.refresh();
+          summaryUpdates.refresh();
+          toast.success('Product archived');
+        } catch (archiveError) {
+          toast.error(apiErrorMessage(archiveError, 'Failed to archive product'));
+        }
+        return;
+      }
+      toast.error(apiErrorMessage(error, 'Failed to delete product'));
     }
   };
 
   const resetForm = () => {
+    productDetailsRequest.current?.abort();
+    lookup.reset();
+    setSaveError('');
     setEditingProduct(null);
     setFormData({
       sku: '',
@@ -319,566 +432,317 @@ export const Inventory: React.FC = () => {
       isActive: true,
       trackInventory: true,
       allowBackorder: false,
+      saleBlockedReason: '',
+      provisionalUnitCost: '',
+      stockAdjustmentReason: 'MANUAL_COUNT',
+      brand: '',
+      productFamily: '',
+      variant: '',
+      size: '',
       minimumAge: '',
       ebtEligible: false,
       priceEmbedded: false,
       categoryId: '',
+      priceFollowsCatalog: false,
     });
+    setOpenedForm('');
     setShowNewCategoryInput(false);
     setNewCategoryName('');
   };
 
   const openCreateModal = () => {
+    if (!canManage) return;
     resetForm();
     setShowModal(true);
   };
 
+  // The register links here with ?newBarcode=… when a scan found nothing: open
+  // Add single item with that barcode filled in (Auto-fill looks it up), then tidy the address.
+  const newBarcode = searchParams.get('newBarcode');
+  useEffect(() => {
+    if (newBarcode === null) return;
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete('newBarcode'); return next; }, { replace: true });
+    if (!canManage || !newBarcode.trim()) return;
+    openCreateModal();
+    lookup.changeBarcode(newBarcode.trim().slice(0, 100));
+  }, [newBarcode, canManage]);
+
+  const activePacks = (packaging.data?.sellingUnits || []).filter(unit => unit.isActive);
+  const typedCost = parseFloat(formData.cost), typedPrice = parseFloat(formData.price);
+  const costHint = activePacks.length && typedCost >= 0
+    ? `Last price paid for one. ${activePacks.map(unit => `${formatCurrency(typedCost * unit.unitsPerPackage)} per ${unit.name}`).join(', ')}.`
+    : 'Last price paid for one. Changing it does not revalue stock already on hand.';
+  const pricingSummary = typedPrice > 0 && typedCost >= 0 ? `Margin ${((typedPrice - typedCost) / typedPrice * 100).toFixed(1)}%` : undefined;
+  const packsSummary = packaging.data ? (activePacks.length ? activePacks.map(unit => `${unit.name} (${unit.unitsPerPackage})`).join(', ') : 'None') : undefined;
+  const casesSummary = packaging.data ? ((packaging.data.suppliers || []).map(link => link.supplierName).join(', ') || 'None') : undefined;
+  const detailsSummary = [formData.brand.trim(), formData.size.trim()].filter(Boolean).join(' · ') || (formData.description ? 'Has a description' : undefined);
+  // A barcode lookup that brings a photo or description opens that section so the clerk sees what was filled in.
+  const lookupFilledDetails = lookup.state.kind !== 'idle' && !!formData.description;
+  const advancedSummary = [!formData.trackInventory && 'Stock not tracked', formData.saleBlockedReason.trim() && 'On sale hold'].filter(Boolean).join(' · ') || undefined;
+  // Shared catalog: a linked item's shared fields are set there, and its price too while it follows the shared price.
+  const sharedItem = !!editingProduct?.catalogItemId;
+  const priceLocked = sharedItem && formData.priceFollowsCatalog;
+  const formDirty = !!editingProduct && JSON.stringify(formData) !== openedForm;
+  const canShare = !!editingProduct && !sharedItem && ownsSharedCatalog && editingProduct.sku !== 'MISC-001';
+
+  const hasFilters = !!(search || filterCategory || filterStatus);
+  const clearFilters = () => { setSearch(''); setFilterCategory(''); setFilterStatus(''); setCurrentPage(1); };
+
+  // Labels: the ones whose price changed, the items on this page, or a choice when both apply.
+  const pendingLabels = canManage ? labelsToPrint.data || 0 : 0;
+  const pageLabels = view === 'singles' && !isLoading && !loadError && products.length > 0;
+  const printPageLabels = () => { setSelectedForLabels(products); setShowLabelPrintModal(true); };
+  const openLabels = () => {
+    if (pendingLabels && pageLabels) setShowLabelChoice(true);
+    else if (pendingLabels) setShowShelfLabels(true);
+    else printPageLabels();
+  };
+
   return (
-    <div className="p-8">
-      <PageHeader
-        title="Inventory Management"
-        subtitle="Manage your products and track stock levels"
-        actions={
-          <>
-            <Button variant="outline" onClick={() => setShowCSVImportModal(true)}>
-              <Upload className="h-4 w-4 mr-2" />
-              Import CSV
-            </Button>
-            <Button variant="outline" onClick={() => { setSelectedForLabels(products); setShowLabelPrintModal(true); }}>
-              <Tag className="h-4 w-4 mr-2" />
-              Print Labels
-            </Button>
-            <Button variant="outline" onClick={() => setShowReceiptScanModal(true)}>
-              <Camera className="h-4 w-4 mr-2" />
-              Scan Receipt
-            </Button>
-            <Button variant="primary" onClick={openCreateModal}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Product
-            </Button>
-          </>
-        }
-      />
+    <ManagementPage className="products-workspace">
+      {confirmDialog}
+      <PageHeader title="Products" actions={<>
+        {canManage && view === 'singles' && <Button onClick={() => setShowCSVImportModal(true)}><Upload size={16} />Import CSV</Button>}
+        {/* One Labels button: the count is the shelf labels still showing an old price. */}
+        {(view === 'singles' || pendingLabels > 0) && <Button disabled={!pendingLabels && !pageLabels} onClick={openLabels}><Tag size={16} />{pendingLabels ? `Labels (${pendingLabels})` : 'Labels'}</Button>}
+        {canManage && (view === 'singles'
+          ? <Button variant="primary" onClick={openCreateModal}><Plus size={16} />Add single item</Button>
+          : <Button variant="primary" onClick={() => setPackTarget({ mode: 'create' })}><Plus size={16} />Add pack</Button>)}
+      </>} tabs={<ProductTabs value={view} />} />
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <Package className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Total Products</p>
-              <p className="text-xl font-bold">{totalProducts}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-warning/10">
-              <AlertTriangle className="h-5 w-5 text-warning" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Low Stock</p>
-              <p className="text-xl font-bold">{lowStockCount}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-destructive/10">
-              <TrendingDown className="h-5 w-5 text-destructive" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Out of Stock</p>
-              <p className="text-xl font-bold">{outOfStockCount}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-success/10">
-              <DollarSign className="h-5 w-5 text-success" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Inventory Value</p>
-              <p className="text-xl font-bold">{formatCurrency(inventoryValue)}</p>
-            </div>
-          </div>
-        </Card>
-      </div>
+      <AutoRefreshStatus state={productUpdates} />
+      <AutoRefreshStatus state={summaryUpdates} />
+      <AutoRefreshStatus state={categoryUpdates} />
+      {statsError && <div role="alert" className="mb-4 flex flex-wrap items-center gap-3"><p>{statsError}</p><Button variant="outline" onClick={() => void summaryUpdates.refresh()}>Retry inventory summary</Button></div>}
+      {categoriesError && <div role="alert" className="mb-4 flex flex-wrap items-center gap-3"><p>{categoriesError}</p><Button variant="outline" onClick={() => void categoryUpdates.refresh()}>Retry categories</Button></div>}
 
-      {/* Search & Filters */}
-      <div className="flex flex-wrap items-end gap-4 mb-6">
-        <div className="relative flex-1 min-w-[200px] max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Search by name, SKU, or barcode..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-muted-foreground mb-1">Category</label>
-          <select
-            value={filterCategory}
-            onChange={(e) => { setFilterCategory(e.target.value); setCurrentPage(1); }}
-            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm min-w-[150px]"
-          >
-            <option value="">All Categories</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.id}>{cat.name}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-muted-foreground mb-1">Status</label>
-          <select
-            value={filterStatus}
-            onChange={(e) => { setFilterStatus(e.target.value as '' | 'true' | 'false'); setCurrentPage(1); }}
-            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm min-w-[130px]"
-          >
-            <option value="">All</option>
-            <option value="true">Active</option>
-            <option value="false">Inactive</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Products table */}
-      <Card>
-        {isLoading ? (
-          <div className="p-8 text-center">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
-            <p className="mt-4 text-muted-foreground">Loading products...</p>
+      {view === 'packs' ? <PackCatalog locationId={locationId} canManage={canManage} refreshKey={packsRefresh}
+        onChanged={() => { productUpdates.refresh(); summaryUpdates.refresh(); }}
+        onEdit={row => setPackTarget(row.kind === 'PACK' ? { mode: 'edit-pack', productId: row.productId, unitId: row.id } : { mode: 'edit-variety', productId: row.productId })} />
+      : <DataPanel
+        summary={<SummaryStrip items={[
+          { label: hasFilters ? 'Matching Products' : 'Total Products', value: totalProducts ?? (isLoading ? '...' : 'Unavailable') },
+          { label: 'Low Stock', value: lowStockCount ?? (statsLoading ? '...' : 'Unavailable'), tone: lowStockCount ? 'warning' : 'default' },
+          { label: 'Out of Stock', value: outOfStockCount ?? (statsLoading ? '...' : 'Unavailable'), tone: outOfStockCount ? 'danger' : 'default' },
+          // The total is only honest once every in-stock item has a cost; say what is missing instead of "Unavailable".
+          { label: 'Inventory Value', value: inventoryValue === null ? statsLoading ? '...' : unvaluedCount ? 'Needs costs' : 'Unavailable' : formatCurrency(inventoryValue),
+            detail: inventoryValue === null && !statsLoading && unvaluedCount ? `${unvaluedCount} in-stock item${unvaluedCount === 1 ? ' has' : 's have'} no cost yet` : undefined,
+            // Only the owner can confirm opening costs (Finances -> Inventory costs).
+            action: inventoryValue === null && !statsLoading && unvaluedCount && role === 'ADMIN' && !isReadOnly ? <Link to="/financial?tab=inventory" className="text-xs font-medium text-primary hover:underline">Review costs</Link> : undefined },
+        ]} />}
+        toolbar={<div>
+          <div className="products-toolbar">
+            <div className="products-search"><Search aria-hidden="true" /><Input type="search" aria-label="Search products" placeholder="Search by name, SKU, or barcode..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" /></div>
+            <Select aria-label="Category filter" disabled={categoriesLoading || !!categoriesError} value={filterCategory} onChange={e => { setFilterCategory(e.target.value); setCurrentPage(1); }}>
+              <option value="">All Categories</option>{categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+            </Select>
+            <Select aria-label="Product status filter" value={filterStatus} onChange={e => { setFilterStatus(e.target.value as '' | 'true' | 'false'); setCurrentPage(1); }}>
+              <option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option>
+            </Select>
           </div>
-        ) : products.length === 0 ? (
-          <EmptyState
-            icon={Package}
-            title="No products found"
-            hint={search ? 'Try adjusting your search' : 'Get started by adding your first product'}
-            action={!search && (
-              <Button variant="primary" onClick={openCreateModal}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Product
-              </Button>
-            )}
-          />
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>SKU</TableHead>
-                <TableHead>Product Name</TableHead>
-                <TableHead>Price</TableHead>
-                <TableHead>Cost</TableHead>
-                <TableHead>Stock</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {products.map((product) => {
-                const isLowStock = product.stockQuantity <= product.lowStockAlert;
-                const margin = product.price > 0 ? ((product.price - product.cost) / product.price) * 100 : 0;
-
-                return (
-                  <TableRow key={product.id}>
-                    <TableCell>
-                      <span className="font-mono text-sm">{product.sku}</span>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{product.name}</p>
-                        {product.category && (
-                          <p className="text-xs text-muted-foreground">
-                            {product.category.name}
-                          </p>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{formatCurrency(product.price)}</p>
-                        <p className={`text-xs ${margin >= 0 ? 'text-success' : 'text-destructive'}`}>
-                          {margin.toFixed(1)}% margin
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>{formatCurrency(product.cost)}</TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{product.stockQuantity}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Alert: {product.lowStockAlert}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        {!product.isActive && (
-                          <Badge variant="secondary">Inactive</Badge>
-                        )}
-                        {product.isActive && isLowStock ? (
-                          <Badge variant="warning">
-                            <AlertTriangle className="h-3 w-3 mr-1" />
-                            Low Stock
-                          </Badge>
-                        ) : product.isActive ? (
-                          <Badge variant="success">In Stock</Badge>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setAdjustingProduct(product);
-                            setShowStockAdjustModal(true);
-                          }}
-                          title="Adjust Stock"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(product)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteTargetId(product.id)}
-                          className="text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        )}
-      </Card>
-
-      <Pagination
-        page={currentPage}
-        totalPages={totalPages}
-        onPageChange={setCurrentPage}
-        totalItems={totalProducts}
-        itemName="products"
-      />
+          {hasFilters && <div className="products-filter-summary" aria-label="Active product filters">
+            {search && <button type="button" className="products-filter-chip" onClick={() => setSearch('')} aria-label="Remove product search">Search: {search}<X aria-hidden="true" size={12} /></button>}
+            {filterCategory && <button type="button" className="products-filter-chip" onClick={() => { setFilterCategory(''); setCurrentPage(1); }} aria-label="Remove category filter">{categories.find(category => category.id === filterCategory)?.name || 'Category'}<X aria-hidden="true" size={12} /></button>}
+            {filterStatus && <button type="button" className="products-filter-chip" onClick={() => { setFilterStatus(''); setCurrentPage(1); }} aria-label="Remove status filter">{filterStatus === 'true' ? 'Active' : 'Inactive'}<X aria-hidden="true" size={12} /></button>}
+            <Button type="button" variant="ghost" onClick={clearFilters}>Clear filters</Button>
+          </div>}
+        </div>}
+        footer={!isLoading && !loadError && <div className="products-results-footer">
+          <span role="status">{totalProducts === 0 ? '0 products' : `Showing ${(currentPage - 1) * ITEMS_PER_PAGE + 1} to ${(currentPage - 1) * ITEMS_PER_PAGE + products.length} of ${totalProducts ?? products.length} products`}</span>
+          <Pagination page={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} itemName="products" />
+        </div>}
+      >
+        {isLoading ? <div className="p-8 text-center" role="status"><Spinner size="md" className="mx-auto" /><p className="mt-3 text-muted-foreground">Loading products...</p></div>
+          : loadError ? <div role="alert" className="p-6 space-y-3"><p>{loadError}</p><Button variant="outline" onClick={() => void productUpdates.refresh()}>Retry products</Button></div>
+            : products.length === 0 ? <EmptyState icon={Package} title="No products found" hint={hasFilters ? 'Try another search or clear your filters.' : 'Add a product to start building your catalog.'} />
+              : <ProductCatalogTable products={products} canManage={canManage} onEdit={handleEdit} onAdjustStock={product => { setAdjustingProduct(product); setShowStockAdjustModal(true); }} onDelete={product => setDeleteTargetId(product.id)} />}
+      </DataPanel>}
 
       {/* Product Modal */}
       <Modal
-        isOpen={showModal}
+        isOpen={canManage && showModal}
         onClose={() => {
+          if (savingProduct.current) return;
           setShowModal(false);
           resetForm();
         }}
         title={editingProduct ? 'Edit Product' : 'Add New Product'}
         size="lg"
+        footer={<div className="space-y-3">
+          {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
+          <DialogActions form={productFormId} confirmLabel={editingProduct ? 'Update Product' : 'Create Product'} loading={isSavingProduct} disabled={!!duplicateProductId}
+            onCancel={() => { setShowModal(false); resetForm(); }} />
+        </div>}
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="SKU"
-              value={formData.sku}
-              onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-              required
-            />
-            <Input
-              label="Barcode"
-              value={formData.barcode}
-              onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-            />
-          </div>
-
-          {/* Auto-fill: barcode database + AI photo recognition */}
-          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-info/10 border border-info/30">
-            <Wand2 className="h-4 w-4 text-info shrink-0" />
-            <span className="text-xs text-muted-foreground flex-1">
-              Scan the barcode or snap the label — we'll fill in the details
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => handleIdentify()}
-              disabled={identifying || !formData.barcode}
-              title="Look the barcode up in the product database"
-            >
-              {identifying ? 'Looking up...' : 'Auto-fill'}
-            </Button>
-            <label className="cursor-pointer">
-              <span className="inline-flex items-center h-8 px-3 text-sm border border-input rounded-md hover:bg-accent transition-colors">
-                <Camera className="h-3.5 w-3.5 mr-1.5" />
-                Photo
-              </span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleIdentify(file);
-                  e.target.value = '';
-                }}
-              />
-            </label>
-          </div>
-
-          <Input
-            label="Product Name"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-          />
-
-          <Input
-            label="Description"
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-          />
-
-          {/* Category Selection */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Category</label>
-            {!showNewCategoryInput ? (
-              <div className="flex gap-2">
-                <select
-                  value={formData.categoryId}
-                  onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-                  className="flex-1 h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Select a category</option>
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowNewCategoryInput(true)}
-                  title="Create new category"
-                >
-                  <FolderPlus className="h-4 w-4" />
-                </Button>
+        <form id={productFormId} onSubmit={handleSubmit} aria-busy={isSavingProduct}>
+          {sharedItem && editingProduct && <Alert title="Shared item" className="mb-4"
+            action={ownsSharedCatalog ? <Link to={`${SHARED_CATALOG}?search=${encodeURIComponent(editingProduct.sku)}`} className="text-sm font-medium text-primary hover:underline">Open Shared Catalog</Link> : undefined}>
+            Name, barcode and selling rules are managed in the Shared Catalog.
+          </Alert>}
+          <fieldset disabled={isSavingProduct} className="min-w-0 product-form">
+            <FormSection title="Basics" description="What every item needs. Open the sections below only when you need them.">
+              <div className="space-y-4">
+                <Input label="Barcode" value={formData.barcode} onChange={e => lookup.changeBarcode(e.target.value)} placeholder="Scan or enter a barcode" autoFocus={!editingProduct} autoComplete="off" maxLength={100}
+                  disabled={sharedItem}
+                  description={sharedItem ? undefined : editingProduct ? 'Use Auto-fill to look up missing details.' : 'Scan to fill available product details automatically.'}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void lookup.identify(); } }} />
+                {!sharedItem && <div className="product-lookup">
+                  <p id={`${productFormId}-identify-hint`} className="product-lookup-hint">Review catalog details and age requirements, then enter your prices and stock.</p>
+                  <Button type="button" variant="outline" onClick={() => { void lookup.identify(undefined, true); }} disabled={lookup.identifying || !formData.barcode.trim()} aria-describedby={`${productFormId}-identify-hint`} title="Look the barcode up in the product database">{lookup.identifying ? 'Looking up...' : lookup.state.kind === 'unavailable' ? 'Retry lookup' : 'Auto-fill'}</Button>
+                  {lookup.state.kind !== 'idle' && <div className="product-lookup-result" role={lookup.state.kind === 'unavailable' ? 'alert' : 'status'}>
+                    <div className="min-w-0 flex-1">
+                      <p>{lookup.state.message}</p>
+                      {/* Products carry no pictures, so a missing catalog photo is not worth mentioning. */}
+                      {!!lookup.state.info?.missingFields?.some(field => field !== 'image') && <p className="text-xs text-muted-foreground mt-1">Not supplied by the catalog: {lookup.state.info.missingFields.filter(field => field !== 'image').join(', ')}.</p>}
+                      {lookup.state.info?.ageRestriction?.status === 'restricted' && <p className="text-xs mt-1">{formData.minimumAge === '21' ? '21+ age check selected' : '21+ age check recommended'}: {lookup.state.info.ageRestriction.reason}</p>}
+                      {lookup.state.info?.ageRestriction?.status === 'review' && <p className="text-xs text-warning mt-1">Check age restriction: {lookup.state.info.ageRestriction.reason}</p>}
+                      {suggestedCategory && !formData.categoryId && <p className="text-xs text-muted-foreground mt-1">Suggested category: {suggestedCategory}. Choose or add it below.</p>}
+                      {!!lookup.state.info?.attributions?.length && <p className="text-xs text-muted-foreground mt-1">Source: {lookup.state.info.attributions.map((source, index) => <React.Fragment key={source.url}>{index > 0 && ', '}<a className="underline" href={source.url} target="_blank" rel="noopener noreferrer">{source.label}</a></React.Fragment>)}</p>}
+                      {duplicateProductId && <Button type="button" variant="outline" className="mt-2" onClick={async () => {
+                        productDetailsRequest.current?.abort();
+                        const request = new AbortController(); productDetailsRequest.current = request;
+                        try { const response = await productService.getById(duplicateProductId, request.signal); if (!request.signal.aborted) handleEdit(response.data.data); }
+                        catch { if (!request.signal.aborted) toast.error('Could not open this product. Try again.'); }
+                      }}>Open existing product</Button>}
+                    </div>
+                  </div>}
+                </div>}
+                <div className="product-field-grid">
+                  <Input label="Product Name" value={formData.name} onChange={e => lookup.editIdentity('name', e.target.value)} required disabled={sharedItem} />
+                  <Input label="SKU" value={formData.sku} onChange={e => lookup.editIdentity('sku', e.target.value)} description={sharedItem ? undefined : 'Editable store code; defaults to the barcode.'} required disabled={sharedItem} />
+                </div>
+                {!showNewCategoryInput ? <div className="space-y-2"><div className="product-category-control">
+                  <Select label="Category" value={formData.categoryId} disabled={categoriesLoading || !!categoriesError || sharedItem} onChange={e => lookup.editIdentity('categoryId', e.target.value)}>
+                    <option value="">Select a category</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+                  </Select>
+                  <Button type="button" variant="outline" disabled={sharedItem} onClick={() => { setNewCategoryName(suggestedCategory || ''); setShowNewCategoryInput(true); }} title="Create new category" aria-label="Create new category"><FolderPlus size={16} /></Button>
+                </div>
+                  {suggestedCategory && !sharedItem && !formData.categoryId && !categoriesLoading && !categoriesError && <Button type="button" variant="outline" className="max-w-full whitespace-normal text-left" onClick={() => { setNewCategoryName(suggestedCategory); setShowNewCategoryInput(true); }}>Add suggested category: {suggestedCategory}</Button>}
+                </div> : <div className="space-y-2">
+                  <Input label="New category name" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} autoFocus />
+                  <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => { setShowNewCategoryInput(false); setNewCategoryName(''); }}>Cancel</Button><Button type="button" onClick={handleCreateCategory} disabled={!newCategoryName.trim()} loading={isCreatingCategory}>Add category</Button></div>
+                </div>}
+                <div className="product-field-grid">
+                  <Input type="number" label="Retail Price" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} step="0.01" min="0.01" required
+                    disabled={priceLocked} description={!priceLocked ? undefined : editingProduct?.priceFollowsCatalog ? 'Follows the shared price, set in the Shared Catalog.' : 'Saving sets it to the shared price.'} />
+                  <Input type="number" label="Cost Price" value={formData.cost} onChange={e => setFormData({ ...formData, cost: e.target.value })} step="0.01" min="0" required
+                    description={costHint} />
+                </div>
+                {sharedItem && <Checkbox label="Follow shared price" checked={formData.priceFollowsCatalog} disabled={role !== 'ADMIN'}
+                  onChange={e => setFormData({ ...formData, priceFollowsCatalog: e.target.checked })}
+                  description={role !== 'ADMIN' ? 'Only the owner or a store admin changes this.'
+                    : formData.priceFollowsCatalog ? 'The price changes when the owner changes the shared price.' : 'This store sets its own price.'} />}
+                {formData.cost && formData.price && parseFloat(formData.price) < parseFloat(formData.cost) && <p className="text-xs text-warning flex items-center gap-1"><AlertTriangle size={14} />Retail price is below cost</p>}
+                <div className="product-field-grid">
+                  <Input type="number" label="Stock Quantity" value={formData.stockQuantity} onChange={e => setFormData({ ...formData, stockQuantity: e.target.value })} required />
+                  <Input type="number" label="Low Stock Alert" value={formData.lowStockAlert} onChange={e => setFormData({ ...formData, lowStockAlert: e.target.value })} required />
+                </div>
+                {editingProduct && formData.trackInventory && formData.stockQuantity !== '' && parseInt(formData.stockQuantity) !== editingProduct.stockQuantity && (
+                  <Select label="Reason for stock change" value={formData.stockAdjustmentReason} onChange={e => setFormData({ ...formData, stockAdjustmentReason: e.target.value })}>
+                    {ADJUSTMENT_REASONS.filter(r => r.value !== 'OTHER').map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                  </Select>
+                )}
               </div>
-            ) : (
-              <div className="flex gap-2">
-                <Input
-                  placeholder="New category name"
-                  value={newCategoryName}
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  variant="primary"
-                  onClick={handleCreateCategory}
-                  disabled={isCreatingCategory || !newCategoryName.trim()}
-                >
-                  {isCreatingCategory ? 'Creating...' : 'Add'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setShowNewCategoryInput(false);
-                    setNewCategoryName('');
-                  }}
-                >
-                  Cancel
-                </Button>
+            </FormSection>
+
+            <FormSection title="Selling rules">
+              <div className="space-y-4">
+                <div className="product-choice-grid">
+                  <Checkbox label="Taxable item" checked={formData.isTaxable} onChange={e => setFormData({ ...formData, isTaxable: e.target.checked })} disabled={sharedItem} />
+                  <Checkbox label="Active" checked={formData.isActive} onChange={e => setFormData({ ...formData, isActive: e.target.checked })} />
+                  <Checkbox label="EBT / SNAP eligible" checked={formData.ebtEligible} onChange={e => setFormData({ ...formData, ebtEligible: e.target.checked })} title="SNAP/EBT can pay for this item" disabled={sharedItem} />
+                  <Checkbox label="Price-embedded barcode" checked={formData.priceEmbedded} onChange={e => setFormData({ ...formData, priceEmbedded: e.target.checked })} title="The scanned scale or deli barcode contains the price" disabled={sharedItem} />
+                </div>
+                <Select label="Age restriction" value={formData.minimumAge} onChange={e => lookup.editIdentity('minimumAge', e.target.value)} disabled={sharedItem}>
+                  <option value="">None</option><option value="18">18+ (lottery)</option><option value="21">21+ (alcohol, tobacco, vape)</option>
+                </Select>
+                {lookup.state.info?.ageRestriction?.status === 'unknown' && <p className="text-xs text-muted-foreground">The catalog did not establish an age requirement. Check the product before saving.</p>}
+                {formData.minimumAge && <p className="text-xs text-warning">Checkout will require a logged ID check whenever this item is in the cart.</p>}
               </div>
-            )}
-          </div>
+            </FormSection>
 
-          <div className="grid grid-cols-3 gap-4">
-            <Input
-              type="number"
-              label="Cost Price"
-              value={formData.cost}
-              onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-              step="0.01"
-              min="0"
-              required
-            />
-            <Input
-              type="number"
-              label="Retail Price"
-              value={formData.price}
-              onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-              step="0.01"
-              min="0.01"
-              required
-            />
-            <Input
-              type="number"
-              label="Compare-at Price"
-              value={formData.compareAtPrice}
-              onChange={(e) => setFormData({ ...formData, compareAtPrice: e.target.value })}
-              step="0.01"
-              min="0"
-            />
-          </div>
-          {formData.cost && formData.price && parseFloat(formData.price) < parseFloat(formData.cost) && (
-            <p className="text-xs text-warning flex items-center gap-1">
-              <AlertTriangle className="h-3 w-3" /> Retail price is below cost
-            </p>
-          )}
+            <FormSection collapsible title="Pricing help" summary={pricingSummary} description="Type a target margin to get a price, or see the margin of the price you entered.">
+              <div className="space-y-4">
+                {priceLocked ? <p className="text-sm text-muted-foreground">This price follows the shared price, so it is set in the Shared Catalog.</p>
+                  : <MarginPricing productId={editingProduct?.id} categoryId={formData.categoryId || undefined} brand={formData.brand.trim() || undefined}
+                    cost={formData.cost} averageCost={editingProduct?.averageCost} price={formData.price} onPrice={price => setFormData(current => ({ ...current, price }))} />}
+                <Input type="number" label="Compare-at Price" description="Optional. Shown as the regular price when on sale." value={formData.compareAtPrice} onChange={e => setFormData({ ...formData, compareAtPrice: e.target.value })} step="0.01" min="0" />
+              </div>
+            </FormSection>
 
-          <Input
-            label="Image URL"
-            value={formData.image}
-            onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-            placeholder="https://example.com/image.jpg"
-          />
+            {editingProduct && formData.trackInventory && <FormSection collapsible title="Packs of this item" summary={packsSummary}
+              description="Cartons, 12-packs or cases of this item. They share its stock: selling a carton of 10 takes 10 from it.">
+              <ProductPacksSection data={packaging.data} error={packaging.error} onReload={() => void packaging.reload()} sharedItem={sharedItem}
+                onAddPack={() => setPackTarget({ mode: 'create', kind: 'PACK', baseProductId: editingProduct.id })}
+                onEditPack={unit => setPackTarget({ mode: 'edit-pack', productId: editingProduct.id, unitId: unit.id })} />
+            </FormSection>}
 
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              type="number"
-              label="Stock Quantity"
-              value={formData.stockQuantity}
-              onChange={(e) => setFormData({ ...formData, stockQuantity: e.target.value })}
-              required
-            />
-            <Input
-              type="number"
-              label="Low Stock Alert"
-              value={formData.lowStockAlert}
-              onChange={(e) => setFormData({ ...formData, lowStockAlert: e.target.value })}
-              required
-            />
-          </div>
+            {editingProduct && <FormSection collapsible title="How you buy it" summary={casesSummary}
+              description="Each supplier's case size and case cost. Purchase orders and reorder suggestions use whole cases.">
+              <SupplierCasesEditor data={packaging.data} onChanged={() => void packaging.reload()} />
+            </FormSection>}
 
-          <div className="grid grid-cols-2 gap-4">
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={formData.isTaxable}
-                onChange={(e) => setFormData({ ...formData, isTaxable: e.target.checked })}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Taxable item</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={formData.isActive}
-                onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Active</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={formData.trackInventory}
-                onChange={(e) => setFormData({ ...formData, trackInventory: e.target.checked })}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Track inventory</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={formData.allowBackorder}
-                onChange={(e) => setFormData({ ...formData, allowBackorder: e.target.checked })}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Allow backorder</span>
-            </label>
-            <label className="flex items-center space-x-2" title="SNAP/EBT can pay for this item">
-              <input
-                type="checkbox"
-                checked={formData.ebtEligible}
-                onChange={(e) => setFormData({ ...formData, ebtEligible: e.target.checked })}
-                className="rounded border-input"
-              />
-              <span className="text-sm">EBT / SNAP eligible</span>
-            </label>
-            <label
-              className="flex items-center space-x-2"
-              title='Sold via 2-prefix scale/deli labels — the scanned barcode carries the price'
-            >
-              <input
-                type="checkbox"
-                checked={formData.priceEmbedded}
-                onChange={(e) => setFormData({ ...formData, priceEmbedded: e.target.checked })}
-                className="rounded border-input"
-              />
-              <span className="text-sm">Price-embedded barcode</span>
-            </label>
-          </div>
+            {canShare && <FormSection collapsible title="Shared catalog" summary="Only this store"
+              description="Share this item with your other stores. Its name, barcode and selling rules are then managed once, in the Shared Catalog, where you can add it to the other stores.">
+              <div className="flex flex-wrap items-center gap-3">
+                <Button type="button" variant="outline" loading={addingToCatalog} disabled={formDirty} aria-describedby={formDirty ? `${productFormId}-share-hint` : undefined}
+                  onClick={() => void addToSharedCatalog()}>Add to Shared Catalog</Button>
+                {formDirty && <p id={`${productFormId}-share-hint`} className="text-xs text-muted-foreground">Save your changes first.</p>}
+              </div>
+            </FormSection>}
 
-          {/* Age restriction */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Age restriction</label>
-            <select
-              value={formData.minimumAge}
-              onChange={(e) => setFormData({ ...formData, minimumAge: e.target.value })}
-              className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
-            >
-              <option value="">None</option>
-              <option value="18">18+ (lottery, some tobacco states)</option>
-              <option value="21">21+ (alcohol, tobacco, vape)</option>
-            </select>
-            {formData.minimumAge && (
-              <p className="text-xs text-warning mt-1">
-                Checkout will require a logged ID check whenever this item is in the cart
-              </p>
-            )}
-          </div>
+            <FormSection collapsible title="Brand, size & description" summary={detailsSummary} defaultOpen={lookupFilledDetails}>
+              <div className="space-y-4">
+                <div className="product-field-grid">
+                  <Input label="Brand" description="Optional" value={formData.brand} onChange={e => setFormData({ ...formData, brand: e.target.value })} maxLength={80} placeholder="e.g. Gatorade" disabled={sharedItem} />
+                  <Input label="Product family" description="Optional. Groups flavors/variants to check together." value={formData.productFamily} onChange={e => setFormData({ ...formData, productFamily: e.target.value })} maxLength={80} placeholder="e.g. Gatorade Thirst Quencher" disabled={sharedItem} />
+                  <Input label="Flavor / variant" description="Optional" value={formData.variant} onChange={e => setFormData({ ...formData, variant: e.target.value })} maxLength={80} placeholder="e.g. Lemon-Lime" disabled={sharedItem} />
+                  <Input label="Size" description="Optional" value={formData.size} onChange={e => setFormData({ ...formData, size: e.target.value })} maxLength={40} placeholder="e.g. 20 oz" disabled={sharedItem} />
+                </div>
+                <Input label="Description" value={formData.description} onChange={e => lookup.editIdentity('description', e.target.value)} disabled={sharedItem} />
+              </div>
+            </FormSection>
 
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowModal(false);
-                resetForm();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" className="flex-1">
-              {editingProduct ? 'Update Product' : 'Create Product'}
-            </Button>
-          </div>
+            <FormSection collapsible title="Advanced" summary={advancedSummary} description="Rarely needed settings.">
+              <div className="space-y-4">
+                <div className="product-choice-grid">
+                  <Checkbox label="Track inventory" checked={formData.trackInventory} onChange={e => setFormData({ ...formData, trackInventory: e.target.checked })} />
+                </div>
+                <p className="text-xs text-muted-foreground">The register never blocks a sale because recorded stock is zero or negative. A negative balance opens an inventory exception for review.</p>
+                <div className="product-field-grid">
+                  <Input type="number" label="Provisional unit cost" description="Optional. Used for cost of goods only when stock runs out before any receipt or average cost exists." value={formData.provisionalUnitCost} onChange={e => setFormData({ ...formData, provisionalUnitCost: e.target.value })} step="0.01" min="0" />
+                  <Input label="Sale hold" description={sharedItem ? 'Set in the Shared Catalog.' : 'Optional. Recall or prohibited-sale reason; the register refuses this item while set.'} value={formData.saleBlockedReason} onChange={e => setFormData({ ...formData, saleBlockedReason: e.target.value })} maxLength={200} disabled={sharedItem} />
+                </div>
+              </div>
+            </FormSection>
+            {!editingProduct && <p className="mt-4 text-xs text-muted-foreground">After saving, open the item again to add its packs (e.g. a carton) and suppliers.</p>}
+          </fieldset>
         </form>
       </Modal>
 
+      {/* Packs are edited in their own form, outside the product <form> so saving a pack never submits the product. */}
+      <PackForm target={packTarget} categories={categories} onClose={() => setPackTarget(null)}
+        onSaved={() => { productUpdates.refresh(); summaryUpdates.refresh(); setPacksRefresh(n => n + 1); void packaging.reload(); }} />
+
       {/* Stock Adjustment Modal */}
       <StockAdjustmentModal
-        isOpen={showStockAdjustModal}
+        isOpen={canManage && showStockAdjustModal}
         onClose={() => {
           setShowStockAdjustModal(false);
           setAdjustingProduct(null);
         }}
-        onSuccess={() => { loadProducts(); loadLowStockCount(); }}
+        onSuccess={() => { productUpdates.refresh(); summaryUpdates.refresh(); }}
         product={adjustingProduct}
       />
 
-      {/* Receipt Scan Modal */}
-      <ReceiptScanModal
-        isOpen={showReceiptScanModal}
-        onClose={() => setShowReceiptScanModal(false)}
-        onSuccess={() => { loadProducts(); loadLowStockCount(); }}
-      />
+      {/* Labels: when some labels show an old price, ask which set to print. */}
+      <Modal isOpen={showLabelChoice} onClose={() => setShowLabelChoice(false)} title="Labels" size="sm"
+        footer={<DialogActions confirmLabel={`Print ${pendingLabels} changed label${pendingLabels === 1 ? '' : 's'}`} onConfirm={() => { setShowLabelChoice(false); setShowShelfLabels(true); }}
+          onCancel={() => setShowLabelChoice(false)}>
+          <Button type="button" onClick={() => { setShowLabelChoice(false); printPageLabels(); }}>Labels for this page</Button>
+        </DialogActions>}>
+        <p className="text-sm text-muted-foreground">{pendingLabels === 1 ? '1 shelf label shows' : `${pendingLabels} shelf labels show`} an old price. Print {pendingLabels === 1 ? 'it' : 'them'} now, or print labels for the {products.length} item{products.length === 1 ? '' : 's'} on this page.</p>
+      </Modal>
 
       <BarcodeLabelPrint
         isOpen={showLabelPrintModal}
@@ -886,14 +750,16 @@ export const Inventory: React.FC = () => {
         products={selectedForLabels}
       />
 
+      <ShelfLabelsDialog isOpen={canManage && showShelfLabels} onClose={() => setShowShelfLabels(false)} />
+
       <CSVImportModal
-        isOpen={showCSVImportModal}
+        isOpen={canManage && showCSVImportModal}
         onClose={() => setShowCSVImportModal(false)}
-        onImportComplete={() => { loadProducts(); loadLowStockCount(); }}
+        onImportComplete={() => { productUpdates.refresh(); summaryUpdates.refresh(); }}
       />
 
       <ConfirmDialog
-        isOpen={deleteTargetId !== null}
+        isOpen={canManage && deleteTargetId !== null}
         onClose={() => setDeleteTargetId(null)}
         onConfirm={() => deleteTargetId && handleDelete(deleteTargetId)}
         title="Delete product?"
@@ -901,6 +767,6 @@ export const Inventory: React.FC = () => {
         destructive
         confirmLabel="Delete"
       />
-    </div>
+    </ManagementPage>
   );
 };

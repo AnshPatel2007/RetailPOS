@@ -398,7 +398,7 @@ export const createDailyEntry = asyncHandler(async (req: AuthRequest, res: Respo
 
   // Auto-calculate fields
   const ticketsSold = endNumber - startNumber;
-  const totalSales = ticketsSold * ticketType.pricePerTicket;
+  const totalSales = ticketsSold * Number(ticketType.pricePerTicket);
 
   const entry = await prisma.lotteryDailyEntry.create({
     data: {
@@ -511,7 +511,7 @@ export const updateDailyEntry = asyncHandler(async (req: AuthRequest, res: Respo
 
   if (startNumber !== undefined || endNumber !== undefined) {
     const ticketsSold = finalEndNumber - finalStartNumber;
-    const totalSales = ticketsSold * entry.ticketType.pricePerTicket;
+    const totalSales = ticketsSold * Number(entry.ticketType.pricePerTicket);
     updateData.ticketsSold = ticketsSold;
     updateData.totalSales = totalSales;
   }
@@ -658,7 +658,7 @@ async function updateDayStatus(locationId: string, entryDate: Date) {
 
   // Calculate totals
   const totalTicketsSold = entries.reduce((sum, entry) => sum + entry.ticketsSold, 0);
-  const totalSales = entries.reduce((sum, entry) => sum + entry.totalSales, 0);
+  const totalSales = entries.reduce((sum, entry) => sum + Number(entry.totalSales), 0);
 
   // Get or create day status
   const existingStatus = await prisma.lotteryDayStatus.findFirst({
@@ -672,7 +672,7 @@ async function updateDayStatus(locationId: string, entryDate: Date) {
   });
 
   const manualCashoutAmount = existingStatus?.manualCashoutAmount || 0;
-  const netAmount = totalSales - manualCashoutAmount;
+  const netAmount = totalSales - Number(manualCashoutAmount);
 
   if (existingStatus) {
     await prisma.lotteryDayStatus.update({
@@ -786,7 +786,7 @@ export const updateDayStatusCashout = asyncHandler(async (req: AuthRequest, res:
     throw new AppError('Cannot update a closed day', 400);
   }
 
-  const netAmount = dayStatus.totalSales - (manualCashoutAmount || dayStatus.manualCashoutAmount);
+  const netAmount = Number(dayStatus.totalSales) - (manualCashoutAmount || dayStatus.manualCashoutAmount);
 
   const updated = await prisma.lotteryDayStatus.update({
     where: { id },
@@ -870,7 +870,7 @@ export const closeDay = asyncHandler(async (req: AuthRequest, res: Response) => 
     throw new AppError('Day is already closed', 400);
   }
 
-  const netAmount = dayStatus.totalSales - manualCashoutAmount;
+  const netAmount = Number(dayStatus.totalSales) - manualCashoutAmount;
 
   const updated = await prisma.lotteryDayStatus.update({
     where: { id: dayStatus.id },

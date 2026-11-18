@@ -1,20 +1,24 @@
+import { useCalendarTimezone } from '@/hooks/useCalendarTimezone';
+import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { FilterChips } from '@/components/common/FilterChips';
+import { useUrlFilter, useUrlPage, useUrlObject } from '@/hooks/useUrlFilter';
+import { InventoryPurchaseSummary } from '@/components/financial/InventoryPurchaseSummary';
+import { DigestDeliveryControls } from '@/components/reports/DigestDeliveryControls';
+import { EmployeeSalesTab } from '@/components/reports/EmployeeSalesTab';
+import { Badge } from '@/components/ui/Badge';
+import { AboutNumbers } from '@/components/common/AboutNumbers';
+import { presetRange } from '@/lib/calendarDates';
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { reportService, saleService } from '@/services/api';
-import { Modal } from '@/components/ui/Modal';
-import { formatCurrency, formatDate, CHART_COLORS } from '@/lib/utils';
+import { formatCurrency, formatChartCurrency, formatEnumLabel, CHART_COLORS, formatDateTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
-// Helper to get local date in YYYY-MM-DD format (avoids timezone issues with toISOString)
-const getLocalDateString = (date: Date = new Date()): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+import { today } from '@internationalized/date';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import {
   Table,
   TableHeader,
@@ -28,14 +32,11 @@ import {
   Search,
   Filter,
   Eye,
-  TrendingUp,
-  TrendingDown,
   DollarSign,
   Users,
   Package,
   ShoppingCart,
   AlertTriangle,
-  RefreshCw,
   CreditCard,
   Wallet,
   Target,
@@ -43,263 +44,91 @@ import {
   ArrowRight,
   Download,
 } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar, ReferenceLine } from 'recharts';
 import type { SalesReportData, Sale } from '@/types';
 import { SalesFilters } from '@/components/reports/SalesFilters';
 import { SaleDetailsModal } from '@/components/reports/SaleDetailsModal';
 import { SalesBulkActions } from '@/components/reports/SalesBulkActions';
-import { InventoryFilters } from '@/components/reports/InventoryFilters';
-import { InventoryDetailsModal } from '@/components/reports/InventoryDetailsModal';
-import { InventoryBulkActions } from '@/components/reports/InventoryBulkActions';
+import { BulkRefundActions } from '@/components/reports/BulkRefundActions';
 import { FilterDropdown } from '@/components/common/FilterDropdown';
 import { ExportPreviewModal } from '@/components/reports/ExportPreviewModal';
 import { DataVisualizationCard } from '@/components/reports/DataVisualizationCard';
 import { StockHealthTab } from '@/components/reports/StockHealthTab';
 import { ExportsTab } from '@/components/reports/ExportsTab';
-import { Badge } from '@/components/ui/Badge';
 import { PageHeader } from '@/components/common/PageHeader';
+import { PageTabs } from '@/components/common/PageTabs';
+import { ManagementPage, SummaryStrip } from '@/components/common/Workspace';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
+import { Pagination } from '@/components/common/Pagination';
 import { EmptyState } from '@/components/common/EmptyState';
 import { StoreFilterSelect } from '@/components/common/StoreFilterSelect';
 import { useAuthStore } from '@/store/authStore';
+import { invalidateScopedQueries, useScopedQuery } from '@/hooks/useScopedQuery';
+import { Spinner } from '@/components/ui/LoadingState';
 
-const EmployeeSalesTab: React.FC = () => {
-  const [data, setData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() - 30);
-    return getLocalDateString(d);
-  });
-  const [endDate, setEndDate] = useState(() => getLocalDateString());
+/** A missing figure reads as a dash, never as $0.00. */
+const money = (value: number | null | undefined) => value == null ? '\u2014' : formatCurrency(value);
 
-  // Per-employee drill-down (ported from the retired admin Employee Sales page)
-  const [selectedEmployee, setSelectedEmployee] = useState<any | null>(null);
-  const [employeeSales, setEmployeeSales] = useState<any[]>([]);
-  const [drillLoading, setDrillLoading] = useState(false);
-
-  const openEmployeeSales = async (emp: any) => {
-    setSelectedEmployee(emp);
-    setDrillLoading(true);
-    try {
-      const res = await saleService.getAll({
-        userId: emp.user.id,
-        startDate,
-        endDate,
-        limit: 50,
-      });
-      setEmployeeSales(res.data.data || []);
-    } catch {
-      toast.error('Failed to load sales');
-    } finally {
-      setDrillLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const res = await reportService.getEmployeeSales({ startDate, endDate });
-        setData(res.data.data);
-      } catch {
-        toast.error('Failed to load employee sales');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, [startDate, endDate]);
-
-  const totalRevenue = Math.round(data.reduce((sum: number, e: any) => sum + e.totalRevenue, 0) * 100) / 100;
-  const totalTx = data.reduce((sum: number, e: any) => sum + e.transactionCount, 0);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-3 items-end">
-        <div>
-          <label className="block text-xs font-medium mb-1">From</label>
-          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-40" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium mb-1">To</label>
-          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-40" />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <Card><CardContent className="p-3 text-center"><p className="text-sm text-muted-foreground">Employees</p><p className="text-2xl font-bold">{data.length}</p></CardContent></Card>
-        <Card><CardContent className="p-3 text-center"><p className="text-sm text-muted-foreground">Revenue</p><p className="text-2xl font-bold text-success">{formatCurrency(totalRevenue)}</p></CardContent></Card>
-        <Card><CardContent className="p-3 text-center"><p className="text-sm text-muted-foreground">Transactions</p><p className="text-2xl font-bold">{totalTx}</p></CardContent></Card>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center py-8">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
-        </div>
-      ) : data.length === 0 ? (
-        <p className="text-center py-8 text-muted-foreground">No sales data for this period</p>
-      ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>#</TableHead>
-                  <TableHead>Employee</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="text-right">Transactions</TableHead>
-                  <TableHead className="text-right">Revenue</TableHead>
-                  <TableHead className="text-right">Avg Transaction</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.map((emp: any, idx: number) => (
-                  <TableRow
-                    key={emp.user.id}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => openEmployeeSales(emp)}
-                  >
-                    <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
-                    <TableCell className="font-medium">{emp.user.firstName} {emp.user.lastName}</TableCell>
-                    <TableCell><Badge variant="secondary" className="text-xs">{emp.user.role.replace(/_/g, ' ')}</Badge></TableCell>
-                    <TableCell className="text-right">{emp.transactionCount}</TableCell>
-                    <TableCell className="text-right font-medium text-success">{formatCurrency(emp.totalRevenue)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(emp.avgTransaction)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Per-employee sales drill-down */}
-      <Modal
-        isOpen={selectedEmployee !== null}
-        onClose={() => setSelectedEmployee(null)}
-        title={selectedEmployee ? `Sales — ${selectedEmployee.user.firstName} ${selectedEmployee.user.lastName}` : 'Sales'}
-        size="lg"
-      >
-        {drillLoading ? (
-          <div className="flex justify-center py-8">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
-          </div>
-        ) : employeeSales.length === 0 ? (
-          <p className="text-center py-8 text-muted-foreground">No sales in this period</p>
-        ) : (
-          <div className="max-h-[420px] overflow-y-auto border rounded-lg divide-y">
-            {employeeSales.map((sale: any) => (
-              <div key={sale.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                <div>
-                  <p className="font-medium">{sale.saleNumber}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(sale.createdAt).toLocaleString()} · {sale.paymentMethod.replace(/_/g, ' ')}
-                    {sale.items?.length ? ` · ${sale.items.length} line${sale.items.length > 1 ? 's' : ''}` : ''}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold tabular-nums">{formatCurrency(sale.total)}</p>
-                  {sale.status !== 'COMPLETED' && (
-                    <Badge variant="secondary" className="text-[10px]">{sale.status}</Badge>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Modal>
-    </div>
-  );
-};
-
-export const Reports: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'overall' | 'sales' | 'inventory' | 'employee' | 'stock-health' | 'exports'>('sales');
-  const [overallData, setOverallData] = useState<any>(null);
-  const [salesData, setSalesData] = useState<SalesReportData | null>(null);
-  const [inventoryData, setInventoryData] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(false);
+export type ReportView = 'overall' | 'sales' | 'employee' | 'stock-health' | 'exports';
+export const Reports: React.FC<{ view?: ReportView }> = ({ view }) => {
+  const scopeUser = useAuthStore(state => state.user);
+  const reportToday = today(useCalendarTimezone());
+  const [exportActions, setExportActions] = useState<React.ReactNode>(null);
+  const [selectedTab, setActiveTab] = useState<ReportView>('sales');
+  const activeTab = view || selectedTab;
+  const [salesPage, setSalesPage] = useUrlPage();
+  const [refundPageRaw, setRefundPageRaw] = useUrlFilter('refundPage', '1');
+  const [voidPageRaw, setVoidPageRaw] = useUrlFilter('voidPage', '1');
+  const boundedPage = (value: string) => /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 1_000_000_000 ? Number(value) : 1;
+  const refundPage = boundedPage(refundPageRaw), voidPage = boundedPage(voidPageRaw);
   const [locationId, setLocationId] = useState('');
 
   // Sales-specific state
-  const [showSaleDetails, setShowSaleDetails] = useState(false);
-  const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+  const [saleRecord, setSaleRecord] = useUrlFilter('record');
   const [showSalesFilters, setShowSalesFilters] = useState(false);
-  const [salesSearchQuery, setSalesSearchQuery] = useState('');
+  const [salesSearchQuery, setSalesSearchQuery] = useUrlFilter('search');
   const [selectedSaleIds, setSelectedSaleIds] = useState<string[]>([]);
-  const [salesFilters, setSalesFilters] = useState({
+  const [salesFilters, setSalesFilters] = useUrlObject('salesFilters', {
     paymentMethod: [] as string[],
     status: [] as string[],
     employeeId: [] as string[],
     customerId: '',
-    startDate: getLocalDateString(new Date(new Date().setDate(new Date().getDate() - 30))),
-    endDate: getLocalDateString(),
+    startDate: reportToday.subtract({ days: 30 }).toString(),
+    endDate: reportToday.toString(),
     minAmount: '',
     maxAmount: '',
-    showCharts: false,
+    showCharts: false as boolean,
   });
 
   // Export preview state
-  const [showExportPreview, setShowExportPreview] = useState<'sales' | 'inventory' | null>(null);
+  const [showExportPreview, setShowExportPreview] = useState<'sales' | null>(null);
 
-  // Inventory-specific state
-  const [showProductDetails, setShowProductDetails] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<any>(null);
-  const [showInventoryFilters, setShowInventoryFilters] = useState(false);
-  const [inventorySearchQuery, setInventorySearchQuery] = useState('');
-  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
-  const [inventoryFilters, setInventoryFilters] = useState({
-    category: [] as string[],
-    stockStatus: [] as string[],
-    minPrice: '',
-    maxPrice: '',
-    trackInventory: null as boolean | null,
-    isActive: null as boolean | null,
-    startDate: getLocalDateString(new Date(new Date().setDate(new Date().getDate() - 30))),
-    endDate: getLocalDateString(),
-    showCharts: false,
-  });
 
-  useEffect(() => {
-    loadReports();
-  }, [activeTab, salesFilters.startDate, salesFilters.endDate, salesFilters.paymentMethod, salesFilters.status, inventoryFilters.startDate, inventoryFilters.endDate, locationId]);
-
-  const loadReports = async () => {
-    setIsLoading(true);
-    try {
-      if (activeTab === 'overall') {
-        const response = await reportService.getOverall({ locationId: locationId || undefined });
-        setOverallData(response.data.data);
-      } else if (activeTab === 'sales') {
-        const response = await reportService.getSales({
-          startDate: salesFilters.startDate,
-          endDate: salesFilters.endDate,
-          paymentMethod: salesFilters.paymentMethod.join(',') || undefined,
-          status: salesFilters.status.join(',') || undefined,
-          locationId: locationId || undefined,
-        });
-        setSalesData(response.data.data);
-      } else if (activeTab === 'inventory') {
-        const response = await reportService.getInventory({ locationId: locationId || undefined });
-        setInventoryData(response.data.data);
-      }
-    } catch (error) {
-      console.error('Failed to load reports:', error);
-      toast.error('Failed to load report data');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const salesParams = () => ({ startDate: salesFilters.startDate, endDate: salesFilters.endDate,
+    paymentMethod: salesFilters.paymentMethod.join(',') || undefined,
+    status: salesFilters.status.join(',') || undefined, userId: salesFilters.employeeId.join(',') || undefined,
+    customerId: salesFilters.customerId || undefined, minAmount: salesFilters.minAmount || undefined,
+    maxAmount: salesFilters.maxAmount || undefined, search: salesSearchQuery || undefined, locationId: locationId || undefined });
+  const [readySearch, setReadySearch] = useState(salesSearchQuery);
+  useEffect(() => { const timer = setTimeout(() => setReadySearch(salesSearchQuery), 200); return () => clearTimeout(timer); }, [salesSearchQuery]);
+  const params = activeTab === 'sales' ? { ...salesParams(), search: readySearch || undefined, page: salesPage, refundPage, voidPage } : { locationId: locationId || undefined };
+  const reportQuery = useScopedQuery<any>(['reports', activeTab, params], async signal => {
+    if (activeTab === 'sales') return (await reportService.getSales(params, signal)).data.data;
+    return (await reportService.getOverall(params, signal)).data.data;
+  }, ['sales', 'overall'].includes(activeTab));
+  const salesData: SalesReportData | null = activeTab === 'sales' ? reportQuery.data : null;
+  const overallData = activeTab === 'overall' ? reportQuery.data : null;
+  const isLoading = reportQuery.loading || (activeTab === 'sales' && readySearch !== salesSearchQuery);
+  const reportError = reportQuery.stale ? '' : reportQuery.error;
+  const saleDetail = useScopedQuery<Sale>(['report-sale', saleRecord, locationId], async signal => (await saleService.getById(saleRecord, signal)).data.data, activeTab === 'sales' && !!saleRecord);
+  const loadReports = () => { invalidateScopedQueries(); };
+  useEffect(() => { setSelectedSaleIds([]); }, [activeTab, salesPage, salesFilters, salesSearchQuery, locationId, scopeUser?.id, scopeUser?.locationId]);
+  useEffect(() => { setShowExportPreview(null); }, [activeTab, locationId, scopeUser?.id, scopeUser?.locationId]);
 
   // Sales helper functions
   const handleSalesExport = async (format: 'csv' | 'pdf') => {
     try {
-      const { employeeId, ...restFilters } = salesFilters;
-      const params = {
-        ...restFilters,
-        paymentMethod: salesFilters.paymentMethod.join(','),
-        status: salesFilters.status.join(','),
-        userId: employeeId.join(','),
-        locationId: locationId || undefined,
-      };
+      const params = salesParams();
 
       const response =
         format === 'csv'
@@ -314,10 +143,12 @@ export const Reports: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
       toast.success(`Exported sales as ${format.toUpperCase()}`);
     } catch (error) {
       console.error(`Failed to export ${format}:`, error);
       toast.error(`Failed to export ${format}`);
+      throw error;
     }
   };
 
@@ -328,431 +159,97 @@ export const Reports: React.FC = () => {
   };
 
   const toggleSelectAllSales = () => {
-    if (selectedSaleIds.length === filteredSales.length) {
-      setSelectedSaleIds([]);
-    } else {
-      setSelectedSaleIds(filteredSales.map((sale) => sale.id));
-    }
+    const ids = visibleSales.filter(sale => sale.sourceType !== 'DAILY_SUMMARY').map(sale => sale.id);
+    setSelectedSaleIds(previous => ids.every(id => previous.includes(id))
+      ? previous.filter(id => !ids.includes(id)) : [...new Set([...previous, ...ids])]);
   };
 
-  // Filter and search sales
-  const filteredSales = React.useMemo(() => {
-    if (!salesData?.sales) return [];
+  // The same server filters drive rows, totals and exports.
+  const filteredSales = salesData?.sales || [];
+  const visibleSales = filteredSales;
+  const salesEmployees = salesData?.employees || [];
 
-    let filtered = [...salesData.sales];
-
-    // Apply search
-    if (salesSearchQuery) {
-      const query = salesSearchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (sale) =>
-          sale.saleNumber.toLowerCase().includes(query) ||
-          (sale.customer &&
-            (`${sale.customer.firstName} ${sale.customer.lastName}`.toLowerCase().includes(query) ||
-             sale.customer.email?.toLowerCase().includes(query) ||
-             sale.customer.phone?.toLowerCase().includes(query)))
-      );
-    }
-
-    // Apply filters (paymentMethod/status are applied server-side in loadReports)
-    if (salesFilters.employeeId.length > 0) {
-      filtered = filtered.filter((sale) => salesFilters.employeeId.includes(sale.userId));
-    }
-    if (salesFilters.customerId) {
-      filtered = filtered.filter((sale) => sale.customerId === salesFilters.customerId);
-    }
-    if (salesFilters.minAmount) {
-      filtered = filtered.filter((sale) => sale.total >= parseFloat(salesFilters.minAmount));
-    }
-    if (salesFilters.maxAmount) {
-      filtered = filtered.filter((sale) => sale.total <= parseFloat(salesFilters.maxAmount));
-    }
-
-    // Apply date range filter (defensive client-side filtering)
-    if (salesFilters.startDate || salesFilters.endDate) {
-      filtered = filtered.filter((sale) => {
-        const saleDate = new Date(sale.createdAt);
-        const saleTime = saleDate.getTime();
-
-        if (salesFilters.startDate) {
-          const startDate = new Date(salesFilters.startDate + 'T00:00:00');
-          if (saleTime < startDate.getTime()) return false;
-        }
-
-        if (salesFilters.endDate) {
-          const endDate = new Date(salesFilters.endDate + 'T23:59:59.999');
-          if (saleTime > endDate.getTime()) return false;
-        }
-
-        return true;
-      });
-    }
-
-    return filtered;
-  }, [salesData?.sales, salesSearchQuery, salesFilters]);
-
-  // Get unique employees from sales data
-  const salesEmployees = React.useMemo(() => {
-    if (!salesData?.sales) return [];
-    const employeeMap = new Map();
-    salesData.sales.forEach((sale: any) => {
-      if (sale.user && !employeeMap.has(sale.userId)) {
-        employeeMap.set(sale.userId, {
-          id: sale.userId,
-          firstName: sale.user.firstName,
-          lastName: sale.user.lastName,
-        });
-      }
-    });
-    return Array.from(employeeMap.values());
-  }, [salesData?.sales]);
-
-  // Inventory helper functions
-  const handleInventoryExport = async (format: 'csv' | 'pdf') => {
-    try {
-      const params = {
-        ...inventoryFilters,
-        category: inventoryFilters.category.join(','),
-        stockStatus: inventoryFilters.stockStatus.join(','),
-        locationId: locationId || undefined,
-      };
-
-      const response =
-        format === 'csv'
-          ? await reportService.exportInventoryCSV(params)
-          : await reportService.exportInventoryPDF(params);
-
-      // Create download link
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `inventory-export.${format}`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      toast.success(`Exported inventory as ${format.toUpperCase()}`);
-    } catch (error) {
-      console.error(`Failed to export ${format}:`, error);
-      toast.error(`Failed to export ${format}`);
-    }
-  };
-
-  const toggleProductSelection = (id: string) => {
-    setSelectedProductIds((prev) =>
-      prev.includes(id) ? prev.filter((productId) => productId !== id) : [...prev, id]
-    );
-  };
-
-  const toggleSelectAllProducts = () => {
-    if (selectedProductIds.length === filteredProducts.length) {
-      setSelectedProductIds([]);
-    } else {
-      setSelectedProductIds(filteredProducts.map((product) => product.id));
-    }
-  };
-
-  // Filter and search inventory
-  const filteredProducts = React.useMemo(() => {
-    if (!inventoryData?.products) return [];
-
-    let filtered = [...inventoryData.products];
-
-    // Apply search
-    if (inventorySearchQuery) {
-      const query = inventorySearchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (product: any) =>
-          product.sku.toLowerCase().includes(query) ||
-          product.name.toLowerCase().includes(query) ||
-          product.barcode?.toLowerCase().includes(query)
-      );
-    }
-
-    // Apply filters
-    if (inventoryFilters.category.length > 0) {
-      filtered = filtered.filter((product: any) =>
-        inventoryFilters.category.includes(product.categoryId)
-      );
-    }
-    if (inventoryFilters.minPrice) {
-      filtered = filtered.filter((product: any) =>
-        product.price >= parseFloat(inventoryFilters.minPrice)
-      );
-    }
-    if (inventoryFilters.maxPrice) {
-      filtered = filtered.filter((product: any) =>
-        product.price <= parseFloat(inventoryFilters.maxPrice)
-      );
-    }
-    if (inventoryFilters.trackInventory !== null) {
-      filtered = filtered.filter((product: any) =>
-        product.trackInventory === inventoryFilters.trackInventory
-      );
-    }
-    if (inventoryFilters.isActive !== null) {
-      filtered = filtered.filter((product: any) =>
-        product.isActive === inventoryFilters.isActive
-      );
-    }
-    if (inventoryFilters.stockStatus.length > 0) {
-      filtered = filtered.filter((product: any) => {
-        if (!product.trackInventory) return inventoryFilters.stockStatus.includes('Not Tracked');
-        if (product.stockQuantity === 0) return inventoryFilters.stockStatus.includes('Out of Stock');
-        if (product.stockQuantity <= product.lowStockAlert) return inventoryFilters.stockStatus.includes('Low Stock');
-        return inventoryFilters.stockStatus.includes('In Stock');
-      });
-    }
-
-    // Apply date range filter (defensive client-side filtering based on updatedAt)
-    if (inventoryFilters.startDate || inventoryFilters.endDate) {
-      filtered = filtered.filter((product: any) => {
-        if (!product.updatedAt) return false;
-        const productDate = new Date(product.updatedAt);
-        const productTime = productDate.getTime();
-
-        if (inventoryFilters.startDate) {
-          const startDate = new Date(inventoryFilters.startDate + 'T00:00:00');
-          if (productTime < startDate.getTime()) return false;
-        }
-
-        if (inventoryFilters.endDate) {
-          const endDate = new Date(inventoryFilters.endDate + 'T23:59:59.999');
-          if (productTime > endDate.getTime()) return false;
-        }
-
-        return true;
-      });
-    }
-
-    return filtered;
-  }, [inventoryData?.products, inventorySearchQuery, inventoryFilters]);
-
-  // Get unique categories from inventory data
-  const inventoryCategories = React.useMemo(() => {
-    if (!inventoryData?.products) return [];
-    const categoryMap = new Map();
-    inventoryData.products.forEach((product: any) => {
-      if (product.category && !categoryMap.has(product.categoryId)) {
-        categoryMap.set(product.categoryId, {
-          id: product.categoryId,
-          name: product.category.name,
-        });
-      }
-    });
-    return Array.from(categoryMap.values());
-  }, [inventoryData?.products]);
-
-  const { user } = useAuthStore();
-  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
-  const [sendingDigest, setSendingDigest] = useState(false);
-
-  const handleSendDigest = async () => {
-    setSendingDigest(true);
-    try {
-      const res = await reportService.sendDailyDigest();
-      toast.success(res.data.message || 'Digest sent');
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to send digest');
-    } finally {
-      setSendingDigest(false);
-    }
-  };
-
+  // The platform administrator picks a store above; Stock Health and Exports work
+  // inside a store, so they stay in store preview for that role.
   const tabs = [
-    { id: 'sales', label: 'Sales Reports' },
-    { id: 'inventory', label: 'Inventory Reports' },
+    { id: 'sales', label: 'Transactions & Refunds' },
     { id: 'stock-health', label: 'Stock Health' },
     { id: 'overall', label: 'Overall Report' },
     { id: 'employee', label: 'Employee Sales' },
     { id: 'exports', label: 'Exports' },
-  ];
+  ].filter(tab => view || scopeUser?.role !== 'SUPER_ADMIN' || !['stock-health', 'exports'].includes(tab.id));
 
   // Chart colors
 
   return (
-    <div className="p-8">
+    <ManagementPage>
       <PageHeader
-        title="Reports"
-        subtitle="Track performance and gain business insights"
+        title={view ? tabs.find(tab => tab.id === view)?.label || 'Reports' : 'Reports'}
         actions={
           <>
-            {activeTab === 'overall' && (
-              <Button variant="outline" onClick={loadReports} title="Refresh data">
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
-            )}
-            {activeTab === 'overall' && isAdmin && (
-              <Button
-                variant="outline"
-                onClick={handleSendDigest}
-                disabled={sendingDigest}
-                title="Email today's end-of-day digest to the store admins now"
-              >
-                {sendingDigest ? 'Sending...' : 'Send Daily Digest'}
-              </Button>
-            )}
-            {activeTab === 'sales' && filteredSales.length > 0 && (
-              <Button variant="outline" onClick={() => setShowExportPreview('sales')}>
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </Button>
-            )}
-            {activeTab === 'inventory' && filteredProducts.length > 0 && (
-              <Button variant="outline" onClick={() => setShowExportPreview('inventory')}>
+            {activeTab === 'exports' && exportActions}
+            {activeTab === 'overall' && scopeUser?.role === 'ADMIN' && scopeUser.locationId && <DigestDeliveryControls key={scopeUser.id + scopeUser.locationId} userId={scopeUser.id} storeId={scopeUser.locationId} />}
+            {activeTab === 'sales' && (
+              <Button variant="outline" disabled={isLoading || !!reportError || !salesData || salesData.pagination.entryCount > 5000} onClick={() => setShowExportPreview('sales')}>
                 <Download className="h-4 w-4 mr-2" />
                 Export
               </Button>
             )}
           </>
         }
+        tabs={!view && <PageTabs label="Report views" items={tabs} value={activeTab} onChange={id => setActiveTab(id as ReportView)} />}
+        toolbar={!view && scopeUser?.role === 'SUPER_ADMIN' ? <StoreFilterSelect value={locationId} onChange={setLocationId} /> : undefined}
       />
 
-      {/* Tabs */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex space-x-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-accent'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        <StoreFilterSelect value={locationId} onChange={setLocationId} />
-      </div>
-
+      <AutoRefreshStatus state={reportQuery} />
       {/* Overall Report */}
       {activeTab === 'overall' && overallData && (
         <div className="space-y-6">
+          <AboutNumbers timezone={overallData.period?.timezone}>
+            <p>The last 7 and 30 days include today up to now. Sales include tax; refunds and voids come off on the day they happen.</p>
+            <p>Payment totals count each tender a sale used; refunds come off the tender they were paid back to. Top customers are ranked by lifetime spend.</p>
+          </AboutNumbers>
+          {overallData.historyWarning && <p role="status" className="text-sm text-warning">{overallData.historyWarning}</p>}
           {/* Revenue Overview */}
           <div>
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <DollarSign className="h-5 w-5 text-success" />
-              Revenue Overview
+              Sales Overview
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card>
-                <CardContent className="p-6">
-                  <p className="text-sm text-muted-foreground mb-1">Today's Revenue</p>
-                  <p className="text-2xl font-bold text-success">
-                    {formatCurrency(overallData.revenue?.today?.total || 0)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {overallData.revenue?.today?.transactions || 0} transactions
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <p className="text-sm text-muted-foreground mb-1">This Week</p>
-                  <p className="text-2xl font-bold">
-                    {formatCurrency(overallData.revenue?.week?.total || 0)}
-                  </p>
-                  <div className="flex items-center gap-1 mt-1">
-                    {(overallData.revenue?.week?.growth || 0) >= 0 ? (
-                      <TrendingUp className="h-3 w-3 text-success" />
-                    ) : (
-                      <TrendingDown className="h-3 w-3 text-destructive" />
-                    )}
-                    <span className={`text-xs ${(overallData.revenue?.week?.growth || 0) >= 0 ? 'text-success' : 'text-destructive'}`}>
-                      {Math.abs(overallData.revenue?.week?.growth || 0).toFixed(1)}% vs last week
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <p className="text-sm text-muted-foreground mb-1">This Month</p>
-                  <p className="text-2xl font-bold">
-                    {formatCurrency(overallData.revenue?.month?.total || 0)}
-                  </p>
-                  <div className="flex items-center gap-1 mt-1">
-                    {(overallData.revenue?.month?.growth || 0) >= 0 ? (
-                      <TrendingUp className="h-3 w-3 text-success" />
-                    ) : (
-                      <TrendingDown className="h-3 w-3 text-destructive" />
-                    )}
-                    <span className={`text-xs ${(overallData.revenue?.month?.growth || 0) >= 0 ? 'text-success' : 'text-destructive'}`}>
-                      {Math.abs(overallData.revenue?.month?.growth || 0).toFixed(1)}% vs last month
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <p className="text-sm text-muted-foreground mb-1">This Year</p>
-                  <p className="text-2xl font-bold">
-                    {formatCurrency(overallData.revenue?.year?.total || 0)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {overallData.revenue?.year?.transactions || 0} transactions
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
+            <SummaryStrip emphasis items={[
+              { label: 'Sales today', value: money(overallData.revenue?.today?.total), detail: `${overallData.revenue?.today?.transactions ?? 'Unknown'} ${overallData.revenue?.today?.transactions === 1 ? 'sale' : 'sales'}` },
+              { label: 'Last 7 Days', value: money(overallData.revenue?.week?.total), detail: overallData.revenue?.week?.growth == null ? 'Comparison unavailable' : `${overallData.revenue.week.growth >= 0 ? '+' : '−'}${Math.abs(overallData.revenue.week.growth).toFixed(1)}% vs preceding 7 days` },
+              { label: 'Last 30 Days', value: money(overallData.revenue?.month?.total), detail: overallData.revenue?.month?.growth == null ? 'Comparison unavailable' : `${overallData.revenue.month.growth >= 0 ? '+' : '−'}${Math.abs(overallData.revenue.month.growth).toFixed(1)}% vs preceding 30 days` },
+              { label: 'Last 365 Days', value: money(overallData.revenue?.year?.total), detail: `${overallData.revenue?.year?.transactions ?? 'Unknown'} transactions` },
+            ]} />
           </div>
 
+          {overallData.profitability?.unavailableReason && <div className="report-notice"><p role="status">{overallData.profitability.unavailableReason}</p><Link className="page-action" to="/financial?tab=inventory&costTab=missing">Review costs</Link></div>}
+          {overallData.profitability?.provisionalReason && <div className="report-notice"><p role="status">Profit is not final. {overallData.profitability.provisionalReason}</p><Link className="page-action" to="/inventory/stock-control/exceptions">Resolve stock exceptions</Link></div>}
           {/* Profitability */}
           <div>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <Target className="h-5 w-5 text-primary" />
-                Profitability (This Month)
+                Profitability (Last 30 Days)
               </h2>
               <Link
-                to="/financial"
+                to={'/financial?tab=pnl&pnlMonth=' + presetRange('thisMonth', overallData.period?.timezone || 'UTC')!.startDate.slice(0, 7)}
                 className="text-sm text-primary hover:underline flex items-center gap-1"
               >
-                View Full P&L
+                This Month's P&amp;L
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card>
-                <CardContent className="p-6">
-                  <p className="text-sm text-muted-foreground mb-1">Gross Profit</p>
-                  <p className="text-2xl font-bold text-success">
-                    {formatCurrency(overallData.profitability?.grossProfit || 0)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {overallData.profitability?.grossMargin?.toFixed(1) || 0}% margin
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <p className="text-sm text-muted-foreground mb-1">Net Profit</p>
-                  <p className={`text-2xl font-bold ${(overallData.profitability?.netProfit || 0) >= 0 ? 'text-success' : 'text-destructive'}`}>
-                    {formatCurrency(overallData.profitability?.netProfit || 0)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {overallData.profitability?.netMargin?.toFixed(1) || 0}% margin
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <p className="text-sm text-muted-foreground mb-1">Cost of Goods Sold</p>
-                  <p className="text-2xl font-bold">
-                    {formatCurrency(overallData.profitability?.costOfGoodsSold || 0)}
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <p className="text-sm text-muted-foreground mb-1">Total Expenses</p>
-                  <p className="text-2xl font-bold text-destructive">
-                    {formatCurrency(overallData.profitability?.totalExpenses || 0)}
-                  </p>
-                </CardContent>
-              </Card>
+            <SummaryStrip items={[
+              { label: 'Gross Profit', value: overallData.profitability?.grossProfit == null ? 'Unavailable' : formatCurrency(overallData.profitability.grossProfit), detail: overallData.profitability?.grossMargin == null ? 'Margin unavailable' : overallData.profitability.grossMargin.toFixed(1) + '% margin' + (overallData.profitability.provisionalReason ? ' · not final' : '') },
+              { label: 'Net Profit', value: overallData.profitability?.netProfit == null ? 'Unavailable' : formatCurrency(overallData.profitability.netProfit), detail: overallData.profitability?.netMargin == null ? 'Margin unavailable' : overallData.profitability.netMargin.toFixed(1) + '% margin' + (overallData.profitability.provisionalReason ? ' · not final' : '') },
+              { label: 'Cost of Goods Sold', value: overallData.profitability?.costOfGoodsSold == null ? 'Unavailable' : formatCurrency(overallData.profitability.costOfGoodsSold), detail: overallData.profitability?.provisionalReason ? 'Includes estimated costs awaiting review' : undefined },
+              { label: 'Operating Expenses', value: money(overallData.profitability?.totalExpenses) },
+            ]} />
+            <div className="mt-4 space-y-2">
+              {!!overallData.profitability?.otherIncome && <div className="flex justify-between text-sm"><span>Other income included in net profit</span><span>{formatCurrency(overallData.profitability.otherIncome)}</span></div>}
+              <InventoryPurchaseSummary received={overallData.profitability?.receivedInventoryPurchases} purchaseEntries={overallData.profitability?.inventoryPurchases} />
             </div>
           </div>
 
@@ -761,7 +258,7 @@ export const Reports: React.FC = () => {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Activity className="h-5 w-5" />
-                Daily Sales Trend (Last 30 Days)
+                Daily Sales (Last 30 Days)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -770,25 +267,23 @@ export const Reports: React.FC = () => {
                   <LineChart data={overallData.trends?.dailySales || []}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis
+                      minTickGap={32}
                       dataKey="date"
-                      tick={{ fontSize: 10 }}
-                      tickFormatter={(value) => {
-                        const date = new Date(value);
-                        return `${date.getMonth() + 1}/${date.getDate()}`;
-                      }}
+                      tick={{ fontSize: 12 }}
+                      tickFormatter={(value: string) => `${Number(value.slice(5, 7))}/${Number(value.slice(8, 10))}`}
                     />
                     <YAxis
-                      tick={{ fontSize: 10 }}
-                      tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                      tick={{ fontSize: 12 }}
+                      tickFormatter={formatChartCurrency}
                     />
                     <Tooltip
-                      formatter={(value: any) => [formatCurrency(value), 'Sales']}
-                      labelFormatter={(label) => formatDate(label)}
+                      formatter={(value: any) => [formatCurrency(value), 'Sales after refunds']}
+                      labelFormatter={(label) => String(label)}
                     />
                     <Line
                       type="monotone"
                       dataKey="sales"
-                      stroke="#3b82f6"
+                      stroke="hsl(var(--primary))"
                       strokeWidth={2}
                       dot={false}
                     />
@@ -819,23 +314,23 @@ export const Reports: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
                     <p className="text-sm text-muted-foreground">Total Customers</p>
-                    <p className="text-xl font-bold">{overallData.customers?.total || 0}</p>
+                    <p className="text-xl font-bold">{overallData.customers?.total ?? '\u2014'}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">New This Month</p>
-                    <p className="text-xl font-bold text-success">{overallData.customers?.new || 0}</p>
+                    <p className="text-sm text-muted-foreground">New in Last 30 Days</p>
+                    <p className="text-xl font-bold text-success">{overallData.customers?.new ?? '\u2014'}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Returning</p>
-                    <p className="text-xl font-bold">{overallData.customers?.returning || 0}</p>
+                    <p className="text-xl font-bold">{overallData.customers?.returning ?? '\u2014'}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Avg Lifetime Value</p>
-                    <p className="text-xl font-bold">{formatCurrency(overallData.customers?.avgLifetimeValue || 0)}</p>
+                    <p className="text-sm text-muted-foreground">Average Spent per Customer</p>
+                    <p className="text-xl font-bold">{money(overallData.customers?.avgLifetimeValue)}</p>
                   </div>
                 </div>
                 <div className="pt-4 border-t">
-                  <p className="text-sm font-medium mb-2">Top Customers</p>
+                  <p className="text-sm font-medium mb-2">Top Customers (All Time)</p>
                   <div className="space-y-2 max-h-48 overflow-y-auto">
                     {(overallData.customers?.topCustomers || []).slice(0, 5).map((customer: any, index: number) => (
                       <div key={customer.id} className="flex justify-between items-center text-sm">
@@ -862,19 +357,19 @@ export const Reports: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
                     <p className="text-sm text-muted-foreground">Total Products</p>
-                    <p className="text-xl font-bold">{overallData.inventory?.totalProducts || 0}</p>
+                    <p className="text-xl font-bold">{overallData.inventory?.totalProducts ?? '\u2014'}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Inventory Value</p>
-                    <p className="text-xl font-bold">{formatCurrency(overallData.inventory?.inventoryValue || 0)}</p>
+                    <p className="text-xl font-bold">{overallData.inventory?.inventoryValue == null ? 'Unavailable' : formatCurrency(overallData.inventory.inventoryValue)}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Low Stock</p>
-                    <p className="text-xl font-bold text-warning">{overallData.inventory?.lowStockCount || 0}</p>
+                    <p className="text-xl font-bold text-warning">{overallData.inventory?.lowStockCount ?? '\u2014'}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Out of Stock</p>
-                    <p className="text-xl font-bold text-destructive">{overallData.inventory?.outOfStockCount || 0}</p>
+                    <p className="text-xl font-bold text-destructive">{overallData.inventory?.outOfStockCount ?? '\u2014'}</p>
                   </div>
                 </div>
                 {(overallData.inventory?.lowStockItems?.length > 0 || overallData.inventory?.outOfStockItems?.length > 0) && (
@@ -910,7 +405,7 @@ export const Reports: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <ShoppingCart className="h-5 w-5" />
-                  Top Selling Products (This Month)
+                  Top Selling Products (Last 30 Days)
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -952,10 +447,13 @@ export const Reports: React.FC = () => {
               </CardHeader>
               <CardContent>
                 {(overallData.salesByCategory && overallData.salesByCategory.length > 0) ? (
-                  <div className="h-64">
+                  <div className="h-64" role="img" aria-label={'Sales by category: ' + overallData.salesByCategory.map((entry: { name: string; revenue: number }) => `${entry.name} ${formatCurrency(entry.revenue)}`).join(', ')}>
+                    <div aria-hidden="true" className="h-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
+                      {overallData.salesByCategory.some((entry: { revenue: number }) => entry.revenue < 0) || overallData.salesByCategory.reduce((sum: number, entry: { revenue: number }) => sum + entry.revenue, 0) <= 0 ?
+                        <BarChart data={overallData.salesByCategory} accessibilityLayer={false}><XAxis dataKey="name" tick={{ fontSize: 12 }} /><YAxis /><ReferenceLine y={0} stroke="currentColor" /><Tooltip formatter={(value: number) => formatCurrency(value)} /><Bar dataKey="revenue" fill="hsl(var(--primary))" isAnimationActive={false} /></BarChart> : <PieChart accessibilityLayer={false}>
                         <Pie
+                          rootTabIndex={-1}
                           data={overallData.salesByCategory}
                           dataKey="revenue"
                           nameKey="name"
@@ -969,14 +467,16 @@ export const Reports: React.FC = () => {
                           ))}
                         </Pie>
                         <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                      </PieChart>
+                      </PieChart>}
                     </ResponsiveContainer>
+                    </div>
                   </div>
                 ) : (
                   <div className="h-64 flex items-center justify-center text-muted-foreground">
                     No category data available
                   </div>
                 )}
+                <p className="text-xs text-muted-foreground mt-2">{overallData.categoryBasis}</p>
               </CardContent>
             </Card>
           </div>
@@ -988,10 +488,11 @@ export const Reports: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <CreditCard className="h-5 w-5" />
-                  Payment Methods (This Month)
+                  Payments (Last 30 Days)
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                <p className="text-xs text-muted-foreground mb-3">Each tender a sale used, less refunds paid back to it.</p>
                 <div className="space-y-3">
                   {(overallData.paymentMethods || []).map((pm: any) => (
                     <div key={pm.method} className="flex items-center justify-between">
@@ -999,11 +500,11 @@ export const Reports: React.FC = () => {
                         {pm.method === 'CASH' && <Wallet className="h-4 w-4" />}
                         {pm.method === 'CARD' && <CreditCard className="h-4 w-4" />}
                         {!['CASH', 'CARD'].includes(pm.method) && <DollarSign className="h-4 w-4" />}
-                        <span className="text-sm">{pm.method.replace(/_/g, ' ')}</span>
+                        <span className="text-sm">{formatEnumLabel(pm.method)}</span>
                       </div>
                       <div className="text-right">
                         <p className="font-medium">{formatCurrency(pm.total)}</p>
-                        <p className="text-xs text-muted-foreground">{pm.count} txns ({pm.percentage.toFixed(1)}%)</p>
+                        <p className="text-xs text-muted-foreground">{pm.count} sales ({pm.percentage == null ? 'share unavailable' : pm.percentage.toFixed(1) + '%'})</p>
                       </div>
                     </div>
                   ))}
@@ -1019,10 +520,10 @@ export const Reports: React.FC = () => {
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5" />
-                  Employee Performance (This Month)
+                  Employee Performance (Last 30 Days)
                 </CardTitle>
                 <Link
-                  to="/analytics"
+                  to="/insights/reports/staff"
                   className="text-sm text-primary hover:underline flex items-center gap-1"
                 >
                   View Details
@@ -1035,7 +536,7 @@ export const Reports: React.FC = () => {
                     <TableRow>
                       <TableHead>Employee</TableHead>
                       <TableHead className="text-right">Sales</TableHead>
-                      <TableHead className="text-right">AOV</TableHead>
+                      <TableHead className="text-right">Average Sale</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1066,14 +567,14 @@ export const Reports: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Wallet className="h-5 w-5" />
-                  Expense Breakdown (This Month)
+                  Expense Breakdown (Last 30 Days)
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {(overallData.expenses?.breakdown || []).map((exp: any) => (
                     <div key={exp.category} className="flex items-center justify-between">
-                      <span className="text-sm">{exp.category.replace(/_/g, ' ')}</span>
+                      <span className="text-sm">{formatEnumLabel(exp.category)}</span>
                       <div className="text-right">
                         <p className="font-medium">{formatCurrency(exp.total)}</p>
                         <p className="text-xs text-muted-foreground">{exp.percentage.toFixed(1)}%</p>
@@ -1098,24 +599,24 @@ export const Reports: React.FC = () => {
               <CardContent>
                 <div className="space-y-4">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-2">Average Order Value</p>
+                    <p className="text-sm text-muted-foreground mb-2">Average Sale (Before Refunds)</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div className="text-center p-2 bg-muted rounded">
                         <p className="text-xs text-muted-foreground">Today</p>
-                        <p className="font-medium">{formatCurrency(overallData.averageOrderValue?.today || 0)}</p>
+                        <p className="font-medium">{overallData.averageOrderValue?.today == null ? 'Unavailable' : formatCurrency(overallData.averageOrderValue.today)}</p>
                       </div>
                       <div className="text-center p-2 bg-muted rounded">
-                        <p className="text-xs text-muted-foreground">Week</p>
-                        <p className="font-medium">{formatCurrency(overallData.averageOrderValue?.week || 0)}</p>
+                        <p className="text-xs text-muted-foreground">Last 7 Days</p>
+                        <p className="font-medium">{overallData.averageOrderValue?.week == null ? 'Unavailable' : formatCurrency(overallData.averageOrderValue.week)}</p>
                       </div>
                       <div className="text-center p-2 bg-muted rounded">
-                        <p className="text-xs text-muted-foreground">Month</p>
-                        <p className="font-medium">{formatCurrency(overallData.averageOrderValue?.month || 0)}</p>
+                        <p className="text-xs text-muted-foreground">Last 30 Days</p>
+                        <p className="font-medium">{overallData.averageOrderValue?.month == null ? 'Unavailable' : formatCurrency(overallData.averageOrderValue.month)}</p>
                       </div>
                     </div>
                   </div>
                   <div className="pt-4 border-t">
-                    <p className="text-sm text-muted-foreground mb-2">Refunds & Voids (This Month)</p>
+                    <p className="text-sm text-muted-foreground mb-2">Refunds & Voids (Last 30 Days)</p>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <p className="text-xs text-muted-foreground">Refunds</p>
@@ -1145,10 +646,12 @@ export const Reports: React.FC = () => {
       )}
 
       {/* Sales Report */}
-      {activeTab === 'sales' && salesData && (
+      {reportError && <div role="alert" className="mb-4 rounded border border-destructive p-4">{reportError} <Button variant="outline" onClick={loadReports}>Retry</Button></div>}
+      {activeTab === 'sales' && (
         <>
           {/* Search & Filter Bar */}
-          <div className="flex gap-2 mb-4">
+          <div className="report-filter-toolbar flex flex-wrap items-center gap-2 mb-3">
+            <DateRangePicker label="Sales dates" startDate={salesFilters.startDate} endDate={salesFilters.endDate} timezone={salesData?.period.timezone} onChange={range => setSalesFilters({ ...salesFilters, ...range })} />
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -1160,7 +663,8 @@ export const Reports: React.FC = () => {
               />
             </div>
             <Button
-              variant={salesFilters.showCharts ? 'default' : 'outline'}
+              variant={salesFilters.showCharts ? 'secondary' : 'outline'}
+              aria-pressed={salesFilters.showCharts}
               onClick={() => setSalesFilters({ ...salesFilters, showCharts: !salesFilters.showCharts })}
               title="Toggle charts visualization"
             >
@@ -1169,7 +673,8 @@ export const Reports: React.FC = () => {
             </Button>
             <div className="relative">
               <Button
-                variant={showSalesFilters ? 'default' : 'outline'}
+                variant={showSalesFilters ? 'secondary' : 'outline'}
+                aria-pressed={showSalesFilters}
                 onClick={() => setShowSalesFilters(!showSalesFilters)}
               >
                 <Filter className="h-4 w-4 mr-2" />
@@ -1198,11 +703,11 @@ export const Reports: React.FC = () => {
                       status: [],
                       employeeId: [],
                       customerId: '',
-                      startDate: getLocalDateString(new Date(new Date().setDate(new Date().getDate() - 30))),
-                      endDate: getLocalDateString(),
+                      startDate: reportToday.subtract({ days: 30 }).toString(),
+                      endDate: reportToday.toString(),
                       minAmount: '',
                       maxAmount: '',
-                      showCharts: false,
+                      showCharts: false as boolean,
                     })
                   }
                   employees={salesEmployees}
@@ -1210,55 +715,70 @@ export const Reports: React.FC = () => {
               </FilterDropdown>
             </div>
           </div>
+          <FilterChips filters={salesFilters} onChange={setSalesFilters} count={salesData?.pagination?.sales.total} lookup={Object.fromEntries(salesEmployees.map(employee => [employee.id, employee.firstName + " " + employee.lastName]))} />
 
-          {/* Bulk Actions Toolbar */}
+        </>
+      )}
+      {activeTab === 'sales' && (
+        <>
           <SalesBulkActions
-            selectedIds={selectedSaleIds}
+            key={`${scopeUser?.id}:${scopeUser?.locationId}`}
+            selectedSales={(!isLoading && !reportError ? salesData?.sales || [] : []).filter(sale => selectedSaleIds.includes(sale.id) && sale.sourceType !== 'DAILY_SUMMARY')}
             onClearSelection={() => setSelectedSaleIds([])}
             onSuccess={loadReports}
           />
+          <BulkRefundActions key={`refund:${scopeUser?.id}:${scopeUser?.locationId}`} selectedSales={(!isLoading && !reportError ? salesData?.sales || [] : []).filter(sale => selectedSaleIds.includes(sale.id) && sale.sourceType !== 'DAILY_SUMMARY')} onSuccess={() => { setSelectedSaleIds([]); void loadReports(); }} />
+        </>
+      )}
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <Card>
-              <CardContent className="p-6">
-                <p className="text-sm text-muted-foreground mb-1">Total Sales</p>
-                <p className="text-2xl font-bold text-success">
-                  {formatCurrency(salesData.summary?.totalSales || 0)}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-6">
-                <p className="text-sm text-muted-foreground mb-1">Transactions</p>
-                <p className="text-2xl font-bold">{salesData.summary?.totalTransactions || 0}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-6">
-                <p className="text-sm text-muted-foreground mb-1">Avg Order Value</p>
-                <p className="text-2xl font-bold">
-                  {formatCurrency(salesData.summary?.averageOrderValue || 0)}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-6">
-                <p className="text-sm text-muted-foreground mb-1">Total Discount</p>
-                <p className="text-2xl font-bold text-destructive">
-                  {formatCurrency(salesData.summary?.totalDiscount || 0)}
-                </p>
-              </CardContent>
-            </Card>
+      {activeTab === 'sales' && salesData && !reportError && (
+        <fieldset disabled={isLoading} className="min-w-0">
+          {isLoading && <p role="status" className="mb-3 text-sm text-muted-foreground">Updating report. These are the previous results.</p>}
+
+          <SummaryStrip className="mb-4" items={[
+            { label: 'Sales after refunds (incl. tax)', value: formatCurrency(salesData.summary?.totalSales || 0) },
+            { label: 'Transactions', value: salesData.summary?.totalTransactions ?? 'Unavailable' },
+            { label: 'Average sale', value: salesData.summary?.averageOrderValue == null ? 'Unavailable' : formatCurrency(salesData.summary.averageOrderValue) },
+            { label: 'Total Discount', value: salesData.summary?.totalDiscount == null ? 'Unavailable' : formatCurrency(salesData.summary.totalDiscount) },
+          ]} />
+
+          <div className="mb-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground">
+            <span>Refunds issued: <span className="tabular-nums text-foreground">{formatCurrency(salesData.summary.refunds)}</span> ({salesData.summary.refundCount})</span>
+            <span>Voids recorded: <span className="tabular-nums text-foreground">{formatCurrency(salesData.summary.voids)}</span> ({salesData.summary.voidCount})</span>
+            <span>Net sales before tax: <span className="tabular-nums text-foreground">{salesData.summary.netSales === null ? 'Unavailable' : formatCurrency(salesData.summary.netSales)}</span></span>
+            {!!salesData.summary.cashRounding && <span>Cash rounding: <span className="tabular-nums text-foreground">{formatCurrency(salesData.summary.cashRounding)}</span></span>}
+            <details className="w-full"><summary className="inline-flex min-h-9 cursor-pointer items-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">About these numbers</summary>
+              <p className="mt-1 max-w-3xl text-sm leading-6">Store time: {salesData.period.timezone}. Filters pick sales by the sale itself; refunds and voids count on the day they happened. The payment filter matches each sale's main payment type. The payment chart uses the actual split payments and where each refund went. With cash rounding to 5 cents, sales stay at their exact amounts and the cents rounded away show as Cash rounding; the payment chart counts the cash that changed hands.</p>
+            </details>
           </div>
+          {salesData.pagination.entryCount > 5000 && <p role="status" className="mb-4 text-sm">Direct CSV and PDF downloads support up to 5,000 entries. Narrow the dates or filters.{scopeUser?.role === 'ADMIN' && <> For a full store CSV, <Link to="/settings/jobs" className="underline text-primary">queue a saved export</Link>.</>}</p>}
+          {salesData.historyWarning && <p role="status" className="mb-4 text-warning">{salesData.historyWarning}</p>}
+          {salesData.voids.length > 0 && <Card className="mb-6"><CardHeader><CardTitle>Voids recorded in this period</CardTitle></CardHeader><CardContent>
+            <Table><TableHeader><TableRow><TableHead>Original sale</TableHead><TableHead>Void date</TableHead><TableHead>Reason</TableHead><TableHead className="text-right">Reversed</TableHead></TableRow></TableHeader>
+              <TableBody>{salesData.voids.map(event => <TableRow key={event.id}>
+                <TableCell><button className="text-primary underline" onClick={() => setSaleRecord(event.sale.id)}>{event.sale.saleNumber}</button></TableCell>
+                <TableCell>{formatDateTime(event.createdAt, salesData.period.timezone)}</TableCell><TableCell>{event.reason}</TableCell><TableCell className="text-right tabular-nums">{formatCurrency(event.amount)}</TableCell>
+              </TableRow>)}</TableBody>
+            </Table>
+            <nav aria-label="Void pages"><Pagination page={salesData.pagination.voids.page} totalPages={salesData.pagination.voids.totalPages} totalItems={salesData.pagination.voids.total} itemName="voids" onPageChange={value => setVoidPageRaw(String(value))} /></nav>
+          </CardContent></Card>}
+          {salesData.refunds.length > 0 && <Card className="mb-6"><CardHeader><CardTitle>Returns issued in this period</CardTitle></CardHeader><CardContent>
+            <Table><TableHeader><TableRow><TableHead>Original sale</TableHead><TableHead>Return date</TableHead><TableHead>Tender</TableHead><TableHead className="text-right">Returned</TableHead></TableRow></TableHeader>
+              <TableBody>{salesData.refunds.map(refund => <TableRow key={refund.id}>
+                <TableCell><button className="text-primary underline" onClick={() => setSaleRecord(refund.sale.id)}>{refund.sale.saleNumber}</button></TableCell>
+                <TableCell>{formatDateTime(refund.createdAt, salesData.period.timezone)}</TableCell><TableCell>{refund.tenders?.length ? refund.tenders.map((part, index) => <p key={index}>{formatEnumLabel(part.method)}: {formatCurrency(part.amount)}{part.reference ? ` (${part.reference})` : ''}</p>) : refund.method || 'Unavailable'}</TableCell><TableCell className="text-right tabular-nums">{formatCurrency(refund.amount)}</TableCell>
+              </TableRow>)}</TableBody>
+            </Table>
+            <nav aria-label="Return pages"><Pagination page={salesData.pagination.refunds.page} totalPages={salesData.pagination.refunds.totalPages} totalItems={salesData.pagination.refunds.total} itemName="returns" onPageChange={value => setRefundPageRaw(String(value))} /></nav>
+          </CardContent></Card>}
 
           {/* Payment Method Breakdown */}
           {salesFilters.showCharts && salesData.paymentBreakdown && Object.keys(salesData.paymentBreakdown).length > 0 && (
             <div className="mb-6">
               <DataVisualizationCard
-                title="Sales by Payment Method"
+                title="Sales after refunds, by payment type"
                 data={Object.entries(salesData.paymentBreakdown).map(([method, data]: [string, any]) => ({
-                  name: method.replace(/_/g, ' '),
+                  name: formatEnumLabel(method),
                   value: data.total,
                   count: data.count,
                 }))}
@@ -1270,7 +790,7 @@ export const Reports: React.FC = () => {
           {salesFilters.showCharts && salesData.employeeBreakdown && Object.keys(salesData.employeeBreakdown).length > 0 && (
             <div className="mb-6">
               <DataVisualizationCard
-                title="Sales by Employee"
+                title="Sales after refunds, by cashier"
                 data={Object.values(salesData.employeeBreakdown).map((data: any) => ({
                   name: data.name,
                   value: data.total,
@@ -1288,9 +808,10 @@ export const Reports: React.FC = () => {
                 salesFilters.paymentMethod.length > 0 ||
                 salesFilters.status.length > 0 ||
                 salesFilters.employeeId.length > 0
-                  ? `Filtered Sales (${filteredSales.length})`
+                  ? `Filtered Sales (${salesData.pagination.sales.total})`
                   : 'All Sales'}
               </CardTitle>
+              <p className="text-sm text-muted-foreground">Showing {visibleSales.length} of {salesData.pagination.sales.total} sales. Totals and charts cover everything that matches the filters.</p>
             </CardHeader>
             <Table>
               <TableHeader>
@@ -1298,9 +819,10 @@ export const Reports: React.FC = () => {
                   <TableHead className="w-12">
                     <input
                       type="checkbox"
+                      aria-label="Select all sales on this page"
                       checked={
-                        filteredSales.length > 0 &&
-                        selectedSaleIds.length === filteredSales.length
+                        visibleSales.length > 0 &&
+                        visibleSales.every(sale => selectedSaleIds.includes(sale.id) && sale.sourceType !== 'DAILY_SUMMARY')
                       }
                       onChange={toggleSelectAllSales}
                       className="cursor-pointer"
@@ -1310,7 +832,7 @@ export const Reports: React.FC = () => {
                   <TableHead>Date</TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead>Employee</TableHead>
-                  <TableHead>Payment</TableHead>
+                  <TableHead>Primary tender</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -1328,7 +850,7 @@ export const Reports: React.FC = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredSales.slice(0, 50).map((sale) => (
+                  visibleSales.map((sale) => (
                     <TableRow
                       key={sale.id}
                       className="cursor-pointer hover:bg-accent"
@@ -1339,49 +861,39 @@ export const Reports: React.FC = () => {
                         ) {
                           return;
                         }
-                        setSelectedSale(sale);
-                        setShowSaleDetails(true);
+                        setSaleRecord(sale.id);
                       }}
                     >
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
+                          disabled={sale.sourceType === 'DAILY_SUMMARY'} aria-label={`Select sale ${sale.saleNumber}`}
                           checked={selectedSaleIds.includes(sale.id)}
                           onChange={() => toggleSaleSelection(sale.id)}
                           className="cursor-pointer"
                         />
                       </TableCell>
                       <TableCell>
-                        <span className="font-mono text-sm">{sale.saleNumber}</span>
+                        <span className="font-mono text-sm">{sale.saleNumber}</span>{sale.sourceType === 'DAILY_SUMMARY' && <p className="text-xs text-muted-foreground">Daily summary</p>}
                       </TableCell>
-                      <TableCell>{formatDate(sale.createdAt)}</TableCell>
+                      <TableCell>{sale.sourceType === 'DAILY_SUMMARY' ? sale.sourceData?.businessDate : formatDateTime(sale.createdAt, salesData.period.timezone)}</TableCell>
                       <TableCell>
-                        {sale.customer
+                        {sale.sourceType === 'DAILY_SUMMARY' ? 'Not supplied' : sale.customer
                           ? `${sale.customer.firstName} ${sale.customer.lastName}`
                           : 'Walk-in'}
                       </TableCell>
                       <TableCell>
-                        {sale.user ? `${sale.user.firstName} ${sale.user.lastName}` : 'N/A'}
+                        {sale.sourceType === 'DAILY_SUMMARY' ? 'Not supplied' : sale.user ? `${sale.user.firstName} ${sale.user.lastName}` : '\u2014'}
                       </TableCell>
                       <TableCell>
-                        <span className="text-xs px-2 py-1 rounded bg-muted">
-                          {sale.paymentMethod.replace(/_/g, ' ')}
-                        </span>
+                        <Badge variant="secondary">
+                          {sale.sourceType === 'DAILY_SUMMARY' ? 'Recorded totals' : formatEnumLabel(sale.paymentMethod)}
+                        </Badge>
                       </TableCell>
                       <TableCell>
-                        <span
-                          className={`text-xs px-2 py-1 rounded ${
-                            sale.status === 'COMPLETED'
-                              ? 'bg-success/10 text-success'
-                              : sale.status === 'PENDING'
-                              ? 'bg-warning/10 text-warning'
-                              : sale.status === 'HOLD'
-                              ? 'bg-primary/10 text-primary'
-                              : 'bg-destructive/10 text-destructive'
-                          }`}
-                        >
-                          {sale.status}
-                        </span>
+                        <Badge variant={sale.status === 'COMPLETED' ? 'success' : sale.status === 'PENDING' ? 'warning' : sale.status === 'HOLD' ? 'default' : 'destructive'}>
+                          {formatEnumLabel(sale.status)}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {formatCurrency(sale.total)}
@@ -1389,11 +901,11 @@ export const Reports: React.FC = () => {
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={() => {
-                            setSelectedSale(sale);
-                            setShowSaleDetails(true);
+                            setSaleRecord(sale.id);
                           }}
-                          className="p-1 hover:bg-accent rounded"
+                          className="p-1 hover:bg-accent rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           title="View details"
+                          aria-label={`View sale ${sale.saleNumber}`}
                         >
                           <Eye className="h-4 w-4" />
                         </button>
@@ -1405,302 +917,19 @@ export const Reports: React.FC = () => {
             </Table>
           </Card>
 
-          {filteredSales.length > 50 && (
-            <p className="text-sm text-muted-foreground text-center mt-2">
-              Showing 50 of {filteredSales.length} sales. Use filters or export to view all.
-            </p>
-          )}
-
-          {/* Sale Details Modal */}
-          <SaleDetailsModal
-            isOpen={showSaleDetails}
-            onClose={() => {
-              setShowSaleDetails(false);
-              setSelectedSale(null);
-            }}
-            sale={selectedSale}
-            onSuccess={loadReports}
-          />
-        </>
+          <nav aria-label="Sale pages"><Pagination page={salesData.pagination.sales.page} totalPages={salesData.pagination.sales.totalPages} onPageChange={setSalesPage} totalItems={salesData.pagination.sales.total} itemName="sales" /></nav>
+        </fieldset>
       )}
 
-      {/* Inventory Report */}
-      {activeTab === 'inventory' && inventoryData && (
-        <>
-          {/* Search & Filter Bar */}
-          <div className="flex gap-2 mb-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search by SKU, product name, or barcode..."
-                value={inventorySearchQuery}
-                onChange={(e) => setInventorySearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Button
-              variant={inventoryFilters.showCharts ? 'default' : 'outline'}
-              onClick={() => setInventoryFilters({ ...inventoryFilters, showCharts: !inventoryFilters.showCharts })}
-              title="Toggle charts visualization"
-            >
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Charts
-            </Button>
-            <div className="relative">
-              <Button
-                variant={showInventoryFilters ? 'default' : 'outline'}
-                onClick={() => setShowInventoryFilters(!showInventoryFilters)}
-              >
-                <Filter className="h-4 w-4 mr-2" />
-                Filters
-                {(inventoryFilters.category.length > 0 ||
-                  inventoryFilters.stockStatus.length > 0 ||
-                  inventoryFilters.trackInventory !== null ||
-                  inventoryFilters.isActive !== null) && (
-                  <span className="ml-2 bg-primary-foreground text-primary rounded-full px-2 py-0.5 text-xs">
-                    {inventoryFilters.category.length +
-                      inventoryFilters.stockStatus.length +
-                      (inventoryFilters.trackInventory !== null ? 1 : 0) +
-                      (inventoryFilters.isActive !== null ? 1 : 0)}
-                  </span>
-                )}
-              </Button>
-
-              {/* Filters Dropdown */}
-              <FilterDropdown
-                isOpen={showInventoryFilters}
-                onClose={() => setShowInventoryFilters(false)}
-                title="Inventory Filters"
-              >
-                <InventoryFilters
-                  filters={inventoryFilters}
-                  onFilterChange={setInventoryFilters}
-                  onClear={() =>
-                    setInventoryFilters({
-                      category: [],
-                      stockStatus: [],
-                      minPrice: '',
-                      maxPrice: '',
-                      trackInventory: null,
-                      isActive: null,
-                      startDate: getLocalDateString(new Date(new Date().setDate(new Date().getDate() - 30))),
-                      endDate: getLocalDateString(),
-                      showCharts: false,
-                    })
-                  }
-                  categories={inventoryCategories}
-                />
-              </FilterDropdown>
-            </div>
-          </div>
-
-          {/* Bulk Actions Toolbar */}
-          <InventoryBulkActions
-            selectedIds={selectedProductIds}
-            onClearSelection={() => setSelectedProductIds([])}
-            onSuccess={loadReports}
-            categories={inventoryCategories}
-          />
-
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <Card>
-              <CardContent className="p-6">
-                <p className="text-sm text-muted-foreground mb-1">Total Products</p>
-                <p className="text-2xl font-bold">
-                  {inventoryData.summary?.totalProducts || 0}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-6">
-                <p className="text-sm text-muted-foreground mb-1">Inventory Value</p>
-                <p className="text-2xl font-bold">
-                  {formatCurrency(inventoryData.summary?.totalInventoryValue || 0)}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-6">
-                <p className="text-sm text-muted-foreground mb-1">Retail Value</p>
-                <p className="text-2xl font-bold">
-                  {formatCurrency(inventoryData.summary?.totalRetailValue || 0)}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-6">
-                <p className="text-sm text-muted-foreground mb-1">Potential Profit</p>
-                <p className="text-2xl font-bold text-success">
-                  {formatCurrency(inventoryData.summary?.potentialProfit || 0)}
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Inventory Table */}
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                {inventorySearchQuery ||
-                inventoryFilters.category.length > 0 ||
-                inventoryFilters.stockStatus.length > 0 ||
-                inventoryFilters.trackInventory !== null ||
-                inventoryFilters.isActive !== null
-                  ? `Filtered Products (${filteredProducts.length})`
-                  : 'All Products'}
-              </CardTitle>
-            </CardHeader>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">
-                    <input
-                      type="checkbox"
-                      checked={
-                        filteredProducts.length > 0 &&
-                        selectedProductIds.length === filteredProducts.length
-                      }
-                      onChange={toggleSelectAllProducts}
-                      className="cursor-pointer"
-                    />
-                  </TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Stock</TableHead>
-                  <TableHead>Cost</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredProducts.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={10}>
-                      <EmptyState
-                        icon={Package}
-                        title="No products found"
-                        hint="Try adjusting your search or filters"
-                      />
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredProducts.slice(0, 50).map((product: any) => {
-                    const stockStatus = !product.trackInventory
-                      ? { label: 'N/T', color: 'text-muted-foreground' }
-                      : product.stockQuantity === 0
-                      ? { label: 'Out', color: 'text-destructive' }
-                      : product.stockQuantity <= product.lowStockAlert
-                      ? { label: 'Low', color: 'text-warning' }
-                      : { label: 'OK', color: 'text-success' };
-
-                    return (
-                      <TableRow
-                        key={product.id}
-                        className="cursor-pointer hover:bg-accent"
-                        onClick={(e) => {
-                          if (
-                            (e.target as HTMLElement).tagName === 'INPUT' ||
-                            (e.target as HTMLElement).closest('button')
-                          ) {
-                            return;
-                          }
-                          setSelectedProduct(product);
-                          setShowProductDetails(true);
-                        }}
-                      >
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={selectedProductIds.includes(product.id)}
-                            onChange={() => toggleProductSelection(product.id)}
-                            className="cursor-pointer"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <span className="font-mono text-sm">{product.sku}</span>
-                        </TableCell>
-                        <TableCell className="font-medium max-w-xs truncate">
-                          {product.name}
-                        </TableCell>
-                        <TableCell>{product.category?.name || '-'}</TableCell>
-                        <TableCell>
-                          <span className={stockStatus.color + ' font-medium'}>
-                            {product.trackInventory ? product.stockQuantity : 'N/A'}
-                          </span>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {formatCurrency(product.cost)}
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {formatCurrency(product.price)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <span
-                              className={`text-xs px-2 py-1 rounded ${
-                                product.isActive
-                                  ? 'bg-success/10 text-success'
-                                  : 'bg-destructive/10 text-destructive'
-                              }`}
-                            >
-                              {product.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                            <span
-                              className={`text-xs px-2 py-1 rounded bg-muted ${stockStatus.color}`}
-                            >
-                              {stockStatus.label}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right font-medium font-mono">
-                          {formatCurrency(product.cost * product.stockQuantity)}
-                        </TableCell>
-                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => {
-                              setSelectedProduct(product);
-                              setShowProductDetails(true);
-                            }}
-                            className="p-1 hover:bg-accent rounded"
-                            title="View details"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </Card>
-
-          {filteredProducts.length > 50 && (
-            <p className="text-sm text-muted-foreground text-center mt-2">
-              Showing 50 of {filteredProducts.length} products. Use filters or export to view all.
-            </p>
-          )}
-
-          {/* Product Details Modal */}
-          <InventoryDetailsModal
-            isOpen={showProductDetails}
-            onClose={() => {
-              setShowProductDetails(false);
-              setSelectedProduct(null);
-            }}
-            product={selectedProduct}
-          />
-        </>
-      )}
+      {activeTab === 'sales' && saleRecord && (!saleDetail.data || saleDetail.error) && <Modal isOpen onClose={() => setSaleRecord('')} title="Sale Details" size="md">
+        {saleDetail.loading && <p role="status">Loading sale...</p>}
+        {saleDetail.error && <div role="alert"><p>{saleDetail.error}</p><Button onClick={saleDetail.refresh}>Retry sale</Button></div>}
+      </Modal>}
+      <SaleDetailsModal isOpen={activeTab === 'sales' && !!saleRecord && !!saleDetail.data && !saleDetail.error} onClose={() => setSaleRecord('')} sale={saleDetail.data} refreshing={saleDetail.loading || saleDetail.refreshing} onSuccess={loadReports} />
 
       {/* Employee Sales Tab */}
       {activeTab === 'employee' && (
-        <EmployeeSalesTab />
+        <EmployeeSalesTab key={`${scopeUser?.id}:${scopeUser?.role}:${scopeUser?.locationId}:${locationId}`} locationId={locationId} />
       )}
 
       {/* Stock Health Tab (self-loading) */}
@@ -1710,12 +939,12 @@ export const Reports: React.FC = () => {
 
       {/* Exports Tab (self-loading — journals, scan data, history) */}
       {activeTab === 'exports' && (
-        <ExportsTab />
+        <ExportsTab onActions={setExportActions} />
       )}
 
       {isLoading && !['employee', 'stock-health', 'exports'].includes(activeTab) && (
         <div className="flex justify-center p-12">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
+          <Spinner size="lg" />
         </div>
       )}
 
@@ -1724,20 +953,13 @@ export const Reports: React.FC = () => {
         <ExportPreviewModal
           isOpen={!!showExportPreview}
           onClose={() => setShowExportPreview(null)}
-          type={showExportPreview}
-          data={showExportPreview === 'sales' ? filteredSales : filteredProducts}
-          onExportCSV={async () => {
-            if (showExportPreview === 'sales') await handleSalesExport('csv');
-            else await handleInventoryExport('csv');
-            setShowExportPreview(null);
-          }}
-          onExportPDF={async () => {
-            if (showExportPreview === 'sales') await handleSalesExport('pdf');
-            else await handleInventoryExport('pdf');
-            setShowExportPreview(null);
-          }}
+          type="sales"
+          data={salesData?.entries || []}
+          totalItems={salesData?.pagination.entryCount}
+          onExportCSV={async () => { await handleSalesExport('csv'); setShowExportPreview(null); }}
+          onExportPDF={async () => { await handleSalesExport('pdf'); setShowExportPreview(null); }}
         />
       )}
-    </div>
+    </ManagementPage>
   );
 };

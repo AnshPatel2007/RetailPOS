@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
+import { DialogActions } from '@/components/ui/DialogActions';
 import {
   X,
   Plus,
@@ -16,6 +17,7 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Spinner } from '@/components/ui/LoadingState';
 
 export interface LinkedCustomer {
   id: string;
@@ -55,7 +57,7 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [customerPhone]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [customerPhone]);
 
   const handlePhoneLookup = async () => {
     if (!customerPhone) return;
@@ -117,7 +119,7 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
                   {(() => {
                     const tier = getLoyaltyTier(linkedCustomer.loyaltyPoints);
                     return (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex items-center gap-0.5 ${tier.css}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex items-center gap-0.5 ${tier.css}`}>
                         <Award className="h-2.5 w-2.5" />
                         {tier.name}
                       </span>
@@ -140,9 +142,9 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
                   </div>
                 </div>
               </div>
-              <button
+              <button aria-label="Remove linked customer"
                 onClick={handleClear}
-                className="p-1 hover:bg-destructive/10 rounded"
+                className="dialog-close inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <X className="h-4 w-4 text-destructive" />
               </button>
@@ -161,14 +163,13 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
               />
               {isSearching && (
                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                  <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></div>
+                  <Spinner size="sm" />
                 </div>
               )}
             </div>
             {customerPhone.length >= 3 && !linkedCustomer && !isSearching && (
               <Button
                 variant="outline"
-                size="sm"
                 className="w-full"
                 onClick={() => setShowCreateModal(true)}
               >
@@ -186,6 +187,9 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
         onClose={() => setShowCreateModal(false)}
         title="Create New Customer"
         size="md"
+        footer={<DialogActions confirmLabel="Create Customer" onConfirm={handleCreate}
+          disabled={!newCustomerData.firstName || !newCustomerData.lastName}
+          onCancel={() => { setShowCreateModal(false); setNewCustomerData({ firstName: '', lastName: '', email: '' }); }} />}
       >
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
@@ -215,26 +219,6 @@ export const CustomerLinkSection: React.FC<CustomerLinkSectionProps> = ({
             value={newCustomerData.email}
             onChange={(e) => setNewCustomerData({ ...newCustomerData, email: e.target.value })}
           />
-          <div className="flex gap-3 pt-4">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowCreateModal(false);
-                setNewCustomerData({ firstName: '', lastName: '', email: '' });
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              className="flex-1"
-              onClick={handleCreate}
-              disabled={!newCustomerData.firstName || !newCustomerData.lastName}
-            >
-              Create Customer
-            </Button>
-          </div>
         </div>
       </Modal>
     </>

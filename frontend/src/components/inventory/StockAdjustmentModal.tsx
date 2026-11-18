@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import { Select } from '@/components/ui/Select';
+import React, { useEffect, useRef, useState } from 'react';
 import { productService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 import { Product } from '@/types';
+import { formatCurrency } from '@/lib/utils';
+import { useInventoryImport } from '@/hooks/useInventoryImport';
 import toast from 'react-hot-toast';
 
 interface StockAdjustmentModalProps {
@@ -14,8 +17,13 @@ interface StockAdjustmentModalProps {
   product: Product | null;
 }
 
-const ADJUSTMENT_REASONS = [
+export const ADJUSTMENT_REASONS = [
   { value: 'MANUAL_COUNT', label: 'Manual Count / Cycle Count' },
+  { value: 'WRONG_SKU_SOLD', label: 'Similar product sold under this item' },
+  { value: 'MISSING_RECEIPT', label: 'Delivery not received in system' },
+  { value: 'TRANSFER_NOT_RECORDED', label: 'Transfer from another store not recorded' },
+  { value: 'SOLD_WITHOUT_SCANNING', label: 'Sold without scanning (misc key)' },
+  { value: 'MISCOUNT', label: 'Earlier count was wrong' },
   { value: 'DAMAGED', label: 'Damaged Goods' },
   { value: 'LOST', label: 'Lost / Missing' },
   { value: 'THEFT', label: 'Theft' },
@@ -39,6 +47,33 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // One key per intended adjustment: a retried submit cannot apply it twice.
+  const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
+  // Received shipment: in singles or in one of the item's packs, with an optional cost.
+  const [receivedAs, setReceivedAs] = useState('');
+  const [cost, setCost] = useState('');
+  const [boughtFrom, setBoughtFrom] = useState('');
+  const autoCommit = useRef(false);
+  const receipt = useInventoryImport('RECEIPT', () => {
+    toast.success('Delivery received');
+    resetForm();
+    onSuccess();
+    onClose();
+  }, isOpen);
+  const packs = (product?.sellingUnits || []).filter(unit => unit.isActive);
+  const pack = packs.find(unit => unit.id === receivedAs) || null;
+  const unitsEach = pack?.unitsPerPackage || 1;
+  const unitName = product?.baseUnitName && product.baseUnitName !== 'unit' ? product.baseUnitName : 'single';
+  const isDelivery = adjustmentType === 'add' && reason === 'RECEIVED';
+
+  // A delivery with a cost goes through the same reviewed receipt as a scanned invoice:
+  // stock, average cost and the item's cost price update exactly like a purchase order.
+  useEffect(() => {
+    if (!autoCommit.current || !receipt.preview) return;
+    autoCommit.current = false;
+    if (receipt.preview.errors.length) { setError(receipt.preview.errors.join(' ')); receipt.resetPreview(); return; }
+    void receipt.commit();
+  }, [receipt.preview]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,6 +92,26 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
       return;
     }
 
+    if (reason === 'OTHER' && !notes.trim()) {
+      setError('Describe the reason when choosing Other');
+      return;
+    }
+
+    if (isDelivery && cost.trim()) {
+      const each = Number(cost);
+      if (!Number.isFinite(each) || each < 0) { setError('Enter the cost as a number, or leave it empty'); return; }
+      if (qty < 1) { setError('Enter how many arrived'); return; }
+      autoCommit.current = true;
+      await receipt.review({
+        supplier: boughtFrom.trim() || undefined,
+        notes: notes.trim() || 'Received at the stock screen',
+        items: [{ matchedProductId: product.id, name: product.name, packSize: unitsEach, unitQuantity: qty * unitsEach,
+          unitCost: Math.round(each / unitsEach * 10000) / 10000, zeroCostConfirmed: each === 0,
+          ...(pack ? { sellingUnitId: pack.id, receivedPackageQuantity: qty } : {}) }],
+      });
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -65,7 +120,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
       let delta: number;
       switch (adjustmentType) {
         case 'add':
-          delta = qty;
+          delta = qty * (isDelivery ? unitsEach : 1);
           break;
         case 'remove':
           delta = -qty;
@@ -79,14 +134,21 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
         quantity: delta,
         type: reason,
         notes: notes || undefined,
+        // "Set to" is worked out from the count shown here; if a sale changed it
+        // meanwhile, the server refuses rather than recording the wrong total.
+        ...(adjustmentType === 'set' ? { expectedVersion: product.stockVersion } : {}),
+        idempotencyKey: requestKey,
       });
+      setRequestKey(crypto.randomUUID());
 
       toast.success('Stock adjusted successfully');
       resetForm();
       onSuccess();
       onClose();
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error || 'Failed to adjust stock';
+      const errorMessage = err.response?.status === 409 && adjustmentType === 'set'
+        ? 'Stock changed since you opened this (a sale or another adjustment). Close and reopen it to see the current count, then set it again.'
+        : err.response?.data?.error || 'Failed to adjust stock';
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -100,6 +162,9 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
     setReason('MANUAL_COUNT');
     setNotes('');
     setError('');
+    setReceivedAs('');
+    setCost('');
+    setBoughtFrom('');
   };
 
   const getNewQuantity = () => {
@@ -109,7 +174,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
 
     switch (adjustmentType) {
       case 'add':
-        return product.stockQuantity + qty;
+        return product.stockQuantity + qty * (isDelivery ? unitsEach : 1);
       case 'remove':
         return Math.max(0, product.stockQuantity - qty);
       case 'set':
@@ -122,19 +187,11 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
   const newQuantity = getNewQuantity();
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Adjust Stock</CardTitle>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal isOpen={isOpen} onClose={() => { if (!isSubmitting) onClose(); }} title="Adjust Stock" size="sm"
+      footer={product && <DialogActions form="stock-adjustment-form" onCancel={onClose} confirmLabel={isDelivery ? 'Receive' : 'Adjust Stock'}
+        loading={isSubmitting || receipt.busy} disabled={isDelivery && !!receipt.pending} />}>
+      <div className="space-y-6">
+          <form id="stock-adjustment-form" onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
                 {error}
@@ -152,7 +209,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
 
             {/* Adjustment Type */}
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label className="field-label block text-sm font-medium mb-2">
                 Adjustment Type <span className="text-destructive">*</span>
               </label>
               <div className="grid grid-cols-3 gap-2">
@@ -194,7 +251,7 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
 
             {/* Quantity */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="field-label block text-sm font-medium mb-1">
                 Quantity <span className="text-destructive">*</span>
               </label>
               <Input
@@ -220,10 +277,11 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
 
             {/* Reason */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="field-label block text-sm font-medium mb-1">
                 Reason <span className="text-destructive">*</span>
               </label>
-              <select
+              <Select
+                aria-label="Reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
@@ -234,12 +292,37 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                     {r.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
+
+            {isDelivery && (
+              <div className="space-y-3 rounded-md border border-border p-3">
+                {packs.length > 0 && (
+                  <Select label="Arrived as" value={receivedAs} onChange={e => setReceivedAs(e.target.value)}>
+                    <option value="">Singles ({unitName})</option>
+                    {packs.map(unit => <option key={unit.id} value={unit.id}>{unit.name} ({unit.unitsPerPackage} each)</option>)}
+                  </Select>
+                )}
+                <Input type="number" min="0" step="0.01" label={`Cost per ${pack ? pack.name : unitName}`} description="Optional. What you paid, so the cost price stays right."
+                  value={cost} onChange={e => setCost(e.target.value)} />
+                {cost.trim() !== '' && Number(cost) >= 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {pack ? `${formatCurrency(Number(cost))} ÷ ${unitsEach} = ${formatCurrency(Number(cost) / unitsEach)} per ${unitName}, which becomes the cost price.` : 'This becomes the cost price.'}
+                    {pack && quantity ? ` ${quantity} ${pack.name} stay on the shelf as unopened packs.` : ''}
+                  </p>
+                )}
+                {cost.trim() !== '' && <Input label="Bought from" description="Optional supplier name" value={boughtFrom} onChange={e => setBoughtFrom(e.target.value)} maxLength={250} />}
+                {receipt.pending && (
+                  <p role="status" className="text-sm">An earlier delivery is waiting for confirmation.{' '}
+                    <Button type="button" variant="outline" onClick={() => void receipt.commit()} disabled={receipt.busy}>Retry it</Button></p>
+                )}
+                {receipt.error && <p role="alert" className="text-sm text-destructive">{receipt.error}</p>}
+              </div>
+            )}
 
             {/* Notes */}
             <div>
-              <label className="block text-sm font-medium mb-1">Notes</label>
+              <label className="field-label block text-sm font-medium mb-1">Notes</label>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -248,18 +331,8 @@ export const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
               />
             </div>
 
-            {/* Actions */}
-            <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Adjusting...' : 'Adjust Stock'}
-              </Button>
-            </div>
           </form>
-        </CardContent>
-      </Card>
-    </div>
+              </div>
+    </Modal>
   );
 };

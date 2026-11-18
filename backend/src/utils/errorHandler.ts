@@ -4,11 +4,14 @@ import { logger } from './logger';
 export class AppError extends Error {
   statusCode: number;
   isOperational: boolean;
+  /** Optional machine-readable context returned with the message (e.g. what a duplicate barcode belongs to). */
+  details?: Record<string, unknown>;
 
-  constructor(message: string, statusCode: number = 500) {
+  constructor(message: string, statusCode: number = 500, details?: Record<string, unknown>) {
     super(message);
     this.statusCode = statusCode;
     this.isOperational = true;
+    this.details = details;
 
     Error.captureStackTrace(this, this.constructor);
   }
@@ -26,14 +29,21 @@ export const errorHandler = (
     return res.status(err.statusCode).json({
       success: false,
       error: err.message,
+      ...(err.details ? { details: err.details } : {}),
     });
   }
 
   // Prisma errors
+  if (err.name === 'MulterError') {
+    return res.status(400).json({ success: false, error: 'Upload failed. Choose one receipt file up to 5 MB.' });
+  }
   if (err.name === 'PrismaClientKnownRequestError') {
     return res.status(400).json({
       success: false,
       error: 'Database operation failed',
+      // A client must not replace an uncertain financial request with a new key.
+      // Preserve the existing status contract until database errors are classified.
+      retrySameRequest: true,
     });
   }
 

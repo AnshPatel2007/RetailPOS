@@ -1,10 +1,13 @@
+import { formatDate } from '@/lib/utils';
 import React, { useState } from 'react';
+import { OfflineReview } from './OfflineReview';
 import { WifiOff, RefreshCw, Cloud, CloudOff, AlertCircle } from 'lucide-react';
 import { useSyncService } from '../../hooks/useSyncService';
 
 interface OfflineIndicatorProps {
   variant?: 'badge' | 'banner' | 'floating';
   showDetails?: boolean;
+  compact?: boolean;
   /**
    * Which edge of the badge the hover tooltip aligns to. Use 'left' when the
    * badge sits near the left screen edge (e.g. sidebar) so the tooltip opens
@@ -16,6 +19,7 @@ interface OfflineIndicatorProps {
 export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
   variant = 'badge',
   showDetails = false,
+  compact = false,
   tooltipAlign = 'right',
 }) => {
   const {
@@ -29,6 +33,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
   } = useSyncService();
 
   const [showTooltip, setShowTooltip] = useState(false);
+  const [showReview, setShowReview] = useState(false);
 
   const formatLastSync = (timestamp?: number) => {
     if (!timestamp) return 'Never';
@@ -38,7 +43,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
     if (minutes < 60) return `${minutes}m ago`;
     const hours = Math.floor(minutes / 60);
     if (hours < 24) return `${hours}h ago`;
-    return new Date(timestamp).toLocaleDateString();
+    return formatDate(timestamp);
   };
 
   const handleSync = async () => {
@@ -53,21 +58,26 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
 
   // Badge variant - compact status indicator
   if (variant === 'badge') {
-    return (
+    return (<>
+      {showReview && <OfflineReview onClose={() => setShowReview(false)} />}
       <div
         className="relative inline-flex items-center"
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
       >
-        <div
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer
+        <button
+          type="button"
+          aria-label="Register recovery and connection status"
+          className={`${compact ? 'h-6' : 'min-h-11'} flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer
             ${isOffline
-              ? 'bg-destructive/10 text-destructive'
-              : pendingSalesCount > 0
+              // Offline is the one state that must be seen: solid red.
+              ? 'bg-destructive text-destructive-foreground'
+              : pendingSalesCount > 0 || lastError
                 ? 'bg-warning/10 text-warning'
-                : 'bg-success/10 text-success'
+                // Online is the normal state: the plain word, no colored badge.
+                : 'text-muted-foreground hover:text-foreground'
             }`}
-          onClick={handleSync}
+          onClick={() => { setShowTooltip(false); setShowReview(true); }}
         >
           {isOffline ? (
             <>
@@ -85,12 +95,12 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
               <span>{pendingSalesCount} pending</span>
             </>
           ) : (
-            <>
-              <Cloud className="w-3 h-3" />
-              <span>Synced</span>
-            </>
+            lastError ? <>
+              <AlertCircle className="w-3 h-3" />
+              <span>Review needed</span>
+            </> : <span>Online</span>
           )}
-        </div>
+        </button>
 
         {/* Tooltip */}
         {showTooltip && showDetails && (
@@ -131,7 +141,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
           </div>
         )}
       </div>
-    );
+    </>);
   }
 
   // Banner variant - full-width notification
@@ -151,7 +161,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
             <>
               <WifiOff className="w-4 h-4" />
               <span className="text-sm font-medium">
-                You're offline. Sales will be saved locally and synced when you're back online.
+                Offline: cash only. Sales are saved on this register and sent when the connection returns.
               </span>
             </>
           ) : (
@@ -222,7 +232,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
           ) : (
             <>
               <Cloud className="w-5 h-5" />
-              <span className="text-sm font-medium">Synced</span>
+              <span className="text-sm font-medium">{lastError ? 'Review needed' : 'Online'}</span>
             </>
           )}
         </div>

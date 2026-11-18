@@ -13,13 +13,14 @@ router.use(authenticate);
 /**
  * Export routes - must be before :id routes
  */
-router.get('/export/csv', authorize('ADMIN', 'MANAGER'), expenseController.exportExpensesCSV);
-router.get('/export/pdf', authorize('ADMIN', 'MANAGER'), expenseController.exportExpensesPDF);
+router.get('/export/csv', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), expenseController.exportExpensesCSV);
+router.get('/export/pdf', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), expenseController.exportExpensesPDF);
 
 /**
  * File upload route
  */
 router.post('/upload-receipt', authorize('ADMIN', 'MANAGER'), uploadReceipt, expenseController.uploadReceipt);
+router.get('/receipts/:filename', authorize('ADMIN', 'MANAGER', 'SUPER_ADMIN'), expenseController.downloadReceipt);
 
 /**
  * Bulk action routes
@@ -30,9 +31,9 @@ router.post('/bulk-reject', authorize('ADMIN', 'MANAGER'), expenseController.bul
 /**
  * Expense routes - ADMIN and MANAGER only
  */
-router.get('/', authorize('ADMIN', 'MANAGER'), expenseController.getAllExpenses);
+router.get('/', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), expenseController.getAllExpenses);
 router.post('/', authorize('ADMIN', 'MANAGER'), expenseController.createExpense);
-router.get('/:id', authorize('ADMIN', 'MANAGER'), expenseController.getExpenseById);
+router.get('/:id', authorize('SUPER_ADMIN', 'ADMIN', 'MANAGER'), expenseController.getExpenseById);
 router.put('/:id', authorize('ADMIN', 'MANAGER'), expenseController.updateExpense);
 router.delete('/:id', authorize('ADMIN'), expenseController.deleteExpense);
 

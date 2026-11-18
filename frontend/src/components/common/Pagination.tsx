@@ -25,27 +25,25 @@ export const Pagination: React.FC<PaginationProps> = ({
   if (totalPages <= 1) return null;
 
   return (
-    <div className="flex justify-center items-center gap-2 mt-4">
+    <nav aria-label="Pagination" className="flex flex-wrap justify-center items-center gap-2 mt-4">
       <Button
         variant="outline"
-        size="sm"
         onClick={() => onPageChange(Math.max(1, page - 1))}
         disabled={page === 1}
       >
         Previous
       </Button>
-      <span className="px-3 py-1 text-sm text-muted-foreground">
+      <span className="px-3 py-1 text-center text-sm tabular-nums text-muted-foreground">
         Page {page} of {totalPages}
         {totalItems !== undefined && ` (${totalItems} ${itemName})`}
       </span>
       <Button
         variant="outline"
-        size="sm"
         onClick={() => onPageChange(Math.min(totalPages, page + 1))}
         disabled={page === totalPages}
       >
         Next
       </Button>
-    </div>
+    </nav>
   );
 };

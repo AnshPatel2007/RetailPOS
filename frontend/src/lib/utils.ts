@@ -8,6 +8,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Display enum labels without exposing storage-style identifiers. */
+export function formatEnumLabel(value: string): string {
+  if (['EBT', 'SKU', 'CSV', 'PDF', 'POS', 'ATM', 'API'].includes(value)) return value;
+  return value.toLowerCase().split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
 /**
  * Format currency
  */
@@ -18,37 +24,41 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
-/**
- * Format date
- */
-export function formatDate(date: string | Date): string {
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(date));
+/** Preserve small dollar values while keeping large chart ticks compact. */
+export function formatChartCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency', currency: 'USD', notation: Math.abs(amount) >= 1000 ? 'compact' : 'standard',
+    maximumFractionDigits: Math.abs(amount) < 1 && amount !== 0 ? 2 : 1,
+  }).format(amount);
 }
 
-/**
- * Format date and time
- */
-export function formatDateTime(date: string | Date): string {
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(date));
+const validDate = (value: string | number | Date) => {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+/** "Nov 4, 2026" — the one date format shown everywhere. A missing date reads "—". */
+export function formatDate(date: string | number | Date, timeZone?: string): string {
+  const value = validDate(date);
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', day: 'numeric', ...(timeZone ? { timeZone } : {}) }).format(value);
+}
+
+/** "Nov 4, 2026, 2:11 PM" — the one date-and-time format shown everywhere. */
+export function formatDateTime(date: string | number | Date, timeZone?: string): string {
+  const value = validDate(date);
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', ...(timeZone ? { timeZone } : {}) }).format(value);
 }
 
 /**
  * Format time
  */
-export function formatTime(date: string | Date): string {
+export function formatTime(date: string | number | Date, timeZone?: string): string {
   return new Intl.DateTimeFormat('en-US', {
-    hour: '2-digit',
+    hour: 'numeric',
     minute: '2-digit',
+    ...(timeZone ? { timeZone } : {}),
   }).format(new Date(date));
 }
 
@@ -117,11 +127,12 @@ export const CHART_COLORS = [
 
 /**
  * Escape a value for a CSV cell: wrap in quotes, double inner quotes.
- * Prefixing =+-@ with a quote is handled by quoting, which also neutralizes
- * formula injection in spreadsheet apps.
+ * Text that could be interpreted as a spreadsheet formula gets an apostrophe.
+ * CSV quoting alone does not prevent formulas. Numeric negatives stay numeric.
  */
 export function escapeCsvValue(value: unknown): string {
-  const str = value === null || value === undefined ? '' : String(value);
+  let str = value === null || value === undefined ? '' : String(value);
+  if (typeof value === 'string' && (/^\s*[=+@-]/.test(str) || /^[\t\r\n]/.test(str))) str = "'" + str;
   return `"${str.replace(/"/g, '""')}"`;
 }
 

@@ -1,8 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { Badge } from '@/components/ui/Badge';
+import { ManagementPage } from '@/components/common/Workspace';
+import { useScopedQuery } from '@/hooks/useScopedQuery';
+import { AutoRefreshStatus } from '@/components/common/AutoRefreshStatus';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { developerService } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { RowActions } from '@/components/common/RowActions';
+import { DialogActions } from '@/components/ui/DialogActions';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Card, CardContent } from '@/components/ui/Card';
 import {
@@ -15,8 +22,9 @@ import {
 } from '@/components/ui/Table';
 import { PageHeader } from '@/components/common/PageHeader';
 import { formatDateTime } from '@/lib/utils';
-import { Code2, Plus, Trash2, Copy, KeyRound, Webhook, Zap, CheckCircle2, XCircle } from 'lucide-react';
+import { Code2, Plus, Trash2, Copy, KeyRound, Webhook, CheckCircle2, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Spinner } from '@/components/ui/LoadingState';
 
 const EVENT_LABELS: Record<string, string> = {
   'sale.completed': 'Sale completed',
@@ -36,10 +44,6 @@ const copyToClipboard = (text: string, what: string) => {
  * webhook endpoints for sale/stock events. Secrets show exactly once.
  */
 export const Developers: React.FC = () => {
-  const [apiKeys, setApiKeys] = useState<any[]>([]);
-  const [webhooks, setWebhooks] = useState<any[]>([]);
-  const [availableEvents, setAvailableEvents] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
 
   // Create-key flow
   const [showKeyModal, setShowKeyModal] = useState(false);
@@ -55,26 +59,12 @@ export const Developers: React.FC = () => {
   const [deleteHookTarget, setDeleteHookTarget] = useState<any | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [keysRes, hooksRes] = await Promise.all([
-        developerService.listApiKeys(),
-        developerService.listWebhooks(),
-      ]);
-      setApiKeys(keysRes.data.data);
-      setWebhooks(hooksRes.data.data);
-      setAvailableEvents(hooksRes.data.availableEvents || []);
-    } catch {
-      toast.error('Failed to load developer settings');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const query = useScopedQuery<{ apiKeys: any[]; webhooks: any[]; availableEvents: string[] }>(['integrations'], async signal => {
+    const [keys, hooks] = await Promise.all([developerService.listApiKeys(signal), developerService.listWebhooks(signal)]);
+    return { apiKeys: keys.data.data, webhooks: hooks.data.data, availableEvents: hooks.data.availableEvents || [] };
+  });
+  const apiKeys = query.data?.apiKeys || [], webhooks = query.data?.webhooks || [], availableEvents = query.data?.availableEvents || [], loading = query.loading, load = query.refresh;
+  const loadError = query.stale ? '' : query.error;
 
   const handleCreateKey = async () => {
     if (!keyName.trim()) return;
@@ -110,27 +100,33 @@ export const Developers: React.FC = () => {
   const handleTest = async (id: string) => {
     try {
       const res = await developerService.testWebhook(id);
-      if (res.data.data.delivered) toast.success(res.data.message);
-      else toast.error(res.data.message);
+      toast.success(res.data.message);
       load();
     } catch {
       toast.error('Test failed');
     }
   };
 
+
   return (
-    <div className="p-8">
+    <ManagementPage className="">
       <PageHeader
-        title="Developers"
+        title="Integrations"
         subtitle="API keys for the read-only /api/v1 endpoints, and webhooks for live events — see API.md in the project root"
         icon={Code2}
+        actions={<>
+          <Link className="page-action" to="/settings/jobs">Email &amp; Export Jobs</Link>
+          <Button variant="outline" onClick={() => { setNewKey(null); setShowKeyModal(true); }}><Plus className="h-4 w-4 mr-2" />New API Key</Button>
+          <Button variant="primary" onClick={() => { setNewSecret(null); setShowHookModal(true); }}><Plus className="h-4 w-4 mr-2" />Add Webhook</Button>
+        </>}
       />
+      <AutoRefreshStatus state={query} />
 
       {loading ? (
         <div className="flex justify-center py-12">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
-      ) : (
+      ) : loadError ? (<div role="alert" className="p-4 space-y-3"><p>Integrations could not be loaded.</p><Button variant="outline" onClick={load}>Retry</Button></div>) : (
         <div className="space-y-8">
           {/* ─── API keys ─── */}
           <Card>
@@ -145,9 +141,6 @@ export const Developers: React.FC = () => {
                     <code className="bg-muted px-1 rounded ml-1">/api/v1/…</code> (products, sales, customers, summary — read-only)
                   </p>
                 </div>
-                <Button variant="primary" size="sm" onClick={() => { setNewKey(null); setShowKeyModal(true); }}>
-                  <Plus className="h-4 w-4 mr-1" /> New Key
-                </Button>
               </div>
 
               {apiKeys.length === 0 ? (
@@ -179,16 +172,7 @@ export const Developers: React.FC = () => {
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
-                          {k.isActive && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-destructive"
-                              onClick={() => setRevokeTarget(k)}
-                            >
-                              <Trash2 className="h-3 w-3 mr-1" /> Revoke
-                            </Button>
-                          )}
+                          <RowActions name={`API key ${k.name}`} items={[k.isActive && { id: 'revoke', label: 'Revoke key', icon: <Trash2 size={16} />, destructive: true, onAction: () => setRevokeTarget(k) }]} />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -211,9 +195,6 @@ export const Developers: React.FC = () => {
                     <code className="bg-muted px-1 rounded ml-1">X-Webhook-Signature</code> header
                   </p>
                 </div>
-                <Button variant="primary" size="sm" onClick={() => { setNewSecret(null); setShowHookModal(true); }}>
-                  <Plus className="h-4 w-4 mr-1" /> Add Endpoint
-                </Button>
               </div>
 
               {webhooks.length === 0 ? (
@@ -238,7 +219,7 @@ export const Developers: React.FC = () => {
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
                             {w.events.map((e: string) => (
-                              <span key={e} className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                              <span key={e} className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
                                 {EVENT_LABELS[e] || e}
                               </span>
                             ))}
@@ -258,36 +239,22 @@ export const Developers: React.FC = () => {
                           ) : 'Never'}
                         </TableCell>
                         <TableCell>
-                          <button
-                            onClick={async () => {
-                              try {
-                                await developerService.updateWebhook(w.id, { isActive: !w.isActive });
-                                load();
-                              } catch { toast.error('Failed to update'); }
-                            }}
-                            className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                              w.isActive ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
-                            }`}
-                            title={w.failCount >= 20 ? 'Auto-disabled after repeated failures — click to re-enable' : 'Toggle'}
-                          >
-                            {w.isActive ? 'Active' : 'Disabled'}
-                          </button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={w.isActive ? 'success' : 'secondary'}>{w.isActive ? 'Active' : 'Turned off'}</Badge>
+                            {/* A real button, so turning a webhook on or off is never mistaken for a status label. */}
+                            <Button variant="outline" aria-label={`${w.isActive ? 'Turn off' : 'Turn on'} webhook ${w.url}`}
+                              title={!w.isActive && w.failCount >= 20 ? 'Turned off after repeated failures' : undefined}
+                              onClick={async () => {
+                                try {
+                                  await developerService.updateWebhook(w.id, { isActive: !w.isActive });
+                                  load();
+                                } catch { toast.error('Failed to update'); }
+                              }}>{w.isActive ? 'Turn off' : 'Turn on'}</Button>
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex gap-1 justify-end">
-                            <Button variant="outline" size="sm" onClick={() => handleTest(w.id)} title="Send test ping">
-                              <Zap className="h-3 w-3 mr-1" /> Test
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-destructive"
-                              onClick={() => setDeleteHookTarget(w)}
-                              title="Delete"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
+                          <RowActions name={`webhook ${w.url}`} primary={{ label: 'Test', onAction: () => void handleTest(w.id) }}
+                            items={[{ id: 'delete', label: 'Delete webhook', icon: <Trash2 size={16} />, destructive: true, onAction: () => setDeleteHookTarget(w) }]} />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -305,6 +272,9 @@ export const Developers: React.FC = () => {
         onClose={() => { setShowKeyModal(false); setNewKey(null); }}
         title={newKey ? 'API Key Created' : 'New API Key'}
         size="md"
+        footer={newKey
+          ? <DialogActions confirmLabel="I've copied it" onConfirm={() => { setShowKeyModal(false); setNewKey(null); }} />
+          : <DialogActions onCancel={() => setShowKeyModal(false)} confirmLabel="Create Key" onConfirm={() => void handleCreateKey()} loading={submitting} disabled={!keyName.trim()} />}
       >
         {newKey ? (
           <div className="space-y-4">
@@ -313,13 +283,10 @@ export const Developers: React.FC = () => {
             </p>
             <div className="flex gap-2 items-center p-3 bg-muted rounded-lg">
               <code className="text-xs font-mono flex-1 break-all">{newKey}</code>
-              <Button variant="outline" size="sm" onClick={() => copyToClipboard(newKey, 'API key')}>
+              <Button aria-label="Copy API key" variant="outline" onClick={() => copyToClipboard(newKey, 'API key')}>
                 <Copy className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <Button variant="primary" className="w-full" onClick={() => { setShowKeyModal(false); setNewKey(null); }}>
-              I've copied it
-            </Button>
           </div>
         ) : (
           <div className="space-y-4">
@@ -330,12 +297,6 @@ export const Developers: React.FC = () => {
               onChange={(e) => setKeyName(e.target.value)}
               autoFocus
             />
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setShowKeyModal(false)}>Cancel</Button>
-              <Button variant="primary" onClick={handleCreateKey} disabled={!keyName.trim() || submitting}>
-                {submitting ? 'Creating...' : 'Create Key'}
-              </Button>
-            </div>
           </div>
         )}
       </Modal>
@@ -346,6 +307,9 @@ export const Developers: React.FC = () => {
         onClose={() => { setShowHookModal(false); setNewSecret(null); }}
         title={newSecret ? 'Webhook Added' : 'Add Webhook Endpoint'}
         size="md"
+        footer={newSecret
+          ? <DialogActions confirmLabel="I've copied it" onConfirm={() => { setShowHookModal(false); setNewSecret(null); }} />
+          : <DialogActions onCancel={() => setShowHookModal(false)} confirmLabel="Add Endpoint" onConfirm={() => void handleCreateWebhook()} loading={submitting} disabled={!hookUrl.trim() || hookEvents.length === 0} />}
       >
         {newSecret ? (
           <div className="space-y-4">
@@ -355,13 +319,10 @@ export const Developers: React.FC = () => {
             </p>
             <div className="flex gap-2 items-center p-3 bg-muted rounded-lg">
               <code className="text-xs font-mono flex-1 break-all">{newSecret}</code>
-              <Button variant="outline" size="sm" onClick={() => copyToClipboard(newSecret, 'Signing secret')}>
+              <Button aria-label="Copy webhook secret" variant="outline" onClick={() => copyToClipboard(newSecret, 'Signing secret')}>
                 <Copy className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <Button variant="primary" className="w-full" onClick={() => { setShowHookModal(false); setNewSecret(null); }}>
-              I've copied it
-            </Button>
           </div>
         ) : (
           <div className="space-y-4">
@@ -373,7 +334,7 @@ export const Developers: React.FC = () => {
               autoFocus
             />
             <div>
-              <label className="block text-sm font-medium mb-1.5">Events</label>
+              <label className="field-label block text-sm font-medium mb-1.5">Events</label>
               <div className="space-y-2">
                 {availableEvents.map((e) => (
                   <label key={e} className="flex items-center gap-2">
@@ -388,20 +349,10 @@ export const Developers: React.FC = () => {
                       className="rounded border-input"
                     />
                     <span className="text-sm">{EVENT_LABELS[e] || e}</span>
-                    <code className="text-[10px] text-muted-foreground">{e}</code>
+                    <code className="text-xs text-muted-foreground">{e}</code>
                   </label>
                 ))}
               </div>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setShowHookModal(false)}>Cancel</Button>
-              <Button
-                variant="primary"
-                onClick={handleCreateWebhook}
-                disabled={!hookUrl.trim() || hookEvents.length === 0 || submitting}
-              >
-                {submitting ? 'Adding...' : 'Add Endpoint'}
-              </Button>
             </div>
           </div>
         )}
@@ -419,7 +370,7 @@ export const Developers: React.FC = () => {
           setRevokeTarget(null);
         }}
         title="Revoke API key?"
-        message={revokeTarget ? `"${revokeTarget.name}" will stop working immediately. Anything using it will get 401s.` : ''}
+        message={revokeTarget ? `"${revokeTarget.name}" will stop working immediately. Anything using it will be refused access.` : ''}
         destructive
         confirmLabel="Revoke"
       />
@@ -440,6 +391,6 @@ export const Developers: React.FC = () => {
         destructive
         confirmLabel="Delete"
       />
-    </div>
+    </ManagementPage>
   );
 };

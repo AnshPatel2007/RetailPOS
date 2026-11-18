@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Node.js** v18+ (tested on v24) - [Download](https://nodejs.org/)
-- **PostgreSQL** v14+ - [Download](https://www.postgresql.org/download/)
+- **PostgreSQL** v14+ (tested on 18) - [Download](https://www.postgresql.org/download/)
 - **npm** (comes with Node.js)
 
 ## 1. Database Setup
@@ -33,6 +33,8 @@ This installs root, backend, and frontend dependencies via npm workspaces.
 
 ### Backend (`backend/.env`)
 
+Copy `backend/.env.example`; it lists every setting with comments. The minimum:
+
 ```env
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/pos_system"
 JWT_SECRET="your-super-secret-jwt-key-min-32-characters-long-change-in-production"
@@ -45,32 +47,36 @@ FRONTEND_URL="http://localhost:5173"
 ### Frontend (`frontend/.env`)
 
 ```env
-VITE_API_URL=http://localhost:5000/api
+VITE_API_URL=/api
 ```
+
+In development Vite forwards `/api` to `http://localhost:5000`. For a deployed frontend,
+set the full API URL (for example `https://your-api.onrender.com/api`).
 
 ## 4. Database Schema & Seeding
 
-> **This project syncs the schema with `prisma db push` — do NOT run `prisma migrate`.**
-> The `migrations/` folder is stale and missing the current schema; a migrated database
-> lacks columns the code expects, and the app fails with "Database operation failed"
-> (including at login).
+Use the reviewed migrations in `backend/prisma/reconciled/migrations`.
+For an existing database, follow [the backup and baselining procedure](./DATABASE_MIGRATIONS.md)
+before applying changes. Do not run reset or schema push against store data.
+
+For a new, empty development database, run from the repository root:
 
 ```bash
-# Generate Prisma client
-cd backend
-npm run db:generate
+npm run db:migrate:deploy --workspace=backend
+npm run db:generate --workspace=backend
+npm run db:check --workspace=backend
 
-# Sync the database to the current schema
-npm run db:push
-
-# Seed sample data
-npm run db:seed
-cd ..
+# Optional demo data: only on a disposable development installation
+npm run db:seed --workspace=backend
 ```
 
-Re-run `npm run db:push` **every time you pull changes** that touch `backend/prisma/schema.prisma`.
+For an already reconciled installation, back up the database and uploads, verify
+the upgrade on a restored clone, then deploy the reviewed migrations and check
+schema drift. Generate the client after schema changes and restart the API.
 
 The seed creates: a Main Store location, demo users (super admin/admin/manager/cashier), sample products, customers, suppliers, categories, and tax rates.
+Because those accounts have the published passwords below, the seed refuses to run on a database that already
+holds a store or a user (unless its name ends in `_test`, `_e2e` or `_benchmark`).
 
 ## 5. Run the Application
 
@@ -99,17 +105,21 @@ cd frontend && npm run dev
 
 | Role | Email | Password | Access |
 |------|-------|----------|--------|
-| Super Admin | superadmin@pos.com | superadmin123 | All stores, admin panel, all permissions |
+| Super Admin | superadmin@pos.com | superadmin123 | Platform administration and authorized read-only store preview |
 | Admin | admin@pos.com | admin123 | Assigned store, all store-level features |
 | Manager | manager@pos.com | manager123 | Assigned store only |
 | Cashier | cashier@pos.com | cashier123 | POS operations, assigned store only |
 
 ## First Time Usage
 
-1. Login with admin credentials
-2. Clock in via the Shifts page
-3. Navigate to POS and start making sales
-4. Add products via the Inventory page as needed
+1. Sign in as the owner (`admin@pos.com` on a seeded development database).
+2. Add products in **Products** (scan a barcode to look it up), or import a CSV.
+3. Clock in (**Team & Time > Shifts**, or **My Shift** for cashiers); sales need an open shift.
+4. Open **POS** and sell.
+5. Optional, for a shared counter: on the register computer, a manager opens
+   **Settings > Devices > Set up this computer**, and each person sets a PIN in
+   **Settings > Profile & Security**. Staff then sign in by name and PIN and can lock
+   the register between customers.
 
 ## Database Management
 
@@ -118,8 +128,9 @@ cd frontend && npm run dev
 cd backend && npm run db:studio
 # Opens Prisma Studio at http://localhost:5555
 
-# Reset database completely (drops all data, re-syncs schema, re-seeds)
-cd backend && npx prisma db push --force-reset && npm run db:seed
+# Inspect reviewed migration state and schema drift
+npm run db:status
+npm run db:check
 ```
 
 ## Building for Production
@@ -134,40 +145,89 @@ Outputs: `backend/dist/` and `frontend/dist/`
 - Strong JWT secret (32+ characters)
 - Production database URL
 - `NODE_ENV=production`
+- `TRUST_PROXY` matches the hosting proxy (default `1` in production). It makes sign-in and request limits apply per caller; without it every store shares one limit behind the host's proxy
 - HTTPS enabled
 - CORS configured for production domain
 - Database backups configured
 
 ## Troubleshooting
 
-**"Database operation failed" (including at login):** the database schema is out of date
-with the code — usually after pulling new changes, or after running the stale migrations.
-Fix: `cd backend && npm run db:push`, then restart the backend.
+**"Database operation failed" (including at login):** inspect the API error and
+run `npm run db:status --workspace=backend` and `npm run db:check --workspace=backend`.
+If migrations are pending, follow [DATABASE_MIGRATIONS.md](./DATABASE_MIGRATIONS.md).
+Do not force a schema reset or accept data loss to clear the error.
 
-**"Forgot password" fails or the email never arrives:** the backend needs a way to
-send mail — without one, in production the request fails outright (you'll see
-"Failed to send password reset email"); nothing is sent silently either way.
+**Password reset or other email has not arrived:** reset requests return the same
+response for known and unknown accounts. A known active account creates an
+encrypted delivery job in the same transaction as its reset token. The HTTP
+response confirms the request was queued, not that mail reached an inbox.
 
-- **On Render specifically**, outbound SMTP is blocked entirely (confirmed:
-  connections to `smtp.gmail.com` time out on both port 587 and 465, before
-  credentials are ever checked) — raw `SMTP_*` vars alone will not work. Set
-  `SENDGRID_API_KEY` instead: sign up at [sendgrid.com](https://sendgrid.com)
-  (free tier), verify a "Single Sender" email address (Settings → Sender
-  Authentication — no custom domain required), create an API key (Settings →
-  API Keys), and set `EMAIL_FROM` to that same verified sender address. Email
-  then sends over HTTPS, which isn't blocked.
-- **For local dev**, `SMTP_HOST`/`SMTP_PORT`/`SMTP_SECURE`/`SMTP_USER`/`SMTP_PASS`/
-  `EMAIL_FROM` still work directly (a Gmail address with an
-  [App Password](https://myaccount.google.com/apppasswords) is enough) — SMTP
-  isn't blocked on a home/dev network, and `SENDGRID_API_KEY` can simply be left
-  unset there.
+Configure either SENDGRID_API_KEY with an authorized EMAIL_FROM sender, or the
+SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER and SMTP_PASS settings for your
+provider. Check the provider's current sender and network requirements; test with
+a designated test recipient before enabling delivery. Set APP_URL to the deployed
+frontend URL so links point to the correct application.
 
-Also set `APP_URL` to your deployed frontend's URL (e.g.
-`https://your-app.vercel.app`) — otherwise, even once email sends, the reset link
-inside it points at `localhost` and does nothing for a real visitor. `APP_URL` falls
-back to `FRONTEND_URL` automatically if not set separately.
+For local development keep BACKGROUND_WORKER_DISABLED=true,
+EMAIL_DELIVERY_WORKER_DISABLED=true, OWNER_BRIEF_DISABLED=true,
+BIRTHDAY_EMAILS_DISABLED=true and STORE_PULSE_DISABLED=true. The first flag disables the durable email, export
+and webhook worker. The second disables the separate owner-email delivery worker;
+the remaining flags stop the morning brief and birthday schedulers. The morning
+brief goes to each store's owners from OWNER_BRIEF_HOUR (store-local, default 7)
+until noon, once per store day, unless the store turns off "Morning brief email"
+in Settings; OWNER_BRIEF_EMAILS can narrow who receives it. The older names
+DAILY_DIGEST_DISABLED, DAILY_DIGEST_HOUR and DAILY_DIGEST_EMAILS still work. Work can be queued
+while delivery is disabled. Review pending jobs before enabling a worker in a
+configured deployment. NODE_ENV=test also disables the durable worker.
 
-**Port already in use:** Change `PORT` in `backend/.env` or port in `frontend/vite.config.ts`.
+**Phone alerts** (owners: large refunds and voids, drawers that close off; owners and
+managers: the store not running as usual) need push keys on the API server. Generate them
+once with `npx web-push generate-vapid-keys` and set `VAPID_PUBLIC_KEY`,
+`VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` or `https:` address). Keep the keys:
+new ones end every phone's alerts until each person turns them on again. Each person then
+turns alerts on in Settings > Profile & Security on their own phone. Alerts need the
+installed app served over HTTPS (the deployed site; not `npm run dev`); on an iPhone, add
+the POS to the Home Screen first. An urgent alert is emailed to owners who have no phone
+with alerts on, so the email worker must be on for that.
+
+**Store Pulse** checks every store once a minute (unless STORE_PULSE_DISABLED=true) and
+alerts owners and managers when a store is not running the way it usually does: nobody on
+the register after the usual opening, a long quiet spell, a register not heard from while
+its drawer is open, a drawer left open after closing. Keep the API awake around the clock:
+a host that sleeps when idle never notices a store that did not open.
+
+PAYROLL_SCHEDULER_DISABLED=true also prevents automatic expense generation on a
+local preview. Enable the scheduler only in the intended store deployment after
+reviewing its payroll schedule; owner processing remains available explicitly.
+
+Owners can inspect store jobs at Settings > Email & export jobs (`/settings/jobs`); each user can inspect
+own password/security notification states in Settings > Profile. Digest delivery
+has its separate delivery history. A provider acceptance is distinct from inbox
+arrival. Unknown email outcomes require review and provider evidence before a
+manual retry. A missing provider is recorded as failed, never as delivered.
+
+Set JOB_ENCRYPTION_KEY to a separate stable secret of at least 32 characters and
+keep it in the deployment's protected secret backup. Existing installations may
+initially fall back to JWT_SECRET; changing the effective encryption key makes
+queued content unreadable. Restore the key with the database and matching uploads.
+`node scripts/verify-recovery.cjs` rehearses a backup and restore without touching
+the store database (see [docs/testing.md](./docs/testing.md)).
+
+**Port already in use:** an old API or Vite process is still running. Stop it, or change
+`PORT` in `backend/.env` / the port in `frontend/vite.config.ts`.
+
+**"Route not found" for a feature that exists in the code:** the API process is older
+than the code (for example started with plain `node` instead of `npm run dev`, which
+restarts on changes). Stop it and run `npm run dev` in `backend/`. If the change added
+database columns, apply its migration first (see [DATABASE_MIGRATIONS.md](./DATABASE_MIGRATIONS.md)).
+
+The POS assistant is available from the chat icon on all screens. Configure
+`ANTHROPIC_API_KEY` in the backend environment for replies. General help is
+available before sign-in; store analysis requires an owner or manager account.
+The public help endpoint has no store-data tools. Opening the panel does not
+call the provider. Missing configuration or provider failure keeps the question
+available for retry. Automated assistant tests mock the provider and make no
+paid requests.
 
 **Database connection error:** Verify PostgreSQL is running and `DATABASE_URL` in `backend/.env` is correct.
 

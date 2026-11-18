@@ -1,0 +1,78 @@
+.products-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.products-search { flex: 1 1 260px; min-width: 0; position: relative; }
+.products-search > svg { position: absolute; inset: 10px auto auto 12px; width: 16px; height: 16px; color: hsl(var(--muted-foreground)); pointer-events: none; }
+.products-toolbar > .select-field { width: 180px; min-width: 0; }
+.products-filter-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 12px; }
+.products-filter-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; max-width: 100%; overflow-wrap: anywhere; padding: 2px 8px; border: 1px solid hsl(var(--border)); border-radius: 6px; font-size: 12px; background: hsl(var(--muted) / .5); }
+.products-filter-chip svg { flex-shrink: 0; }
+.products-filter-chip:hover { background: hsl(var(--accent)); }
+.products-filter-chip:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.products-results-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.products-results-footer nav { margin-top: 0; }
+/* Shared Catalog: one chip per store (its price, whether it follows the shared price, or "not carried"). */
+.catalog-store-chip { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; overflow-wrap: anywhere; padding: 2px 8px; border: 1px solid hsl(var(--border)); border-radius: 6px; font-size: 12px; background: hsl(var(--muted) / .5); }
+.catalog-store-chip-note { color: hsl(var(--success)); font-weight: 500; }
+.catalog-store-chip[data-missing] { border-style: dashed; background: transparent; color: hsl(var(--muted-foreground)); }
+.catalog-store-chip[data-missing] .catalog-store-chip-note { color: hsl(var(--muted-foreground)); font-weight: 400; }
+.products-table { container: product-catalog / inline-size; }
+.products-table table { table-layout: fixed; }
+.products-table th:first-child { width: 36%; }
+.products-table th:nth-child(2), .products-table th:nth-child(3), .products-table th:nth-child(4) { width: 11%; }
+.products-table th:nth-child(5) { width: 15%; }
+.products-table th:last-child { width: 16%; }
+.products-table td { padding-top: 10px; padding-bottom: 10px; }
+.products-table .product-price-cell, .products-table .product-cost-cell, .products-table .product-stock-cell { white-space: normal; overflow-wrap: anywhere; }
+.product-identity { display: flex; align-items: center; gap: 12px; }
+.product-name { font-weight: 500; line-height: 20px; overflow-wrap: anywhere; }
+.product-reference { font-size: 12px; line-height: 18px; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
+.product-stock-threshold { display: block; margin-top: 2px; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 16px; white-space: nowrap; }
+/* "3 x Carton · 5 loose" can be long: let it wrap inside the stock column. */
+.product-stock-threshold.product-stock-packs { white-space: normal; overflow-wrap: anywhere; }
+.product-available-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.product-available-status > span { width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: hsl(var(--success-text)); }
+.product-row-actions { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
+.product-mobile-label { display: none; }
+.product-form { display: grid; gap: 24px; }
+.product-form > .form-section + .form-section { margin-top: 0; }
+.product-form .product-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.product-form .product-price-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.product-lookup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; background: hsl(var(--muted) / .5); border-radius: 8px; }
+.product-lookup-hint { flex: 1 1 220px; color: hsl(var(--muted-foreground)); font-size: 12px; }
+.product-lookup-result { display: flex; flex: 1 1 100%; align-items: center; gap: 12px; border-top: 1px solid hsl(var(--border)); padding-top: 12px; font-size: 14px; overflow-wrap: anywhere; }
+.product-category-control { display: flex; gap: 8px; align-items: end; }
+.product-category-control > .select-field, .product-category-control > div:first-child { flex: 1; min-width: 0; }
+.product-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; }
+.product-choice-grid label { display: flex; min-height: 36px; gap: 10px; align-items: center; }
+.product-choice-grid input { flex: 0 0 auto; width: 16px; height: 16px; }
+/* A small laptop (about 1024px with the menu) keeps the table, a little tighter; only narrow screens switch to cards. */
+@container product-catalog (min-width: 601px) and (max-width: 860px) {
+  .products-table th, .products-table td { padding-left: 8px; padding-right: 8px; }
+}
+@container product-catalog (max-width: 600px) {
+  .products-table table, .products-table tbody { display: block; width: 100%; }
+  .products-table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .products-table tbody tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: 'identity identity identity' 'price cost stock' 'status actions actions'; gap: 12px 8px; padding: 16px; }
+  .products-table tbody td { display: block; padding: 0; min-width: 0; text-align: left; }
+  .products-table .product-identity-cell { grid-area: identity; }
+  .products-table .product-price-cell { grid-area: price; }
+  .products-table .product-cost-cell { grid-area: cost; }
+  .products-table .product-stock-cell { grid-area: stock; text-align: right; }
+  .products-table .product-status-cell { grid-area: status; display: flex; align-items: center; }
+  .products-table .product-actions-cell { grid-area: actions; }
+  .product-mobile-label { display: block; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 18px; margin-bottom: 2px; }
+  .product-reference { margin-top: 2px; }
+}
+@media (max-width: 767px) {
+  .products-toolbar { gap: 8px; }
+  .products-search { flex-basis: 100%; }
+  .products-toolbar > .select-field { flex: 1; width: auto; }
+  .products-results-footer { justify-content: center; text-align: center; }
+}
+@media (max-width: 639px), (pointer: coarse) {
+  .products-search > svg { top: 14px; }
+  .products-filter-chip { min-height: 44px; }
+  .product-choice-grid label { min-height: 44px; }
+}
+@media (max-width: 639px) {
+  .product-form .product-field-grid, .product-form .product-price-grid, .product-choice-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -1,19 +1,24 @@
+import { moneyJson } from './utils/money';
 import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
-import path from 'path';
 import { config } from './config';
 import { errorHandler } from './utils/errorHandler';
 import { logger } from './utils/logger';
 import routes from './routes';
+import { requestBudgetKey, signInAttemptKey, trustProxySetting } from './middleware/rateLimitKeys';
 
 /**
  * Create Express application
  */
 const app: Application = express();
+app.set('json replacer', moneyJson);
+// Read the caller's real address when a hosting proxy forwards the request
+// (see middleware/rateLimitKeys.ts). Must be set before the rate limiters.
+app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY, config.nodeEnv));
 
 /**
  * Security middleware
@@ -38,24 +43,53 @@ app.use(cookieParser());
  */
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Limit each IP to 1000 requests per windowMs (POS needs high throughput)
-  message: { success: false, error: 'Too many requests from this IP, please try again later.' },
+  max: 1000, // per signed-in person (per address when signed out): each register has its own budget
+  keyGenerator: requestBudgetKey,
+  message: { success: false, error: 'Too many requests, please try again in a few minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => config.nodeEnv === 'test', // no rate limiting in tests
 });
 
 /**
- * Rate limiting - Login specific (stricter)
+ * Rate limiting - Login specific (stricter): five wrong passwords per person at an
+ * address, so one person's typos do not pause sign-in for everyone in the store.
  */
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Only 5 login attempts per 15 minutes
+  max: 5, // Only 5 wrong passwords per person and address per 15 minutes
+  keyGenerator: signInAttemptKey,
   message: { success: false, error: 'Too many login attempts, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful logins
   skip: () => config.nodeEnv === 'test', // no rate limiting in tests
+});
+
+/**
+ * Rate limiting - Login, per address: a wider ceiling that slows guessing across many accounts.
+ */
+const loginAddressLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { success: false, error: 'Too many login attempts, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  skip: () => config.nodeEnv === 'test',
+});
+
+/**
+ * Rate limiting - Register PIN attempts (each person's PIN also locks after 5 wrong tries)
+ */
+const pinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, error: 'Too many PIN attempts from this register. Wait a few minutes or sign in with email.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  skip: () => config.nodeEnv === 'test',
 });
 
 /**
@@ -98,7 +132,9 @@ const publicApiLimiter = rateLimit({
 app.use('/api/v1', publicApiLimiter);
 
 app.use('/api/', generalLimiter);
-app.use('/api/auth/login', loginLimiter);
+// The small sign-in body is read here, ahead of the general parser, so wrong passwords can be counted per person.
+app.use('/api/auth/login', loginAddressLimiter, express.json({ limit: '10kb' }), loginLimiter);
+app.use(['/api/auth/pin-login', '/api/auth/pin/verify'], pinLimiter);
 app.use('/api/auth/forgot-password', passwordResetLimiter);
 app.use('/api/sales/bulk-void', financialLimiter);
 app.use('/api/sales/bulk-refund', financialLimiter);
@@ -122,14 +158,14 @@ app.use(sanitizeInput);
  */
 if (config.nodeEnv === 'development') {
   app.use(morgan('dev'));
-} else {
+} else if (config.nodeEnv !== 'test') {
   app.use(morgan('combined'));
 }
 
 /**
  * Serve static files (uploaded receipts)
  */
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Uploaded documents are served by authenticated, record-scoped expense routes.
 
 /**
  * Public API v1 (API-key auth) — must mount before the internal /api router
@@ -148,7 +184,7 @@ app.use('/api', routes);
 app.get('/', (_req, res) => {
   res.json({
     success: true,
-    message: 'Square-Style POS System API',
+    message: 'POS System API',
     version: '1.0.0',
     documentation: '/api/health',
   });
@@ -181,10 +217,18 @@ if (config.nodeEnv !== 'test') {
     logger.info(`API available at http://localhost:${PORT}/api`);
   });
 
-  // End-of-day digest email (see services/dailyDigest.service.ts)
-  import('./services/dailyDigest.service').then(({ startDailyDigestScheduler }) => {
-    startDailyDigestScheduler();
+  import('./services/payroll.service').then(({ startPayrollScheduler }) => startPayrollScheduler());
+
+  import('./services/emailDelivery.service').then(({ startEmailDeliveryWorker }) => startEmailDeliveryWorker());
+  import('./services/backgroundWorker.service').then(({ startBackgroundWorker }) => startBackgroundWorker());
+
+  // Morning brief email (see services/ownerBrief.service.ts)
+  import('./services/ownerBrief.service').then(({ startOwnerBriefScheduler }) => {
+    startOwnerBriefScheduler();
   });
+
+  // Store Pulse: is each store running the way it usually does? (services/storePulse.service.ts)
+  import('./services/storePulse.service').then(({ startStorePulseScheduler }) => startStorePulseScheduler());
 
   // Daily birthday emails (see services/marketing.service.ts)
   import('./services/marketing.service').then(({ startMarketingScheduler }) => {

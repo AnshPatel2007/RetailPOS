@@ -19,6 +19,10 @@ jest.mock('../config/database', () => ({
     product: {
       findUnique: jest.fn(),
     },
+    // No supplier here has credits on record, so deleting is allowed.
+    supplierCredit: {
+      count: jest.fn().mockResolvedValue(0),
+    },
     productSupplier: {
       findUnique: jest.fn(),
       create: jest.fn(),
@@ -288,7 +292,7 @@ describe('Supplier Controller', () => {
       });
 
       (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(mockSupplier);
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue({ id: 'product-123' });
+      (prisma.product.findUnique as jest.Mock).mockResolvedValue({ id: 'product-123', locationId: 'location-123' });
       (prisma.productSupplier.findUnique as jest.Mock).mockResolvedValue(null);
       (prisma.productSupplier.create as jest.Mock).mockResolvedValue({
         id: 'link-1',
@@ -359,7 +363,7 @@ describe('Supplier Controller', () => {
       });
 
       (prisma.supplier.findUnique as jest.Mock).mockResolvedValue(mockSupplier);
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue({ id: 'product-123' });
+      (prisma.product.findUnique as jest.Mock).mockResolvedValue({ id: 'product-123', locationId: 'location-123' });
       (prisma.productSupplier.findUnique as jest.Mock).mockResolvedValue({ id: 'existing-link' });
 
       await supplierController.linkProduct(

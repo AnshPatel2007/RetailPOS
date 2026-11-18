@@ -1,9 +1,11 @@
+import { formatCurrency, formatDateTime } from '@/lib/utils';
+import { formatUnitPrice } from '@/lib/money';
 /**
  * Hardware Integration Service
  * Handles barcode scanners, receipt printers, cash drawers, and card readers
  */
 
-import QRCode from 'qrcode';
+import { receiptBarcodeSvg, receiptCodeMarkup } from './receiptBarcode';
 
 // Hardware Settings Interface
 export interface HardwareSettings {
@@ -31,6 +33,9 @@ export interface HardwareSettings {
     fontSize?: number | 'small' | 'medium' | 'large';
     showBarcode?: boolean;
     customCss?: string;
+    headerText?: string;
+    showAddress?: boolean;
+    showTaxBreakdown?: boolean;
   };
   cashDrawer: {
     enabled: boolean;
@@ -50,6 +55,7 @@ export const defaultHardwareSettings: HardwareSettings = {
     inputTimeout: 100,
     minLength: 6,
     preventDuplicates: true,
+    soundEnabled: true,
   },
   receiptPrinter: {
     enabled: true,
@@ -76,6 +82,10 @@ export const defaultHardwareSettings: HardwareSettings = {
  * Barcode Scanner Service
  * Listens for keyboard input from USB barcode scanners
  */
+
+/** Receipts carry a ready-to-print date; a raw timestamp (the test receipt) is formatted here. */
+const receiptDate = (value: string) => /^\d{4}-\d{2}-\d{2}T/.test(value) ? formatDateTime(value) : value;
+
 class BarcodeScanner {
   private buffer: string = '';
   private timeout: NodeJS.Timeout | null = null;
@@ -200,12 +210,25 @@ class BarcodeScanner {
   }
 
   /**
+   * A scan that landed in a focused text box (the register search). Goes through
+   * the same duplicate guard as the page-wide listener so one read adds one item.
+   */
+  scanFromField(barcode: string): boolean {
+    const code = barcode.trim();
+    if (!code || this.isDuplicate(code)) return false;
+    this.callbacks.forEach((callback) => callback(code));
+    return true;
+  }
+
+  /**
    * Check if barcode is a duplicate scan (same barcode within timeout window)
    */
   private isDuplicate(barcode: string): boolean {
     if (!this.settings.preventDuplicates) return false;
     const now = Date.now();
-    const timeout = this.settings.duplicateTimeout || 1500; // default 1.5s
+    // Only a scanner's own double-read (well under half a second) is ignored; a cashier
+    // scanning a second identical can is always counted.
+    const timeout = this.settings.duplicateTimeout || 300;
     if (barcode === this.lastScannedBarcode && (now - this.lastScanTime) < timeout) {
       return true;
     }
@@ -258,9 +281,13 @@ export interface Receipt {
   paymentMethod: string;
   amountPaid: number;
   change: number;
+  /** Cash rounding to 5 cents (negative: the customer paid less than the total). */
+  cashRounding?: number;
   employeeName: string;
   customerName?: string;
   loyaltyPoints?: number;
+  pointsEarned?: number;
+  pointsRedeemed?: number;
   /** Promotion savings already reflected in the totals — printed as a callout line */
   savings?: number;
 }
@@ -289,12 +316,12 @@ class ReceiptPrinter {
   async print(receipt: Receipt): Promise<boolean> {
     if (!this.settings.enabled) return false;
 
-    // QR encodes the sale number — scanning a receipt at the register pulls the
-    // sale straight up for refunds/lookups. Generated locally; skipped on failure.
+    // Compact references use Code 128; legacy long references retain QR.
+    // Both encode the exact lookup reference and are generated locally.
     let qrDataUrl = '';
     try {
-      qrDataUrl = await QRCode.toDataURL(receipt.saleNumber, { margin: 0, width: 120 });
-    } catch { /* print without QR */ }
+      qrDataUrl = await receiptCodeMarkup(receipt.saleNumber);
+    } catch { /* The readable reference remains available if code generation fails. */ }
 
     try {
       const printWindow = window.open('', '_blank', 'width=350,height=600');
@@ -353,7 +380,7 @@ class ReceiptPrinter {
   /**
    * Generate HTML for receipt
    */
-  private generateReceiptHTML(receipt: Receipt, qrDataUrl = ''): string {
+  private generateReceiptHTML(receipt: Receipt, qrDataUrl = receiptBarcodeSvg(receipt.saleNumber)): string {
     const widthMm = this.settings.paperWidth === 58 ? '58mm' : '80mm';
     const widthPx = this.settings.paperWidth === 58 ? '220px' : '302px';
     // Escape all dynamic text — product/customer names must not inject HTML into the print window
@@ -371,7 +398,8 @@ class ReceiptPrinter {
   <style>
     @media print {
       @page { margin: 0; size: ${widthMm} auto; }
-      body { margin: 0; padding: 3mm; }
+      body { margin: 0; padding: 3mm; width: ${widthMm}; }
+      body .receipt { width: 100%; padding: 0; }
       .no-print { display: none !important; }
     }
     @media screen {
@@ -405,46 +433,50 @@ class ReceiptPrinter {
 <body>
   <div class="receipt">
     ${this.settings.showLogo ? `<div class="center store-name">${esc(this.settings.storeName)}</div>` : ''}
-    ${this.settings.storeAddress ? `<div class="center store-info">${esc(this.settings.storeAddress)}</div>` : ''}
+    ${this.settings.showAddress !== false && this.settings.storeAddress ? `<div class="center store-info">${esc(this.settings.storeAddress)}</div>` : ''}
     ${this.settings.storePhone ? `<div class="center store-info">Tel: ${esc(this.settings.storePhone)}</div>` : ''}
+    ${this.settings.headerText ? `<div class="center store-info">${esc(this.settings.headerText)}</div>` : ''}
     <div class="line"></div>
     <div class="center">
       <div>Receipt #${esc(receipt.saleNumber)}</div>
-      <div>${new Date(receipt.date).toLocaleString()}</div>
+      <div>${esc(receiptDate(receipt.date))}</div>
       ${receipt.employeeName ? `<div>Cashier: ${esc(receipt.employeeName)}</div>` : ''}
     </div>
     <div class="line"></div>
     <table>
       ${receipt.items.map((item) => `
       <tr><td class="item-name" colspan="2">${esc(item.name)}</td></tr>
-      <tr><td class="item-detail">${item.quantity} x $${item.price.toFixed(2)}</td><td class="right">$${item.total.toFixed(2)}</td></tr>
+      <tr><td class="item-detail">${item.quantity} x $${formatUnitPrice(item.price)}</td><td class="right">${formatCurrency(item.total)}</td></tr>
       `).join('')}
     </table>
     <div class="line"></div>
     <table>
-      <tr><td>Subtotal:</td><td class="right">$${receipt.subtotal.toFixed(2)}</td></tr>
-      <tr><td>Tax:</td><td class="right">$${receipt.tax.toFixed(2)}</td></tr>
-      ${receipt.discount > 0 ? `<tr><td>Discount:</td><td class="right">-$${receipt.discount.toFixed(2)}</td></tr>` : ''}
-      ${receipt.surcharge && receipt.surcharge > 0 ? `<tr><td>Card Surcharge:</td><td class="right">$${receipt.surcharge.toFixed(2)}</td></tr>` : ''}
+      <tr><td>Subtotal:</td><td class="right">${formatCurrency(receipt.subtotal)}</td></tr>
+      ${this.settings.showTaxBreakdown !== false ? `<tr><td>Tax:</td><td class="right">${formatCurrency(receipt.tax)}</td></tr>` : ''}
+      ${receipt.discount > 0 ? `<tr><td>Discount:</td><td class="right">-${formatCurrency(receipt.discount)}</td></tr>` : ''}
+      ${receipt.surcharge && receipt.surcharge > 0 ? `<tr><td>Card Surcharge:</td><td class="right">${formatCurrency(receipt.surcharge)}</td></tr>` : ''}
     </table>
     <table>
-      <tr class="grand-total"><td>TOTAL:</td><td class="right">$${receipt.total.toFixed(2)}</td></tr>
+      <tr class="grand-total"><td>TOTAL:</td><td class="right">${formatCurrency(receipt.total)}</td></tr>
     </table>
-    ${receipt.savings && receipt.savings > 0 ? `<div class="center" style="margin:4px 0;font-weight:bold;">*** You saved $${receipt.savings.toFixed(2)} today! ***</div>` : ''}
+    ${receipt.savings && receipt.savings > 0 ? `<div class="center" style="margin:4px 0;font-weight:bold;">*** You saved ${formatCurrency(receipt.savings)} today! ***</div>` : ''}
     <table>
-      <tr><td>Paid (${esc(receipt.paymentMethod)}):</td><td class="right">$${receipt.amountPaid.toFixed(2)}</td></tr>
-      ${receipt.change > 0 ? `<tr><td>Change:</td><td class="right">$${receipt.change.toFixed(2)}</td></tr>` : ''}
+      ${receipt.cashRounding ? `<tr><td>Cash rounding:</td><td class="right">${receipt.cashRounding < 0 ? '-' : ''}${formatCurrency(Math.abs(receipt.cashRounding))}</td></tr>` : ''}
+      <tr><td>Paid (${esc(receipt.paymentMethod)}):</td><td class="right">${formatCurrency(receipt.amountPaid)}</td></tr>
+      ${receipt.change > 0 ? `<tr><td>Change:</td><td class="right">${formatCurrency(receipt.change)}</td></tr>` : ''}
     </table>
     ${receipt.customerName ? `
     <div class="line"></div>
     <div class="center">
       <div>Customer: ${esc(receipt.customerName)}</div>
       ${receipt.loyaltyPoints ? `<div>Loyalty Points: ${receipt.loyaltyPoints}</div>` : ''}
+      ${receipt.pointsRedeemed !== undefined ? `<div>Points redeemed: ${receipt.pointsRedeemed}</div>` : ''}
+      ${receipt.pointsEarned !== undefined ? `<div>Points earned: ${receipt.pointsEarned}</div>` : ''}
     </div>` : ''}
     <div class="line"></div>
     ${qrDataUrl ? `
     <div class="center" style="margin:6px 0;">
-      <img src="${qrDataUrl}" width="72" height="72" alt="" />
+      ${qrDataUrl}
       <div style="font-size:9px;color:#555;">Scan for returns &amp; lookups</div>
     </div>` : ''}
     <div class="center footer">${esc(this.settings.footerText)}</div>
@@ -457,16 +489,8 @@ class ReceiptPrinter {
    * Open cash drawer (connected to printer via RJ11/RJ12)
    */
   async openDrawer(): Promise<boolean> {
-    try {
-      // In a web browser environment, we can't directly send ESC/POS commands
-      // to a cash drawer. This would require a local print server or native app.
-      // For now, just log the action.
-      console.log('Cash drawer open command sent (requires hardware connection)');
-      return true;
-    } catch (error) {
-      console.error('Failed to open drawer:', error);
-      return false;
-    }
+    // Browser printing does not provide a confirmed drawer-control channel.
+    return false;
   }
 
   /**
@@ -501,7 +525,7 @@ class ReceiptPrinter {
    * Check printer connection status
    */
   checkStatus(): { connected: boolean; online: boolean; status: string; error?: string } {
-    return { connected: this.settings.enabled, online: this.settings.enabled, status: this.settings.enabled ? 'ready' : 'disabled' };
+    return { connected: false, online: false, status: this.settings.enabled ? 'browser-printing' : 'disabled' };
   }
 }
 
@@ -533,10 +557,18 @@ class CashDrawer {
   }
 
   /**
+   * Whether this register has a working channel to the drawer. A browser cannot
+   * send the drawer kick on its own, so nothing claims the drawer opened.
+   */
+  isConnected(): boolean {
+    return false;
+  }
+
+  /**
    * Check if drawer should open for payment method
    */
   shouldOpen(paymentMethod: string): boolean {
-    if (!this.settings.enabled || !this.settings.openOnSale) return false;
+    if (!this.isConnected() || !this.settings.enabled || !this.settings.openOnSale) return false;
 
     if (this.settings.openOnCashPayment) {
       return paymentMethod.toLowerCase() === 'cash';
@@ -600,40 +632,15 @@ class CardReader {
   /**
    * Process card payment
    */
-  async processPayment(amount: number): Promise<CardPaymentResult> {
-    if (!this.settings.enabled) {
-      return { success: false, error: 'Card reader not enabled' };
-    }
-
-    try {
-      // In production, integrate with actual payment processor
-      // (Stripe Terminal, Square Reader, etc.)
-      console.log(`Processing card payment: $${amount}`);
-
-      // Simulate payment processing
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      return {
-        success: true,
-        transactionId: `TXN_${Date.now()}`,
-        amount,
-        cardLast4: '****',
-        cardBrand: 'VISA',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: 'Payment declined',
-      };
-    }
+  async processPayment(_amount: number): Promise<CardPaymentResult> {
+    return { success: false, error: 'No payment processor is connected. Complete payment on your separate terminal before recording it in the POS.' };
   }
 
   /**
    * Cancel payment
    */
   async cancelPayment(): Promise<boolean> {
-    console.log('Cancelling payment...');
-    return true;
+    return false;
   }
 
   /**
@@ -641,6 +648,38 @@ class CardReader {
    */
   isEnabled(): boolean {
     return this.settings.enabled;
+  }
+}
+
+/**
+ * Scan sounds: a short high beep when an item is added, a low double buzz when a
+ * scan finds nothing, so the cashier knows without looking at the screen.
+ */
+class ScanSound {
+  private context: AudioContext | null = null;
+  constructor(private enabled: () => boolean) {}
+
+  play(kind: 'ok' | 'error'): void {
+    if (!this.enabled()) return;
+    try {
+      const Context = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Context) return;
+      this.context = this.context || new Context();
+      const context = this.context;
+      if (context.state === 'suspended') void context.resume();
+      const tones = kind === 'ok' ? [{ at: 0, frequency: 1320, length: 0.07 }] : [{ at: 0, frequency: 220, length: 0.14 }, { at: 0.18, frequency: 196, length: 0.18 }];
+      for (const tone of tones) {
+        const oscillator = context.createOscillator(), gain = context.createGain();
+        oscillator.type = kind === 'ok' ? 'sine' : 'square';
+        oscillator.frequency.value = tone.frequency;
+        const start = context.currentTime + tone.at;
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(kind === 'ok' ? 0.18 : 0.08, start + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + tone.length);
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.start(start); oscillator.stop(start + tone.length + 0.02);
+      }
+    } catch { /* audio is a convenience; never block a sale on it */ }
   }
 }
 
@@ -656,6 +695,7 @@ class HardwareManager {
   public printer: ReceiptPrinter;
   public drawer: CashDrawer;
   public cardReader: CardReader;
+  public sound: ScanSound;
 
   private constructor() {
     this.settings = this.loadSettings();
@@ -663,6 +703,7 @@ class HardwareManager {
     this.scanner = new BarcodeScanner(this.settings.barcodeScanner);
     this.drawer = new CashDrawer(this.printer, this.settings.cashDrawer);
     this.cardReader = new CardReader(this.settings.cardReader);
+    this.sound = new ScanSound(() => this.settings.barcodeScanner.soundEnabled !== false);
   }
 
   static getInstance(): HardwareManager {
@@ -683,7 +724,10 @@ class HardwareManager {
         // Merge with defaults to ensure all fields exist
         return {
           barcodeScanner: { ...defaultHardwareSettings.barcodeScanner, ...parsed.barcodeScanner },
-          receiptPrinter: { ...defaultHardwareSettings.receiptPrinter, ...parsed.receiptPrinter },
+          receiptPrinter: { ...defaultHardwareSettings.receiptPrinter, ...parsed.receiptPrinter,
+            storeName: defaultHardwareSettings.receiptPrinter.storeName, storeAddress: '', storePhone: '',
+            headerText: '', footerText: defaultHardwareSettings.receiptPrinter.footerText, showAddress: true, showTaxBreakdown: true,
+          },
           cashDrawer: { ...defaultHardwareSettings.cashDrawer, ...parsed.cashDrawer },
           cardReader: { ...defaultHardwareSettings.cardReader, ...parsed.cardReader },
         };
@@ -698,12 +742,18 @@ class HardwareManager {
    * Save settings to localStorage
    */
   saveSettings(settings: HardwareSettings): void {
-    this.settings = settings;
-    localStorage.setItem('hardwareSettings', JSON.stringify(settings));
+    const branding = this.settings.receiptPrinter;
+    this.settings = { ...settings, receiptPrinter: { ...settings.receiptPrinter,
+      storeName: branding.storeName, storeAddress: branding.storeAddress, storePhone: branding.storePhone,
+      headerText: branding.headerText, footerText: branding.footerText, showAddress: branding.showAddress, showTaxBreakdown: branding.showTaxBreakdown,
+    } };
+    const devicePrinter = { ...this.settings.receiptPrinter } as Record<string, unknown>;
+    for (const key of ['storeName', 'storeAddress', 'storePhone', 'headerText', 'footerText', 'showAddress', 'showTaxBreakdown']) delete devicePrinter[key];
+    localStorage.setItem('hardwareSettings', JSON.stringify({ ...this.settings, receiptPrinter: devicePrinter }));
 
     // Update all devices
     this.scanner.updateSettings(settings.barcodeScanner);
-    this.printer.updateSettings(settings.receiptPrinter);
+    this.printer.updateSettings(this.settings.receiptPrinter);
     this.drawer.updateSettings(settings.cashDrawer);
     this.cardReader.updateSettings(settings.cardReader);
   }
@@ -713,6 +763,15 @@ class HardwareManager {
    */
   getSettings(): HardwareSettings {
     return this.settings;
+  }
+
+  /** Branding belongs to the store, while scanner/printer transport stays on this register. */
+  applyStoreBranding(store: { storeName: string; address: string; city: string; state: string; phone: string }, receipt: { header: string; footer: string; showAddress: boolean; showTaxBreakdown: boolean }): void {
+    this.settings = { ...this.settings, receiptPrinter: { ...this.settings.receiptPrinter,
+      storeName: store.storeName, storeAddress: [store.address, store.city, store.state].filter(Boolean).join(', '), storePhone: store.phone,
+      headerText: receipt.header, footerText: receipt.footer, showAddress: receipt.showAddress, showTaxBreakdown: receipt.showTaxBreakdown,
+    } };
+    this.printer.updateSettings(this.settings.receiptPrinter);
   }
 
   /**

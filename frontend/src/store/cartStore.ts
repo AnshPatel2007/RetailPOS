@@ -1,3 +1,5 @@
+import { lineMoney, roundMoney, taxMoney } from '@/lib/money';
+import { lineKey, newLineId } from '@/lib/cartLines';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { CartItem, Product, Customer, Promotion } from '../types';
@@ -27,14 +29,19 @@ interface CartState {
   taxRate: number;
   cardSurchargePercent: number; // location's card-surcharge rate (0 = off)
   heldSales: HeldSale[];
+  /** The store the held sales belong to; they stay on this register across sign-ins there. */
+  heldLocationId: string | null;
   promotions: Promotion[]; // active promotions, refreshed by the POS page (not persisted)
 
-  addItem: (product: Product, quantity?: number) => void;
-  removeItem: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
-  updateDiscount: (productId: string, discount: number) => void;
-  updateNotes: (productId: string, notes: string) => void;
-  updatePrice: (productId: string, price: number) => void;
+  applyQuote: (quote: any) => void;
+  /** `separateLine`: a price-label scan, added as a line of its own at the label's price. */
+  addItem: (product: Product, quantity?: number, options?: { separateLine?: boolean; price?: number }) => boolean;
+  // Lines are addressed by their line key (lib/cartLines): the product's id, or a price-label line's own id.
+  removeItem: (line: string) => void;
+  updateQuantity: (line: string, quantity: number) => void;
+  updateDiscount: (line: string, discount: number) => void;
+  updateNotes: (line: string, notes: string) => void;
+  updatePrice: (line: string, price: number) => void;
   setCustomer: (customer: Customer | null) => void;
   setNotes: (notes: string) => void;
   setTaxRate: (rate: number) => void;
@@ -42,6 +49,8 @@ interface CartState {
   setPromotions: (promotions: Promotion[]) => void;
   clearCart: () => void;
   resetForLogout: () => void;
+  /** Keep held sales only when the register is signed in to the same store. */
+  adoptHeldSalesFor: (locationId: string) => void;
 
   // Hold sales
   holdSale: () => void;
@@ -73,16 +82,35 @@ export const useCartStore = create<CartState>()(
       taxRate: 0,
       cardSurchargePercent: 0,
       heldSales: [],
+      heldLocationId: null,
       promotions: [],
 
-      addItem: (product: Product, quantity = 1) => {
+      applyQuote: (quote) => set({
+        items: get().items.map(item => {
+          const product = quote.products.find((p: Product) => p.id === item.product.id);
+          return product ? { ...item, product: { ...product, ...(item.priceOverride ? { price: item.product.price } : {}) } } : item;
+        }),
+        taxRate: quote.taxRate, cardSurchargePercent: quote.cardSurchargePercent, promotions: quote.promotions,
+      }),
+      addItem: (product: Product, quantity = 1, options = {}) => {
         const items = get().items;
-        const existingItem = items.find((item) => item.product.id === product.id);
+        // Recorded stock never limits the cart; only recalls/prohibited items do.
+        if (!Number.isSafeInteger(quantity) || quantity <= 0 || product.saleBlockedReason) return false;
 
+        // A price label carries its own price: each scan is a line of its own, so two
+        // packages of one product are charged what each label says.
+        if (options.separateLine) {
+          set({ items: [...items, { product: { ...product, price: options.price ?? product.price }, quantity, discount: 0, notes: '',
+            priceOverride: true, lineId: newLineId(items, product.id) }] });
+          return true;
+        }
+
+        // The product's ordinary line (a price-label line of the same product is not it).
+        const existingItem = items.find((item) => lineKey(item) === product.id);
         if (existingItem) {
           set({
             items: items.map((item) =>
-              item.product.id === product.id
+              lineKey(item) === product.id
                 ? { ...item, quantity: item.quantity + quantity }
                 : item
             ),
@@ -95,30 +123,33 @@ export const useCartStore = create<CartState>()(
             ],
           });
         }
+        return true;
       },
 
-      removeItem: (productId: string) => {
+      removeItem: (line: string) => {
         set({
-          items: get().items.filter((item) => item.product.id !== productId),
+          items: get().items.filter((item) => lineKey(item) !== line),
         });
       },
 
-      updateQuantity: (productId: string, quantity: number) => {
+      updateQuantity: (line: string, quantity: number) => {
+        const item = get().items.find(candidate => lineKey(candidate) === line);
+        if (!Number.isSafeInteger(quantity) || !item) return;
         if (quantity <= 0) {
-          get().removeItem(productId);
+          get().removeItem(line);
           return;
         }
 
         set({
           items: get().items.map((item) =>
-            item.product.id === productId
+            lineKey(item) === line
               ? {
                   ...item,
                   quantity,
                   // Re-clamp fixed discounts so they never exceed the new line total
                   discount: Math.min(
                     item.discount,
-                    Math.round(item.product.price * quantity * 100) / 100
+                    lineMoney(item.product.price, quantity)
                   ),
                 }
               : item
@@ -126,33 +157,33 @@ export const useCartStore = create<CartState>()(
         });
       },
 
-      updateDiscount: (productId: string, discount: number) => {
+      updateDiscount: (line: string, discount: number) => {
         set({
           items: get().items.map((item) =>
-            item.product.id === productId ? { ...item, discount } : item
+            lineKey(item) === line ? { ...item, discount } : item
           ),
         });
       },
 
-      updateNotes: (productId: string, notes: string) => {
+      updateNotes: (line: string, notes: string) => {
         set({
           items: get().items.map((item) =>
-            item.product.id === productId ? { ...item, notes } : item
+            lineKey(item) === line ? { ...item, notes } : item
           ),
         });
       },
 
-      updatePrice: (productId: string, price: number) => {
+      updatePrice: (line: string, price: number) => {
         set({
           items: get().items.map((item) =>
-            item.product.id === productId
+            lineKey(item) === line
               ? {
                   ...item,
                   product: { ...item.product, price },
                   priceOverride: true,
                   discount: Math.min(
                     item.discount,
-                    Math.round(price * item.quantity * 100) / 100
+                    lineMoney(price, item.quantity)
                   ),
                 }
               : item
@@ -188,18 +219,24 @@ export const useCartStore = create<CartState>()(
         });
       },
 
-      // Unlike clearCart (used mid-session after checkout), this also drops
-      // held sales and location-specific settings so a different cashier
-      // logging into a different store never sees the previous session's data
+      // Unlike clearCart (used mid-session after checkout), this also drops the
+      // store's settings. Held sales stay on the register for the next cashier at
+      // the same store; adoptHeldSalesFor drops them if another store signs in.
       resetForLogout: () => {
         set({
           items: [],
           customer: null,
           notes: '',
-          heldSales: [],
           taxRate: 0,
           cardSurchargePercent: 0,
         });
+      },
+
+      adoptHeldSalesFor: (locationId: string) => {
+        const { heldLocationId, heldSales } = get();
+        if (heldLocationId === locationId) return;
+        // Sales held before the store was recorded were made in this sign-in, so they are kept.
+        set({ heldLocationId: locationId, heldSales: heldLocationId === null ? heldSales : [] });
       },
 
       holdSale: () => {
@@ -286,7 +323,7 @@ export const useCartStore = create<CartState>()(
           items
             .filter((i) => !i.product.id.startsWith('misc-'))
             .map((i) => ({
-              key: i.product.id,
+              key: lineKey(i),
               productId: i.product.id,
               categoryId: i.product.categoryId,
               unitPrice: i.product.price,
@@ -295,14 +332,15 @@ export const useCartStore = create<CartState>()(
           active
         );
 
+        // One entry per cart line, by its line key (lib/cartLines).
         const breakdown: Record<string, LineBreakdown> = {};
         for (const item of items) {
-          const gross = item.product.price * item.quantity;
-          const manualDiscount = Math.min(item.discount, gross);
-          const promo = promoResults.get(item.product.id);
-          const totalDiscount = Math.min(manualDiscount + (promo?.discount || 0), gross);
+          const gross = lineMoney(item.product.price, item.quantity);
+          const manualDiscount = roundMoney(Math.min(item.discount, gross));
+          const promo = promoResults.get(lineKey(item));
+          const totalDiscount = roundMoney(Math.min(manualDiscount + (promo?.discount || 0), gross));
           const promoDiscount = Math.round((totalDiscount - manualDiscount) * 100) / 100;
-          breakdown[item.product.id] = {
+          breakdown[lineKey(item)] = {
             gross: Math.round(gross * 100) / 100,
             manualDiscount: Math.round(manualDiscount * 100) / 100,
             promoDiscount,
@@ -320,17 +358,16 @@ export const useCartStore = create<CartState>()(
         ) / 100;
       },
 
-      // SNAP-eligible portion of the sale: eligible lines net of discounts plus
-      // their tax — mirrors the backend cap in createSale
+      // Eligible merchandise before tax. Tender remains gated until allocation
+      // and original-tender refunds are validated.
       getEbtEligibleTotal: () => {
-        const { items, taxRate } = get();
+        const { items } = get();
         const breakdown = get().getLineBreakdown();
         return Math.round(items.reduce((total, item) => {
           if (!item.product.ebtEligible || item.product.id.startsWith('misc-')) return total;
-          const line = breakdown[item.product.id];
-          const net = Math.max(0, item.product.price * item.quantity - (line?.totalDiscount ?? item.discount));
-          const tax = item.product.isTaxable ? Math.round((net * taxRate) / 100 * 100) / 100 : 0;
-          return total + net + tax;
+          const line = breakdown[lineKey(item)];
+          const net = Math.max(0, lineMoney(item.product.price, item.quantity) - (line?.totalDiscount ?? item.discount));
+          return total + net;
         }, 0) * 100) / 100;
       },
 
@@ -345,8 +382,8 @@ export const useCartStore = create<CartState>()(
       getSubtotal: () => {
         const breakdown = get().getLineBreakdown();
         return Math.round(get().items.reduce((total, item) => {
-          const line = breakdown[item.product.id];
-          return total + item.product.price * item.quantity - (line?.totalDiscount ?? item.discount);
+          const line = breakdown[lineKey(item)];
+          return total + lineMoney(item.product.price, item.quantity) - (line?.totalDiscount ?? item.discount);
         }, 0) * 100) / 100;
       },
 
@@ -357,16 +394,16 @@ export const useCartStore = create<CartState>()(
         // Tax applies per taxable line, net of discounts, rounded per line like the backend
         return Math.round(get().items.reduce((total, item) => {
           if (!item.product.isTaxable) return total;
-          const line = breakdown[item.product.id];
-          const net = Math.max(0, item.product.price * item.quantity - (line?.totalDiscount ?? item.discount));
-          return total + Math.round((net * taxRate) / 100 * 100) / 100;
+          const line = breakdown[lineKey(item)];
+          const net = Math.max(0, lineMoney(item.product.price, item.quantity) - (line?.totalDiscount ?? item.discount));
+          return total + taxMoney(roundMoney(net), taxRate);
         }, 0) * 100) / 100;
       },
 
       getTotal: () => {
         const subtotal = get().getSubtotal();
         const tax = get().getTax();
-        return Math.round((subtotal + tax) * 100) / 100;
+        return roundMoney(subtotal + tax);
       },
 
       getItemCount: () => {
@@ -384,6 +421,7 @@ export const useCartStore = create<CartState>()(
         taxRate: state.taxRate,
         cardSurchargePercent: state.cardSurchargePercent,
         heldSales: state.heldSales,
+        heldLocationId: state.heldLocationId,
       }),
     }
   )

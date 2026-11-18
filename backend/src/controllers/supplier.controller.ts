@@ -1,26 +1,23 @@
+import { z } from 'zod';
 import { Response } from 'express';
 import { asyncHandler, AppError } from '../utils/errorHandler';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
-import { assertOwnsRecord, assertCanReadRecord, getSharedOrOwnFilter, isSuperAdmin } from '../utils/locationFilter.util';
+import { assertOwnsRecord, assertCanReadRecord, getLocationFilter, getSharedOrOwnFilter, isSuperAdmin, resolveWriteLocation } from '../utils/locationFilter.util';
+import * as supplierCredits from '../services/supplierCredit.service';
+import { suggestDeliveryDays } from '../services/reorder.service';
 
 /**
  * Get all suppliers
  * GET /api/suppliers
  */
 export const getSuppliers = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const {
-    page = '1',
-    limit = '20',
-    search,
-    isActive,
-    sortBy = 'name',
-    sortOrder = 'asc',
-  } = req.query;
-
-  const pageNum = parseInt(page as string);
-  const limitNum = parseInt(limit as string);
+  const { page: pageNum, limit: limitNum, search, isActive, sortBy, sortOrder } = z.object({
+    page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(100).default(20),
+    search: z.string().trim().max(200).optional(), isActive: z.enum(['true', 'false']).optional(),
+    sortBy: z.enum(['name', 'createdAt', 'updatedAt', 'email', 'contactName']).default('name'), sortOrder: z.enum(['asc', 'desc']).default('asc'),
+  }).parse(req.query);
   const skip = (pageNum - 1) * limitNum;
 
   // Build where clause
@@ -49,7 +46,7 @@ export const getSuppliers = asyncHandler(async (req: AuthRequest, res: Response)
           },
         },
       },
-      orderBy: { [sortBy as string]: sortOrder },
+      orderBy: [{ [sortBy]: sortOrder }, { id: sortOrder }],
       skip,
       take: limitNum,
     }),
@@ -119,7 +116,7 @@ export const getSupplier = asyncHandler(async (req: AuthRequest, res: Response) 
  * POST /api/suppliers
  */
 export const createSupplier = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { name, contactName, email, phone, address, notes, paymentTerms, leadTimeDays, minimumOrder } = req.body;
+  const { name, contactName, email, phone, address, notes, paymentTerms, leadTimeDays, minimumOrder, deliveryDays } = req.body;
   // Non-SUPER_ADMIN is always forced to their own store
   const locationId = isSuperAdmin(req) ? (req.body.locationId ?? null) : (req.user!.locationId ?? null);
 
@@ -134,6 +131,7 @@ export const createSupplier = asyncHandler(async (req: AuthRequest, res: Respons
       paymentTerms,
       leadTimeDays,
       minimumOrder,
+      ...(deliveryDays ? { deliveryDays } : {}),
       locationId,
     },
   });
@@ -153,7 +151,7 @@ export const createSupplier = asyncHandler(async (req: AuthRequest, res: Respons
  */
 export const updateSupplier = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const { name, contactName, email, phone, address, notes, isActive, paymentTerms, leadTimeDays, minimumOrder } = req.body;
+  const { name, contactName, email, phone, address, notes, isActive, paymentTerms, leadTimeDays, minimumOrder, deliveryDays } = req.body;
 
   const existing = await prisma.supplier.findUnique({ where: { id } });
   if (!existing) {
@@ -174,6 +172,7 @@ export const updateSupplier = asyncHandler(async (req: AuthRequest, res: Respons
       paymentTerms,
       leadTimeDays,
       minimumOrder,
+      ...(deliveryDays ? { deliveryDays } : {}),
     },
   });
 
@@ -217,6 +216,10 @@ export const deleteSupplier = asyncHandler(async (req: AuthRequest, res: Respons
     );
   }
 
+  if (await prisma.supplierCredit.count({ where: { supplierId: id } })) {
+    throw new AppError('Cannot delete a supplier with credits on record. Deactivate instead.', 400);
+  }
+
   await prisma.supplier.delete({ where: { id } });
 
   logger.info(`Supplier deleted: ${existing.name}`);
@@ -231,9 +234,18 @@ export const deleteSupplier = asyncHandler(async (req: AuthRequest, res: Respons
  * Link product to supplier
  * POST /api/suppliers/:id/products
  */
+/** A case price sets the per-unit cost (case of 24 for $36.00 = $1.50 a unit). */
+function supplierCase(body: { cost?: number | null; packSize?: number; packCost?: number | null; packBarcode?: string | null }) {
+  const packSize = body.packSize ?? (body.packCost != null ? 1 : undefined);
+  const packCost = packSize !== undefined && packSize > 1 ? body.packCost ?? null : packSize === 1 ? null : undefined;
+  const cost = packCost != null && packSize ? Math.round(packCost / packSize * 10000) / 10000 : body.cost;
+  return { cost, packSize, packCost, packBarcode: body.packBarcode === undefined ? undefined : body.packBarcode || null };
+}
+
 export const linkProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const { productId, supplierSku, cost, leadTime, minOrder } = req.body;
+  const { productId, supplierSku, leadTime, minOrder } = req.body;
+  const { cost, packSize, packCost, packBarcode } = supplierCase(req.body);
 
   // Verify supplier exists
   const supplier = await prisma.supplier.findUnique({ where: { id } });
@@ -247,6 +259,8 @@ export const linkProduct = asyncHandler(async (req: AuthRequest, res: Response) 
   if (!product) {
     throw new AppError('Product not found', 404);
   }
+  assertOwnsRecord(req, product.locationId);
+  if (supplier.locationId && product.locationId !== supplier.locationId) throw new AppError('This supplier belongs to another store', 400);
 
   // Check if link already exists
   const existing = await prisma.productSupplier.findUnique({
@@ -270,6 +284,9 @@ export const linkProduct = asyncHandler(async (req: AuthRequest, res: Response) 
       cost,
       leadTime,
       minOrder,
+      packSize,
+      packCost,
+      packBarcode,
     },
     include: {
       product: {
@@ -336,7 +353,8 @@ export const unlinkProduct = asyncHandler(async (req: AuthRequest, res: Response
  */
 export const updateProductLink = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id, productId } = req.params;
-  const { supplierSku, cost, leadTime, minOrder } = req.body;
+  const { supplierSku, leadTime, minOrder } = req.body;
+  const { cost, packSize, packCost, packBarcode } = supplierCase(req.body);
 
   const supplier = await prisma.supplier.findUnique({ where: { id } });
   if (!supplier) {
@@ -369,6 +387,9 @@ export const updateProductLink = asyncHandler(async (req: AuthRequest, res: Resp
       cost,
       leadTime,
       minOrder,
+      packSize,
+      packCost,
+      packBarcode,
     },
     include: {
       product: {
@@ -418,7 +439,7 @@ export const getSupplierPerformance = asyncHandler(async (req: AuthRequest, res:
   const completedOrders = orders.filter(o => o.status === 'RECEIVED').length;
   const totalSpent = orders
     .filter(o => o.status === 'RECEIVED')
-    .reduce((sum, o) => sum + o.totalAmount, 0);
+    .reduce((sum, o) => sum + Number(o.totalAmount), 0);
 
   // Calculate on-time delivery rate
   let onTimeDeliveries = 0;
@@ -445,6 +466,8 @@ export const getSupplierPerformance = asyncHandler(async (req: AuthRequest, res:
 
   // Calculate average order value
   const avgOrderValue = completedOrders > 0 ? totalSpent / completedOrders : 0;
+  // Cost changes seen at receiving, and units accepted per unit ordered on closed orders.
+  const { costChanges, fillRate } = await supplierCredits.supplierCostHistory(prisma, id);
 
   res.json({
     success: true,
@@ -458,6 +481,38 @@ export const getSupplierPerformance = asyncHandler(async (req: AuthRequest, res:
       onTimeDeliveryRate: onTimeRate,
       lateDeliveries,
       productCount,
+      fillRate,
+      costChanges,
     },
   });
+});
+
+/**
+ * Weekdays this supplier's deliveries usually arrive, from the last eight weeks.
+ * GET /api/suppliers/:id/delivery-days/suggestion
+ */
+export const suggestSupplierDeliveryDays = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const supplier = await prisma.supplier.findUnique({ where: { id: req.params.id }, select: { id: true, locationId: true } });
+  if (!supplier) throw new AppError('Supplier not found', 404);
+  assertCanReadRecord(req, supplier.locationId, 'Supplier not found');
+  const storeId = supplier.locationId ?? req.user?.locationId;
+  const store = storeId ? await prisma.location.findUnique({ where: { id: storeId }, select: { timezone: true } }) : null;
+  res.json({ success: true, data: await suggestDeliveryDays(supplier.id, store?.timezone || 'UTC') });
+});
+
+/** The store's supplier credits: GET /api/suppliers/credits?status=open|settled|all&supplierId= */
+export const listCredits = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { locationId } = getLocationFilter(req, req.query.locationId as string);
+  if (!locationId) throw new AppError('Select a store to see supplier credits', 400);
+  res.json({ success: true, data: await supplierCredits.listCredits(prisma, locationId, req.query) });
+});
+
+/** Record a credit owed by hand: POST /api/suppliers/credits */
+export const createCredit = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.status(201).json({ success: true, data: await supplierCredits.createCredit(resolveWriteLocation(req), req.user!.id, req.body) });
+});
+
+/** Mark a credit received or written off: POST /api/suppliers/credits/:id/settle */
+export const settleCredit = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: await supplierCredits.settleCredit(resolveWriteLocation(req), req.user!.id, req.params.id, req.body) });
 });

@@ -1,181 +1,102 @@
-import React, { useEffect, useState } from 'react';
+import { SidebarUserFooter } from './common/SidebarUserFooter';
+import React, { useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import {
-  LayoutDashboard,
-  ShoppingCart,
-  Package,
-  Users,
-  Clock,
-  BarChart3,
-  Settings,
-  LogOut,
-  Moon,
-  Sun,
-  Truck,
-  TrendingUp,
-  DollarSign,
-  Shield,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Menu,
-  X,
-  Gift,
-  ArrowLeftRight,
-  ClipboardCheck,
-  Ticket,
-  ChevronDown,
-  FileText,
-  Wallet,
-  Tag,
-  ClipboardList,
-  BookUser,
-  Code2,
-  UserCog,
-} from 'lucide-react';
+import { X, Search, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
+import { useRegisterStore, canLockRegister } from '@/store/registerStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useLayoutStore } from '@/store/layoutStore';
 import { useStoreSettingsStore } from '@/store/storeSettingsStore';
+import { useQuickFindStore } from '@/store/quickFindStore';
 import { cn } from '@/lib/utils';
+import { runsSeveralStores, sidebarSections, SHORT_SECTION, STOCK_CONTROL, type NavLink } from '@/lib/navigation';
+import { TopBar, type TopBarEntry, type TopBarLink } from './common/TopBar';
+import { useEffectiveLocation } from '@/hooks/useEffectiveLocation';
+import { useInventoryExceptionCount } from '@/hooks/useInventoryExceptionCount';
+import { AdminViewBanner } from './AdminViewBanner';
 import { OfflineIndicator } from './common/OfflineIndicator';
+import { AttentionBell } from './common/AttentionAlerts';
+import { QuickFind, quickFindShortcut, useQuickFindShortcut } from './common/QuickFind';
+import { StoreSwitcher } from './common/StoreSwitcher';
+import { Kbd } from './ui/Kbd';
+import { isTopFocusTrap, useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
-interface NavItem {
-  name: string;
-  href: string;
-  icon: React.ElementType;
-  roles: string[];
-}
-
-interface NavGroup {
-  name: string;
-  icon: React.ElementType;
-  roles: string[];
-  children: NavItem[];
-}
-
-type NavEntry = NavItem | NavGroup;
-
-const isGroup = (entry: NavEntry): entry is NavGroup => 'children' in entry;
-
-const navigation: NavEntry[] = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-  { name: 'POS', href: '/pos', icon: ShoppingCart, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-  {
-    name: 'Inventory',
-    icon: Package,
-    roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'],
-    children: [
-      { name: 'Products', href: '/inventory', icon: Package, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Suppliers', href: '/suppliers', icon: Truck, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Transfers', href: '/inventory-transfers', icon: ArrowLeftRight, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Cycle Count', href: '/cycle-counts', icon: ClipboardCheck, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Suggested Orders', href: '/suggested-orders', icon: ClipboardList, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    ],
-  },
-  {
-    name: 'Sales',
-    icon: Gift,
-    roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'],
-    children: [
-      { name: 'Promotions', href: '/promotions', icon: Tag, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Gift Cards', href: '/gift-cards', icon: Gift, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Store Credits', href: '/store-credits', icon: Wallet, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'House Accounts', href: '/house-accounts', icon: BookUser, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Lottery', href: '/lottery', icon: Ticket, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-    ],
-  },
-  { name: 'Customers', href: '/customers', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-  { name: 'My Team', href: '/team', icon: UserCog, roles: ['ADMIN'] },
-  { name: 'Shifts', href: '/shifts', icon: Clock, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-  {
-    name: 'Insights',
-    icon: BarChart3,
-    roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'],
-    children: [
-      { name: 'Financial', href: '/financial', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Reports', href: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Analytics', href: '/analytics', icon: TrendingUp, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-      { name: 'Audit Log', href: '/audit-log', icon: FileText, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    ],
-  },
-  { name: 'Settings', href: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER'] },
-  { name: 'Developers', href: '/developers', icon: Code2, roles: ['SUPER_ADMIN', 'ADMIN'] },
-  { name: 'Admin Panel', href: '/admin', icon: Shield, roles: ['SUPER_ADMIN'] },
-];
-
-// All individual hrefs for exact matching
-const allHrefs = navigation.flatMap(entry =>
-  isGroup(entry) ? entry.children.map(c => c.href) : [entry.href]
-);
+// All menu hrefs, so a parent path is only "active" when no deeper menu item matches better.
+const allHrefs = sidebarSections.flatMap(section => section.items.map(item => item.href));
 
 function isPathActive(pathname: string, href: string): boolean {
   if (pathname === href) return true;
-  // Only allow startsWith for paths that don't collide
-  // e.g. /admin/stores should match /admin, but /inventory-transfers should NOT match /inventory
-  const hasCollision = allHrefs.some(other => other !== href && other.startsWith(href));
-  if (hasCollision) return pathname === href;
-  return pathname.startsWith(href);
+  if (!pathname.startsWith(href + '/')) return false;
+  // /inventory lights up for its own pages (/inventory/price-review) but not for
+  // /inventory/purchasing, which has its own menu item.
+  return !allHrefs.some(other => other !== href && other.startsWith(href + '/') && (pathname === other || pathname.startsWith(other + '/')));
 }
 
-function isGroupActive(pathname: string, group: NavGroup): boolean {
-  return group.children.some(child => isPathActive(pathname, child.href));
-}
+/** Menus this short read better as one plain list than as labelled sections. */
+const SECTION_TITLES_FROM = 8;
 
+/**
+ * Back-office pages: the menu is a bar across the top (components/common/TopBar.tsx)
+ * and pages use the full width. Below 1024px the bar shows "Open menu", which opens
+ * the same pages in a drawer whose titled sections fold.
+ */
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
+  const registerDevice = useRegisterStore(state => state.device);
+  const lockRegister = useRegisterStore(state => state.lock);
   const { theme, toggleTheme } = useThemeStore();
-  const { isSidebarCollapsed, isMobileMenuOpen, toggleSidebar, setMobileMenuOpen } = useLayoutStore();
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const { isMobileMenuOpen, setMobileMenuOpen, openSection, setOpenSection } = useLayoutStore();
+  const quickFind = useQuickFindStore();
   // Show which store you're operating — mirrors the POS top bar
   const settingsStoreName = useStoreSettingsStore((s) => s.storeInfo.storeName);
-  const storeName = settingsStoreName || user?.location?.name || '';
+  const { isAdminViewing, storeName: previewStoreName, locationId: effectiveLocationId } = useEffectiveLocation();
+  const canReviewStock = !!user?.role && ['ADMIN', 'MANAGER'].includes(user.role) || (user?.role === 'SUPER_ADMIN' && isAdminViewing);
+  const exceptionCount = useInventoryExceptionCount(canReviewStock, user?.role === 'SUPER_ADMIN' ? effectiveLocationId : null);
+  const storeName = isAdminViewing ? previewStoreName || '' : settingsStoreName || user?.location?.name || '';
 
-  // Full-screen routes with no sidebar/chrome (register + second screen)
+  // Full-screen routes with no menu (register + second screen)
   const isPOSPage = location.pathname === '/pos' || location.pathname === '/customer-display';
-
-  // Auto-expand groups that contain the active route
+  useQuickFindShortcut(!isPOSPage, quickFind.open);
+  const mobileMenuRef = useFocusTrap(isMobileMenuOpen && !isPOSPage);
   useEffect(() => {
-    const activeGroups = new Set<string>();
-    navigation.forEach(entry => {
-      if (isGroup(entry) && isGroupActive(location.pathname, entry)) {
-        activeGroups.add(entry.name);
+    if (!isMobileMenuOpen || isPOSPage) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && isTopFocusTrap(mobileMenuRef.current)) {
+        event.preventDefault(); event.stopImmediatePropagation(); setMobileMenuOpen(false);
       }
-    });
-    setExpandedGroups(prev => {
-      const merged = new Set(prev);
-      activeGroups.forEach(g => merged.add(g));
-      return merged;
-    });
-  }, [location.pathname]);
+    };
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const closeOnDesktop = () => { if (desktop.matches) setMobileMenuOpen(false); };
+    closeOnDesktop();
+    document.addEventListener('keydown', escape); desktop.addEventListener('change', closeOnDesktop);
+    return () => { document.removeEventListener('keydown', escape); desktop.removeEventListener('change', closeOnDesktop); };
+  }, [isMobileMenuOpen, isPOSPage, setMobileMenuOpen]);
 
   // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname, setMobileMenuOpen]);
 
+  // The drawer's section holding the current page opens by itself (one section open at a time).
+  const activeSection = sidebarSections.find(section => section.title && section.items.some(item => isPathActive(location.pathname, item.href)))?.title || null;
+  useEffect(() => {
+    if (activeSection) setOpenSection(activeSection);
+  }, [activeSection, location.pathname, setOpenSection]);
+
   const handleLogout = async () => {
     await logout();
     navigate('/login');
   };
 
-  const toggleGroup = (name: string) => {
-    setExpandedGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  };
-
   const hasRole = (roles: string[]) => user?.role ? roles.includes(user.role) : false;
 
-  // POS page: no sidebar, full screen
+  // POS page: no menu, full screen
   if (isPOSPage) {
     return (
       <div className="h-screen bg-background">
@@ -184,202 +105,145 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     );
   }
 
-  const renderNavItem = (item: NavItem, nested = false) => {
-    if (!hasRole(item.roles)) return null;
+  const severalStores = runsSeveralStores(user);
+  const sections = sidebarSections.map(section => ({ ...section, items: section.items.filter(item => hasRole(item.roles) && (!item.severalStores || severalStores)) })).filter(section => section.items.length > 0);
+  const showTitles = sections.reduce((total, section) => total + section.items.length, 0) >= SECTION_TITLES_FROM;
+
+  const exceptionLabel = `${exceptionCount} inventory exception${exceptionCount === 1 ? ' needs' : 's need'} review`;
+  const exceptionDescription = exceptionCount > 0 ? exceptionLabel : undefined;
+
+  const renderNavItem = (item: NavLink) => {
     const isActive = isPathActive(location.pathname, item.href);
     const Icon = item.icon;
-
+    const stock = item.href === STOCK_CONTROL;
     return (
       <Link
         key={item.href}
         to={item.href}
-        title={isSidebarCollapsed ? item.name : undefined}
+        aria-label={item.name}
+        aria-current={isActive ? 'page' : undefined}
+        // The badge is visual; its meaning is the description, so the link's name stays "Stock Control".
+        aria-description={stock ? exceptionDescription : undefined}
         className={cn(
-          'flex items-center rounded-md text-sm font-medium transition-colors',
-          isSidebarCollapsed ? 'justify-center px-2 py-2.5' : nested ? 'px-3 py-2 pl-10' : 'px-3 py-2.5',
+          'sidebar-link flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
           isActive
-            ? 'bg-primary text-primary-foreground'
+            ? 'bg-primary/10 text-primary'
             : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
         )}
       >
-        <Icon className={cn('h-5 w-5 shrink-0', !isSidebarCollapsed && 'mr-3', nested && !isSidebarCollapsed && 'h-4 w-4')} />
-        {!isSidebarCollapsed && <span className="truncate">{item.name}</span>}
+        <span className="relative shrink-0"><Icon className="h-[18px] w-[18px]" /></span>
+        <span className="truncate">{item.name}</span>
+        {stock && exceptionCount > 0 && (
+          <span className="ml-auto rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-5 text-destructive-foreground tabular-nums" title={exceptionLabel} aria-hidden="true">{exceptionCount}</span>
+        )}
       </Link>
     );
   };
 
-  const renderNavGroup = (group: NavGroup) => {
-    if (!hasRole(group.roles)) return null;
-    const visibleChildren = group.children.filter(c => hasRole(c.roles));
-    if (visibleChildren.length === 0) return null;
-
-    const isExpanded = expandedGroups.has(group.name);
-    const groupActive = isGroupActive(location.pathname, group);
-    const Icon = group.icon;
-
-    if (isSidebarCollapsed) {
-      // When collapsed, show the first child's link with group icon
-      return visibleChildren.map(child => renderNavItem(child));
-    }
-
-    return (
-      <div key={group.name}>
-        <button
-          onClick={() => toggleGroup(group.name)}
-          className={cn(
-            'w-full flex items-center rounded-md text-sm font-medium transition-colors px-3 py-2.5',
-            groupActive
-              ? 'text-foreground'
-              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-          )}
-        >
-          <Icon className="h-5 w-5 shrink-0 mr-3" />
-          <span className="truncate flex-1 text-left">{group.name}</span>
-          <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', isExpanded && 'rotate-180')} />
-        </button>
-        {isExpanded && (
-          <div className="mt-0.5 space-y-0.5">
-            {visibleChildren.map(child => renderNavItem(child, true))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const sidebarContent = (
+  // Phone and tablet: the menu is a drawer.
+  const drawer = (
     <>
-      {/* Logo + collapse toggle */}
-      <div className={cn(
-        'h-16 flex items-center border-b border-border shrink-0',
-        isSidebarCollapsed ? 'justify-center px-2' : 'justify-between gap-3 px-4'
-      )}>
-        {isSidebarCollapsed ? (
-          <span className="text-lg font-bold text-primary">P</span>
-        ) : (
-          <>
-            <div className="min-w-0">
-              <h1 className="text-base font-bold text-primary whitespace-nowrap">POS System</h1>
-              {storeName && (
-                <p className="text-xs text-muted-foreground truncate" title={storeName}>
-                  {storeName}
-                </p>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <OfflineIndicator variant="badge" showDetails tooltipAlign="left" />
-              <button
-                onClick={toggleSidebar}
-                className="hidden lg:flex p-1.5 rounded-md hover:bg-accent transition-colors text-muted-foreground"
-                title="Collapse sidebar"
-              >
-                <PanelLeftClose className="h-4 w-4" />
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Expand button when collapsed (in header area) */}
-      {isSidebarCollapsed && (
-        <div className="hidden lg:flex justify-center py-2 border-b border-border">
-          <button
-            onClick={toggleSidebar}
-            className="p-1.5 rounded-md hover:bg-accent transition-colors text-muted-foreground"
-            title="Expand sidebar"
-          >
-            <PanelLeftOpen className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Navigation */}
-      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-        {navigation.map(entry =>
-          isGroup(entry) ? renderNavGroup(entry) : (hasRole(entry.roles) ? renderNavItem(entry) : null)
-        )}
-      </nav>
-
-      {/* User info */}
-      <div className="p-3 border-t border-border shrink-0">
-        {isSidebarCollapsed ? (
-          <div className="flex flex-col items-center gap-2">
-            <button onClick={toggleTheme} className="p-2 rounded-md hover:bg-accent transition-colors" title="Toggle theme">
-              {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-            </button>
-            <button onClick={handleLogout} className="p-2 rounded-md hover:bg-accent transition-colors" title="Logout">
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between">
-            <div className="min-w-0">
-              <p className="text-sm font-medium truncate">{user?.firstName} {user?.lastName}</p>
-              <p className="text-xs text-muted-foreground">{user?.role?.replace(/_/g, ' ')}</p>
-            </div>
-            <div className="flex gap-1 shrink-0">
-              <button onClick={toggleTheme} className="p-2 rounded-md hover:bg-accent transition-colors" title="Toggle theme">
-                {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-              </button>
-              <button onClick={handleLogout} className="p-2 rounded-md hover:bg-accent transition-colors" title="Logout">
-                <LogOut className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </>
-  );
-
-  return (
-    <div className="flex h-screen bg-background">
-      {/* Mobile menu button */}
-      <button
-        onClick={() => setMobileMenuOpen(true)}
-        className="lg:hidden fixed top-3 left-3 z-50 p-2 rounded-md bg-card border border-border shadow-sm hover:bg-accent transition-colors"
-        title="Open menu"
-      >
-        <Menu className="h-5 w-5" />
-      </button>
-
-      {/* Mobile overlay */}
       {isMobileMenuOpen && (
         <div
           className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
-
-      {/* Sidebar — mobile drawer */}
       <aside
+        ref={mobileMenuRef}
+        role={isMobileMenuOpen ? 'dialog' : undefined}
+        aria-label={isMobileMenuOpen ? 'Main menu' : undefined}
+        aria-modal={isMobileMenuOpen ? true : undefined}
+        aria-hidden={!isMobileMenuOpen}
         className={cn(
-          'lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-background border-r border-border flex flex-col transition-transform duration-300 shadow-2xl',
-          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+          'app-sidebar lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-background border-r border-border flex flex-col transition-transform duration-300 shadow-2xl',
+          isMobileMenuOpen ? 'visible translate-x-0' : 'invisible pointer-events-none -translate-x-full'
         )}
       >
         <button
           onClick={() => setMobileMenuOpen(false)}
+          aria-label="Close menu"
           className="absolute top-4 right-4 p-1.5 rounded-md hover:bg-accent bg-muted"
         >
           <X className="h-5 w-5" />
         </button>
-        {sidebarContent}
-      </aside>
+        {/* The store you are in */}
+        <div className="min-h-16 py-2 flex flex-wrap items-center justify-between gap-x-1 gap-y-0.5 px-3 pr-14 border-b border-border shrink-0">
+          <p className="min-w-0 text-base font-semibold text-primary whitespace-nowrap">POS System</p>
+          {(user?.role === 'SUPER_ADMIN' ? isAdminViewing : (user?.stores?.length ?? 0) > 1)
+            ? <StoreSwitcher className="basis-full pt-1" />
+            : storeName && <p className="basis-full text-xs leading-5 text-muted-foreground break-words">{storeName}</p>}
+        </div>
 
-      {/* Sidebar — desktop */}
-      <aside
-        className={cn(
-          'hidden lg:flex flex-col bg-card border-r border-border transition-all duration-300',
-          isSidebarCollapsed ? 'w-16' : 'w-64'
-        )}
-      >
-        {sidebarContent}
-      </aside>
+        {/* Quick find: one box that reaches every page, tab and setting */}
+        <div className="shrink-0 px-3 pt-3">
+          <button type="button" onClick={quickFind.open}
+            aria-label="Find a page" aria-keyshortcuts={quickFindShortcut === '⌘K' ? 'Meta+K' : 'Control+K'}
+            className="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+            <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="flex-1 text-left">Find…</span><Kbd>{quickFindShortcut}</Kbd>
+          </button>
+        </div>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto lg:ml-0">
-        <div className="lg:hidden h-12" /> {/* Spacer for mobile menu button */}
+        <nav aria-label="Main" className="flex-1 px-2 pb-4 pt-2 overflow-y-auto">
+          {sections.map((section, index) => {
+            // Titled sections fold: a heading opens its pages, and opening one closes the others.
+            // Short menus (cashiers) keep every page in view.
+            const folding = showTitles && !!section.title;
+            const open = !folding || openSection === section.title;
+            const id = `sidebar-mobile-${(section.title || 'start').toLowerCase().replace(/[^a-z]+/g, '-')}`;
+            const hiddenAlert = folding && !open && exceptionCount > 0 && section.items.some(item => item.href === STOCK_CONTROL);
+            return (
+              <div key={section.title || 'start'} className={cn(index > 0 && (!showTitles ? 'mt-2 border-t border-border pt-2' : 'mt-1'))}>
+                {folding && (
+                  <button type="button" aria-expanded={open} aria-controls={id} aria-description={hiddenAlert ? exceptionLabel : undefined}
+                    onClick={() => setOpenSection(open ? null : section.title || null)}
+                    className="sidebar-section-toggle flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                    <span className="flex-1 text-left">{section.title}</span>
+                    {hiddenAlert && <span className="rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-5 text-destructive-foreground tabular-nums" aria-hidden="true">{exceptionCount}</span>}
+                    <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', open && 'rotate-180')} aria-hidden="true" />
+                  </button>
+                )}
+                <div id={id} hidden={!open} className="space-y-0.5">{section.items.map(renderNavItem)}</div>
+              </div>
+            );
+          })}
+        </nav>
+
+        <SidebarUserFooter name={[user?.firstName, user?.lastName].filter(Boolean).join(' ')} role={user?.role || ''} theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout}
+          onLock={user && canLockRegister(user, registerDevice) ? () => lockRegister(user.id) : undefined} />
+      </aside>
+    </>
+  );
+
+  const link = (item: NavLink): TopBarLink => ({
+    name: item.name, href: item.href, icon: item.icon, active: isPathActive(location.pathname, item.href),
+    badge: item.href === STOCK_CONTROL && exceptionCount > 0 ? exceptionCount : undefined,
+    badgeLabel: item.href === STOCK_CONTROL ? exceptionLabel : undefined,
+  });
+  // Short menus (cashiers) stay a plain row; longer ones group their sections into drop-downs.
+  const entries: TopBarEntry[] = sections.flatMap<TopBarEntry>(section => showTitles && section.title
+    ? [{ title: SHORT_SECTION[section.title] || section.title, items: section.items.map(link) }]
+    : section.items.map(link));
+  return (
+    <div className="app-shell-top flex h-screen flex-col bg-background">
+      <TopBar label="Main" entries={entries}
+        brand={(user?.role === 'SUPER_ADMIN' ? isAdminViewing : (user?.stores?.length ?? 0) > 1)
+          // On a phone the bar shows the store's name; the switcher is in the menu drawer, where it has room.
+          ? <><StoreSwitcher className="hidden w-44 max-w-full sm:block" /><div className="sm:hidden"><p className="app-topbar-store">{storeName || 'POS System'}</p></div></>
+          : <p className="app-topbar-store" data-sidebar-store-name>{storeName || 'POS System'}</p>}
+        tools={<><OfflineIndicator variant="badge" compact showDetails /><AttentionBell /></>}
+        user={{ name: [user?.firstName, user?.lastName].filter(Boolean).join(' '), role: user?.role || '' }}
+        theme={theme} onToggleTheme={toggleTheme} onLogout={handleLogout}
+        onLock={user && canLockRegister(user, registerDevice) ? () => lockRegister(user.id) : undefined}
+        onFind={quickFind.open} findShortcut={quickFindShortcut}
+        onOpenMenu={() => setMobileMenuOpen(true)} menuLabel="Open menu" />
+      {drawer}
+      <main className="management-content flex-1 min-w-0 overflow-auto">
+        {isAdminViewing && <AdminViewBanner storeName={previewStoreName || 'Selected store'} />}
         {children}
       </main>
+      <QuickFind isOpen={quickFind.isOpen} onClose={quickFind.close} />
     </div>
   );
 };

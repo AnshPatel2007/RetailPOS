@@ -23,18 +23,18 @@ export const AdminViewBanner: React.FC<AdminViewBannerProps> = ({ storeName, cla
   };
 
   return (
-    <div className={`bg-primary text-primary-foreground px-4 py-3 shadow-md ${className}`}>
+    <div className={`admin-preview-banner px-4 py-3 shadow-md ${className}`}>
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Eye className="w-5 h-5" />
           <div>
             <p className="font-semibold text-sm">Viewing: {storeName}</p>
-            <p className="text-xs opacity-80">Read-Only Mode - You cannot modify data in this view</p>
+            <p className="text-xs">Read-only view: changes are turned off for this store.</p>
           </div>
         </div>
         <button
           onClick={handleExit}
-          className="flex items-center gap-2 px-3 py-1.5 bg-primary-foreground/20 hover:bg-primary-foreground/30 rounded-lg text-sm font-medium transition-colors"
+          className="admin-preview-exit flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
         >
           <X className="w-4 h-4" />
           Exit View
